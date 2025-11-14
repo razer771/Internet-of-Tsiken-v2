@@ -118,8 +118,8 @@ export default function SignupScreen() {
               source={require("../assets/icon.png")}
               style={styles.logo}
             />
-            <Text style={styles.title}>Create Account Nigga</Text>
-            <Text style={styles.subtitle}>Sign up Nigga to start managing your brooder</Text>
+            <Text style={styles.title}>Create Account</Text>
+            <Text style={styles.subtitle}>Sign up to start managing your brooder</Text>
 
             {renderInput("Enter full name", fullname, setFullname, "fullname")}
             {renderInput("Enter email address", email, setEmail, "email")}
