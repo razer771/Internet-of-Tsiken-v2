@@ -4,12 +4,12 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 // Components are imported with the correct path and names
 import JsonSplashScreen from "./JsonSplashScreen/JsonSplashScreen";
-import LogIn from "./Doub_try/tryLogIn";
-import SignUp from "./Doub_try/trySignUp";
-import LoginSuccess from "./Doub_try/loginSuccess";
-import VerifyIdentity from "./Doub_try/verifyIdentity";
-import PasswordUpdated from "./Doub_try/passwordupdated";
-import ResetPassword from "./Doub_try/resetpassword";
+import LogIn from "./screens/LogIn";
+import SignUp from "./screens/SignUp";
+import LoginSuccess from "./screens/loginSuccess";
+import VerifyIdentity from "./screens/verifyIdentity";
+import PasswordUpdated from "./screens/passwordupdated";
+import ResetPassword from "./screens/resetpassword";
 
 const Stack = createNativeStackNavigator();
 

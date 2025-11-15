@@ -15,7 +15,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "../Doub_try/firebaseconfig";
+import { auth } from "../config/firebaseconfig";
 
 export default function ResetPassword() {
   const [email, setEmail] = useState("");

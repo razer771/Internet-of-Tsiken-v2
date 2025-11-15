@@ -1,8 +1,5 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
-# Firebase configuration (contains sensitive API keys)
-Doub_try/firebaseconfig.js
-
 # Environment variables
 .env
 .env.local

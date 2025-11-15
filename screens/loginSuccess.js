@@ -7,7 +7,7 @@ import {
   Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { auth, db } from '../Doub_try/firebaseconfig';
+import { auth, db } from '../config/firebaseconfig';
 import { doc, getDoc } from 'firebase/firestore';
 
 export default function LoginSuccess() {

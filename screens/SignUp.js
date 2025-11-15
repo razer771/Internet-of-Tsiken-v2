@@ -2,7 +2,7 @@ import React, { useState, useRef } from "react";
 // --- ADD FIRESTORE IMPORTS ---
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from "firebase/firestore";
-import { auth, db } from '../Doub_try/firebaseconfig';
+import { auth, db } from '../config/firebaseconfig';
 import {
   View,
   Text,
