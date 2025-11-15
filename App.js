@@ -4,7 +4,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 // Components are imported with the correct path and names
 import JsonSplashScreen from "./JsonSplashScreen/JsonSplashScreen";
-import LogIn from "./screens/LogIn";
+import Login from "./screens/Login";
 import SignUp from "./screens/SignUp";
 import LoginSuccess from "./screens/loginSuccess";
 import VerifyIdentity from "./screens/verifyIdentity";
