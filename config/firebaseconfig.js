@@ -1,4 +1,4 @@
-// If you haven't yet installed Firebase, run: // 👉 npm install firebase
+// If you haven’t yet installed Firebase, run: // 👉 npm install firebase
 import { initializeApp } from "firebase/app";
 // Import the functions for persistence
 import { 
@@ -10,16 +10,15 @@ import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 import { getAnalytics, isSupported } from 'firebase/analytics'; // For the analytics warning
 
 
-// ⚠️ REPLACE WITH YOUR FIREBASE PROJECT CREDENTIALS
-// Get these from Firebase Console > Project Settings > Your apps > SDK setup and configuration
+// ⚠️ PLEASE REPLACE THIS WITH YOUR NEW, REGENERATED KEYS
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID",
-  measurementId: "YOUR_MEASUREMENT_ID"
+  apiKey: "AIzaSyA_UhQ_KlCsoCmRlda_S2RrUv6QhGo0c_0",
+  authDomain: "internet-of-tsiken.firebaseapp.com",
+  projectId: "internet-of-tsiken",
+  storageBucket: "internet-of-tsiken.firebasestorage.app",
+  messagingSenderId: "998028163151",
+  appId: "1:998028163151:web:ce0864acced24f37d7d23a",
+  measurementId: "G-W7495LQB4J"
 };
 
 // Initialize Firebase 
@@ -45,4 +44,4 @@ let analytics;
 })();
 
 export { analytics };
-export default app;
+export default app; 
