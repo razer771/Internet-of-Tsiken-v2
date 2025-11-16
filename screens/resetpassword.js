@@ -15,12 +15,26 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "../config/firebaseconfig";
+import { auth, db } from "../config/firebaseconfig";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  doc,
+  updateDoc,
+} from "firebase/firestore";
 
 export default function ResetPassword() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const navigation = useNavigation();
+
+  // ✅ Validation 1: Email format check
+  const isValidEmail = (email) => {
+    const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return regex.test(email);
+  };
 
   const handleResetPassword = async () => {
     if (!email) {
@@ -28,36 +42,50 @@ export default function ResetPassword() {
       return;
     }
 
+    if (!isValidEmail(email.trim())) {
+      Alert.alert("Error", "Please enter a valid email address.");
+      return;
+    }
+
     setLoading(true);
     try {
-      await sendPasswordResetEmail(auth, email);
-      Alert.alert("Success", "Password reset email sent! Please check your inbox.", [
-        {
-          text: "OK",
-          onPress: () => navigation.navigate("LogIn"),
-        },
-      ]);
-      console.log("✅ Password reset email sent to:", email);
-    } catch (error) {
-      console.error("Password Reset Error:", error.code, error.message);
-      let errorMessage = "Failed to send reset email. Please try again.";
+      // ✅ Validation 2: Check if email exists in Firestore
+      const q = query(
+        collection(db, "users"),
+        where("email", "==", email.trim())
+      );
+      const querySnapshot = await getDocs(q);
 
-      if (error.code === "auth/user-not-found") {
-        errorMessage = "No account found with this email address.";
-      } else if (error.code === "auth/invalid-email") {
-        errorMessage = "The email address is not valid.";
-      } else if (error.code === "auth/too-many-requests") {
-        errorMessage = "Too many requests. Please try again later.";
+      if (querySnapshot.empty) {
+        Alert.alert("Error", "No account found with this email address.");
+        setLoading(false);
+        return;
       }
 
+      // ✅ Only send reset email if user exists
+      await sendPasswordResetEmail(auth, email.trim());
+
+      // Mark flag so PasswordUpdated screen shows once
+      querySnapshot.forEach(async (docSnap) => {
+        await updateDoc(doc(db, "users", docSnap.id), {
+          mustShowPasswordUpdated: true,
+        });
+      });
+
+      Alert.alert(
+        "Success",
+        `Password reset email sent to ${email.trim()}. Please check your inbox.`,
+        [{ text: "OK", onPress: () => navigation.navigate("LogIn") }]
+      );
+    } catch (error) {
+      let errorMessage = "Failed to send reset email.";
+      if (error.code === "auth/invalid-email") {
+        errorMessage = "The email address is not valid.";
+      }
       Alert.alert("Reset Failed", errorMessage);
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleBackToLogin = () => {
-    navigation.goBack();
   };
 
   return (
@@ -74,10 +102,9 @@ export default function ResetPassword() {
               color="#3b4cca"
               style={styles.icon}
             />
-
             <Text style={styles.title}>Reset Password</Text>
             <Text style={styles.subtitle}>
-              Enter your email address and we'll send you instructions to reset your password.
+              Enter your email to receive reset instructions.
             </Text>
 
             <Text style={styles.label}>Email Address</Text>
@@ -91,7 +118,7 @@ export default function ResetPassword() {
             />
 
             <TouchableOpacity
-              style={styles.resetBtn}
+              style={[styles.resetBtn, loading && { opacity: 0.7 }]}
               onPress={handleResetPassword}
               disabled={loading}
             >
@@ -102,7 +129,10 @@ export default function ResetPassword() {
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.backBtn} onPress={handleBackToLogin}>
+            <TouchableOpacity
+              style={styles.backBtn}
+              onPress={() => navigation.goBack()}
+            >
               <Ionicons name="arrow-back" size={18} color="#3b4cca" />
               <Text style={styles.backText}>Back to Login</Text>
             </TouchableOpacity>
@@ -132,15 +162,8 @@ const styles = StyleSheet.create({
     elevation: 4,
     alignItems: "center",
   },
-  icon: {
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#000",
-    marginBottom: 10,
-  },
+  icon: { marginBottom: 20 },
+  title: { fontSize: 22, fontWeight: "bold", color: "#000", marginBottom: 10 },
   subtitle: {
     fontSize: 14,
     color: "#666",
@@ -171,16 +194,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 15,
   },
-  resetText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 16,
-  },
-  backBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 10,
-  },
+  resetText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
+  backBtn: { flexDirection: "row", alignItems: "center", padding: 10 },
   backText: {
     color: "#3b4cca",
     fontSize: 16,
