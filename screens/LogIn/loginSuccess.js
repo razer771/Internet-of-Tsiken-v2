@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect } from "react";
 import {
   View,
   Text,
@@ -6,10 +6,10 @@ import {
   ActivityIndicator,
   Image,
   TouchableOpacity,
-} from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { auth, db } from '../../config/firebaseconfig';
-import { doc, getDoc } from 'firebase/firestore';
+} from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import { auth, db } from "../../config/firebaseconfig";
+import { doc, getDoc } from "firebase/firestore";
 
 export default function LoginSuccess() {
   const navigation = useNavigation();
@@ -34,12 +34,12 @@ export default function LoginSuccess() {
     loadUserData();
 
     const timer = setTimeout(() => {
-      console.log('Dashboard loaded! Navigating to Home...');
+      console.log("Dashboard loaded! Navigating to Home...");
       try {
         navigation.replace("Home");
-        console.log('Navigation to Home executed');
+        console.log("Navigation to Home executed");
       } catch (error) {
-        console.error('Navigation error:', error);
+        console.error("Navigation error:", error);
       }
     }, 3000);
 
@@ -50,19 +50,23 @@ export default function LoginSuccess() {
     <View style={styles.container}>
       <View style={styles.card}>
         <Image
-          source={{ uri: 'https://img.icons8.com/color/96/checked--v1.png' }}
+          source={{ uri: "https://img.icons8.com/color/96/checked--v1.png" }}
           style={styles.icon}
         />
         <Text style={styles.title}>Login Successful!</Text>
         <Text style={styles.subtitle}>Welcome to Internet of Tsiken</Text>
         <Text style={styles.loading}>Loading your dashboard...</Text>
-        <ActivityIndicator size="large" color="#4CAF50" style={styles.spinner} />
-        
+        <ActivityIndicator
+          size="large"
+          color="#4CAF50"
+          style={styles.spinner}
+        />
+
         {/* Debug button - remove after testing */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.debugButton}
           onPress={() => {
-            console.log('Manual navigation to Home');
+            console.log("Manual navigation to Home");
             navigation.replace("Home");
           }}
         >
@@ -76,21 +80,21 @@ export default function LoginSuccess() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
     padding: 20,
   },
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     paddingVertical: 40,
     paddingHorizontal: 30,
-    alignItems: 'center',
-    width: '90%',
+    alignItems: "center",
+    width: "90%",
     maxWidth: 400,
     elevation: 6,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOpacity: 0.15,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
@@ -102,35 +106,35 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 26,
-    fontWeight: 'bold',
-    color: '#2E7D32',
+    fontWeight: "bold",
+    color: "#2E7D32",
     marginBottom: 10,
-    textAlign: 'center',
+    textAlign: "center",
   },
   subtitle: {
     fontSize: 18,
-    color: '#555',
+    color: "#555",
     marginBottom: 20,
-    textAlign: 'center',
+    textAlign: "center",
   },
   loading: {
     fontSize: 16,
-    color: '#888',
+    color: "#888",
     marginBottom: 10,
-    textAlign: 'center',
+    textAlign: "center",
   },
   spinner: {
     marginTop: 10,
   },
   debugButton: {
     marginTop: 20,
-    backgroundColor: '#2196F3',
+    backgroundColor: "#2196F3",
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 8,
   },
   debugButtonText: {
-    color: '#fff',
-    fontWeight: '600',
+    color: "#fff",
+    fontWeight: "600",
   },
 });

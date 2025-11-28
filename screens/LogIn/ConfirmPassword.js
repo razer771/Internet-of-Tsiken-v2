@@ -8,7 +8,7 @@ export default function PasswordUpdatedScreen() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      navigation.replace("Home");
+      navigation.replace("LogIn");
     }, 3000);
 
     return () => clearTimeout(timer);
@@ -26,9 +26,9 @@ export default function PasswordUpdatedScreen() {
 
         <TouchableOpacity
           style={styles.loginBtn}
-          onPress={() => navigation.replace("Home")}
+          onPress={() => navigation.replace("LogIn")}
         >
-          <Text style={styles.loginText}>Go to Dashboard</Text>
+          <Text style={styles.loginText}>Back to Login</Text>
         </TouchableOpacity>
       </View>
     </View>
