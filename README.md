@@ -294,4 +294,12 @@ If you encounter issues not covered in this README, please:
 
 ## 📄 License
 
+
+
+
 0BSD
+
+npm install @react-navigation/bottom-tabs
+npx expo install @react-native-community/slider
+npx expo install @react-native-community/datetimepicker
+
