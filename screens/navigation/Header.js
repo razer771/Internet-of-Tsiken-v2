@@ -9,9 +9,11 @@ import {
   SafeAreaView,
 } from "react-native";
 import { Image } from "react-native";
-import Icon from "react-native-vector-icons/Feather";
+import { Feather } from "@expo/vector-icons";
 import SideNavigation from "./SideNavigation";
 import { useNavigation } from "@react-navigation/native";
+
+const Icon = Feather;
 
 const MenuIcon = ({ size = 22, color = "#1a1a1a", style, ...props }) => (
   <View

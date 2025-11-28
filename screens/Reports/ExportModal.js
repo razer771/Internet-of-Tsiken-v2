@@ -6,7 +6,9 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from "react-native";
-import Icon from "react-native-vector-icons/Feather";
+import { Feather } from "@expo/vector-icons";
+
+const Icon = Feather;
 
 export default function ExportModal({ visible, onClose, onExport }) {
   const handleExportPDF = () => {
