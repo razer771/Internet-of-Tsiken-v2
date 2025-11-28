@@ -22,9 +22,9 @@ import { useNavigation } from "@react-navigation/native";
 // Import Firebase auth and Firestore
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from '../config/firebaseconfig'; // Make sure this path is correct
+import { auth, db } from '../../config/firebaseconfig'; // Make sure this path is correct
 
-const Logo = require("../assets/logo.png"); // Make sure this path is correct
+const Logo = require("../../assets/logo.png");
 
 export default function Login() {
   const [email, setEmail] = useState("");

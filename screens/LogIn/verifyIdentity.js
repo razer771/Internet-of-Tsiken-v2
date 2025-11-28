@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { auth, db } from '../config/firebaseconfig';
+import { auth, db } from '../../config/firebaseconfig';
 import { doc, updateDoc } from 'firebase/firestore';
 
 export default function VerifyIdentityScreen() {

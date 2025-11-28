@@ -2,7 +2,7 @@ import React, { useState, useRef } from "react";
 // --- ADD FIRESTORE IMPORTS ---
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from "firebase/firestore";
-import { auth, db } from '../config/firebaseconfig';
+import { auth, db } from '../../config/firebaseconfig';
 import {
   View,
   Text,
@@ -190,7 +190,7 @@ export default function SignUp() {
         >
           <View style={styles.modal}>
             <Image
-              source={require("../assets/logo.png")}
+              source={require("../../assets/logo.png")}
               style={styles.logo}
             />
             <Text style={styles.title}>Create Account</Text>
