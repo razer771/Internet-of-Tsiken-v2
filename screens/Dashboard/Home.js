@@ -8,8 +8,8 @@ import {
   Alert,
   ScrollView,
 } from "react-native";
-import Header from "./Components/Header";
-import QuickSetupModal from "./Components/QuickSetupModal";
+import HeaderUpdated from "../navigation/Header";
+import QuickSetupModal from "./QuickSetupModal";
 
 // Replace static import with a dynamic require + in-memory fallback.
 // This avoids a crash when @react-native-async-storage/async-storage is not installed.
@@ -152,12 +152,14 @@ export default function QuickOverviewSetup() {
 
   return (
     <ErrorBoundary>
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.container}>
+      <View style={{ flex: 1 }}>
+        <HeaderUpdated />
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.container}>
           {/* Welcome Section */}
           <View style={styles.welcomeSection}>
             <Text style={styles.greeting}>Hello, Adrian! 👋</Text>
@@ -324,6 +326,7 @@ export default function QuickOverviewSetup() {
           />
         </View>
       </ScrollView>
+      </View>
     </ErrorBoundary>
   );
 }

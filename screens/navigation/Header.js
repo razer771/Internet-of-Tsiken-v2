@@ -6,9 +6,12 @@ import {
   StyleSheet,
   Platform,
   StatusBar,
+  SafeAreaView,
 } from "react-native";
 import { Image } from "react-native";
+import Icon from "react-native-vector-icons/Feather";
 import SideNavigation from "./SideNavigation";
+import { useNavigation } from "@react-navigation/native";
 
 const MenuIcon = ({ size = 22, color = "#1a1a1a", style, ...props }) => (
   <View
@@ -52,35 +55,49 @@ const MenuIcon = ({ size = 22, color = "#1a1a1a", style, ...props }) => (
   </View>
 );
 
-export default function Header({ title, onBack, showBackButton = true }) {
+export default function Header2() {
   const [menuVisible, setMenuVisible] = useState(false);
+  const navigation = useNavigation();
 
   const toggleMenu = () => {
     setMenuVisible(!menuVisible);
   };
 
+  const handleNotificationPress = () => {
+    console.log("Notification bell pressed");
+  };
+
   return (
     <>
-      <View style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
         <View style={styles.header}>
           <View style={styles.leftSection}>
             <View style={styles.logoContainer}>
-              {/* Temporarily commented until image is added
-              <Imageg")}
-                source={require("../../assets/Iburat.png")}
+              <Image
+                source={require("../../assets/logo.png")}
                 style={styles.logo}
                 resizeMode="contain"
-              />*/}
-              <Text style={{ fontSize: 24 }}>🏠</Text>
+              />
             </View>
           </View>
 
           <View style={styles.centerSection}>
-            <Text style={styles.headerText}>My Brooder</Text>
-            <Text style={styles.subtitle}>Smart Monitoring</Text>
+            <Text style={styles.headerText}>My Brooder</Text> 
           </View>
 
           <View style={styles.rightSection}>
+            <TouchableOpacity
+              style={styles.iconButton}
+              activeOpacity={0.7}
+              onPress={handleNotificationPress}
+            >
+              <Icon name="bell" size={22} color="#1a1a1a" />
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>2</Text>
+              </View>
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={styles.iconButton}
               activeOpacity={0.7}
@@ -90,25 +107,21 @@ export default function Header({ title, onBack, showBackButton = true }) {
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </SafeAreaView>
 
       <SideNavigation
         visible={menuVisible}
         onClose={() => setMenuVisible(false)}
+        navigation={navigation}
       />
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     backgroundColor: "#ffffff",
-    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 44,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 4,
+    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight || 24 : 0,
   },
   header: {
     flexDirection: "row",
@@ -119,6 +132,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 4,
   },
   leftSection: {
     flex: 1,
@@ -128,7 +146,6 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 12,
-    backgroundColor: "#f8f9fa",
     justifyContent: "center",
     alignItems: "center",
     overflow: "hidden",
@@ -154,22 +171,29 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#1a1a1a",
     textAlign: "center",
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    fontSize: 11,
-    fontWeight: "500",
-    color: "#666",
-    textAlign: "center",
-    marginTop: 2,
-    letterSpacing: 0.3,
   },
   iconButton: {
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: "#f8f9fa",
     justifyContent: "center",
     alignItems: "center",
+    position: "relative",
+  },
+  notificationBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#ef4444",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  notificationBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#ffffff",
   },
 });
