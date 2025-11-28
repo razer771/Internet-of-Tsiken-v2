@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Modal,
+  ScrollView,
 } from 'react-native';
 import { MaterialIcons as Icon } from '@expo/vector-icons';
 import Header from "../navigation/Header";
@@ -32,8 +33,6 @@ const Settings = ({ navigation }) => {
 
   // Dummy state for text inputs (optional, but good practice)
   const [settings, setSettings] = useState({
-    temperature: '',
-    humidity: '',
     feed: '',
     water: '',
     powerSource: '',
@@ -71,44 +70,20 @@ const Settings = ({ navigation }) => {
     setIsConfirmModalVisible(false);
   };
 
-  /**
-   * Helper function to render a label and its associated text input
-   * @param {string} label - The label text (e.g., 'Temperature')
-   * @param {string} key - The key in the 'settings' state object
-   * @param {number} top - The top position of the label
-   */
-  const renderSettingInput = (label, key, top) => (
-    <React.Fragment key={key}>
-      {/* Label Text */}
-      <Text
-        style={[
-          styles.textLabel,
-          {
-            top: top,
-            // Left position for the left column (35.2px) and right column (35.2px + 160px for separation)
-            left: key.includes('right') ? 35.2 + 160 : 35.2,
-          },
-        ]}>
-        {label}
-      </Text>
-      {/* Text Input Box */}
+  // Field component for label + input stacked
+  const Field = ({ label, value, onChange }) => (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
-        style={[
-          styles.textInput,
-          {
-            top: top + 27, // Top position of the label + 27px spacing
-            // Left position for the left column (40px) and right column (40px + 160px for separation)
-            left: key.includes('right') ? 40 + 160 : 40,
-          },
-        ]}
-        value={settings[key]}
+        style={styles.fieldInput}
+        value={value}
         keyboardType="number-pad"
         onChangeText={(text) => {
           const numeric = text.replace(/[^0-9]/g, '');
-          setSettings({ ...settings, [key]: numeric });
+          onChange(numeric);
         }}
       />
-    </React.Fragment>
+    </View>
   );
 
   return (
@@ -135,34 +110,36 @@ const Settings = ({ navigation }) => {
       {/* Side navigation drawer (optional drawer component) */}
       <SideNavigation visible={isSideNavVisible} onClose={() => setIsSideNavVisible(false)} navigation={navigation} />
 
-      {/* --- Setting Inputs --- */}
-      {/* Row 1 */}
-      {renderSettingInput('Temperature', 'temperature', 121)}
-      {renderSettingInput('Humidity', 'humidity_right', 121)}
+      {/* --- Setting Inputs (below Settings title) --- */}
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.row}> 
+          <Field label="Feed" value={settings.feed} onChange={(v)=> setSettings({ ...settings, feed: v })} />
+          <Field label="Water" value={settings.water} onChange={(v)=> setSettings({ ...settings, water: v })} />
+        </View>
 
-      {/* Row 2 */}
-      {renderSettingInput('Feed', 'feed', 194)}
-      {renderSettingInput('Water', 'water_right', 194)}
+        <View style={styles.row}>
+          <Field label="Power Source" value={settings.powerSource} onChange={(v)=> setSettings({ ...settings, powerSource: v })} />
+          <Field label="Solar Battery" value={settings.solarBattery} onChange={(v)=> setSettings({ ...settings, solarBattery: v })} />
+        </View>
 
-      {/* Row 3 */}
-      {renderSettingInput('Power Source', 'powerSource', 267)}
-      {renderSettingInput('Solar Battery', 'solarBattery_right', 267)}
+        <View style={styles.row}>
+          <Field label="Heat Lamp" value={settings.heatLamp} onChange={(v)=> setSettings({ ...settings, heatLamp: v })} />
+          <Field label="Fan" value={settings.fan} onChange={(v)=> setSettings({ ...settings, fan: v })} />
+        </View>
 
-      {/* Row 4 */}
-      {renderSettingInput('Heat Lamp', 'heatLamp', 340)}
-      {renderSettingInput('Fan', 'fan_right', 340)}
+        <View style={styles.row}>
+          <Field label="Light" value={settings.light} onChange={(v)=> setSettings({ ...settings, light: v })} />
+          <Field label="System Auto Restart" value={settings.systemAutoRestart} onChange={(v)=> setSettings({ ...settings, systemAutoRestart: v })} />
+        </View>
 
-      {/* Row 5 */}
-      {renderSettingInput('Light', 'light', 413)}
-      {renderSettingInput('System Auto Restart', 'systemAutoRestart_right', 413)}
-      {/* --- End Setting Inputs --- */}
+        {/* Save Changes Button */}
+        <TouchableOpacity style={styles.saveButtonInFlow} onPress={handleSaveChanges}>
+          <Text style={styles.saveButtonText}>Save Changes</Text>
+        </TouchableOpacity>
 
-      {/* Save Changes Button */}
-      <TouchableOpacity
-        style={styles.saveButton}
-        onPress={handleSaveChanges}>
-        <Text style={styles.saveButtonText}>Save Changes</Text>
-      </TouchableOpacity>
+        {/* Bottom spacer for bottom nav */}
+        <View style={{ height: 90 }} />
+      </ScrollView>
 
       {/* --- Modals --- */}
       {/* 1. Save Changes Confirmation Modal */}
@@ -244,45 +221,48 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontFamily: 'Inter',
     fontWeight: '700',
-    fontSize: 20,
-    color: '#000000',
+    fontSize: 22,
+    color: '#133E87',
     textAlign: 'center',
   },
-  // --- Text and Textbox Layout ---
-  textLabel: {
-    // The exact position is set in renderSettingInput
-    // width: 159.409...,
-    // height: 18,
-    position: 'absolute',
-    fontFamily: 'Inter',
-    fontWeight: '400',
-    fontSize: 15, // 15px
-    color: '#0F0F0F', // background: #0F0F0F is likely the text color
+  // --- Content layout below title ---
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
-  textInput: {
-    // The exact position is set in renderSettingInput
-    width: 140,
-    height: 35,
-    position: 'absolute',
-    borderRadius: 3, // 3px
-    borderWidth: 1, // 1px
+  row: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  field: {
+    flex: 1,
+  },
+  fieldLabel: {
+    fontSize: 15,
+    color: '#0F0F0F',
+    marginBottom: 6,
+  },
+  fieldInput: {
+    height: 40,
+    borderRadius: 6,
+    borderWidth: 1,
     borderColor: '#0000001F',
-    backgroundColor: '#FFFFFF', // background: #FFFFFF
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 10,
   },
   // --- Save Button ---
-  saveButton: {
-    width: 157.21,
-    height: 40, // Increased height for better tap target
-    position: 'absolute',
-    top: 530, // 530px
-    left: 118, // 118px
+  saveButtonInFlow: {
+    alignSelf: 'center',
+    width: 180,
+    height: 44,
     borderRadius: 10,
-    backgroundColor: '#133E87', // Darker blue to match screenshot appearance
+    backgroundColor: '#133E87',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#133E8780',
+    marginTop: 8,
   },
   saveButtonText: {
     color: '#FFFFFF',

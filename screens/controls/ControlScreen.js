@@ -290,7 +290,13 @@ export default function ControlScreen({ navigation }) {
               <Ionicons name="sunny-outline" size={18} color="#333" style={{ marginRight: 8 }} />
               <Text style={{ fontWeight: "600" }}>Incandescent Light</Text>
             </View>
-            <Switch value={lightOn} onValueChange={setLightOn} trackColor={{ false: "transparent", true: PRIMARY }} thumbColor="#fff" />
+            <Switch
+              value={lightOn}
+              onValueChange={setLightOn}
+              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
+              ios_backgroundColor="#B0B0B0"
+              thumbColor="#fff"
+            />
           </View>
         </View>
 
@@ -302,7 +308,13 @@ export default function ControlScreen({ navigation }) {
               <Ionicons name="sync-outline" size={18} color="#333" style={{ marginRight: 8 }} />
               <Text style={{ fontWeight: "600" }}>Exhaust Fan</Text>
             </View>
-            <Switch value={fanOn} onValueChange={setFanOn} trackColor={{ false: "transparent", true: PRIMARY }} thumbColor="#fff" />
+            <Switch
+              value={fanOn}
+              onValueChange={setFanOn}
+              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
+              ios_backgroundColor="#B0B0B0"
+              thumbColor="#fff"
+            />
           </View>
         </View>
 
@@ -436,7 +448,13 @@ export default function ControlScreen({ navigation }) {
             <View style={{ marginTop: 10 }}>
               <View style={styles.rowSpace}>
                 <Text style={{ fontWeight: "600" }}>Enable automatic power management</Text>
-                <Switch value={autoPower} onValueChange={setAutoPower} trackColor={{ false: "transparent", true: PRIMARY }} thumbColor="#fff" />
+                <Switch
+                  value={autoPower}
+                  onValueChange={setAutoPower}
+                  trackColor={{ false: "#B0B0B0", true: PRIMARY }}
+                  ios_backgroundColor="#B0B0B0"
+                  thumbColor="#fff"
+                />
               </View>
             </View>
           </View>
