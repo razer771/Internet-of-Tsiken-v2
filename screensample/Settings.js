@@ -102,7 +102,11 @@ const Settings = ({ navigation }) => {
           },
         ]}
         value={settings[key]}
-        onChangeText={(text) => setSettings({ ...settings, [key]: text })}
+        keyboardType="number-pad"
+        onChangeText={(text) => {
+          const numeric = text.replace(/[^0-9]/g, '');
+          setSettings({ ...settings, [key]: numeric });
+        }}
       />
     </React.Fragment>
   );
