@@ -531,7 +531,7 @@ export default function OTPVerification() {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <Text style={styles.verifyText}>
-                  {timeLeft <= 0 ? "OTP Expired" : "Verify & Continue"}
+                  {timeLeft <= 0 ? "OTP Expired" : "Verify OTP & Continue"}
                 </Text>
               )}
             </Pressable>
