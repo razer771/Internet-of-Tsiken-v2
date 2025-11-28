@@ -15,7 +15,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { sendPasswordResetEmail } from "firebase/auth";
-import { auth, db } from "../config/firebaseconfig";
+import { auth, db } from "../../config/firebaseconfig";
 import {
   collection,
   query,
