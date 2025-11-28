@@ -12,6 +12,7 @@ import {
   TextInput,
   Alert,
   Platform,
+  PanResponder,
 } from "react-native";
 import Slider from "@react-native-community/slider";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -84,6 +85,27 @@ export default function ControlScreen({ navigation }) {
 
   // timepicker state for feed edit
   const [showFeedTimePicker, setShowFeedTimePicker] = useState(false);
+
+  // Swipe gesture handler - swipe right to go to Home, swipe left to go to Analytics
+  const panResponder = React.useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // Only respond to horizontal swipes (not vertical scrolling)
+        return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 20;
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        // Swipe right (positive dx) to go to Home
+        if (gestureState.dx > 50) {
+          navigation.navigate("Home");
+        }
+        // Swipe left (negative dx) to go to Analytics (if you have it)
+        // if (gestureState.dx < -50) {
+        //   navigation.navigate("Analytics");
+        // }
+      },
+    })
+  ).current;
 
   // Handlers
   const addFeedSchedule = () => {
@@ -236,7 +258,7 @@ export default function ControlScreen({ navigation }) {
   };
 
   return (
-    <View style={styles.page}>
+    <View style={styles.page} {...panResponder.panHandlers}>
       <Header onOpenMenu={() => setMenuOpen(true)} navigation={navigation} />
       <SideNavigation visible={menuOpen} onClose={() => setMenuOpen(false)} navigation={navigation} />
 
@@ -255,7 +277,7 @@ export default function ControlScreen({ navigation }) {
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader icon="videocam-outline" title="Live Camera Surveillance" />
           <TouchableOpacity style={styles.cameraBox} onPress={() => setCameraModal(true)}>
-            <Image source={require("../assets/proposal meeting.png")} style={styles.cameraImage} />
+            <Image source={require("../../assets/proposal meeting.png")} style={styles.cameraImage} />
             <View style={styles.liveBadge}><Text style={{ color: "#fff", fontWeight: "700" }}>● LIVE</Text></View>
           </TouchableOpacity>
         </View>
@@ -529,7 +551,7 @@ export default function ControlScreen({ navigation }) {
         <TouchableOpacity style={styles.modalBackdrop} onPress={() => setCameraModal(false)} />
         <View style={styles.editModal}>
           <Text style={styles.modalTitle}>Live Camera</Text>
-          <Image source={require("../assets/proposal meeting.png")} style={{ width: "100%", height: 220, borderRadius: 8 }} />
+          <Image source={require("../../assets/proposal meeting.png")} style={{ width: "100%", height: 220, borderRadius: 8 }} />
           <TouchableOpacity style={[styles.primaryBtn, { marginTop: 12 }]} onPress={() => Alert.alert("Connect", "Placeholder to connect to IoT camera")}>
             <Text style={styles.primaryBtnText}>Connect to IoT Stream</Text>
           </TouchableOpacity>
@@ -576,7 +598,7 @@ export default function ControlScreen({ navigation }) {
       <Modal visible={showSavedPopup} transparent animationType="fade">
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
-            <Image source={require("../assets/logo.png")} style={{ width: 56, height: 56 }} />
+            <Image source={require("../../assets/logo.png")} style={{ width: 56, height: 56 }} />
             <Text style={styles.popupText}>Saved Successfully!</Text>
           </View>
         </View>

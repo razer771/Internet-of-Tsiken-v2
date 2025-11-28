@@ -7,8 +7,10 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
+  PanResponder,
 } from "react-native";
 import HeaderUpdated from "../navigation/Header";
+import BottomNavigation from "../navigation/BottomNavigation";
 import QuickSetupModal from "./QuickSetupModal";
 
 // Replace static import with a dynamic require + in-memory fallback.
@@ -66,7 +68,7 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-export default function QuickOverviewSetup() {
+export default function QuickOverviewSetup({ navigation }) {
   const [chicksCount, setChicksCount] = useState("");
   const [daysCount, setDaysCount] = useState("");
   const [todayDate, setTodayDate] = useState("");
@@ -150,9 +152,26 @@ export default function QuickOverviewSetup() {
     setShowQuickSetup(false);
   };
 
+  // Swipe gesture handler - swipe left to go to Control screen
+  const panResponder = React.useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // Only respond to horizontal swipes (not vertical scrolling)
+        return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 20;
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        // Swipe left (negative dx) to go to Control
+        if (gestureState.dx < -50) {
+          navigation.navigate("Control");
+        }
+      },
+    })
+  ).current;
+
   return (
     <ErrorBoundary>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1 }} {...panResponder.panHandlers}>
         <HeaderUpdated />
         <ScrollView
           style={styles.scrollView}
@@ -326,6 +345,10 @@ export default function QuickOverviewSetup() {
           />
         </View>
       </ScrollView>
+      <BottomNavigation 
+        active="Home" 
+        onNavigate={(screen) => navigation.navigate(screen)} 
+      />
       </View>
     </ErrorBoundary>
   );

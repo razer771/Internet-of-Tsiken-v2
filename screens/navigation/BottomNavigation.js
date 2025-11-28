@@ -20,7 +20,7 @@ export default function BottomNavigation({ active, onNavigate }) {
             key={tab.name}
             accessibilityRole="button"
             accessibilityState={isFocused ? { selected: true } : {}}
-            onPress={() => onNavigate(tab.name)}
+            onPress={() => onNavigate && onNavigate(tab.name)}
             style={styles.tabButton}
             activeOpacity={0.7}
           >

@@ -13,6 +13,7 @@ import ResetPassword from "./screens/LogIn/resetpassword";
 import Home from "./screens/Dashboard/Home";
 import Notification from "./screens/controls/Notification";
 import ControlScreen from "./screens/controls/ControlScreen";
+import Settings from "./screens/controls/Settings";
 
 const Stack = createNativeStackNavigator();
 
@@ -35,6 +36,7 @@ export default function App() {
         <Stack.Screen name="Home" component={Home} />
         <Stack.Screen name="Notification" component={Notification} />
         <Stack.Screen name="Control" component={ControlScreen} />
+        <Stack.Screen name="Settings" component={Settings} />
       </Stack.Navigator>
     </NavigationContainer>
   );

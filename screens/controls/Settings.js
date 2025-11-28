@@ -9,14 +9,14 @@ import {
   Modal,
 } from 'react-native';
 import { MaterialIcons as Icon } from '@expo/vector-icons';
-import Header from "./components/Header";
-import SideNavigation from "./components/SideNavigation";
-import BottomNavigation from "./components/BottomNavigation";
+import Header from "../navigation/Header";
+import SideNavigation from "../navigation/SideNavigation";
+import BottomNavigation from "../navigation/BottomNavigation";
 
-// Helper function to handle navigation to the SideNavigation screen
+// Helper function to handle navigation back
 const navigateBack = (navigation) => {
-  if (navigation && typeof navigation.navigate === 'function') {
-    navigation.navigate('SideNavigation');
+  if (navigation && typeof navigation.goBack === 'function') {
+    navigation.goBack();
     return;
   }
   console.log('navigateBack: navigation unavailable');
@@ -121,11 +121,10 @@ const Settings = ({ navigation }) => {
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => {
-            // Open the side navigation drawer when back arrow is pressed
-            setIsSideNavVisible(true);
+            navigation.goBack();
           }}
           accessible={true}
-          accessibilityLabel="Open side menu"
+          accessibilityLabel="Go back"
         >
           <Icon name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
@@ -209,7 +208,9 @@ const Settings = ({ navigation }) => {
       </Modal>
 
       {/* Bottom navigation (fixed) */}
-      <BottomNavigation active="Settings" />
+      <View style={styles.bottomNavContainer}>
+        <BottomNavigation active="Settings" onNavigate={(screen) => navigation.navigate(screen)} />
+      </View>
     </View>
   );
 };
@@ -219,6 +220,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF', // Assuming a white background for the screen
+  },
+  bottomNavContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
   },
   // --- Header ---
   backButton: {
