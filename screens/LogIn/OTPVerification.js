@@ -20,12 +20,7 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import { auth, db } from "../../config/firebaseconfig.js";
 import { doc, updateDoc } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
-import {
-  PhoneAuthProvider,
-  signInWithCredential,
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
-} from "firebase/auth";
+// Removed Firebase phone-auth specific imports; using Twilio Verify exclusively
 import {
   checkOTPLockout,
   incrementOTPAttempts,
@@ -52,6 +47,7 @@ export default function OTPVerification() {
   const [confirmationResult, setConfirmationResult] = useState(null);
 
   const inputs = useRef([]);
+  const cooldownTimerRef = useRef(null);
   const navigation = useNavigation();
   const route = useRoute();
 
@@ -81,21 +77,35 @@ export default function OTPVerification() {
     return () => clearInterval(otpTimer);
   }, [timeLeft]);
 
+  // Resend cooldown countdown (starts when value reset to 30)
   useEffect(() => {
-    // Resend cooldown timer
-    let cooldownTimer;
-    if (resendCooldown > 0 && resendCooldown < 30) {
-      cooldownTimer = setInterval(() => {
+    if (resendCooldown === 30 && cooldownTimerRef.current === null) {
+      cooldownTimerRef.current = setInterval(() => {
         setResendCooldown((prev) => {
           if (prev <= 1) {
+            clearInterval(cooldownTimerRef.current);
+            cooldownTimerRef.current = null;
             return 0;
           }
           return prev - 1;
         });
       }, 1000);
     }
-    return () => clearInterval(cooldownTimer);
+    if (resendCooldown === 0 && cooldownTimerRef.current) {
+      clearInterval(cooldownTimerRef.current);
+      cooldownTimerRef.current = null;
+    }
   }, [resendCooldown]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (cooldownTimerRef.current) {
+        clearInterval(cooldownTimerRef.current);
+        cooldownTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     // Device lockout timer
@@ -132,162 +142,44 @@ export default function OTPVerification() {
     }
   };
 
+  // Twilio Verify only: send OTP
   const sendOTP = async () => {
     try {
-      console.log("🔄 Sending REAL Firebase Phone Auth OTP to:", mobileNumber);
+      console.log("Sending OTP via Twilio Verify to:", mobileNumber);
+      const sendSMSOTP = httpsCallable(functions, "sendSMSOTP");
+      const response = await sendSMSOTP({
+        phone: mobileNumber,
+        useRealSMS: true,
+      });
 
-      // Use DIRECT Firebase Phone Auth (this will actually send real SMS)
-      if (Platform.OS === "web") {
-        // Web platform: Use RecaptchaVerifier + signInWithPhoneNumber
-        console.log("🌐 Using Firebase Phone Auth for Web");
-
-        const recaptchaVerifier = new RecaptchaVerifier(
-          "recaptcha-container",
-          {
-            size: "invisible",
-            callback: () => console.log("✅ reCAPTCHA solved"),
-            "expired-callback": () => console.log("❌ reCAPTCHA expired"),
-          },
-          auth
-        );
-
-        // This will actually send real SMS via Firebase
-        const confirmationResult = await signInWithPhoneNumber(
-          auth,
-          mobileNumber,
-          recaptchaVerifier
-        );
-
-        setConfirmationResult(confirmationResult);
-        console.log("✅ REAL SMS sent via Firebase Phone Auth (Web)");
-
-        // Reset timer
-        setTimeLeft(300);
-        setCanResend(false);
-        setResendCooldown(30);
-
-        return {
-          success: true,
-          method: "Firebase Phone Auth (Web) - Real SMS",
-        };
-      } else {
-        // Mobile platform: Use signInWithPhoneNumber directly
-        console.log("📱 Using Firebase Phone Auth for Mobile");
-
-        try {
-          // For React Native, Firebase Phone Auth can work without RecaptchaVerifier
-          // This should send REAL SMS
-          const confirmationResult = await signInWithPhoneNumber(
-            auth,
-            mobileNumber,
-            undefined // No RecaptchaVerifier needed for mobile
-          );
-
-          setConfirmationResult(confirmationResult);
-          console.log("✅ REAL SMS sent via Firebase Phone Auth (Mobile)");
-
-          // Reset timer
-          setTimeLeft(300);
-          setCanResend(false);
-          setResendCooldown(30);
-
-          return {
-            success: true,
-            method: "Firebase Phone Auth (Mobile) - Real SMS",
-          };
-        } catch (directError) {
-          console.log(
-            "❌ Direct Firebase Phone Auth failed:",
-            directError.message
-          );
-
-          // For React Native, we might need to use a different approach
-          // Let's try using the PhoneAuthProvider.credential approach
-          console.log("🔄 Trying alternative Firebase Phone Auth approach...");
-
-          // Alternative: Use cloud function directly without asking user; just send
-          try {
-            console.log("📱 Sending REAL SMS via Twilio Verify");
-            const sendSMSOTP = httpsCallable(functions, "sendSMSOTP");
-            const response = await sendSMSOTP({
-              phone: mobileNumber,
-              useRealSMS: true, // This triggers Twilio Verify SMS
-            });
-
-            if (response.data && response.data.success) {
-              setConfirmationResult({
-                phone: response.data.phone,
-                twilioVerify: true,
-                method: "twilio-verify",
-                verificationSid: response.data.verificationSid,
-              });
-
-              console.log(
-                "✅ REAL SMS sent via Twilio Verify:",
-                response.data.verificationSid
-              );
-
-              // Reset timer
-              setTimeLeft(300);
-              setCanResend(false);
-              setResendCooldown(30);
-
-              Alert.alert(
-                "SMS Sent",
-                `A verification code has been sent to your phone via Twilio.\n\nProvider: ${response.data.provider}\nStatus: Real SMS delivered`
-              );
-            } else {
-              throw new Error("Failed to send Twilio SMS");
-            }
-          } catch (functionError) {
-            console.error("❌ Function SMS sending failed:", functionError);
-            throw functionError;
-          }
-
-          return {
-            success: true,
-            method: "Firebase Phone Auth (Mobile) - Manual",
-          };
-        }
+      if (!response.data || !response.data.success) {
+        throw new Error("Failed to send Twilio Verify SMS");
       }
-    } catch (error) {
-      console.error("🚨 Real SMS Send Error:", error);
 
-      // Only as last resort, fall back to test mode
+      // Update confirmation result with latest verification SID
+      setConfirmationResult({
+        phone: response.data.phone,
+        method: "twilio-verify",
+        verificationSid: response.data.verificationSid,
+      });
+
+      // Reset OTP expiry + cooldown
+      setTimeLeft(300); // 5 minutes
+      setCanResend(false);
+      setResendCooldown(30); // restart cooldown
+
       console.log(
-        "⚠️ Falling back to test mode due to Firebase Phone Auth issues"
+        "Twilio Verify SMS sent. SID:",
+        response.data.verificationSid
       );
-
+      return { success: true, verificationSid: response.data.verificationSid };
+    } catch (error) {
+      console.error("Twilio Verify send error:", error);
       Alert.alert(
-        "SMS Service Unavailable",
-        "Real SMS service is having issues. Would you like to use test mode instead?",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Use Test Mode",
-            onPress: async () => {
-              // Fallback to local test OTP
-              const testOTP = "123456";
-              setConfirmationResult({
-                phone: mobileNumber,
-                testOTP: testOTP,
-                method: "test-fallback",
-              });
-
-              // Using plain ASCII to avoid bundler transform issues with emoji
-              console.log("TEST MODE - Use OTP: " + testOTP);
-              // Using concatenation to avoid template parsing issues in some bundler states
-              Alert.alert("Test Mode", "Use this OTP code: " + testOTP);
-
-              setTimeLeft(300);
-              setCanResend(false);
-              setResendCooldown(30);
-            },
-          },
-        ]
+        "Error",
+        "Failed to send verification code. Please try again."
       );
-
-      throw error;
+      return { success: false, error: error.message };
     }
   };
 
@@ -305,18 +197,16 @@ export default function OTPVerification() {
 
     try {
       const result = await sendOTP();
-
-      let message = `New verification code sent to ${mobileNumber}`;
-
-      if (result && result.testOTP) {
-        message += `\n\n🔐 TEST OTP: ${result.testOTP}\n\nUse this code to continue (SMS delivery in progress...)`;
-      } else {
-        message += "\n\nCheck your messages for the new code.";
+      if (!result.success) {
+        throw new Error(result.error || "Resend failed");
       }
 
-      Alert.alert("OTP Resent", message);
+      Alert.alert(
+        "OTP Sent",
+        "A new verification code was sent to your phone."
+      );
 
-      // Clear current OTP input
+      // Reset OTP input boxes
       setOtp(["", "", "", "", "", ""]);
       if (inputs.current[0]) {
         inputs.current[0].focus();
@@ -405,42 +295,14 @@ export default function OTPVerification() {
       if (!confirmationResult) {
         throw new Error("No OTP session found. Please request a new OTP.");
       }
+      // Twilio Verify only
+      const verifySMSOTP = httpsCallable(functions, "verifySMSOTP");
+      const response = await verifySMSOTP({
+        phone: confirmationResult.phone,
+        otp: enteredOtp,
+      });
 
-      let verificationResult = null;
-
-      // Try Firebase Phone Auth first (for web or direct Firebase Auth)
-      if (
-        confirmationResult.confirm &&
-        typeof confirmationResult.confirm === "function"
-      ) {
-        try {
-          console.log("Using Firebase Phone Auth verification");
-          const credential = await confirmationResult.confirm(enteredOtp);
-          verificationResult = { success: true, user: credential.user };
-        } catch (firebaseError) {
-          console.log(
-            "Firebase Phone Auth verification failed:",
-            firebaseError.message
-          );
-          throw new Error("Invalid OTP code");
-        }
-      } else {
-        // Use cloud function verification
-        console.log("Using cloud function verification");
-        const verifySMSOTP = httpsCallable(functions, "verifySMSOTP");
-        const response = await verifySMSOTP({
-          phone: confirmationResult.phone,
-          otp: enteredOtp,
-        });
-
-        if (response.data && response.data.success) {
-          verificationResult = response.data;
-        } else {
-          throw new Error("Invalid OTP code");
-        }
-      }
-
-      if (verificationResult && verificationResult.success) {
+      if (response.data && response.data.success) {
         console.log("✅ OTP verified successfully!");
 
         // Reset OTP attempts on successful verification
@@ -460,13 +322,8 @@ export default function OTPVerification() {
           });
           console.log("✅ User verification status updated in Firestore");
         }
-
-        Alert.alert("Success", "", [
-          {
-            text: "OK",
-            onPress: () => navigation.navigate("LoginSuccess"),
-          },
-        ]);
+        // Navigate forward after successful verification
+        navigation.navigate("LoginSuccess");
       } else {
         throw new Error("Invalid OTP code");
       }
@@ -658,14 +515,7 @@ export default function OTPVerification() {
               </TouchableOpacity>
             </View>
 
-            {/* Attempt Counter */}
-            {otpAttempts > 0 && (
-              <View style={styles.attemptContainer}>
-                <Text style={styles.attemptText}>
-                  {otpAttempts}/5 failed attempts
-                </Text>
-              </View>
-            )}
+            {/* Attempt Counter hidden per requirement; tracking remains internal */}
 
             {/* Verify Button */}
             <Pressable
