@@ -163,9 +163,11 @@ export default function Login() {
                 <Text style={styles.rememberText}>Remember password</Text>
               </View>
 
-              <TouchableOpacity onPress={handleForgotPassword}>
-                <Text style={styles.forgotText}>Forgot password?</Text>
-              </TouchableOpacity>
+              <View style={styles.forgotWrapper}>
+                <TouchableOpacity onPress={handleForgotPassword}>
+                  <Text style={styles.forgotText}>Forgot password?</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             <TouchableOpacity
@@ -263,14 +265,15 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     width: "100%",
-    marginVertical: 10,
+    marginVertical: 14,
+    gap: 12,
   },
   checkboxContainer: {
     flexDirection: "row",
     alignItems: "center",
   },
   checkbox: {
-    marginRight: 8,
+    marginRight: 2,
   },
   rememberText: {
     color: "#333",
