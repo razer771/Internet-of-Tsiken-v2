@@ -5,6 +5,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Pressable,
   StyleSheet,
 } from "react-native";
 import Toast from "../navigation/Toast";
@@ -85,9 +86,15 @@ export default function QuickSetupModal({
             />
           </View>
 
-          <TouchableOpacity onPress={handleSave} style={styles.saveButton}>
-            <Text style={styles.saveButtonText}>Save</Text>
-          </TouchableOpacity>
+          <Pressable onPress={handleSave}>
+            {({ pressed }) => (
+              <View style={[styles.saveButton, pressed && styles.saveButtonPressed]}>
+                <Text style={[styles.saveButtonText, pressed && styles.saveButtonTextPressed]}>
+                  Save
+                </Text>
+              </View>
+            )}
+          </Pressable>
         </View>
 
         <Toast
@@ -154,7 +161,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: "#3b82f6",
+    borderColor: "#000000ff",
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -170,8 +177,15 @@ const styles = StyleSheet.create({
     borderColor: "#3b82f6",
     borderWidth: 1,
   },
+  saveButtonPressed: {
+    backgroundColor: "#3b82f6",
+    borderColor: "#3b82f6",
+  },
   saveButtonText: {
     color: "#000000",
     fontWeight: "600",
+  },
+  saveButtonTextPressed: {
+    color: "#ffffff",
   },
 });

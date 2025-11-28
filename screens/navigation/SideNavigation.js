@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -11,14 +11,20 @@ import {
   Animated,
   Dimensions,
 } from "react-native";
-import Icon from "react-native-vector-icons/Feather";
+import { Feather } from "@expo/vector-icons";
 import { CommonActions } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { auth } from "../../config/firebaseconfig";
+import { signOut } from "firebase/auth";
+
+const Icon = Feather;
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 export default function SideNavigation({ visible, onClose, navigation }) {
   const slideAnim = useRef(new Animated.Value(SCREEN_WIDTH)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -95,8 +101,37 @@ export default function SideNavigation({ visible, onClose, navigation }) {
   };
 
   const handleLogout = () => {
-    console.log("Logging out...");
-    onClose();
+    setShowLogoutModal(true);
+  };
+
+  const confirmLogout = async () => {
+    try {
+      // Sign out from Firebase
+      await signOut(auth);
+      
+      // Clear stored data
+      await AsyncStorage.removeItem("isAdminBypass");
+      await AsyncStorage.removeItem("adminEmail");
+      await AsyncStorage.removeItem("chicksCount");
+      await AsyncStorage.removeItem("daysCount");
+      
+      console.log("Logged out successfully");
+      setShowLogoutModal(false);
+      onClose();
+      
+      // Navigate to Login screen and reset navigation stack
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "LogIn" }],
+      });
+    } catch (error) {
+      console.error("Logout error:", error);
+      setShowLogoutModal(false);
+    }
+  };
+
+  const cancelLogout = () => {
+    setShowLogoutModal(false);
   };
 
   return (
@@ -203,6 +238,46 @@ export default function SideNavigation({ visible, onClose, navigation }) {
           </View>
         </Animated.View>
       </Animated.View>
+
+      {/* Logout Confirmation Modal */}
+      <Modal
+        visible={showLogoutModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={cancelLogout}
+      >
+        <View style={styles.logoutModalOverlay}>
+          <View style={styles.logoutModalContainer}>
+            <View style={styles.logoutModalIconContainer}>
+              <Icon name="log-out" size={32} color="#ef4444" />
+            </View>
+            <Text style={styles.logoutModalTitle}>Logout</Text>
+            <Text style={styles.logoutModalMessage}>Are you sure you want to logout?</Text>
+            
+            <View style={styles.logoutModalButtons}>
+              <Pressable onPress={cancelLogout} style={styles.logoutModalCancelButton}>
+                {({ pressed }) => (
+                  <View style={[styles.logoutModalButtonInner, pressed && styles.logoutModalButtonPressed]}>
+                    <Text style={[styles.logoutModalCancelText, pressed && styles.logoutModalButtonTextPressed]}>
+                      Cancel
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+              
+              <Pressable onPress={confirmLogout} style={styles.logoutModalConfirmButton}>
+                {({ pressed }) => (
+                  <View style={[styles.logoutModalConfirmInner, pressed && styles.logoutModalConfirmPressed]}>
+                    <Text style={[styles.logoutModalConfirmText, pressed && styles.logoutModalConfirmTextPressed]}>
+                      Logout
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 }
@@ -296,6 +371,88 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   logoutTextPressed: {
+    color: "#ffffff",
+  },
+  // Logout Modal Styles
+  logoutModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  logoutModalContainer: {
+    width: "80%",
+    maxWidth: 320,
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+  },
+  logoutModalIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#fef2f2",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  logoutModalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    marginBottom: 8,
+  },
+  logoutModalMessage: {
+    fontSize: 14,
+    color: "#64748b",
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  logoutModalButtons: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+  logoutModalCancelButton: {
+    flex: 1,
+  },
+  logoutModalButtonInner: {
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    alignItems: "center",
+  },
+  logoutModalButtonPressed: {
+    backgroundColor: "#f1f5f9",
+  },
+  logoutModalCancelText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#64748b",
+  },
+  logoutModalButtonTextPressed: {
+    color: "#1a1a1a",
+  },
+  logoutModalConfirmButton: {
+    flex: 1,
+  },
+  logoutModalConfirmInner: {
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: "#ef4444",
+    alignItems: "center",
+  },
+  logoutModalConfirmPressed: {
+    backgroundColor: "#dc2626",
+  },
+  logoutModalConfirmText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#ffffff",
+  },
+  logoutModalConfirmTextPressed: {
     color: "#ffffff",
   },
 });

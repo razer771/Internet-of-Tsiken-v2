@@ -9,9 +9,11 @@ import {
   StyleSheet,
   ScrollView,
 } from "react-native";
-import Icon from "react-native-vector-icons/Feather";
-import CalendarModal from "./CalendarModal";
-import TimePickerDropdown from "./TimePickerDropdown";
+import { Feather } from "@expo/vector-icons";
+import CalendarModal from "../navigation/CalendarModal";
+import TimePickerDropdown from "../test/Talan/TimePickerDropdown";
+
+const Icon = Feather;
 
 export default function GenerateLogReportModal({ visible, onClose, onGenerate }) {
   const [selectedDate, setSelectedDate] = useState(new Date());

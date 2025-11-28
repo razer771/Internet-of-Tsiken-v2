@@ -16,6 +16,9 @@ import ControlScreen from "./screens/controls/ControlScreen";
 import Settings from "./screens/controls/Settings";
 import UserProfile from "./screens/Profile/userProfile";
 import EditProfile from "./screens/Profile/editProfile";
+import ActivityLogs from "./screens/ActivityLogs/ActivityLogs";
+import Reports from "./screens/Reports/Reports";
+import ViewReport from "./screens/Reports/ViewReport";
 
 const Stack = createNativeStackNavigator();
 
@@ -41,6 +44,9 @@ export default function App() {
         <Stack.Screen name="Settings" component={Settings} />
         <Stack.Screen name="UserProfile" component={UserProfile} />
         <Stack.Screen name="EditProfile" component={EditProfile} />
+        <Stack.Screen name="ActivityLogs" component={ActivityLogs} />
+        <Stack.Screen name="Reports" component={Reports} />
+        <Stack.Screen name="ViewReport" component={ViewReport} />
       </Stack.Navigator>
     </NavigationContainer>
   );

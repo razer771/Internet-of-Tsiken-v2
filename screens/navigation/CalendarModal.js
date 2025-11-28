@@ -7,7 +7,9 @@ import {
   StyleSheet,
   ScrollView,
 } from "react-native";
-import Icon from "react-native-vector-icons/Feather";
+import { Feather } from "@expo/vector-icons";
+
+const Icon = Feather;
 
 export default function CalendarModal({ visible, onClose, onSelectDate }) {
   const [selectedDate, setSelectedDate] = useState(new Date());
