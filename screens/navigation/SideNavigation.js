@@ -76,7 +76,13 @@ export default function SideNavigation({ visible, onClose, navigation }) {
         console.error("[SideNavigation] Navigation error:", error);
       }
     } else if (item === "User Profile" && navigation) {
-      console.log("User Profile - not yet implemented");
+      console.log("[SideNavigation] Attempting to navigate to UserProfile screen");
+      try {
+        navigation.navigate("UserProfile");
+        console.log("[SideNavigation] Navigate to UserProfile successful");
+      } catch (error) {
+        console.error("[SideNavigation] Navigation error:", error);
+      }
     } else if (item === "Settings" && navigation) {
       console.log("[SideNavigation] Attempting to navigate to Settings screen");
       try {

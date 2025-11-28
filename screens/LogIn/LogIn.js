@@ -22,7 +22,8 @@ import { useNavigation } from "@react-navigation/native";
 // Import Firebase auth and Firestore
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from '../../config/firebaseconfig'; // Make sure this path is correct
+import { auth, db } from '../../config/firebaseconfig';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const Logo = require("../../assets/logo.png");
 
@@ -46,9 +47,16 @@ export default function Login() {
     // Admin bypass login
     if (email === "admin@example.com" && password === "admin1234") {
       console.log("✅ Admin login successful!");
+      // Save admin bypass flag
+      await AsyncStorage.setItem('isAdminBypass', 'true');
+      await AsyncStorage.setItem('adminEmail', 'admin@example.com');
       navigation.navigate("Home");
       return;
     }
+
+    // Clear admin bypass flag for regular users
+    await AsyncStorage.removeItem('isAdminBypass');
+    await AsyncStorage.removeItem('adminEmail');
 
     setLoading(true);
     try {
@@ -62,12 +70,19 @@ export default function Login() {
       if (userDoc.exists()) {
         const userData = userDoc.data();
         console.log("✅ User data loaded:", userData);
-        // You can store userData in global state (Context/Redux) if needed
+        
+        // Check if user is already verified (check both field names)
+        if (userData.verified === true || userData.isVerified === true || user.emailVerified) {
+          console.log("✅ User is verified, skipping OTP");
+          navigation.navigate("Home");
+          return;
+        }
       } else {
         console.log("⚠️ No user profile found in Firestore");
       }
 
-      // Navigate to VerifyIdentity for OTP verification
+      // Navigate to VerifyIdentity for OTP verification (only if not verified)
+      console.log("⏳ User not verified, redirecting to OTP");
       navigation.navigate("VerifyIdentity");
 
     } catch (error) {

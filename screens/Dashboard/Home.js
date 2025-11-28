@@ -12,6 +12,8 @@ import {
 import HeaderUpdated from "../navigation/Header";
 import BottomNavigation from "../navigation/BottomNavigation";
 import QuickSetupModal from "./QuickSetupModal";
+import { auth, db } from "../../config/firebaseconfig";
+import { doc, getDoc } from "firebase/firestore";
 
 // Replace static import with a dynamic require + in-memory fallback.
 // This avoids a crash when @react-native-async-storage/async-storage is not installed.
@@ -73,10 +75,12 @@ export default function QuickOverviewSetup({ navigation }) {
   const [daysCount, setDaysCount] = useState("");
   const [todayDate, setTodayDate] = useState("");
   const [showQuickSetup, setShowQuickSetup] = useState(false);
+  const [userName, setUserName] = useState("User");
 
   // Load saved data when component mounts
   useEffect(() => {
     loadSavedData();
+    fetchUserName();
 
     // Set today's date
     const today = new Date();
@@ -90,6 +94,35 @@ export default function QuickOverviewSetup({ navigation }) {
 
     console.log("[App] Mounted");
   }, []);
+
+  const fetchUserName = async () => {
+    try {
+      // Check if admin bypass
+      const isAdminBypass = await AsyncStorage.getItem('isAdminBypass');
+      const adminEmail = await AsyncStorage.getItem('adminEmail');
+      
+      if (isAdminBypass === 'true' && adminEmail === 'admin@example.com') {
+        setUserName("Admin");
+        return;
+      }
+
+      const currentUser = auth.currentUser;
+      
+      if (currentUser) {
+        const userDoc = await getDoc(doc(db, "users", currentUser.uid));
+        
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          // Get first name only for greeting
+          const fullName = data.fullname || data.name || data.firstName || "User";
+          const firstName = fullName.split(' ')[0];
+          setUserName(firstName);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching user name:", error);
+    }
+  };
 
   const loadSavedData = async () => {
     try {
@@ -181,7 +214,7 @@ export default function QuickOverviewSetup({ navigation }) {
           <View style={styles.container}>
           {/* Welcome Section */}
           <View style={styles.welcomeSection}>
-            <Text style={styles.greeting}>Hello, Adrian! 👋</Text>
+            <Text style={styles.greeting}>Hello, {userName}! 👋</Text>
             <Text style={styles.date}>{todayDate}</Text>
           </View>
 
