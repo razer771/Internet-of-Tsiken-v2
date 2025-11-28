@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { auth, db } from '../config/firebaseconfig';
+import { auth, db } from '../../config/firebaseconfig';
 import { doc, getDoc } from 'firebase/firestore';
 
 export default function LoginSuccess() {
@@ -34,10 +34,10 @@ export default function LoginSuccess() {
     loadUserData();
 
     const timer = setTimeout(() => {
-      console.log('Dashboard loaded! Navigating to Control...');
+      console.log('Dashboard loaded! Navigating to Home...');
       try {
-        navigation.replace("Control");
-        console.log('Navigation to Control executed');
+        navigation.replace("Home");
+        console.log('Navigation to Home executed');
       } catch (error) {
         console.error('Navigation error:', error);
       }
