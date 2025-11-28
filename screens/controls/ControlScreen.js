@@ -95,9 +95,9 @@ export default function ControlScreen({ navigation }) {
         return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 20;
       },
       onPanResponderRelease: (evt, gestureState) => {
-        // Swipe right (positive dx) to go to Home
+        // Swipe right (positive dx) to go back to Home (slide left to right)
         if (gestureState.dx > 50) {
-          navigation.navigate("Home");
+          navigation.goBack();
         }
         // Swipe left (negative dx) to go to Analytics (if you have it)
         // if (gestureState.dx < -50) {
@@ -259,10 +259,7 @@ export default function ControlScreen({ navigation }) {
 
   return (
     <View style={styles.page} {...panResponder.panHandlers}>
-      <Header onOpenMenu={() => setMenuOpen(true)} navigation={navigation} />
-      <SideNavigation visible={menuOpen} onClose={() => setMenuOpen(false)} navigation={navigation} />
-
-      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 140 }}>
+      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Page Title */}
         <Text style={styles.pageTitle}>REAL-TIME STATUS</Text>
 
@@ -639,8 +636,6 @@ export default function ControlScreen({ navigation }) {
         </View>
       </Modal>
 
-      {/* Bottom nav */}
-      <BottomNavigation active={activeTab} onNavigate={(screen) => { setActiveTab(screen); navigation?.navigate(screen); }} />
     </View>
   );
 }

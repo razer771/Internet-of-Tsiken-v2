@@ -154,7 +154,7 @@ export default function UserProfile({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 70,
+    paddingTop: 20,
     alignItems: "center",
     backgroundColor: "#fff",
   },

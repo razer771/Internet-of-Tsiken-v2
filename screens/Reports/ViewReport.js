@@ -44,9 +44,6 @@ export default function ViewReport({ route, navigation }) {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-      
-      {/* Header with SideNavigation */}
-      <HeaderUpdated />
 
       {/* Report Title Header */}
       <View style={styles.header}>
@@ -127,12 +124,6 @@ export default function ViewReport({ route, navigation }) {
           </View>
         </View>
       </ScrollView>
-
-      {/* Bottom Navigation */}
-      <BottomNavigation 
-        active="" 
-        onNavigate={(screen) => navigation.navigate(screen)} 
-      />
     </SafeAreaView>
   );
 }

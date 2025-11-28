@@ -102,9 +102,6 @@ export default function ActivityLogs({ navigation }) {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-      
-      {/* Header with SideNavigation */}
-      <HeaderUpdated />
 
       <View style={styles.headerRow}>
         <Text style={styles.pageTitle}>Activity Logs</Text>
@@ -134,7 +131,7 @@ export default function ActivityLogs({ navigation }) {
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 80 }}>
         {/* Selected Date Display & Clear Button */}
         {selectedDate && (
           <View style={styles.dateFilterBanner}>
@@ -203,12 +200,6 @@ export default function ActivityLogs({ navigation }) {
         visible={showSuccessModal}
         message={successMessage}
         onComplete={handleSuccessComplete}
-      />
-
-      {/* Bottom Navigation */}
-      <BottomNavigation 
-        active="" 
-        onNavigate={(screen) => navigation.navigate(screen)} 
       />
     </SafeAreaView>
   );
