@@ -173,9 +173,6 @@ export default function Reports({ navigation }) {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-      
-      {/* Header with SideNavigation */}
-      <HeaderUpdated />
 
       <View style={styles.headerRow}>
         <Text style={styles.pageTitle}>Reports</Text>
@@ -266,7 +263,7 @@ export default function Reports({ navigation }) {
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 80 }}>
         {/* Selected Date Display & Clear Button */}
         {selectedDate && (
           <View style={styles.dateFilterBanner}>
@@ -370,12 +367,6 @@ export default function Reports({ navigation }) {
         visible={showSuccessModal}
         message={successMessage}
         onComplete={handleSuccessComplete}
-      />
-
-      {/* Bottom Navigation */}
-      <BottomNavigation 
-        active="" 
-        onNavigate={(screen) => navigation.navigate(screen)} 
       />
     </SafeAreaView>
   );

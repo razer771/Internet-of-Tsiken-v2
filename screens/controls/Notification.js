@@ -112,10 +112,7 @@ export default function Notification() {
 
   return (
     <View style={{ flex: 1 }}>
-      <Header onOpenMenu={openDrawer} navigation={navigation} />
-      <SideNavigation visible={drawerVisible} onClose={closeDrawer} navigation={navigation} />
-
-      <ScrollView style={styles.wrapper} contentContainerStyle={{ paddingBottom: 90 }}>
+      <ScrollView style={styles.wrapper} contentContainerStyle={{ paddingBottom: 20 }}>
         <View style={styles.topRow}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
             <Ionicons name="chevron-back" size={18} />
@@ -160,11 +157,6 @@ export default function Notification() {
           </Pressable>  
         </Modal>  
       </ScrollView>
-
-      <BottomNavigation 
-        active="Control" 
-        onNavigate={(screen) => navigation.navigate(screen)} 
-      />
     </View>
   );
 }

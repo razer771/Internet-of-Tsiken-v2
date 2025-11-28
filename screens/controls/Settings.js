@@ -88,10 +88,7 @@ const Settings = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      {/* Shared app header (logo, menu) */}
-      <Header onOpenMenu={() => setIsSideNavVisible(true)} navigation={navigation} />
-
-      {/* Top bar: back arrow (left) + centered title (below shared Header) */}
+      {/* Top bar: back arrow (left) + centered title */}
       <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.backButton}
@@ -106,9 +103,6 @@ const Settings = ({ navigation }) => {
 
         <Text style={styles.headerTitle}>Settings</Text>
       </View>
-
-      {/* Side navigation drawer (optional drawer component) */}
-      <SideNavigation visible={isSideNavVisible} onClose={() => setIsSideNavVisible(false)} navigation={navigation} />
 
       {/* --- Setting Inputs (below Settings title) --- */}
       <ScrollView contentContainerStyle={styles.content}>
@@ -183,11 +177,6 @@ const Settings = ({ navigation }) => {
           </View>
         </View>
       </Modal>
-
-      {/* Bottom navigation (fixed) */}
-      <View style={styles.bottomNavContainer}>
-        <BottomNavigation active="Settings" onNavigate={(screen) => navigation.navigate(screen)} />
-      </View>
     </View>
   );
 };

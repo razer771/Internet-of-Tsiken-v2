@@ -205,7 +205,6 @@ export default function QuickOverviewSetup({ navigation }) {
   return (
     <ErrorBoundary>
       <View style={{ flex: 1 }} {...panResponder.panHandlers}>
-        <HeaderUpdated />
         <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
@@ -378,10 +377,6 @@ export default function QuickOverviewSetup({ navigation }) {
           />
         </View>
       </ScrollView>
-      <BottomNavigation 
-        active="Home" 
-        onNavigate={(screen) => navigation.navigate(screen)} 
-      />
       </View>
     </ErrorBoundary>
   );
