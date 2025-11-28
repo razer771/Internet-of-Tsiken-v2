@@ -11,6 +11,11 @@ import VerifyIdentity from "./screens/LogIn/verifyIdentity";
 import PasswordUpdated from "./screens/LogIn/passwordupdated";
 import ResetPassword from "./screens/LogIn/resetpassword";
 import Home from "./screens/Dashboard/Home";
+import Notification from "./screens/controls/Notification";
+import ControlScreen from "./screens/controls/ControlScreen";
+import Settings from "./screens/controls/Settings";
+import UserProfile from "./screens/Profile/userProfile";
+import EditProfile from "./screens/Profile/editProfile";
 
 const Stack = createNativeStackNavigator();
 
@@ -31,6 +36,11 @@ export default function App() {
         <Stack.Screen name="PasswordUpdated" component={PasswordUpdated} />
         <Stack.Screen name="ResetPassword" component={ResetPassword} />
         <Stack.Screen name="Home" component={Home} />
+        <Stack.Screen name="Notification" component={Notification} />
+        <Stack.Screen name="Control" component={ControlScreen} />
+        <Stack.Screen name="Settings" component={Settings} />
+        <Stack.Screen name="UserProfile" component={UserProfile} />
+        <Stack.Screen name="EditProfile" component={EditProfile} />
       </Stack.Navigator>
     </NavigationContainer>
   );

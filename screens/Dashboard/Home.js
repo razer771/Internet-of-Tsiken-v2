@@ -7,9 +7,13 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
+  PanResponder,
 } from "react-native";
 import HeaderUpdated from "../navigation/Header";
+import BottomNavigation from "../navigation/BottomNavigation";
 import QuickSetupModal from "./QuickSetupModal";
+import { auth, db } from "../../config/firebaseconfig";
+import { doc, getDoc } from "firebase/firestore";
 
 // Replace static import with a dynamic require + in-memory fallback.
 // This avoids a crash when @react-native-async-storage/async-storage is not installed.
@@ -66,15 +70,17 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-export default function QuickOverviewSetup() {
+export default function QuickOverviewSetup({ navigation }) {
   const [chicksCount, setChicksCount] = useState("");
   const [daysCount, setDaysCount] = useState("");
   const [todayDate, setTodayDate] = useState("");
   const [showQuickSetup, setShowQuickSetup] = useState(false);
+  const [userName, setUserName] = useState("User");
 
   // Load saved data when component mounts
   useEffect(() => {
     loadSavedData();
+    fetchUserName();
 
     // Set today's date
     const today = new Date();
@@ -88,6 +94,35 @@ export default function QuickOverviewSetup() {
 
     console.log("[App] Mounted");
   }, []);
+
+  const fetchUserName = async () => {
+    try {
+      // Check if admin bypass
+      const isAdminBypass = await AsyncStorage.getItem('isAdminBypass');
+      const adminEmail = await AsyncStorage.getItem('adminEmail');
+      
+      if (isAdminBypass === 'true' && adminEmail === 'admin@example.com') {
+        setUserName("Admin");
+        return;
+      }
+
+      const currentUser = auth.currentUser;
+      
+      if (currentUser) {
+        const userDoc = await getDoc(doc(db, "users", currentUser.uid));
+        
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          // Get first name only for greeting
+          const fullName = data.fullname || data.name || data.firstName || "User";
+          const firstName = fullName.split(' ')[0];
+          setUserName(firstName);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching user name:", error);
+    }
+  };
 
   const loadSavedData = async () => {
     try {
@@ -150,9 +185,26 @@ export default function QuickOverviewSetup() {
     setShowQuickSetup(false);
   };
 
+  // Swipe gesture handler - swipe left to go to Control screen
+  const panResponder = React.useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // Only respond to horizontal swipes (not vertical scrolling)
+        return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 20;
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        // Swipe left (negative dx) to go to Control
+        if (gestureState.dx < -50) {
+          navigation.navigate("Control");
+        }
+      },
+    })
+  ).current;
+
   return (
     <ErrorBoundary>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1 }} {...panResponder.panHandlers}>
         <HeaderUpdated />
         <ScrollView
           style={styles.scrollView}
@@ -162,7 +214,7 @@ export default function QuickOverviewSetup() {
           <View style={styles.container}>
           {/* Welcome Section */}
           <View style={styles.welcomeSection}>
-            <Text style={styles.greeting}>Hello, Adrian! 👋</Text>
+            <Text style={styles.greeting}>Hello, {userName}! 👋</Text>
             <Text style={styles.date}>{todayDate}</Text>
           </View>
 
@@ -326,6 +378,10 @@ export default function QuickOverviewSetup() {
           />
         </View>
       </ScrollView>
+      <BottomNavigation 
+        active="Home" 
+        onNavigate={(screen) => navigation.navigate(screen)} 
+      />
       </View>
     </ErrorBoundary>
   );

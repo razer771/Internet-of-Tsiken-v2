@@ -64,7 +64,7 @@ export default function Header2() {
   };
 
   const handleNotificationPress = () => {
-    console.log("Notification bell pressed");
+    navigation.navigate("Notification");
   };
 
   return (
@@ -153,6 +153,8 @@ const styles = StyleSheet.create({
   logo: {
     width: 36,
     height: 36,
+    borderRadius: 60,
+
   },
   centerSection: {
     flex: 2,
