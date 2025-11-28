@@ -11,8 +11,10 @@ import {
   Animated,
   Dimensions,
 } from "react-native";
-import Icon from "react-native-vector-icons/Feather";
+import { Feather } from "@expo/vector-icons";
 import { CommonActions } from "@react-navigation/native";
+
+const Icon = Feather;
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 

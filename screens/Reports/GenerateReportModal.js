@@ -11,7 +11,7 @@ import {
   Platform,
 } from "react-native";
 import Icon from "react-native-vector-icons/Feather";
-import CalendarModal from "./CalendarModal";
+import CalendarModal from "../navigation/CalendarModal";
 
 export default function GenerateReportModal({ visible, onClose, onGenerate, existingBatches = [] }) {
   const BROODER_CAPACITY = 10; // Maximum chicks allowed
