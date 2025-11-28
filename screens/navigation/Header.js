@@ -64,7 +64,7 @@ export default function Header2() {
   };
 
   const handleNotificationPress = () => {
-    console.log("Notification bell pressed");
+    navigation.navigate("Notification");
   };
 
   return (
