@@ -1,8 +1,8 @@
 import React, { useState, useRef } from "react";
 // --- ADD FIRESTORE IMPORTS ---
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
-import { auth, db } from '../../config/firebaseconfig';
+import { auth, db } from "../../config/firebaseconfig";
 import {
   View,
   Text,
@@ -15,15 +15,15 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert, 
+  Alert,
 } from "react-native";
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from "@expo/vector-icons";
 
 // --- 1. IMPORT NAVIGATION ---
 import { useNavigation } from "@react-navigation/native";
 
 // The function name now matches your import in App.js
-export default function SignUp() { 
+export default function SignUp() {
   const [fullname, setFullname] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -49,16 +49,43 @@ export default function SignUp() {
 
   const triggerShake = (field) => {
     Animated.sequence([
-      Animated.timing(shakeAnim[field], { toValue: 12, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim[field], { toValue: -12, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim[field], { toValue: 8, duration: 50, useNativeDriver: true }),
-      Animated.timing(shakeAnim[field], { toValue: -8, duration: 50, useNativeDriver: true }),
-      Animated.timing(shakeAnim[field], { toValue: 4, duration: 40, useNativeDriver: true }),
-      Animated.timing(shakeAnim[field], { toValue: -4, duration: 40, useNativeDriver: true }),
-      Animated.timing(shakeAnim[field], { toValue: 0, duration: 30, useNativeDriver: true }),
+      Animated.timing(shakeAnim[field], {
+        toValue: 12,
+        duration: 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim[field], {
+        toValue: -12,
+        duration: 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim[field], {
+        toValue: 8,
+        duration: 50,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim[field], {
+        toValue: -8,
+        duration: 50,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim[field], {
+        toValue: 4,
+        duration: 40,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim[field], {
+        toValue: -4,
+        duration: 40,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim[field], {
+        toValue: 0,
+        duration: 30,
+        useNativeDriver: true,
+      }),
     ]).start();
   };
-
 
   const handleSignUp = async () => {
     // ... (Your validation logic is perfect)
@@ -74,31 +101,34 @@ export default function SignUp() {
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
-      Object.keys(newErrors).forEach(field => triggerShake(field));
-      return; 
+      Object.keys(newErrors).forEach((field) => triggerShake(field));
+      return;
     }
 
     if (password !== confirmPassword) {
       setPasswordError(true);
       triggerShake("password");
       triggerShake("confirmPassword");
-      return; 
+      return;
     }
 
     setLoading(true);
     try {
       // Step 1: Create user in AUTHENTICATION
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
       const user = userCredential.user;
 
       console.log("✅ Auth user created:", user.uid);
 
-      // --- 2. ADD THIS BLOCK TO SAVE TO FIRESTORE ---
       // Step 2: Save profile data in FIRESTORE
       await setDoc(doc(db, "users", user.uid), {
         uid: user.uid,
         fullname: fullname,
-        phone: phone,
+        mobile: phone,
         email: email,
         createdAt: new Date(),
       });
@@ -107,30 +137,30 @@ export default function SignUp() {
 
       // SUCCESS!
       Alert.alert("Success", "Account created successfully!");
-      
-      // --- 3. NAVIGATE TO LOGIN SCREEN ---
-      navigation.navigate("LogIn"); 
 
+      // --- 3. NAVIGATE TO LOGIN SCREEN ---
+      navigation.navigate("LogIn");
     } catch (error) {
       // ... (Your error handling is perfect)
       console.error("Firebase Sign Up Error:", error.code, error.message);
       let errorMessage = "An unexpected error occurred. Please try again.";
-      if (error.code === 'auth/email-already-in-use') {
+      if (error.code === "auth/email-already-in-use") {
         errorMessage = "This email address is already in use.";
-        setErrors(prev => ({ ...prev, email: true }));
-        triggerShake('email');
-      } else if (error.code === 'auth/weak-password') {
-        errorMessage = "Password is too weak. Please use at least 6 characters.";
-        setErrors(prev => ({ ...prev, password: true }));
-        triggerShake('password');
-      } else if (error.code === 'auth/invalid-email') {
+        setErrors((prev) => ({ ...prev, email: true }));
+        triggerShake("email");
+      } else if (error.code === "auth/weak-password") {
+        errorMessage =
+          "Password is too weak. Please use at least 6 characters.";
+        setErrors((prev) => ({ ...prev, password: true }));
+        triggerShake("password");
+      } else if (error.code === "auth/invalid-email") {
         errorMessage = "The email address is not valid.";
-        setErrors(prev => ({ ...prev, email: true }));
-        triggerShake('email');
+        setErrors((prev) => ({ ...prev, email: true }));
+        triggerShake("email");
       }
       Alert.alert("Sign Up Failed", errorMessage);
     } finally {
-      setLoading(false); 
+      setLoading(false);
     }
   };
 
@@ -140,12 +170,21 @@ export default function SignUp() {
   };
 
   // ... (The rest of your code (renderInput and styles) is perfect)
-  const renderInput = (placeholder, value, setValue, field, isPassword = false) => (
+  const renderInput = (
+    placeholder,
+    value,
+    setValue,
+    field,
+    isPassword = false
+  ) => (
     <Animated.View
       style={[
         styles.inputContainer,
-        (errors[field] || (passwordError && (field === "password" || field === "confirmPassword"))) && styles.errorBorder,
-        { transform: [{ translateX: shakeAnim[field] }] }
+        (errors[field] ||
+          (passwordError &&
+            (field === "password" || field === "confirmPassword"))) &&
+          styles.errorBorder,
+        { transform: [{ translateX: shakeAnim[field] }] },
       ]}
     >
       <TextInput
@@ -154,13 +193,20 @@ export default function SignUp() {
         placeholderTextColor="#888"
         value={value}
         secureTextEntry={isPassword && !showPassword}
-        onChangeText={text => {
+        onChangeText={(text) => {
           setValue(text);
-          if (text) setErrors(prev => ({ ...prev, [field]: false }));
-          if (field === "password" || field === "confirmPassword") setPasswordError(false);
+          if (text) setErrors((prev) => ({ ...prev, [field]: false }));
+          if (field === "password" || field === "confirmPassword")
+            setPasswordError(false);
         }}
         autoCapitalize={field === "email" ? "none" : "sentences"}
-        keyboardType={field === "email" ? "email-address" : field === "phone" ? "phone-pad" : "default"}
+        keyboardType={
+          field === "email"
+            ? "email-address"
+            : field === "phone"
+              ? "phone-pad"
+              : "default"
+        }
         maxLength={field === "phone" ? 11 : undefined}
       />
       {isPassword && (
@@ -194,15 +240,31 @@ export default function SignUp() {
               style={styles.logo}
             />
             <Text style={styles.title}>Create Account</Text>
-            <Text style={styles.subtitle}>Sign up to start managing your brooder</Text>
+            <Text style={styles.subtitle}>
+              Sign up to start managing your brooder
+            </Text>
 
             {renderInput("Enter full name", fullname, setFullname, "fullname")}
             {renderInput("Enter email address", email, setEmail, "email")}
             {renderInput("Enter phone number", phone, setPhone, "phone")}
-            {renderInput("Enter password", password, setPassword, "password", true)}
-            {renderInput("Confirm password", confirmPassword, setConfirmPassword, "confirmPassword", true)}
+            {renderInput(
+              "Enter password",
+              password,
+              setPassword,
+              "password",
+              true
+            )}
+            {renderInput(
+              "Confirm password",
+              confirmPassword,
+              setConfirmPassword,
+              "confirmPassword",
+              true
+            )}
 
-            {passwordError && <Text style={styles.passwordError}>Passwords do not match</Text>}
+            {passwordError && (
+              <Text style={styles.passwordError}>Passwords do not match</Text>
+            )}
 
             <TouchableOpacity
               style={styles.button}
@@ -224,7 +286,6 @@ export default function SignUp() {
               </TouchableOpacity>
             </View>
             {/* --- END OF ADDED BLOCK --- */}
-
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -276,8 +337,8 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     borderWidth: 1,
     borderColor: "#ccc",
     borderRadius: 10,
@@ -303,8 +364,8 @@ const styles = StyleSheet.create({
     padding: 14,
     marginTop: 10,
     width: "100%",
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   buttonText: {
     color: "#fff",

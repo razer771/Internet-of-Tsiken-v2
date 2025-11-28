@@ -11,7 +11,7 @@ import {
   verifyPasswordResetCode,
 } from "firebase/auth";
 import { doc, setDoc, getDoc, updateDoc } from "firebase/firestore";
-import { auth, db } from "../../firebaseconfig.js";
+import { auth, db } from "../../config/firebaseconfig.js";
 
 /**
  * Sign up a new user
@@ -104,9 +104,14 @@ export const sendPasswordReset = async (email) => {
   try {
     console.log("Attempting to send password reset email to:", email);
 
+    const actionCodeSettings = {
+      url: "https://internet-of-tsiken-690dd.web.app/resetPassword.html",
+      handleCodeInApp: false,
+    };
+
     // Send password reset email directly
     // Firebase will handle if user exists or not
-    await sendPasswordResetEmail(auth, email);
+    await sendPasswordResetEmail(auth, email, actionCodeSettings);
 
     console.log("✅ Password reset email sent successfully");
     return { success: true, error: null };

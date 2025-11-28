@@ -17,16 +17,16 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { auth, db } from "../firebaseconfig.js";
+import { auth, db } from "../../config/firebaseconfig.js";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import {
   checkLoginLockout,
   incrementLoginAttempts,
   resetLoginAttempts,
   formatLockoutTime,
-} from "../src/utils/deviceLockout";
+} from "./deviceLockout";
 
-const Logo = require("../assets/logo.png");
+const Logo = require("../../assets/logo.png");
 
 export default function MobileNumberInput() {
   const [mobileNumber, setMobileNumber] = useState("");
@@ -73,7 +73,7 @@ export default function MobileNumberInput() {
     if (!mobileNumber || mobileNumber.trim() === "") {
       newErrors.mobile = "Mobile number is required";
     } else if (mobileNumber.length !== 10) {
-      newErrors.mobile = "Please enter a valid 10-digit mobile number";
+      newErrors.mobile = "Please enter your 10-digit mobile number";
     } else if (!/^[9]\d{9}$/.test(mobileNumber)) {
       newErrors.mobile = "Mobile number must start with 9 and be 10 digits";
     }
@@ -147,7 +147,7 @@ export default function MobileNumberInput() {
       if (!storedMobile) {
         Alert.alert(
           "Mobile Number Not Set",
-          "No mobile number found for your account. Please contact support to add your mobile number."
+          "No mobile number found for your account. Please contact the owner to add your mobile number."
         );
         setLoading(false);
         return;
@@ -168,7 +168,7 @@ export default function MobileNumberInput() {
         } else {
           Alert.alert(
             "Mobile Number Mismatch",
-            `The mobile number entered does not match your account. ${remainingAttempts} attempts remaining.`
+            `The mobile number you have entered does not match your account.`
           );
         }
         setErrors({ mobile: "Mobile number does not match your account" });
@@ -244,9 +244,7 @@ export default function MobileNumberInput() {
             <Image source={Logo} style={styles.logo} />
 
             <Text style={styles.title}>VERIFY MOBILE NUMBER</Text>
-            <Text style={styles.subtitle}>
-              Enter your mobile number to proceed with verification
-            </Text>
+            <Text style={styles.subtitle}></Text>
 
             {errors.mobile && (
               <View style={styles.errorAlert}>
@@ -260,7 +258,7 @@ export default function MobileNumberInput() {
               <Text style={styles.countryCode}>+63</Text>
               <TextInput
                 style={styles.phoneInput}
-                placeholder="Enter 10-digit mobile number"
+                placeholder="Enter mobile number"
                 value={mobileNumber}
                 onChangeText={setMobileNumber}
                 editable={!loading}
@@ -271,7 +269,8 @@ export default function MobileNumberInput() {
             </View>
 
             <Text style={styles.helpText}>
-              Enter the mobile number associated with your account
+              Enter the 10-digit mobile number associated with your account to
+              proceed with verification.
             </Text>
 
             {/* Verify Button */}
@@ -287,7 +286,7 @@ export default function MobileNumberInput() {
               {loading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.verifyText}>Verify Mobile Number</Text>
+                <Text style={styles.verifyText}>Send OTP</Text>
               )}
             </Pressable>
 
@@ -388,7 +387,6 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 6,
     height: "100%",
     textAlignVertical: "center",
-    paddingTop: 12,
   },
   phoneInput: {
     flex: 1,

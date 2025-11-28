@@ -9,7 +9,6 @@
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "splash": {
       "image": "./assets/logo.png",
       "resizeMode": "contain",
@@ -32,10 +31,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "84f969ee-7b4d-47d6-8494-5d9a87e161fb"
+        "projectId": "0f74e60b-9e1c-4f77-b863-a1c9a46b25ba"
       }
     },
-    "scheme": "internet-of-tsiken",
-    "owner": "ailynmay"
+    "scheme": "internet-of-tsiken"
   }
 }

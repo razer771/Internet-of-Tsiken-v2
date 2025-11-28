@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import { doc, getDoc } from "firebase/firestore";
 
 export default function LoginSuccess() {
   const navigation = useNavigation();
+  const [countdown, setCountdown] = useState(60); // 60 seconds lock
+  const [canResend, setCanResend] = useState(false);
 
   useEffect(() => {
     const loadUserData = async () => {
@@ -23,7 +25,6 @@ export default function LoginSuccess() {
           if (userDoc.exists()) {
             const userData = userDoc.data();
             console.log("✅ User dashboard data loaded:", userData);
-            // Store in global state if needed
           }
         }
       } catch (error) {
@@ -35,16 +36,33 @@ export default function LoginSuccess() {
 
     const timer = setTimeout(() => {
       console.log("Dashboard loaded! Navigating to Home...");
-      try {
-        navigation.replace("Home");
-        console.log("Navigation to Home executed");
-      } catch (error) {
-        console.error("Navigation error:", error);
-      }
+      navigation.replace("Home");
     }, 3000);
 
     return () => clearTimeout(timer);
   }, [navigation]);
+
+  // Countdown effect
+  useEffect(() => {
+    let interval;
+    if (!canResend && countdown > 0) {
+      interval = setInterval(() => {
+        setCountdown((prev) => prev - 1);
+      }, 1000);
+    } else if (countdown === 0) {
+      setCanResend(true);
+    }
+    return () => clearInterval(interval);
+  }, [countdown, canResend]);
+
+  const handleResend = () => {
+    if (canResend) {
+      console.log("Resending OTP...");
+      // Call your resend OTP logic here
+      setCountdown(60); // reset countdown
+      setCanResend(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -61,17 +79,6 @@ export default function LoginSuccess() {
           color="#4CAF50"
           style={styles.spinner}
         />
-
-        {/* Debug button - remove after testing */}
-        <TouchableOpacity
-          style={styles.debugButton}
-          onPress={() => {
-            console.log("Manual navigation to Home");
-            navigation.replace("Home");
-          }}
-        >
-          <Text style={styles.debugButtonText}>Go to Home (Debug)</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -126,15 +133,15 @@ const styles = StyleSheet.create({
   spinner: {
     marginTop: 10,
   },
-  debugButton: {
+  resendButton: {
     marginTop: 20,
-    backgroundColor: "#2196F3",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 8,
   },
-  debugButtonText: {
+  resendButtonText: {
     color: "#fff",
     fontWeight: "600",
+    fontSize: 14,
   },
 });

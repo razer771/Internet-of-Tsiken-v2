@@ -1,7 +1,15 @@
 import "react-native-gesture-handler";
-import React from "react";
+import React, { useEffect } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import * as SplashScreen from "expo-splash-screen";
+
+// Keep the splash screen visible while we fetch resources
+try {
+  SplashScreen.preventAutoHideAsync();
+} catch (e) {
+  console.warn("SplashScreen error:", e);
+}
 
 // Import components with the correct path and names
 import JsonSplashScreen from "./JsonSplashScreen/JsonSplashScreen";
@@ -41,6 +49,22 @@ const linking = {
 };
 
 export default function App() {
+  useEffect(() => {
+    async function prepare() {
+      try {
+        // Pre-load fonts, make any API calls you need to do here
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      } catch (e) {
+        console.warn(e);
+      } finally {
+        // Tell the application to render
+        await SplashScreen.hideAsync();
+      }
+    }
+
+    prepare();
+  }, []);
+
   return (
     <NavigationContainer linking={linking}>
       <Stack.Navigator

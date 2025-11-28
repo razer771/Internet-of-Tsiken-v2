@@ -5,11 +5,15 @@ import LottieView from "lottie-react-native";
 export default function JsonSplashScreen({ navigation }) {
   useEffect(() => {
     const timer = setTimeout(() => {
-      navigation.replace("LogIn"); // Go to login after animation
+      try {
+        navigation.replace("LogIn"); // Go to screens/LogIn/LogIn.js
+      } catch (error) {
+        console.error("Navigation failed:", error);
+      }
     }, 3000); // Adjust to match your animation length
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [navigation]);
 
   return (
     <View style={styles.container}>
@@ -18,6 +22,11 @@ export default function JsonSplashScreen({ navigation }) {
         autoPlay
         loop={false}
         style={styles.animation}
+        onAnimationFinish={() => {
+          console.log("Animation finished");
+          // Optional: Navigate immediately when animation finishes
+          // navigation.replace("LogIn");
+        }}
       />
     </View>
   );

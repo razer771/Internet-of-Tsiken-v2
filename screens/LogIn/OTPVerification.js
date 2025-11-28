@@ -17,7 +17,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { auth, db } from "../firebaseconfig.js";
+import { auth, db } from "../../config/firebaseconfig.js";
 import { doc, updateDoc } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import {
@@ -31,9 +31,9 @@ import {
   incrementOTPAttempts,
   resetOTPAttempts,
   formatLockoutTime,
-} from "../src/utils/deviceLockout";
+} from "./deviceLockout";
 
-const Logo = require("../assets/logo.png");
+const Logo = require("../../assets/logo.png");
 
 // Initialize Firebase Functions
 const functions = getFunctions(undefined, "us-central1");
@@ -205,60 +205,44 @@ export default function OTPVerification() {
           // Let's try using the PhoneAuthProvider.credential approach
           console.log("🔄 Trying alternative Firebase Phone Auth approach...");
 
-          // Alternative: Use cloud function but with proper Firebase Phone Auth
-          Alert.alert(
-            "SMS Verification",
-            `We'll send a verification code to ${mobileNumber}. This will use Firebase's SMS service.`,
-            [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Send SMS",
-                onPress: async () => {
-                  try {
-                    // Use Twilio Verify SMS via Firebase Function
-                    console.log("📱 Sending REAL SMS via Twilio Verify");
-                    const sendSMSOTP = httpsCallable(functions, "sendSMSOTP");
-                    const response = await sendSMSOTP({
-                      phone: mobileNumber,
-                      useRealSMS: true, // This triggers Twilio Verify SMS
-                    });
+          // Alternative: Use cloud function directly without asking user; just send
+          try {
+            console.log("📱 Sending REAL SMS via Twilio Verify");
+            const sendSMSOTP = httpsCallable(functions, "sendSMSOTP");
+            const response = await sendSMSOTP({
+              phone: mobileNumber,
+              useRealSMS: true, // This triggers Twilio Verify SMS
+            });
 
-                    if (response.data && response.data.success) {
-                      setConfirmationResult({
-                        phone: response.data.phone,
-                        twilioVerify: true,
-                        method: "twilio-verify",
-                        verificationSid: response.data.verificationSid,
-                      });
+            if (response.data && response.data.success) {
+              setConfirmationResult({
+                phone: response.data.phone,
+                twilioVerify: true,
+                method: "twilio-verify",
+                verificationSid: response.data.verificationSid,
+              });
 
-                      console.log(
-                        "✅ REAL SMS sent via Twilio Verify:",
-                        response.data.verificationSid
-                      );
+              console.log(
+                "✅ REAL SMS sent via Twilio Verify:",
+                response.data.verificationSid
+              );
 
-                      // Reset timer
-                      setTimeLeft(300);
-                      setCanResend(false);
-                      setResendCooldown(30);
+              // Reset timer
+              setTimeLeft(300);
+              setCanResend(false);
+              setResendCooldown(30);
 
-                      Alert.alert(
-                        "SMS Sent",
-                        `A verification code has been sent to your phone via Twilio.\n\nProvider: ${response.data.provider}\nStatus: Real SMS delivered`
-                      );
-                    } else {
-                      throw new Error("Failed to send Twilio SMS");
-                    }
-                  } catch (functionError) {
-                    console.error(
-                      "❌ Function SMS sending failed:",
-                      functionError
-                    );
-                    throw functionError;
-                  }
-                },
-              },
-            ]
-          );
+              Alert.alert(
+                "SMS Sent",
+                `A verification code has been sent to your phone via Twilio.\n\nProvider: ${response.data.provider}\nStatus: Real SMS delivered`
+              );
+            } else {
+              throw new Error("Failed to send Twilio SMS");
+            }
+          } catch (functionError) {
+            console.error("❌ Function SMS sending failed:", functionError);
+            throw functionError;
+          }
 
           return {
             success: true,
@@ -290,8 +274,10 @@ export default function OTPVerification() {
                 method: "test-fallback",
               });
 
-              console.log(`🔐 TEST MODE - Use OTP: ${testOTP}`);
-              Alert.alert("Test Mode", `Use this OTP code: ${testOTP}`);
+              // Using plain ASCII to avoid bundler transform issues with emoji
+              console.log("TEST MODE - Use OTP: " + testOTP);
+              // Using concatenation to avoid template parsing issues in some bundler states
+              Alert.alert("Test Mode", "Use this OTP code: " + testOTP);
 
               setTimeLeft(300);
               setCanResend(false);
@@ -309,7 +295,7 @@ export default function OTPVerification() {
     if (resendCooldown > 0) {
       Alert.alert(
         "Please Wait",
-        `You can resend OTP in ${resendCooldown} seconds.`
+        "You can resend OTP in " + resendCooldown + " seconds."
       );
       return;
     }
@@ -475,16 +461,12 @@ export default function OTPVerification() {
           console.log("✅ User verification status updated in Firestore");
         }
 
-        Alert.alert(
-          "Success",
-          "Phone number verified successfully! Redirecting to dashboard...",
-          [
-            {
-              text: "OK",
-              onPress: () => navigation.navigate("Home"),
-            },
-          ]
-        );
+        Alert.alert("Success", "", [
+          {
+            text: "OK",
+            onPress: () => navigation.navigate("LoginSuccess"),
+          },
+        ]);
       } else {
         throw new Error("Invalid OTP code");
       }

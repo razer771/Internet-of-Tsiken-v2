@@ -12,25 +12,25 @@ import {
   TouchableWithoutFeedback,
   Platform,
   ActivityIndicator,
-  ScrollView,
   Pressable,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
 import Checkbox from "expo-checkbox";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { auth, db } from "../firebaseconfig.js";
+import { auth, db } from "../../config/firebaseconfig.js";
 import {
   checkLoginLockout,
   incrementLoginAttempts,
   resetLoginAttempts,
   formatLockoutTime,
   LOCKOUT_DURATION,
-} from "../src/utils/deviceLockout";
+} from "./deviceLockout";
 
-const Logo = require("../assets/logo.png");
+const Logo = require("../../assets/logo.png");
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -60,19 +60,13 @@ export default function Login() {
     }
   };
 
-  // Clear email and password fields when returning from password reset
+  // Always clear email, password, and errors whenever Login regains focus
   useFocusEffect(
     React.useCallback(() => {
-      // Check if we're returning from reset password screen
-      const state = navigation.getState();
-      const previousRoute = state.routes[state.index - 1];
-
-      if (previousRoute && previousRoute.name === "resetpassword") {
-        setEmail("");
-        setPassword("");
-        setErrors({});
-      }
-    }, [navigation])
+      setEmail("");
+      setPassword("");
+      setErrors({});
+    }, [])
   );
 
   useEffect(() => {
@@ -267,9 +261,12 @@ export default function Login() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <ScrollView
+        <KeyboardAwareScrollView
           style={styles.container}
           contentContainerStyle={styles.scrollContent}
+          enableOnAndroid={true}
+          extraScrollHeight={20}
+          keyboardShouldPersistTaps="handled"
         >
           <View style={styles.card}>
             <Image source={Logo} style={styles.logo} />
@@ -318,7 +315,7 @@ export default function Login() {
               </TouchableOpacity>
             </View>
             {errors.password && (
-              <View>
+              <View style={{ alignItems: "flex-start", width: "100%" }}>
                 {Array.isArray(errors.password) ? (
                   errors.password.map((err, idx) => (
                     <Text key={idx} style={styles.errorText}>
@@ -373,7 +370,7 @@ export default function Login() {
               </TouchableOpacity>
             </View>
           </View>
-        </ScrollView>
+        </KeyboardAwareScrollView>
       </TouchableWithoutFeedback>
     </KeyboardAvoidingView>
   );

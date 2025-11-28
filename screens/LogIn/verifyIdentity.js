@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { auth, db } from "../firebaseconfig.js";
+import { auth, db } from "../../config/firebaseconfig.js";
 import { doc, updateDoc } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 
@@ -39,11 +39,11 @@ export default function VerifyIdentityScreen() {
         // Format phone number with country code
         const phoneNumber = `+63${inputValue}`; // Philippines country code
 
-        console.log("🔄 Sending SMS via Firebase Functions:", phoneNumber);
+        console.log("🔄 Sending SMS to:", phoneNumber);
 
         // Call our deployed Firebase Function to send SMS
         const sendSMSOTP = httpsCallable(functions, "sendSMSOTP");
-        const requestData = { phone: phoneNumber };
+        const requestData = { mobileNumber: phoneNumber };
         console.log("🔄 Request data being sent:", requestData);
         console.log("🔄 Request data type:", typeof requestData);
         console.log("🔄 Request data keys:", Object.keys(requestData));
@@ -52,19 +52,17 @@ export default function VerifyIdentityScreen() {
 
         if (response.data && response.data.success) {
           setConfirmationResult({
-            phone: response.data.phone,
-            testOTP: response.data.testOTP, // This shows it's working
+            mobileNumber: response.data.mobileNumber,
+            testOTP: response.data.testOTP,
           });
-          setVerificationId(response.data.phone);
+          setVerificationId(response.data.mobileNumber);
         } else {
           throw new Error("Failed to send SMS");
         }
 
         console.log("==========================================");
-        console.log(
-          `📱 SMS sent via Firebase Functions to: ${response.data.phone}`
-        );
-        console.log("✅ Firebase Functions SMS successful");
+        console.log(`📱 SMS sent to: ${response.data.mobileNumber}`);
+        console.log("SMS sent successfully");
         if (response.data.testOTP) {
           console.log(`🔐 OTP CODE: ${response.data.testOTP}`);
         }
@@ -73,7 +71,7 @@ export default function VerifyIdentityScreen() {
         setShowOtpScreen(true);
         Alert.alert(
           "SMS Sent",
-          `SMS verification code sent to ${response.data.phone}${
+          `SMS verification code sent to ${response.data.mobileNumber}${
             response.data.testOTP
               ? `\\n\\n🔐 TEST OTP: ${response.data.testOTP}\\n\\nUse this code to continue (SMS delivery in progress...)`
               : "\\n\\nCheck your messages for the code."
