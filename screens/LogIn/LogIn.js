@@ -43,6 +43,13 @@ export default function Login() {
       return;
     }
 
+    // Admin bypass login
+    if (email === "admin@example.com" && password === "admin1234") {
+      console.log("✅ Admin login successful!");
+      navigation.navigate("Home");
+      return;
+    }
+
     setLoading(true);
     try {
       // Sign in with Firebase Authentication
