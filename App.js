@@ -10,7 +10,6 @@ import LoginSuccess from "./screens/loginSuccess";
 import VerifyIdentity from "./screens/verifyIdentity";
 import PasswordUpdated from "./screens/passwordupdated";
 import ResetPassword from "./screens/resetpassword";
-import Home from "./screens/Dashboard/Home";
 
 const Stack = createNativeStackNavigator();
 
@@ -30,7 +29,6 @@ export default function App() {
         <Stack.Screen name="VerifyIdentity" component={VerifyIdentity} />
         <Stack.Screen name="PasswordUpdated" component={PasswordUpdated} />
         <Stack.Screen name="ResetPassword" component={ResetPassword} />
-        <Stack.Screen name="Home" component={Home} />
       </Stack.Navigator>
     </NavigationContainer>
   );
