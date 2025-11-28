@@ -34,10 +34,10 @@ export default function LoginSuccess() {
     loadUserData();
 
     const timer = setTimeout(() => {
-      console.log('Dashboard loaded! Navigating to Home...');
+      console.log('Dashboard loaded! Navigating to Control...');
       try {
-        navigation.replace("Home");
-        console.log('Navigation to Home executed');
+        navigation.replace("Control");
+        console.log('Navigation to Control executed');
       } catch (error) {
         console.error('Navigation error:', error);
       }
