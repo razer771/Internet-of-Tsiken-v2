@@ -127,19 +127,19 @@ export default function Login() {
     if (email === "admin@example.com" && password === "admin1234") {
       console.log("✅ Admin login successful!");
       // Save admin bypass flag
-      await AsyncStorage.setItem('isAdminBypass', 'true');
-      await AsyncStorage.setItem('adminEmail', 'admin@example.com');
+      await AsyncStorage.setItem("isAdminBypass", "true");
+      await AsyncStorage.setItem("adminEmail", "admin@example.com");
       navigation.navigate("Home");
       return;
     }
 
     // Clear admin bypass flag for regular users
-    await AsyncStorage.removeItem('isAdminBypass');
-    await AsyncStorage.removeItem('adminEmail');
+    await AsyncStorage.removeItem("isAdminBypass");
+    await AsyncStorage.removeItem("adminEmail");
 
     // Clear admin bypass flag for regular users
-    await AsyncStorage.removeItem('isAdminBypass');
-    await AsyncStorage.removeItem('adminEmail');
+    await AsyncStorage.removeItem("isAdminBypass");
+    await AsyncStorage.removeItem("adminEmail");
 
     console.log("Validation passed!");
 
@@ -180,14 +180,15 @@ export default function Login() {
       const userRef = doc(db, "users", user.uid);
       const userDoc = await getDoc(userRef);
 
-
-      
-
       if (userDoc.exists()) {
         console.log("✅ User data loaded:", userDoc.data());
         const userData = userDoc.data();
         // Check if user is already verified (check both field names)
-        if (userData.verified === true || userData.isVerified === true || user.emailVerified) {
+        if (
+          userData.verified === true ||
+          userData.isVerified === true ||
+          user.emailVerified
+        ) {
           console.log("✅ User is verified, skipping OTP");
           navigation.navigate("Home");
           return;
@@ -195,28 +196,27 @@ export default function Login() {
 
         //
 
+        // if (userData.mustShowPasswordUpdated) {
+        //          await updateDoc(userRef, { mustShowPasswordUpdated: false });
+        //          navigation.replace("PasswordUpdated");
+        //          return;
+        //       }
 
-// if (userData.mustShowPasswordUpdated) {
-//          await updateDoc(userRef, { mustShowPasswordUpdated: false });
-//          navigation.replace("PasswordUpdated");
-//          return;
-//       }
+        //        console.log("✅ Login successful");
+        //        setLoading(false);
 
-//        console.log("✅ Login successful");
-//        setLoading(false);
+        //        try {
+        //          await resetLoginAttempts();
+        //        } catch (resetError) {
+        //          console.log(
+        //            "Error resetting login attempts (non-critical):",
+        //            resetError
+        //          );
+        //        }
 
-//        try {
-//          await resetLoginAttempts();
-//        } catch (resetError) {
-//          console.log(
-//            "Error resetting login attempts (non-critical):",
-//            resetError
-//          );
-//        }
-
-       // console.log(
-        //  "✅ Login successful, navigating to mobile number verification"
-        );
+        // console.log(
+        //   "✅ Login successful, navigating to mobile number verification"
+        // );
         // Navigate to MobileNumberInput screen for mobile verification
         //navigation.navigate("MobileNumberInput");
 
@@ -233,7 +233,6 @@ export default function Login() {
       // Navigate to VerifyIdentity for OTP verification (only if not verified)
       console.log("⏳ User not verified, redirecting to OTP");
       navigation.navigate("VerifyIdentity");
-
     } catch (error) {
       console.error("Firebase Login Error:", error.code, error.message);
       const attempts = await incrementLoginAttempts();
@@ -266,7 +265,7 @@ export default function Login() {
   };
 
   const handleForgotPassword = () => {
-    navigation.navigate("resetpassword");
+    navigation.navigate("ResetPassword");
   };
 
   const handleSignup = () => {
