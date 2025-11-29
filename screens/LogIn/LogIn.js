@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -12,18 +12,23 @@ import {
   TouchableWithoutFeedback,
   Platform,
   ActivityIndicator,
+  Pressable,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
 import Checkbox from "expo-checkbox";
-
-// Import navigation hook
-import { useNavigation } from "@react-navigation/native";
-
-// Import Firebase auth and Firestore
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from '../../config/firebaseconfig';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { auth, db } from "../../config/firebaseconfig.js";
+import {
+  checkLoginLockout,
+  incrementLoginAttempts,
+  resetLoginAttempts,
+  formatLockoutTime,
+  LOCKOUT_DURATION,
+} from "./deviceLockout";
 
 const Logo = require("../../assets/logo.png");
 
@@ -33,14 +38,88 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [deviceLocked, setDeviceLocked] = useState(false);
+  const [lockoutTime, setLockoutTime] = useState(null);
 
   const navigation = useNavigation();
+
+  useEffect(() => {
+    checkDeviceLockoutStatus();
+    // Temporary: Clear old lockout data for testing
+    clearOldLockoutData();
+  }, []);
+
+  const clearOldLockoutData = async () => {
+    try {
+      await AsyncStorage.removeItem("device_login_lockout");
+      await AsyncStorage.removeItem("device_login_attempts");
+      console.log("Cleared old lockout data");
+    } catch (error) {
+      console.error("Error clearing lockout data:", error);
+    }
+  };
+
+  // Always clear email, password, and errors whenever Login regains focus
+  useFocusEffect(
+    React.useCallback(() => {
+      setEmail("");
+      setPassword("");
+      setErrors({});
+    }, [])
+  );
+
+  useEffect(() => {
+    let interval;
+    if (deviceLocked && lockoutTime > 0) {
+      interval = setInterval(() => {
+        setLockoutTime((prev) => {
+          const newTime = prev - 1000;
+          if (newTime <= 0) {
+            setDeviceLocked(false);
+            return null;
+          }
+          return newTime;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [deviceLocked, lockoutTime]);
+
+  const checkDeviceLockoutStatus = async () => {
+    const lockoutStatus = await checkLoginLockout();
+    if (lockoutStatus.isLockedOut) {
+      setDeviceLocked(true);
+      setLockoutTime(lockoutStatus.remainingTime);
+    }
+  };
+
+  const validateLoginForm = () => {
+    setErrors({});
+    const newErrors = {};
+
+    // Basic email validation - just check if it's not empty and has @
+    if (!email || email.trim() === "") {
+      newErrors.email = "Email is required";
+    } else if (!email.includes("@")) {
+      newErrors.email = "Please enter a valid email";
+    }
+
+    // Just check if password is provided
+    if (!password || password.trim() === "") {
+      newErrors.password = "Password is required";
+    }
+
+    console.log("Validation errors:", newErrors);
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleLogin = async () => {
     console.log("Login button clicked");
 
-    if (!email || !password) {
-      Alert.alert("Error", "Please enter both email and password.");
+    if (!validateLoginForm()) {
+      console.log("Validation failed, stopping login");
       return;
     }
 
@@ -58,27 +137,97 @@ export default function Login() {
     await AsyncStorage.removeItem('isAdminBypass');
     await AsyncStorage.removeItem('adminEmail');
 
-    setLoading(true);
+    // Clear admin bypass flag for regular users
+    await AsyncStorage.removeItem('isAdminBypass');
+    await AsyncStorage.removeItem('adminEmail');
+
+    console.log("Validation passed!");
+
     try {
-      // Sign in with Firebase Authentication
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      console.log("Checking lockout status...");
+      const lockoutStatus = await checkLoginLockout();
+      console.log("Lockout status:", lockoutStatus);
+
+      if (lockoutStatus && lockoutStatus.isLockedOut) {
+        console.log("Account is locked");
+        setDeviceLocked(true);
+        setLockoutTime(lockoutStatus.remainingTime);
+        Alert.alert(
+          "Account Locked",
+          `Too many failed login attempts. Please try again in ${formatLockoutTime(
+            lockoutStatus.remainingTime
+          )}.`
+        );
+        return;
+      }
+    } catch (lockoutError) {
+      console.log("Lockout check error (continuing anyway):", lockoutError);
+    }
+
+    console.log("Starting Firebase authentication...");
+    setLoading(true);
+
+    try {
+      console.log("Calling signInWithEmailAndPassword...");
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        email.trim(),
+        password
+      );
       const user = userCredential.user;
       console.log("✅ Login successful! User ID:", user.uid);
 
-      // Fetch user data from Firestore
-      const userDoc = await getDoc(doc(db, "users", user.uid));
+      const userRef = doc(db, "users", user.uid);
+      const userDoc = await getDoc(userRef);
+
+
+      
+
       if (userDoc.exists()) {
+        console.log("✅ User data loaded:", userDoc.data());
         const userData = userDoc.data();
-        console.log("✅ User data loaded:", userData);
-        
         // Check if user is already verified (check both field names)
         if (userData.verified === true || userData.isVerified === true || user.emailVerified) {
           console.log("✅ User is verified, skipping OTP");
           navigation.navigate("Home");
           return;
         }
+
+        //
+
+
+// if (userData.mustShowPasswordUpdated) {
+//          await updateDoc(userRef, { mustShowPasswordUpdated: false });
+//          navigation.replace("PasswordUpdated");
+//          return;
+//       }
+
+//        console.log("✅ Login successful");
+//        setLoading(false);
+
+//        try {
+//          await resetLoginAttempts();
+//        } catch (resetError) {
+//          console.log(
+//            "Error resetting login attempts (non-critical):",
+//            resetError
+//          );
+//        }
+
+       // console.log(
+        //  "✅ Login successful, navigating to mobile number verification"
+        );
+        // Navigate to MobileNumberInput screen for mobile verification
+        //navigation.navigate("MobileNumberInput");
+
+        //
+
+        console.log("✅ User data loaded:", userData);
+        // You can store userData in global state (Context/Redux) if needed
       } else {
-        console.log("⚠️ No user profile found in Firestore");
+        console.log("❌ User document does not exist in Firestore");
+        setLoading(false);
+        Alert.alert("Error", "User data not found. Please contact support.");
       }
 
       // Navigate to VerifyIdentity for OTP verification (only if not verified)
@@ -87,29 +236,62 @@ export default function Login() {
 
     } catch (error) {
       console.error("Firebase Login Error:", error.code, error.message);
+      const attempts = await incrementLoginAttempts();
+      const remainingAttempts = 5 - attempts;
+
       let errorMessage = "Invalid email or password.";
-      if (error.code === 'auth/invalid-credential') {
+      if (error.code === "auth/invalid-credential") {
         errorMessage = "Invalid email or password.";
-      } else if (error.code === 'auth/invalid-email') {
+      } else if (error.code === "auth/invalid-email") {
         errorMessage = "That email address is not valid.";
-      } else if (error.code === 'auth/too-many-requests') {
+      } else if (error.code === "auth/too-many-requests") {
         errorMessage = "Too many login attempts. Please try again later.";
+      } else if (error.code === "auth/user-not-found") {
+        errorMessage = "User not found.";
       }
-      Alert.alert("Login Failed", errorMessage);
+
+      if (remainingAttempts <= 0) {
+        setDeviceLocked(true);
+        setLockoutTime(LOCKOUT_DURATION);
+        Alert.alert(
+          "Account Locked",
+          "Too many failed login attempts. Your account is locked for 10 seconds."
+        );
+      }
+
+      setErrors({ auth: errorMessage });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSignup = () => {
-    // --- THIS IS THE FIX ---
-    // It now matches the "Signup" name in your App.js
-    navigation.navigate("Signup"); 
+  const handleForgotPassword = () => {
+    navigation.navigate("resetpassword");
   };
 
-  const handleForgotPassword = () => {
-    navigation.navigate("ResetPassword");
+  const handleSignup = () => {
+    navigation.navigate("SignUp");
   };
+
+  if (deviceLocked) {
+    return (
+      <View style={styles.lockedContainer}>
+        <View style={styles.lockedCard}>
+          <Ionicons name="lock-closed" size={48} color="#c41e3a" />
+          <Text style={styles.lockedTitle}>Account Locked</Text>
+          <Text style={styles.lockedSubtitle}>
+            Too many failed login attempts
+          </Text>
+          <Text style={styles.lockedTime}>
+            {lockoutTime ? formatLockoutTime(lockoutTime) : "00:00"}
+          </Text>
+          <Text style={styles.lockedMessage}>
+            Please try again later or contact support.
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -117,31 +299,50 @@ export default function Login() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.container}>
+        <KeyboardAwareScrollView
+          style={styles.container}
+          contentContainerStyle={styles.scrollContent}
+          enableOnAndroid={true}
+          extraScrollHeight={20}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.card}>
             <Image source={Logo} style={styles.logo} />
 
             <Text style={styles.title}>WELCOME</Text>
             <Text style={styles.subtitle}>Login to your Account</Text>
 
+            {errors.auth && (
+              <View style={styles.errorAlert}>
+                <Text style={styles.errorAlertText}>{errors.auth}</Text>
+              </View>
+            )}
+
+            {/* Email Input */}
             <Text style={styles.label}>Email</Text>
             <TextInput
               style={styles.input}
               placeholder="Enter email"
               value={email}
               onChangeText={setEmail}
-              autoCapitalize="none"
+              editable={!loading}
               keyboardType="email-address"
+              autoCapitalize="none"
             />
+            {errors.email && (
+              <Text style={styles.errorText}>{errors.email}</Text>
+            )}
 
+            {/* Password Input */}
             <Text style={styles.label}>Password</Text>
             <View style={styles.passwordContainer}>
               <TextInput
                 style={styles.passwordInput}
                 placeholder="Enter password"
-                secureTextEntry={!showPassword}
                 value={password}
                 onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                editable={!loading}
               />
               <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
                 <Ionicons
@@ -151,7 +352,21 @@ export default function Login() {
                 />
               </TouchableOpacity>
             </View>
+            {errors.password && (
+              <View style={{ alignItems: "flex-start", width: "100%" }}>
+                {Array.isArray(errors.password) ? (
+                  errors.password.map((err, idx) => (
+                    <Text key={idx} style={styles.errorText}>
+                      • {err}
+                    </Text>
+                  ))
+                ) : (
+                  <Text style={styles.errorText}>{errors.password}</Text>
+                )}
+              </View>
+            )}
 
+            {/* Options Row */}
             <View style={styles.optionsRow}>
               <View style={styles.checkboxContainer}>
                 <Checkbox
@@ -170,8 +385,13 @@ export default function Login() {
               </View>
             </View>
 
-            <TouchableOpacity
-              style={styles.loginBtn}
+            {/* Login Button */}
+            <Pressable
+              style={({ pressed }) => [
+                styles.loginBtn,
+                loading && styles.buttonDisabled,
+                pressed && { opacity: 0.8 },
+              ]}
               onPress={handleLogin}
               disabled={loading}
             >
@@ -180,8 +400,9 @@ export default function Login() {
               ) : (
                 <Text style={styles.loginText}>Login</Text>
               )}
-            </TouchableOpacity>
+            </Pressable>
 
+            {/* Sign Up Link */}
             <View style={styles.signupRow}>
               <Text style={styles.signupText}>Don't have an Account? </Text>
               <TouchableOpacity onPress={handleSignup}>
@@ -189,7 +410,7 @@ export default function Login() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAwareScrollView>
       </TouchableWithoutFeedback>
     </KeyboardAvoidingView>
   );
@@ -199,8 +420,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#fff",
+  },
+  scrollContent: {
     alignItems: "center",
     justifyContent: "center",
+    flexGrow: 1,
   },
   card: {
     width: "85%",
@@ -213,6 +437,7 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 4,
     alignItems: "center",
+    marginVertical: 20,
   },
   logo: {
     width: 120,
@@ -245,6 +470,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 6,
     paddingHorizontal: 10,
+    marginBottom: 8,
   },
   passwordContainer: {
     flexDirection: "row",
@@ -256,9 +482,29 @@ const styles = StyleSheet.create({
     height: 45,
     paddingHorizontal: 10,
     justifyContent: "space-between",
+    marginBottom: 8,
   },
   passwordInput: {
     flex: 1,
+  },
+  errorAlert: {
+    width: "100%",
+    backgroundColor: "#ffebee",
+    borderLeftColor: "#c41e3a",
+    borderLeftWidth: 4,
+    borderRadius: 6,
+    padding: 10,
+    marginBottom: 16,
+  },
+  errorAlertText: {
+    color: "#c41e3a",
+    fontSize: 12,
+  },
+  errorText: {
+    color: "#c41e3a",
+    fontSize: 11,
+    marginBottom: 8,
+    alignSelf: "flex-start",
   },
   optionsRow: {
     flexDirection: "row",
@@ -292,6 +538,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginVertical: 10,
   },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
   loginText: {
     color: "#fff",
     fontWeight: "bold",
@@ -309,5 +558,84 @@ const styles = StyleSheet.create({
     color: "#3b4cca",
     fontWeight: "bold",
     textDecorationLine: "underline",
+  },
+  backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+    alignSelf: "flex-start",
+  },
+  backText: {
+    color: "#3b4cca",
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  otpInput: {
+    width: "100%",
+    borderColor: "#ccc",
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    fontSize: 24,
+    textAlign: "center",
+    marginBottom: 12,
+    letterSpacing: 8,
+    fontWeight: "600",
+  },
+  resendButton: {
+    paddingVertical: 12,
+  },
+  resendText: {
+    color: "#3b4cca",
+    textAlign: "center",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  resendTextDisabled: {
+    color: "#999",
+  },
+  lockedContainer: {
+    flex: 1,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  lockedCard: {
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    padding: 32,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  lockedTitle: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#c41e3a",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  lockedSubtitle: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  lockedTime: {
+    fontSize: 32,
+    fontWeight: "bold",
+    color: "#c41e3a",
+    marginBottom: 16,
+  },
+  lockedMessage: {
+    fontSize: 13,
+    color: "#666",
+    textAlign: "center",
   },
 });

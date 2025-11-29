@@ -1,12 +1,14 @@
 {
   "expo": {
     "name": "Internet Of Tsiken",
-    "slug": "Capstone",
+    "slug": "capstone",
+    "plugins": [
+      "expo-video"
+    ],
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "splash": {
       "image": "./assets/logo.png",
       "resizeMode": "contain",
@@ -16,22 +18,22 @@
       "supportsTablet": true
     },
     "android": {
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.ailynmay.capstone"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": [
-      "expo-video"
-    ],
     "extra": {
       "eas": {
-        "projectId": "0fa4a57e-a0d6-44ce-925c-9eeb568812a8"
+        "projectId": "0f74e60b-9e1c-4f77-b863-a1c9a46b25ba"
       }
-    }
+    },
+    "scheme": "internet-of-tsiken"
   }
 }

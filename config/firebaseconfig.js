@@ -1,31 +1,27 @@
 // If you haven’t yet installed Firebase, run: // 👉 npm install firebase
 import { initializeApp } from "firebase/app";
 // Import the functions for persistence
-import { 
-  initializeAuth, 
-  getReactNativePersistence 
-} from 'firebase/auth'; 
+import { initializeAuth, getReactNativePersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
-import { getAnalytics, isSupported } from 'firebase/analytics'; // For the analytics warning
-
+import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
+import { getAnalytics, isSupported } from "firebase/analytics"; // For the analytics warning
 
 // ⚠️ PLEASE REPLACE THIS WITH YOUR NEW, REGENERATED KEYS
 const firebaseConfig = {
-  apiKey: "AIzaSyA_UhQ_KlCsoCmRlda_S2RrUv6QhGo0c_0",
-  authDomain: "internet-of-tsiken.firebaseapp.com",
-  projectId: "internet-of-tsiken",
-  storageBucket: "internet-of-tsiken.firebasestorage.app",
-  messagingSenderId: "998028163151",
-  appId: "1:998028163151:web:ce0864acced24f37d7d23a",
-  measurementId: "G-W7495LQB4J"
+  apiKey: "AIzaSyAOC8S6aOGvfnUzp0Twb-7O727Un9FoUGE",
+  authDomain: "internet-of-tsiken-690dd.firebaseapp.com",
+  projectId: "internet-of-tsiken-690dd",
+  storageBucket: "internet-of-tsiken-690dd.appspot.com",
+  messagingSenderId: "296742448098",
+  appId: "1:296742448098:web:8163021d84af262c6527bb",
+  measurementId: "G-FEWSJPB1Z1",
 };
 
-// Initialize Firebase 
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
 export const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(ReactNativeAsyncStorage)
+  persistence: getReactNativePersistence(ReactNativeAsyncStorage),
 });
 
 // Initialize Firestore
@@ -44,4 +40,4 @@ let analytics;
 })();
 
 export { analytics };
-export default app; 
+export default app;

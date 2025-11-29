@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "296742448098",
+    "project_id": "internet-of-tsiken-690dd",
+    "storage_bucket": "internet-of-tsiken-690dd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:296742448098:android:43b0e6775d3119ab6527bb",
+        "android_client_info": {
+          "package_name": "com.internetoftsiken.otp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCixR0qDsaTJHrkrz39E8yzmu6PDKKZlB8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
