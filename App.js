@@ -17,10 +17,10 @@ try {
 import JsonSplashScreen from "./JsonSplashScreen/JsonSplashScreen";
 import LogIn from "./screens/LogIn/LogIn";
 import SignUp from "./screens/LogIn/SignUp";
-import LoginSuccess from "./screens/LogIn/LoginSuccess";
-import VerifyIdentity from "./screens/LogIn/VerifyIdentity";
-import PasswordUpdated from "./screens/LogIn/PasswordUpdated";
-import ResetPassword from "./screens/LogIn/ResetPassword";
+import LoginSuccess from "./screens/LogIn/loginSuccess";
+import VerifyIdentity from "./screens/LogIn/verifyIdentity";
+import PasswordUpdated from "./screens/LogIn/passwordupdated";
+import ResetPassword from "./screens/LogIn/resetpassword";
 import MobileNumberInput from "./screens/LogIn/MobileNumberInput";
 import OTPVerification from "./screens/LogIn/OTPVerification";
 import ConfirmPassword from "./screens/LogIn/ConfirmPassword";
@@ -29,11 +29,12 @@ import Home from "./screens/Dashboard/Home";
 import Notification from "./screens/controls/Notification";
 import ControlScreen from "./screens/controls/ControlScreen";
 import Settings from "./screens/controls/Settings";
-import UserProfile from "./screens/Profile/UserProfile";
-import EditProfile from "./screens/Profile/EditProfile";
+import UserProfile from "./screens/Profile/userProfile";
+import EditProfile from "./screens/Profile/editProfile";
 import ActivityLogs from "./screens/ActivityLogs/ActivityLogs";
 import Reports from "./screens/Reports/Reports";
 import ViewReport from "./screens/Reports/ViewReport";
+import Analytics from "./screens/Analytics/analytics";
 import Header from "./screens/navigation/Header";
 import BottomNavigation from "./screens/navigation/BottomNavigation";
 
@@ -108,11 +109,15 @@ export default function App() {
 
   const handleNavigate = (screen) => {
     if (navigationRef.isReady()) {
-      if (screen === "Home" && currentRoute === "Control") {
-        navigationRef.goBack();
-      } else {
-        navigationRef.navigate(screen);
+      // Don't navigate if already on the same screen
+      if (currentRoute === screen) {
+        return;
       }
+      // Navigate to the selected screen, resetting the stack to avoid deep nesting
+      navigationRef.reset({
+        index: 0,
+        routes: [{ name: screen }],
+      });
     }
   };
 
@@ -269,6 +274,14 @@ export default function App() {
               component={createTrackedScreen(
                 ViewReport,
                 "ViewReport",
+                setCurrentRoute
+              )}
+            />
+            <Stack.Screen
+              name="Analytics"
+              component={createTrackedScreen(
+                Analytics,
+                "Analytics",
                 setCurrentRoute
               )}
             />

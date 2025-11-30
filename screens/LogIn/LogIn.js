@@ -216,7 +216,7 @@ export default function Login() {
 
        // console.log(
         //  "✅ Login successful, navigating to mobile number verification"
-        );
+        //);
         // Navigate to MobileNumberInput screen for mobile verification
         //navigation.navigate("MobileNumberInput");
 
