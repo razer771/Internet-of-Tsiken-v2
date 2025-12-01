@@ -28,9 +28,9 @@ import Home from "./screens/User/Dashboard/Home";
 import Notification from "./screens/User/controls/Notification";
 import ControlScreen from "./screens/User/controls/ControlScreen";
 import Settings from "./screens/User/controls/Settings";
-import UserProfile from "./screens/User/Reports/Profile/userProfile";
-import EditProfile from "./screens/User/Reports/Profile/editProfile";
-import UserActivityLogs from "./screens/ActivityLogs/ActivityLogs";
+import UserProfile from "./screens/User/Profile/userProfile";
+import EditProfile from "./screens/User/Profile/editProfile";
+import UserActivityLogs from "./screens/User/ActivityLogs/ActivityLogs";
 import AdminActivityLogs from "./screens/Admin/activityLogs";
 import Reports from "./screens/User/Reports/Reports";
 import ViewReport from "./screens/User/Reports/ViewReport";
@@ -59,7 +59,7 @@ const AUTH_SCREENS = [
   "UserManagement",
   "CreateAccount",
   "AdminAnalytics",
-  "ActivityLogs",
+  "AdminActivityLogs",
 ];
 
 // Screen wrapper that reports its route name to parent
@@ -257,8 +257,16 @@ export default function App() {
             <Stack.Screen
               name="ActivityLogs"
               component={createTrackedScreen(
-                AdminActivityLogs,
+                UserActivityLogs,
                 "ActivityLogs",
+                setCurrentRoute
+              )}
+            />
+            <Stack.Screen
+              name="AdminActivityLogs"
+              component={createTrackedScreen(
+                AdminActivityLogs,
+                "AdminActivityLogs",
                 setCurrentRoute
               )}
             />

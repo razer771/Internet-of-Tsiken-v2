@@ -14,7 +14,7 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { auth, db } from "../../../../config/firebaseconfig";
+import { auth, db } from "../../../config/firebaseconfig";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import AsyncStorage from '@react-native-async-storage/async-storage';

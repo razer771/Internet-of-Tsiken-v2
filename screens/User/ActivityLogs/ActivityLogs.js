@@ -11,11 +11,9 @@ import {
   StatusBar,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import HeaderUpdated from "../navigation/Header";
-import BottomNavigation from "../navigation/BottomNavigation";
-import CalendarModal from "../navigation/CalendarModal";
+import CalendarModal from "../../navigation/CalendarModal";
 import GenerateLogReportModal from "./GenerateLogReportModal";
-import SuccessModal from "../navigation/SuccessModal";
+import SuccessModal from "../../navigation/SuccessModal";
 
 const Icon = Feather;
 

@@ -160,7 +160,7 @@ export default function AdminDashboard() {
                 activeOpacity={0.85}
                 onPressIn={() => setPressedBtn("activityLogs")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() => navigation.navigate("ActivityLogs")} // <-- navigate to ActivityLogs
+                onPress={() => navigation.navigate("AdminActivityLogs")}
               >
                 <Text style={[
                   styles.fullWidthButtonText,

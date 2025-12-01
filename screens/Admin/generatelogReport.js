@@ -138,7 +138,7 @@ export default function GenerateLogReport({ navigation }) {
     // Redirect after 2 seconds
     setTimeout(() => {
       setSuccessVisible(false);
-      navigation.navigate("ActivityLogs");
+      navigation.navigate("AdminActivityLogs");
     }, 2000);
   };
 

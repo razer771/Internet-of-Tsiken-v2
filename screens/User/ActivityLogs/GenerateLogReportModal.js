@@ -10,8 +10,8 @@ import {
   ScrollView,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import CalendarModal from "../navigation/CalendarModal";
-import TimePickerDropdown from "../test/Talan/TimePickerDropdown";
+import CalendarModal from "../../navigation/CalendarModal";
+import TimePickerDropdown from "../../test/Talan/TimePickerDropdown";
 
 const Icon = Feather;
 
