@@ -11,7 +11,7 @@ import {
   Platform,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import CalendarModal from "../navigation/CalendarModal";
+import CalendarModal from "../../navigation/CalendarModal";
 
 const Icon = Feather;
 
