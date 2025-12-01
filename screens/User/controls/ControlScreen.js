@@ -17,7 +17,7 @@ import {
 import Slider from "@react-native-community/slider";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
-import { auth, db } from "../../config/firebaseconfig";
+import { auth, db } from "../../../config/firebaseconfig";
 import { doc, setDoc, addDoc, collection } from "firebase/firestore";
 
 const PRIMARY = "#133E87";

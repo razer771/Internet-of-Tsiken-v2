@@ -11,11 +11,11 @@ import {
   StatusBar,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import HeaderUpdated from "../navigation/Header";
-import BottomNavigation from "../navigation/BottomNavigation";
-import CalendarModal from "../navigation/CalendarModal";
+import HeaderUpdated from "../../navigation/Header";
+import BottomNavigation from "../../navigation/BottomNavigation";
+import CalendarModal from "../../navigation/CalendarModal";
 import GenerateLogReportModal from "./GenerateLogReportModal";
-import SuccessModal from "../navigation/SuccessModal";
+import SuccessModal from "../../navigation/SuccessModal";
 
 const Icon = Feather;
 
@@ -27,21 +27,91 @@ export default function ActivityLogs({ navigation }) {
   const [successMessage, setSuccessMessage] = useState("");
 
   const [activityLogs, setActivityLogs] = useState([
-    { id: 1, date: "01-18-25", time: "9:23 AM", user: "Owner", action: "Activated Sprinkler", description: "Adjusts the water valve in order to keep the brooder clean" },
-    { id: 2, date: "01-18-25", time: "9:23 AM", user: "Owner", action: "Activated Sprinkler", description: "Adjusts the water valve in order to keep the brooder clean" },
-    { id: 3, date: "01-18-25", time: "9:23 AM", user: "Owner", action: "Activated Sprinkler", description: "Adjusts the water valve in order to keep the brooder clean" },
-    { id: 4, date: "01-18-25", time: "9:23 AM", user: "Owner", action: "Activated Sprinkler", description: "Adjusts the water valve in order to keep the brooder clean" },
-    { id: 5, date: "01-18-25", time: "9:23 AM", user: "Owner", action: "Activated Sprinkler", description: "Adjusts the water valve in order to keep the brooder clean" },
-    { id: 6, date: "01-18-25", time: "9:23 AM", user: "Owner", action: "Activated Sprinkler", description: "Adjusts the water valve in order to keep the brooder clean" },
-    { id: 7, date: "01-18-25", time: "9:23 AM", user: "Owner", action: "Activated Sprinkler", description: "Adjusts the water valve in order to keep the brooder clean" },
-    { id: 8, date: "01-18-25", time: "9:23 AM", user: "Owner", action: "Activated Sprinkler", description: "Adjusts the water valve in order to keep the brooder clean" },
-    { id: 9, date: "01-18-25", time: "9:23 AM", user: "Owner", action: "Activated Sprinkler", description: "Adjusts the water valve in order to keep the brooder clean" },
-    { id: 10, date: "01-18-25", time: "9:23 AM", user: "Owner", action: "Activated Sprinkler", description: "Adjusts the water valve in order to keep the brooder clean" },
+    {
+      id: 1,
+      date: "01-18-25",
+      time: "9:23 AM",
+      user: "Owner",
+      action: "Activated Sprinkler",
+      description: "Adjusts the water valve in order to keep the brooder clean",
+    },
+    {
+      id: 2,
+      date: "01-18-25",
+      time: "9:23 AM",
+      user: "Owner",
+      action: "Activated Sprinkler",
+      description: "Adjusts the water valve in order to keep the brooder clean",
+    },
+    {
+      id: 3,
+      date: "01-18-25",
+      time: "9:23 AM",
+      user: "Owner",
+      action: "Activated Sprinkler",
+      description: "Adjusts the water valve in order to keep the brooder clean",
+    },
+    {
+      id: 4,
+      date: "01-18-25",
+      time: "9:23 AM",
+      user: "Owner",
+      action: "Activated Sprinkler",
+      description: "Adjusts the water valve in order to keep the brooder clean",
+    },
+    {
+      id: 5,
+      date: "01-18-25",
+      time: "9:23 AM",
+      user: "Owner",
+      action: "Activated Sprinkler",
+      description: "Adjusts the water valve in order to keep the brooder clean",
+    },
+    {
+      id: 6,
+      date: "01-18-25",
+      time: "9:23 AM",
+      user: "Owner",
+      action: "Activated Sprinkler",
+      description: "Adjusts the water valve in order to keep the brooder clean",
+    },
+    {
+      id: 7,
+      date: "01-18-25",
+      time: "9:23 AM",
+      user: "Owner",
+      action: "Activated Sprinkler",
+      description: "Adjusts the water valve in order to keep the brooder clean",
+    },
+    {
+      id: 8,
+      date: "01-18-25",
+      time: "9:23 AM",
+      user: "Owner",
+      action: "Activated Sprinkler",
+      description: "Adjusts the water valve in order to keep the brooder clean",
+    },
+    {
+      id: 9,
+      date: "01-18-25",
+      time: "9:23 AM",
+      user: "Owner",
+      action: "Activated Sprinkler",
+      description: "Adjusts the water valve in order to keep the brooder clean",
+    },
+    {
+      id: 10,
+      date: "01-18-25",
+      time: "9:23 AM",
+      user: "Owner",
+      action: "Activated Sprinkler",
+      description: "Adjusts the water valve in order to keep the brooder clean",
+    },
   ]);
 
   const formatDate = (date) => {
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
     const year = String(date.getFullYear()).slice(-2);
     return `${month}-${day}-${year}`;
   };
@@ -49,7 +119,11 @@ export default function ActivityLogs({ navigation }) {
   const isSameDate = (dateStr, selectedDate) => {
     if (!selectedDate) return true;
     const [month, day, year] = dateStr.split("-");
-    const logDate = new Date(2000 + parseInt(year), parseInt(month) - 1, parseInt(day));
+    const logDate = new Date(
+      2000 + parseInt(year),
+      parseInt(month) - 1,
+      parseInt(day)
+    );
     return (
       logDate.getFullYear() === selectedDate.getFullYear() &&
       logDate.getMonth() === selectedDate.getMonth() &&
@@ -57,7 +131,9 @@ export default function ActivityLogs({ navigation }) {
     );
   };
 
-  const filteredLogs = activityLogs.filter((log) => isSameDate(log.date, selectedDate));
+  const filteredLogs = activityLogs.filter((log) =>
+    isSameDate(log.date, selectedDate)
+  );
 
   const handleGenerateReport = () => {
     setShowGenerateModal(true);
@@ -86,11 +162,13 @@ export default function ActivityLogs({ navigation }) {
     };
     setActivityLogs([newLog, ...activityLogs]);
     setShowGenerateModal(false);
-    
+
     // Show success message
-    setSuccessMessage("Report successfully generated\nRedirecting to Activity Logs...");
+    setSuccessMessage(
+      "Report successfully generated\nRedirecting to Activity Logs..."
+    );
     setShowSuccessModal(true);
-    
+
     console.log("New log added:", newLog);
   };
 
@@ -108,30 +186,43 @@ export default function ActivityLogs({ navigation }) {
         <View style={styles.headerActions}>
           <Pressable onPress={handleGenerateReport}>
             {({ pressed }) => (
-              <View style={[styles.generateHeaderButton, pressed && styles.generateHeaderButtonPressed]}>
-                <Text style={[styles.generateHeaderText, pressed && styles.generateHeaderTextPressed]}>
+              <View
+                style={[
+                  styles.generateHeaderButton,
+                  pressed && styles.generateHeaderButtonPressed,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.generateHeaderText,
+                    pressed && styles.generateHeaderTextPressed,
+                  ]}
+                >
                   Generate Log Report
                 </Text>
               </View>
             )}
           </Pressable>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
               styles.calendarButton,
-              selectedDate && styles.calendarButtonActive
+              selectedDate && styles.calendarButtonActive,
             ]}
             onPress={handleCalendarPress}
           >
-            <Icon 
-              name="calendar" 
-              size={18} 
+            <Icon
+              name="calendar"
+              size={18}
               color={selectedDate ? "#ffffff" : "#1a1a1a"}
             />
           </TouchableOpacity>
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 80 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 80 }}
+      >
         {/* Selected Date Display & Clear Button */}
         {selectedDate && (
           <View style={styles.dateFilterBanner}>
@@ -141,7 +232,7 @@ export default function ActivityLogs({ navigation }) {
                 Showing logs for {formatDate(selectedDate)}
               </Text>
             </View>
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={handleClearDateFilter}
               style={styles.clearDateButton}
             >
@@ -157,18 +248,32 @@ export default function ActivityLogs({ navigation }) {
             <Text style={[styles.tableHeaderText, styles.colDate]}>Date</Text>
             <Text style={[styles.tableHeaderText, styles.colTime]}>Time</Text>
             <Text style={[styles.tableHeaderText, styles.colUser]}>User</Text>
-            <Text style={[styles.tableHeaderText, styles.colAction]}>Action</Text>
-            <Text style={[styles.tableHeaderText, styles.colDescription]}>Description</Text>
+            <Text style={[styles.tableHeaderText, styles.colAction]}>
+              Action
+            </Text>
+            <Text style={[styles.tableHeaderText, styles.colDescription]}>
+              Description
+            </Text>
           </View>
 
           {/* Table Rows */}
           {filteredLogs.map((log) => (
             <View key={log.id} style={styles.tableRow}>
-              <Text style={[styles.tableCellText, styles.colDate]}>{log.date}</Text>
-              <Text style={[styles.tableCellText, styles.colTime]}>{log.time}</Text>
-              <Text style={[styles.tableCellText, styles.colUser]}>{log.user}</Text>
-              <Text style={[styles.tableCellText, styles.colAction]}>{log.action}</Text>
-              <Text style={[styles.tableCellText, styles.colDescription]}>{log.description}</Text>
+              <Text style={[styles.tableCellText, styles.colDate]}>
+                {log.date}
+              </Text>
+              <Text style={[styles.tableCellText, styles.colTime]}>
+                {log.time}
+              </Text>
+              <Text style={[styles.tableCellText, styles.colUser]}>
+                {log.user}
+              </Text>
+              <Text style={[styles.tableCellText, styles.colAction]}>
+                {log.action}
+              </Text>
+              <Text style={[styles.tableCellText, styles.colDescription]}>
+                {log.description}
+              </Text>
             </View>
           ))}
 

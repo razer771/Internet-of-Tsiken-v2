@@ -10,12 +10,16 @@ import {
   ScrollView,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import CalendarModal from "../navigation/CalendarModal";
-import TimePickerDropdown from "../test/Talan/TimePickerDropdown";
+import CalendarModal from "../../navigation/CalendarModal";
+import TimePickerDropdown from "../../test/Talan/TimePickerDropdown";
 
 const Icon = Feather;
 
-export default function GenerateLogReportModal({ visible, onClose, onGenerate }) {
+export default function GenerateLogReportModal({
+  visible,
+  onClose,
+  onGenerate,
+}) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showCalendar, setShowCalendar] = useState(false);
   const [hours, setHours] = useState("09");
@@ -30,22 +34,22 @@ export default function GenerateLogReportModal({ visible, onClose, onGenerate })
   const [description, setDescription] = useState("");
 
   const roles = ["Owner", "Admin", "User"];
-  const hoursList = Array.from({ length: 12 }, (_, i) => ({ 
-    id: i, 
-    value: String(i + 1).padStart(2, '0') 
+  const hoursList = Array.from({ length: 12 }, (_, i) => ({
+    id: i,
+    value: String(i + 1).padStart(2, "0"),
   }));
-  const minutesList = Array.from({ length: 60 }, (_, i) => ({ 
-    id: i, 
-    value: String(i).padStart(2, '0') 
+  const minutesList = Array.from({ length: 60 }, (_, i) => ({
+    id: i,
+    value: String(i).padStart(2, "0"),
   }));
   const periodList = [
-    { id: 0, value: "AM" }, 
-    { id: 1, value: "PM" }
+    { id: 0, value: "AM" },
+    { id: 1, value: "PM" },
   ];
 
   const formatDate = (date) => {
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
     const year = String(date.getFullYear()).slice(-2);
     return `${month}-${day}-${year}`;
   };
@@ -94,17 +98,25 @@ export default function GenerateLogReportModal({ visible, onClose, onGenerate })
 
   return (
     <>
-      <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={handleClose}>
+      <Modal
+        visible={visible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleClose}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Generate Log Report</Text>
-              <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+              <TouchableOpacity
+                onPress={handleClose}
+                style={styles.closeButton}
+              >
                 <Icon name="x" size={24} color="#64748b" />
               </TouchableOpacity>
             </View>
 
-            <ScrollView 
+            <ScrollView
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
@@ -116,7 +128,9 @@ export default function GenerateLogReportModal({ visible, onClose, onGenerate })
                   onPress={() => setShowCalendar(true)}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.inputText}>{formatDate(selectedDate)}</Text>
+                  <Text style={styles.inputText}>
+                    {formatDate(selectedDate)}
+                  </Text>
                   <Icon name="calendar" size={18} color="#64748b" />
                 </TouchableOpacity>
               </View>
@@ -163,13 +177,18 @@ export default function GenerateLogReportModal({ visible, onClose, onGenerate })
                   style={styles.dateInput}
                   onPress={() => setShowRoleDropdown(!showRoleDropdown)}
                 >
-                  <Text style={[styles.inputText, !selectedRole && styles.placeholder]}>
+                  <Text
+                    style={[
+                      styles.inputText,
+                      !selectedRole && styles.placeholder,
+                    ]}
+                  >
                     {selectedRole || "Select a role"}
                   </Text>
-                  <Icon 
-                    name={showRoleDropdown ? "chevron-up" : "chevron-down"} 
-                    size={18} 
-                    color="#64748b" 
+                  <Icon
+                    name={showRoleDropdown ? "chevron-up" : "chevron-down"}
+                    size={18}
+                    color="#64748b"
                   />
                 </TouchableOpacity>
 
@@ -180,7 +199,8 @@ export default function GenerateLogReportModal({ visible, onClose, onGenerate })
                         key={index}
                         style={[
                           styles.dropdownOption,
-                          index === roles.length - 1 && styles.dropdownOptionLast,
+                          index === roles.length - 1 &&
+                            styles.dropdownOptionLast,
                         ]}
                         onPress={() => {
                           setSelectedRole(role);
@@ -229,8 +249,18 @@ export default function GenerateLogReportModal({ visible, onClose, onGenerate })
               {!showRoleDropdown && (
                 <Pressable onPress={handleGenerate}>
                   {({ pressed }) => (
-                    <View style={[styles.generateButtonInner, pressed && styles.generateButtonPressed]}>
-                      <Text style={[styles.generateButtonText, pressed && styles.generateButtonTextPressed]}>
+                    <View
+                      style={[
+                        styles.generateButtonInner,
+                        pressed && styles.generateButtonPressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.generateButtonText,
+                          pressed && styles.generateButtonTextPressed,
+                        ]}
+                      >
                         Generate Log Report
                       </Text>
                     </View>

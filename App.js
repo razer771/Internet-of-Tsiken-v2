@@ -30,7 +30,7 @@ import ControlScreen from "./screens/User/controls/ControlScreen";
 import Settings from "./screens/User/controls/Settings";
 import UserProfile from "./screens/User/Reports/Profile/userProfile";
 import EditProfile from "./screens/User/Reports/Profile/editProfile";
-import UserActivityLogs from "./screens/ActivityLogs/ActivityLogs";
+import UserActivityLogs from "./screens/User/ActivityLogs/ActivityLogs";
 import AdminActivityLogs from "./screens/Admin/activityLogs";
 import Reports from "./screens/User/Reports/Reports";
 import ViewReport from "./screens/User/Reports/ViewReport";
