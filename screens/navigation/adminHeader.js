@@ -73,7 +73,7 @@ export default function Header2() {
   const handleConfirmLogout = () => {
     console.log("Logout confirmed");
     setLogoutModalVisible(false);
-    navigation.replace("Login");
+    navigation.replace("LogIn");
   };
 
   const handleCancelLogout = () => {
