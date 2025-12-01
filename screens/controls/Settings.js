@@ -10,9 +10,6 @@ import {
   ScrollView,
 } from 'react-native';
 import { MaterialIcons as Icon } from '@expo/vector-icons';
-import Header from "../navigation/Header";
-import SideNavigation from "../navigation/SideNavigation";
-import BottomNavigation from "../navigation/BottomNavigation";
 
 // Helper function to handle navigation back
 const navigateBack = (navigation) => {

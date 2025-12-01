@@ -10,8 +10,6 @@ import {
   StatusBar,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import HeaderUpdated from "../navigation/Header";
-import BottomNavigation from "../navigation/BottomNavigation";
 
 const Icon = Feather;
 

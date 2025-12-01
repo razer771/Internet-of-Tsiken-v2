@@ -1,9 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Modal, Pressable } from 'react-native';
 import { Ionicons } from "@expo/vector-icons";
-import Header from "../navigation/Header";
-import SideNavigation from "../navigation/SideNavigation";
-import BottomNavigation from "../navigation/BottomNavigation";
 import { useNavigation } from '@react-navigation/native';
 
 const PRIMARY = "#133E87";

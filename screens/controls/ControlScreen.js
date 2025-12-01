@@ -16,9 +16,6 @@ import {
 } from "react-native";
 import Slider from "@react-native-community/slider";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import Header from "../navigation/Header";
-import SideNavigation from "../navigation/SideNavigation";
-import BottomNavigation from "../navigation/BottomNavigation";
 import { Ionicons } from "@expo/vector-icons";
 
 const PRIMARY = "#133E87";
