@@ -129,7 +129,7 @@ export default function Login() {
       // Save admin bypass flag
       await AsyncStorage.setItem("isAdminBypass", "true");
       await AsyncStorage.setItem("adminEmail", "admin@example.com");
-      navigation.navigate("Home");
+      navigation.navigate("AdminDashboard");
       return;
     }
 
@@ -177,88 +177,82 @@ export default function Login() {
       const user = userCredential.user;
       console.log("✅ Login successful! User ID:", user.uid);
 
-      const userRef = doc(db, "users", user.uid);
-      const userDoc = await getDoc(userRef);
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userDoc = await getDoc(userRef);
 
-      if (userDoc.exists()) {
-        console.log("✅ User data loaded:", userDoc.data());
-        const userData = userDoc.data();
-        // Check if user is already verified (check both field names)
-        if (
-          userData.verified === true ||
-          userData.isVerified === true ||
-          user.emailVerified
-        ) {
-          console.log("✅ User is verified, skipping OTP");
-          navigation.navigate("Home");
+        if (userDoc.exists()) {
+          console.log("✅ User data loaded:", userDoc.data());
+          const userData = userDoc.data();
+          // Check if user is already verified (check both field names)
+          if (
+            userData.verified === true ||
+            userData.isVerified === true ||
+            user.emailVerified
+          ) {
+            console.log("✅ User is verified, skipping OTP");
+            
+            try {
+              await resetLoginAttempts();
+            } catch (resetError) {
+              console.log("Error resetting login attempts (non-critical):", resetError);
+            }
+            
+            navigation.navigate("Home");
+            return;
+          }
+
+          console.log("✅ User data loaded:", userData);
+          // You can store userData in global state (Context/Redux) if needed
+        } else {
+          console.log("❌ User document does not exist in Firestore");
+          setLoading(false);
+          setErrors({ auth: "User data not found. Please contact support." });
           return;
         }
 
-        //
-
-        // if (userData.mustShowPasswordUpdated) {
-        //          await updateDoc(userRef, { mustShowPasswordUpdated: false });
-        //          navigation.replace("PasswordUpdated");
-        //          return;
-        //       }
-
-        //        console.log("✅ Login successful");
-        //        setLoading(false);
-
-        //        try {
-        //          await resetLoginAttempts();
-        //        } catch (resetError) {
-        //          console.log(
-        //            "Error resetting login attempts (non-critical):",
-        //            resetError
-        //          );
-        //        }
-
-        // console.log(
-        //   "✅ Login successful, navigating to mobile number verification"
-        // );
-        // Navigate to MobileNumberInput screen for mobile verification
-        //navigation.navigate("MobileNumberInput");
-
-        //
-
-        console.log("✅ User data loaded:", userData);
-        // You can store userData in global state (Context/Redux) if needed
-      } else {
-        console.log("❌ User document does not exist in Firestore");
-        setLoading(false);
-        Alert.alert("Error", "User data not found. Please contact support.");
+        // Navigate to VerifyIdentity for OTP verification (only if not verified)
+        console.log("⏳ User not verified, redirecting to OTP");
+        navigation.navigate("VerifyIdentity");
+      } catch (firestoreError) {
+        console.error("Firestore Error:", firestoreError);
+        setErrors({ auth: "Error loading user data. Please try again." });
       }
-
-      // Navigate to VerifyIdentity for OTP verification (only if not verified)
-      console.log("⏳ User not verified, redirecting to OTP");
-      navigation.navigate("VerifyIdentity");
     } catch (error) {
       console.error("Firebase Login Error:", error.code, error.message);
-      const attempts = await incrementLoginAttempts();
-      const remainingAttempts = 5 - attempts;
+      
+      try {
+        const attempts = await incrementLoginAttempts();
+        const remainingAttempts = 5 - attempts;
 
-      let errorMessage = "Invalid email or password.";
-      if (error.code === "auth/invalid-credential") {
-        errorMessage = "Invalid email or password.";
-      } else if (error.code === "auth/invalid-email") {
-        errorMessage = "That email address is not valid.";
-      } else if (error.code === "auth/too-many-requests") {
-        errorMessage = "Too many login attempts. Please try again later.";
-      } else if (error.code === "auth/user-not-found") {
-        errorMessage = "User not found.";
+        let errorMessage = "Invalid email or password.";
+        if (error.code === "auth/invalid-credential") {
+          errorMessage = "Invalid email or password.";
+        } else if (error.code === "auth/invalid-email") {
+          errorMessage = "Invalid email address format.";
+        } else if (error.code === "auth/too-many-requests") {
+          errorMessage = "Too many login attempts. Please try again later.";
+        } else if (error.code === "auth/user-not-found") {
+          errorMessage = "No account found with this email.";
+        } else if (error.code === "auth/wrong-password") {
+          errorMessage = "Incorrect password.";
+        } else if (error.code === "auth/network-request-failed") {
+          errorMessage = "Network error. Please check your connection.";
+        } else {
+          errorMessage = "Login failed. Please try again.";
+        }
+
+        if (remainingAttempts <= 0) {
+          setDeviceLocked(true);
+          setLockoutTime(LOCKOUT_DURATION);
+          setErrors({ auth: "Too many failed login attempts. Account locked for 10 seconds." });
+        } else {
+          setErrors({ auth: errorMessage });
+        }
+      } catch (lockoutError) {
+        console.error("Lockout handling error:", lockoutError);
+        setErrors({ auth: "Login failed. Please try again." });
       }
-
-      if (remainingAttempts <= 0) {
-        setDeviceLocked(true);
-        setLockoutTime(LOCKOUT_DURATION);
-        Alert.alert(
-          "Account Locked",
-          "Too many failed login attempts. Your account is locked for 10 seconds."
-        );
-      }
-
-      setErrors({ auth: errorMessage });
     } finally {
       setLoading(false);
     }
@@ -266,10 +260,6 @@ export default function Login() {
 
   const handleForgotPassword = () => {
     navigation.navigate("ResetPassword");
-  };
-
-  const handleSignup = () => {
-    navigation.navigate("SignUp");
   };
 
   if (deviceLocked) {
@@ -400,14 +390,6 @@ export default function Login() {
                 <Text style={styles.loginText}>Login</Text>
               )}
             </Pressable>
-
-            {/* Sign Up Link */}
-            <View style={styles.signupRow}>
-              <Text style={styles.signupText}>Don't have an Account? </Text>
-              <TouchableOpacity onPress={handleSignup}>
-                <Text style={styles.signupLink}>Sign Up</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         </KeyboardAwareScrollView>
       </TouchableWithoutFeedback>
@@ -544,19 +526,6 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "bold",
     fontSize: 16,
-  },
-  signupRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 10,
-  },
-  signupText: {
-    color: "#555",
-  },
-  signupLink: {
-    color: "#3b4cca",
-    fontWeight: "bold",
-    textDecorationLine: "underline",
   },
   backButton: {
     flexDirection: "row",
