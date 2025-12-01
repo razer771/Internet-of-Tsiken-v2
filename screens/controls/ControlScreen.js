@@ -20,6 +20,8 @@ import Header from "../navigation/Header";
 import SideNavigation from "../navigation/SideNavigation";
 import BottomNavigation from "../navigation/BottomNavigation";
 import { Ionicons } from "@expo/vector-icons";
+import { auth, db } from "../../config/firebaseconfig";
+import { doc, setDoc, addDoc, collection } from "firebase/firestore";
 
 const PRIMARY = "#133E87";
 const GREEN = "#249D1D";
@@ -63,6 +65,17 @@ export default function ControlScreen({ navigation }) {
   // confirm modals
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
   const [confirmSaveVisible, setConfirmSaveVisible] = useState(false);
+  // night time save confirmation
+  const [confirmNightSaveVisible, setConfirmNightSaveVisible] = useState(false);
+  const [pendingNightTime, setPendingNightTime] = useState(null);
+  // morning warning before confirmation
+  const [warnMorningVisible, setWarnMorningVisible] = useState(false);
+
+  // feed add time picker flow
+  const [pendingFeedTime, setPendingFeedTime] = useState(null);
+  const [confirmFeedSaveVisible, setConfirmFeedSaveVisible] = useState(false);
+  const [showFeedAddPicker, setShowFeedAddPicker] = useState(false);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
 
   // water schedule
   const [waterDate, setWaterDate] = useState(new Date());
@@ -116,15 +129,74 @@ export default function ControlScreen({ navigation }) {
 
   // Handlers
   const addFeedSchedule = () => {
-    const nextId = feeds.length ? Math.max(...feeds.map((f) => f.id)) + 1 : 1;
-    // default new schedule at current time formatted
-    const now = new Date();
-    const defaultTime = now.toLocaleTimeString([], {
+    // Open time picker for user to select feeding time
+    setShowFeedAddPicker(true);
+  };
+
+  // Convert time string "hh:mm AM/PM" to minutes since midnight for sorting
+  const timeToMinutes = (timeStr) => {
+    const parts = timeStr.split(/[: ]/);
+    if (parts.length < 3) return 0;
+    let hour = parseInt(parts[0], 10);
+    const minute = parseInt(parts[1], 10);
+    const ampm = parts[2].toUpperCase();
+    if (ampm === "PM" && hour !== 12) hour += 12;
+    if (ampm === "AM" && hour === 12) hour = 0;
+    return hour * 60 + minute;
+  };
+
+  const confirmAddFeed = async () => {
+    if (!pendingFeedTime) {
+      setConfirmFeedSaveVisible(false);
+      return;
+    }
+    const formattedTime = pendingFeedTime.toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
     });
+
+    // Check for duplicate time
+    const isDuplicate = feeds.some((f) => f.time === formattedTime);
+    if (isDuplicate) {
+      setConfirmFeedSaveVisible(false);
+      setPendingFeedTime(null);
+      setShowDuplicateModal(true);
+      return;
+    }
+
+    const nextId = feeds.length ? Math.max(...feeds.map((f) => f.id)) + 1 : 1;
     const label = `Schedule ${nextId}`;
-    setFeeds((s) => [...s, { id: nextId, label, time: defaultTime }]);
+    const newFeed = { id: nextId, label, time: formattedTime };
+
+    // Add and sort by time
+    setFeeds((s) => {
+      const updated = [...s, newFeed];
+      return updated.sort(
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+      );
+    });
+
+    // Log to Firestore under feedingTime_logs/{docId}/addNew
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        const docId = nextId.toString(); // use feed id as docId
+        await addDoc(collection(doc(db, "feedingTime_logs", docId), "addNew"), {
+          userId: user.uid,
+          userName: user.displayName || user.email || "Unknown User",
+          selectedTime: pendingFeedTime.toISOString(),
+          selectedTimeFormatted: formattedTime,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      Alert.alert("Error", "Failed to log new feed: " + err.message);
+    }
+
+    setConfirmFeedSaveVisible(false);
+    setPendingFeedTime(null);
+    setShowSavedPopup(true);
+    setTimeout(() => setShowSavedPopup(false), 1400);
   };
 
   const beginDeleteFlow = () => {
@@ -231,18 +303,53 @@ export default function ControlScreen({ navigation }) {
     setFeedEdit({ open: true, idx, timeDate });
   };
 
-  const saveFeedEdit = () => {
+  const saveFeedEdit = async () => {
     if (feedEdit.idx === null) return;
     const newTime = feedEdit.timeDate.toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
     });
+
+    // Duplicate check
+    const isDuplicate = feeds.some(
+      (f, i) => i !== feedEdit.idx && f.time === newTime
+    );
+    if (isDuplicate) {
+      setShowDuplicateModal(true);
+      return;
+    }
+
+    // Update local state
+    const oldTime = feeds[feedEdit.idx].time;
     setFeeds((s) => {
       const copy = [...s];
       copy[feedEdit.idx].time = newTime;
       return copy;
     });
+
+    // Log edit activity in Firestore
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        const docId = feeds[feedEdit.idx].id.toString(); // use feed id as docId
+        await addDoc(
+          collection(doc(db, "feedingTime_logs", docId), "edit_logs"),
+          {
+            userId: user.uid,
+            userName: user.displayName || user.email || "Unknown User",
+            oldTime,
+            newTime,
+            timestamp: new Date().toISOString(),
+          }
+        );
+      }
+    } catch (err) {
+      Alert.alert("Error", "Failed to log edit: " + err.message);
+    }
+
     setFeedEdit({ open: false, idx: null, timeDate: new Date() });
+    setShowSavedPopup(true);
+    setTimeout(() => setShowSavedPopup(false), 1400);
   };
 
   const handleDispense = () => {
@@ -265,6 +372,48 @@ export default function ControlScreen({ navigation }) {
   const fmtDate = (d) => d.toISOString().split("T")[0];
   const fmtTime = (d) =>
     d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  const saveNightTimeLog = async (time) => {
+    try {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      // Convert to GMT+8 and format as human-readable string
+      const gmt8Time = new Date(time.getTime() + 8 * 60 * 60 * 1000);
+      const hours = gmt8Time.getUTCHours();
+      const minutes = gmt8Time.getUTCMinutes();
+      const ampm = hours >= 12 ? "PM" : "AM";
+      const hour12 = hours % 12 || 12;
+      const monthNames = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+      const selectedTimeGMT8Formatted = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}, ${monthNames[gmt8Time.getUTCMonth()]} ${gmt8Time.getUTCDate()}, ${gmt8Time.getUTCFullYear()}`;
+
+      await addDoc(collection(db, "nightTime_logs"), {
+        userId: user.uid,
+        userName: user.displayName || user.email || "Unknown User",
+        selectedTime: time.toISOString(),
+        selectedTimeGMT8Formatted: selectedTimeGMT8Formatted,
+        timestamp: new Date().toISOString(),
+      });
+
+      setShowSavedPopup(true);
+      setTimeout(() => setShowSavedPopup(false), 1400);
+    } catch (err) {
+      Alert.alert("Error", err.message);
+    }
+  };
 
   // power bar width calculation (we'll map alertThreshold 0-100 to width)
   const powerBarWidth = (percent) => {
@@ -396,7 +545,7 @@ export default function ControlScreen({ navigation }) {
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader icon="fast-food-outline" title="Feeding Schedule" />
 
-          {/* Action buttons: Add, Delete, Save */}
+          {/* Action buttons: Add only */}
           <View
             style={{
               flexDirection: "row",
@@ -409,26 +558,6 @@ export default function ControlScreen({ navigation }) {
               onPress={addFeedSchedule}
             >
               <Text style={styles.smallActionText}>Add</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.smallActionBtn,
-                { backgroundColor: RED, marginLeft: 8 },
-              ]}
-              onPress={beginDeleteFlow}
-            >
-              <Text style={styles.smallActionText}>Delete</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.smallActionBtn,
-                { backgroundColor: PRIMARY, marginLeft: 8 },
-              ]}
-              onPress={beginSaveFlow}
-            >
-              <Text style={styles.smallActionText}>Save</Text>
             </TouchableOpacity>
           </View>
 
@@ -471,6 +600,19 @@ export default function ControlScreen({ navigation }) {
                     onPress={() => openEditFeed(idx)}
                   >
                     <Text style={styles.editText}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.editBtn,
+                      { backgroundColor: RED, marginLeft: 6 },
+                    ]}
+                    onPress={() => {
+                      setFeeds((s) => s.filter((feed) => feed.id !== f.id));
+                      setShowSavedPopup(true);
+                      setTimeout(() => setShowSavedPopup(false), 1200);
+                    }}
+                  >
+                    <Text style={styles.editText}>Delete</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -720,9 +862,39 @@ export default function ControlScreen({ navigation }) {
           value={nightStart}
           mode="time"
           display="default"
-          onChange={(_, selected) => {
+          onChange={(event, selected) => {
+            // Close picker regardless
             setShowNightPicker(false);
-            if (selected) setNightStart(selected);
+            // Only proceed if user pressed OK (Android) or a time is selected (iOS)
+            const confirmed =
+              (event?.type === "set" || !event?.type) && selected;
+            if (confirmed) {
+              const hour = selected.getHours(); // 0-23
+              setPendingNightTime(selected);
+              if (hour < 12) {
+                // Morning selection warning
+                setWarnMorningVisible(true);
+              } else {
+                // Evening directly to confirmation
+                setConfirmNightSaveVisible(true);
+              }
+            }
+          }}
+        />
+      )}
+      {showFeedAddPicker && (
+        <DateTimePicker
+          value={new Date()}
+          mode="time"
+          display="default"
+          onChange={(event, selected) => {
+            setShowFeedAddPicker(false);
+            const confirmed =
+              (event?.type === "set" || !event?.type) && selected;
+            if (confirmed) {
+              setPendingFeedTime(selected);
+              setConfirmFeedSaveVisible(true);
+            }
           }}
         />
       )}
@@ -867,6 +1039,168 @@ export default function ControlScreen({ navigation }) {
                 <Text style={styles.smallActionText}>Yes, Save</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Morning Warning Modal */}
+      <Modal
+        visible={warnMorningVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setWarnMorningVisible(false)}
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Text style={{ fontWeight: "700", fontSize: 16 }}>
+              Morning time selected
+            </Text>
+            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+              You picked a morning time. Night schedule usually starts in the
+              evening. Do you still want to continue?
+            </Text>
+            <View style={{ flexDirection: "row", marginTop: 12 }}>
+              <TouchableOpacity
+                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                onPress={() => {
+                  setWarnMorningVisible(false);
+                  setPendingNightTime(null);
+                }}
+              >
+                <Text style={styles.smallActionText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.smallActionBtn,
+                  { backgroundColor: PRIMARY, marginLeft: 8 },
+                ]}
+                onPress={() => {
+                  setWarnMorningVisible(false);
+                  setConfirmNightSaveVisible(true);
+                }}
+              >
+                <Text style={styles.smallActionText}>Continue</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Confirm Night Time Save */}
+      <Modal
+        visible={confirmNightSaveVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmNightSaveVisible(false)}
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Text style={{ fontWeight: "700", fontSize: 16 }}>
+              Save night time?
+            </Text>
+            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+              Are you sure you want to save{" "}
+              {pendingNightTime ? fmtTime(pendingNightTime) : ""} as the night
+              schedule?
+            </Text>
+            <View style={{ flexDirection: "row", marginTop: 12 }}>
+              <TouchableOpacity
+                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                onPress={() => {
+                  setConfirmNightSaveVisible(false);
+                  setPendingNightTime(null);
+                }}
+              >
+                <Text style={styles.smallActionText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.smallActionBtn,
+                  { backgroundColor: PRIMARY, marginLeft: 8 },
+                ]}
+                onPress={async () => {
+                  if (!pendingNightTime) {
+                    setConfirmNightSaveVisible(false);
+                    return;
+                  }
+                  await saveNightTimeLog(pendingNightTime);
+                  setNightStart(pendingNightTime);
+                  setConfirmNightSaveVisible(false);
+                  setPendingNightTime(null);
+                }}
+              >
+                <Text style={styles.smallActionText}>Yes, Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Confirm Feed Add */}
+      <Modal
+        visible={confirmFeedSaveVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmFeedSaveVisible(false)}
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Text style={{ fontWeight: "700", fontSize: 16 }}>
+              Save feeding time?
+            </Text>
+            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+              Are you sure you want to save{" "}
+              {pendingFeedTime ? fmtTime(pendingFeedTime) : ""} as a feeding
+              schedule?
+            </Text>
+            <View style={{ flexDirection: "row", marginTop: 12 }}>
+              <TouchableOpacity
+                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                onPress={() => {
+                  setConfirmFeedSaveVisible(false);
+                  setPendingFeedTime(null);
+                }}
+              >
+                <Text style={styles.smallActionText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.smallActionBtn,
+                  { backgroundColor: PRIMARY, marginLeft: 8 },
+                ]}
+                onPress={confirmAddFeed}
+              >
+                <Text style={styles.smallActionText}>Yes, Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Duplicate Time Modal */}
+      <Modal
+        visible={showDuplicateModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDuplicateModal(false)}
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Text style={{ fontWeight: "700", fontSize: 16 }}>
+              Duplicate time
+            </Text>
+            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+              That feeding time already exists. Please choose a different time.
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.smallActionBtn,
+                { backgroundColor: PRIMARY, marginTop: 12 },
+              ]}
+              onPress={() => setShowDuplicateModal(false)}
+            >
+              <Text style={styles.smallActionText}>Close</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
