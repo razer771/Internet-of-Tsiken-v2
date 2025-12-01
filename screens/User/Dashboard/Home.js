@@ -9,10 +9,8 @@ import {
   ScrollView,
   PanResponder,
 } from "react-native";
-import HeaderUpdated from "../navigation/Header";
-import BottomNavigation from "../navigation/BottomNavigation";
 import QuickSetupModal from "./QuickSetupModal";
-import { auth, db } from "../../config/firebaseconfig";
+import { auth, db } from "../../../config/firebaseconfig";
 import { doc, getDoc } from "firebase/firestore";
 
 // Replace static import with a dynamic require + in-memory fallback.

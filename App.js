@@ -16,7 +16,6 @@ try {
 // Components
 import JsonSplashScreen from "./JsonSplashScreen/JsonSplashScreen";
 import LogIn from "./screens/LogIn/LogIn";
-import SignUp from "./screens/LogIn/SignUp";
 import LoginSuccess from "./screens/LogIn/loginSuccess";
 import VerifyIdentity from "./screens/LogIn/verifyIdentity";
 import PasswordUpdated from "./screens/LogIn/passwordupdated";
@@ -25,15 +24,21 @@ import MobileNumberInput from "./screens/LogIn/MobileNumberInput";
 import OTPVerification from "./screens/LogIn/OTPVerification";
 import ConfirmPassword from "./screens/LogIn/ConfirmPassword";
 
-import Home from "./screens/Dashboard/Home";
-import Notification from "./screens/controls/Notification";
-import ControlScreen from "./screens/controls/ControlScreen";
-import Settings from "./screens/controls/Settings";
-import UserProfile from "./screens/Profile/userProfile";
-import EditProfile from "./screens/Profile/editProfile";
-import ActivityLogs from "./screens/ActivityLogs/ActivityLogs";
-import Reports from "./screens/Reports/Reports";
-import ViewReport from "./screens/Reports/ViewReport";
+import Home from "./screens/User/Dashboard/Home";
+import Notification from "./screens/User/controls/Notification";
+import ControlScreen from "./screens/User/controls/ControlScreen";
+import Settings from "./screens/User/controls/Settings";
+import UserProfile from "./screens/User/Reports/Profile/userProfile";
+import EditProfile from "./screens/User/Reports/Profile/editProfile";
+import UserActivityLogs from "./screens/ActivityLogs/ActivityLogs";
+import AdminActivityLogs from "./screens/Admin/activityLogs";
+import Reports from "./screens/User/Reports/Reports";
+import ViewReport from "./screens/User/Reports/ViewReport";
+import Analytics from "./screens/User/Analytics/analytics";
+import AdminDashboard from "./screens/Admin/adminDashboard";
+import UserManagement from "./screens/Admin/userManagement";
+import CreateAccount from "./screens/Admin/createAccount";
+import AdminAnalytics from "./screens/Admin/adminAnalytics";
 import Header from "./screens/navigation/Header";
 import BottomNavigation from "./screens/navigation/BottomNavigation";
 
@@ -43,7 +48,6 @@ const Stack = createNativeStackNavigator();
 const AUTH_SCREENS = [
   "JsonSplash",
   "LogIn",
-  "SignUp",
   "LoginSuccess",
   "VerifyIdentity",
   "PasswordUpdated",
@@ -51,6 +55,11 @@ const AUTH_SCREENS = [
   "MobileNumberInput",
   "OTPVerification",
   "ConfirmPassword",
+  "AdminDashboard",
+  "UserManagement",
+  "CreateAccount",
+  "AdminAnalytics",
+  "ActivityLogs",
 ];
 
 // Screen wrapper that reports its route name to parent
@@ -108,11 +117,12 @@ export default function App() {
 
   const handleNavigate = (screen) => {
     if (navigationRef.isReady()) {
-      if (screen === "Home" && currentRoute === "Control") {
-        navigationRef.goBack();
-      } else {
-        navigationRef.navigate(screen);
+      // Don't navigate if already on the same screen
+      if (currentRoute === screen) {
+        return;
       }
+      // Use navigate for smooth transitions instead of reset
+      navigationRef.navigate(screen);
     }
   };
 
@@ -141,10 +151,6 @@ export default function App() {
             <Stack.Screen
               name="LogIn"
               component={createTrackedScreen(LogIn, "LogIn", setCurrentRoute)}
-            />
-            <Stack.Screen
-              name="SignUp"
-              component={createTrackedScreen(SignUp, "SignUp", setCurrentRoute)}
             />
             <Stack.Screen
               name="LoginSuccess"
@@ -251,7 +257,7 @@ export default function App() {
             <Stack.Screen
               name="ActivityLogs"
               component={createTrackedScreen(
-                ActivityLogs,
+                AdminActivityLogs,
                 "ActivityLogs",
                 setCurrentRoute
               )}
@@ -269,6 +275,46 @@ export default function App() {
               component={createTrackedScreen(
                 ViewReport,
                 "ViewReport",
+                setCurrentRoute
+              )}
+            />
+            <Stack.Screen
+              name="Analytics"
+              component={createTrackedScreen(
+                Analytics,
+                "Analytics",
+                setCurrentRoute
+              )}
+            />
+            <Stack.Screen
+              name="AdminDashboard"
+              component={createTrackedScreen(
+                AdminDashboard,
+                "AdminDashboard",
+                setCurrentRoute
+              )}
+            />
+            <Stack.Screen
+              name="UserManagement"
+              component={createTrackedScreen(
+                UserManagement,
+                "UserManagement",
+                setCurrentRoute
+              )}
+            />
+            <Stack.Screen
+              name="CreateAccount"
+              component={createTrackedScreen(
+                CreateAccount,
+                "CreateAccount",
+                setCurrentRoute
+              )}
+            />
+            <Stack.Screen
+              name="AdminAnalytics"
+              component={createTrackedScreen(
+                AdminAnalytics,
+                "AdminAnalytics",
                 setCurrentRoute
               )}
             />

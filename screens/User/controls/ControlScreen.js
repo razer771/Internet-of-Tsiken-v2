@@ -16,9 +16,6 @@ import {
 } from "react-native";
 import Slider from "@react-native-community/slider";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import Header from "../navigation/Header";
-import SideNavigation from "../navigation/SideNavigation";
-import BottomNavigation from "../navigation/BottomNavigation";
 import { Ionicons } from "@expo/vector-icons";
 
 const PRIMARY = "#133E87";
@@ -307,7 +304,7 @@ export default function ControlScreen({ navigation }) {
             onPress={() => setCameraModal(true)}
           >
             <Image
-              source={require("../../assets/proposal meeting.png")}
+              source={require("../../../assets/proposal meeting.png")}
               style={styles.cameraImage}
             />
             <View style={styles.liveBadge}>
@@ -795,7 +792,7 @@ export default function ControlScreen({ navigation }) {
         <View style={styles.editModal}>
           <Text style={styles.modalTitle}>Live Camera</Text>
           <Image
-            source={require("../../assets/proposal meeting.png")}
+            source={require("../../../assets/proposal meeting.png")}
             style={{ width: "100%", height: 220, borderRadius: 8 }}
           />
           <TouchableOpacity
@@ -876,7 +873,7 @@ export default function ControlScreen({ navigation }) {
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
             <Image
-              source={require("../../assets/logo.png")}
+              source={require("../../../assets/logo.png")}
               style={{ width: 56, height: 56 }}
             />
             <Text style={styles.popupText}>Saved Successfully!</Text>

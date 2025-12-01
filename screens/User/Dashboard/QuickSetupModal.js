@@ -8,7 +8,7 @@ import {
   Pressable,
   StyleSheet,
 } from "react-native";
-import Toast from "../navigation/Toast";
+import Toast from "../../navigation/Toast";
 
 export default function QuickSetupModal({
   visible,
