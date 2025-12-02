@@ -1,58 +1,102 @@
-// CameraServerDiscovery.js - Auto-discover camera server across networks
+// CameraServerDiscovery.js - Auto-discover camera server using network scanning
 import { Platform } from 'react-native';
+
+/**
+ * Generate list of IPs to scan across common network ranges
+ */
+function generateIPsToScan() {
+  const urls = [];
+  
+  // Common IP addresses to check in each subnet
+  const commonLastOctets = [1, 2, 5, 10, 19, 20, 50, 100, 150, 156, 200, 254];
+  
+  // Common subnet prefixes
+  const subnets = [
+    '192.168.1',   // Most common home router
+    '192.168.0',   // Second most common
+    '192.168.43',  // Android hotspot
+    '172.20.10',   // iOS hotspot
+    '10.0.0',      // Corporate/Apple
+    '10.0.1',      // Corporate variation
+    '10.193.174',  // Current network
+    '172.27.223',  // Mobile carrier
+    '192.168.137', // Windows hotspot
+  ];
+  
+  // Generate URLs for each combination
+  for (const subnet of subnets) {
+    for (const lastOctet of commonLastOctets) {
+      urls.push(`http://${subnet}.${lastOctet}:5000`);
+    }
+  }
+  
+  return urls;
+}
 
 /**
  * Attempts to discover the camera server using multiple methods
  * Returns the first working URL or null if none work
  */
-export async function discoverCameraServer(timeout = 5000) {
-  // List of possible server URLs to try (in priority order)
-  const possibleUrls = [
-    // 1. Hostname (works across different networks if mDNS is available)
+export async function discoverCameraServer(timeout = 2000) {
+  console.log('🔍 Auto-discovering camera server...');
+  
+  // Step 1: Try hostname (mDNS) - works if network supports it
+  const hostnameUrls = [
     'http://rpi5desktop.local:5000',
-    
-    // 2. Common local network IPs (192.168.x.x)
-    'http://192.168.1.19:5000',
-    'http://192.168.0.19:5000',
-    'http://192.168.1.100:5000',
-    
-    // 3. Current known IP
-    'http://10.193.174.156:5000',
-    
-    // 4. Other common ranges
-    'http://10.0.0.19:5000',
+    'http://RPi5Desktop.local:5000',
   ];
-
-  console.log('🔍 Discovering camera server...');
-
-  // Try each URL with a quick timeout
-  for (const url of possibleUrls) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-      const response = await fetch(`${url}/status`, {
-        method: 'GET',
-        signal: controller.signal,
-        headers: { Accept: 'application/json' },
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.status === 'online') {
-          console.log('✅ Found camera server at:', url);
-          return url;
-        }
-      }
-    } catch (err) {
-      // Continue to next URL
-      console.log(`❌ Failed: ${url}`);
-    }
+  
+  for (const url of hostnameUrls) {
+    const found = await tryUrl(url, timeout);
+    if (found) return found;
   }
+  
+  // Step 2: Scan common IPs across multiple subnets
+  const allUrls = generateIPsToScan();
+  console.log(`🔎 Scanning ${allUrls.length} IPs across common networks...`);
+  
+  // Scan in parallel batches for speed (10 at a time)
+  const batchSize = 10;
+  for (let i = 0; i < allUrls.length; i += batchSize) {
+    const batch = allUrls.slice(i, i + batchSize);
+    const promises = batch.map(url => tryUrl(url, timeout));
+    const results = await Promise.all(promises);
+    
+    const found = results.find(result => result !== null);
+    if (found) return found;
+  }
+  
+  console.log('⚠️ No camera server found on network');
+  return null;
+}
 
-  console.log('⚠️ No camera server found');
+/**
+ * Try a single URL
+ */
+async function tryUrl(url, timeout) {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    const response = await fetch(`${url}/status`, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+    });
+
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data.status === 'online') {
+        console.log('✅ Found camera server at:', url);
+        return url;
+      }
+    }
+  } catch (err) {
+    // Silent fail - expected for most IPs
+  }
+  
   return null;
 }
 

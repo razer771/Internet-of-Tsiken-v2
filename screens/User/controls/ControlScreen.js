@@ -91,10 +91,16 @@ export default function ControlScreen({ navigation }) {
   // camera placeholder modal
   const [cameraModal, setCameraModal] = useState(false);
   
-  // Camera server URL - Using hostname instead of IP (works across networks)
-  // Alternative: Use IP if hostname doesn't work: "http://10.193.174.156:5000"
+  // Camera server auto-discovery - no user input needed!
   const [cameraServerUrl, setCameraServerUrl] = useState("http://rpi5desktop.local:5000");
   const [showServerInput, setShowServerInput] = useState(false);
+  
+  // Callback when camera server is auto-discovered
+  const handleServerDiscovered = (discoveredUrl) => {
+    console.log('📡 Auto-discovered camera server:', discoveredUrl);
+    setCameraServerUrl(discoveredUrl);
+    // Don't show settings - it worked automatically!
+  };
 
   // power schedule
   const [alertThreshold, setAlertThreshold] = useState(30);
@@ -974,29 +980,21 @@ export default function ControlScreen({ navigation }) {
           <View style={styles.cameraStreamContainer}>
             <CameraStream 
               serverUrl={cameraServerUrl}
-              onServerDiscovered={(url) => {
-                console.log('Auto-discovered server:', url);
-                setCameraServerUrl(url);
-              }}
+              onServerDiscovered={handleServerDiscovered}
             />
           </View>
 
           <View style={styles.modalActions}>
             <TouchableOpacity
-              style={[styles.primaryBtn, { flex: 1, marginRight: 8 }]}
-              onPress={() => setShowServerInput(!showServerInput)}
-            >
-              <Ionicons name="settings-outline" size={18} color="#fff" style={{ marginRight: 6 }} />
-              <Text style={styles.primaryBtnText}>Server Settings</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
               style={[styles.primaryBtn, { backgroundColor: "#999", flex: 1 }]}
               onPress={() => setCameraModal(false)}
             >
+              <Ionicons name="close-circle" size={18} color="#fff" style={{ marginRight: 6 }} />
               <Text style={styles.primaryBtnText}>Close</Text>
             </TouchableOpacity>
           </View>
 
+          {/* Advanced settings - hidden by default, only shown if auto-discovery fails */}
           {showServerInput && (
             <View style={styles.serverInputContainer}>
               <Text style={styles.smallLabel}>Raspberry Pi Server URL:</Text>

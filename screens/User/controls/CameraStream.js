@@ -15,127 +15,99 @@ const PRIMARY = '#133E87';
 
 export default function CameraStream({ serverUrl, onServerDiscovered }) {
   const [isConnected, setIsConnected] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [detections, setDetections] = useState({ objects: [], fps: 0, count: 0 });
-  const [error, setError] = useState(null);
   const [actualServerUrl, setActualServerUrl] = useState(serverUrl);
-  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [discoveryState, setDiscoveryState] = useState('idle'); // idle, discovering, success, failed
   const webViewRef = useRef(null);
+  const discoveryTimeoutRef = useRef(null);
 
   // Construct stream URL
   const streamUrl = `${actualServerUrl}/video_feed`;
   const detectionsUrl = `${actualServerUrl}/detections`;
-  const statusUrl = `${actualServerUrl}/status`;
 
   useEffect(() => {
-    // Try to connect with provided URL first, then auto-discover if it fails
-    initializeConnection();
-
-    // Fetch detection data every second
-    const interval = setInterval(fetchDetections, 1000);
-
-    return () => clearInterval(interval);
-  }, [serverUrl]);
-
-  const initializeConnection = async () => {
-    // First, try the provided URL
-    const connected = await checkServerStatus(serverUrl);
-    
-    if (!connected) {
-      // If provided URL fails, try last working URL
-      const lastUrl = await getLastWorkingUrl();
-      if (lastUrl && lastUrl !== serverUrl) {
-        console.log('Trying last working URL:', lastUrl);
-        const connectedToLast = await checkServerStatus(lastUrl);
-        if (connectedToLast) {
-          setActualServerUrl(lastUrl);
-          if (onServerDiscovered) onServerDiscovered(lastUrl);
-          return;
-        }
-      }
-      
-      // If both fail, try auto-discovery
-      await autoDiscover();
-    } else {
-      // Save working URL
-      await saveLastWorkingUrl(serverUrl);
+    // Fetch detection data every second if connected
+    let interval;
+    if (isConnected) {
+      interval = setInterval(fetchDetections, 1000);
     }
-  };
 
-  const autoDiscover = async () => {
-    setIsDiscovering(true);
-    setError('Auto-discovering camera server...\nThis may take a moment.');
+    return () => {
+      if (interval) clearInterval(interval);
+      if (discoveryTimeoutRef.current) clearTimeout(discoveryTimeoutRef.current);
+    };
+  }, [isConnected]);
+
+  const startDiscovery = async () => {
+    setDiscoveryState('discovering');
     
+    // Set 30 second timeout
+    discoveryTimeoutRef.current = setTimeout(() => {
+      if (discoveryState === 'discovering') {
+        setDiscoveryState('failed');
+      }
+    }, 30000);
+
+    // Try cached URL first
+    const lastUrl = await getLastWorkingUrl();
+    if (lastUrl) {
+      const connected = await checkServerStatus(lastUrl);
+      if (connected) {
+        clearTimeout(discoveryTimeoutRef.current);
+        setActualServerUrl(lastUrl);
+        if (onServerDiscovered) onServerDiscovered(lastUrl);
+        setDiscoveryState('success');
+        setIsConnected(true);
+        return;
+      }
+    }
+
+    // Auto-discover
     const discoveredUrl = await discoverCameraServer(3000);
     
     if (discoveredUrl) {
-      setActualServerUrl(discoveredUrl);
-      await saveLastWorkingUrl(discoveredUrl);
-      if (onServerDiscovered) onServerDiscovered(discoveredUrl);
-      checkServerStatus(discoveredUrl);
+      const connected = await checkServerStatus(discoveredUrl);
+      if (connected) {
+        clearTimeout(discoveryTimeoutRef.current);
+        setActualServerUrl(discoveredUrl);
+        await saveLastWorkingUrl(discoveredUrl);
+        if (onServerDiscovered) onServerDiscovered(discoveredUrl);
+        setDiscoveryState('success');
+        setIsConnected(true);
+      } else {
+        clearTimeout(discoveryTimeoutRef.current);
+        setDiscoveryState('failed');
+      }
     } else {
-      setError('Cannot find camera server\n\nPlease check:\n✓ Server running on Pi\n✓ Same WiFi network\n✓ Or manually set IP in settings');
-      setIsLoading(false);
+      clearTimeout(discoveryTimeoutRef.current);
+      setDiscoveryState('failed');
     }
-    
-    setIsDiscovering(false);
   };
 
-  const checkServerStatus = async (urlToCheck = actualServerUrl) => {
+  const checkServerStatus = async (urlToCheck) => {
     try {
       const testUrl = `${urlToCheck}/status`;
-      console.log('Checking server status:', testUrl);
       
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
       
       const response = await fetch(testUrl, {
         method: 'GET',
         signal: controller.signal,
-        headers: {
-          'Accept': 'application/json',
-        },
+        headers: { 'Accept': 'application/json' },
       });
       
       clearTimeout(timeoutId);
-      
       const data = await response.json();
-      console.log('Server response:', data);
       
-      if (data.status === 'online') {
-        setIsConnected(true);
-        setIsLoading(false);
-        setError(null);
-        return true;
-      } else {
-        throw new Error('Server not online');
-      }
+      return data.status === 'online';
     } catch (err) {
-      console.error('Connection error:', err);
-      
-      // Don't show error if we're about to auto-discover
-      if (!isDiscovering) {
-        let errorMsg = 'Cannot connect to camera server\n\n';
-        
-        if (err.name === 'AbortError') {
-          errorMsg += '⏱️ Connection timeout\n\n';
-        } else if (err.message.includes('Network request failed')) {
-          errorMsg += '🌐 Network Error\n\n';
-        }
-        
-        errorMsg += 'Will attempt auto-discovery...';
-        setError(errorMsg);
-      }
-      
-      setIsLoading(false);
-      setIsConnected(false);
+      console.log('Status check failed:', err.message);
       return false;
     }
   };
 
   const fetchDetections = async () => {
-    if (!isConnected) return;
-
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
@@ -148,21 +120,12 @@ export default function CameraStream({ serverUrl, onServerDiscovered }) {
       const data = await response.json();
       setDetections(data);
     } catch (err) {
-      // Silent fail for detection updates
       console.log('Detection fetch failed:', err.message);
     }
   };
 
   const handleRetry = () => {
-    setIsLoading(true);
-    setError(null);
-    initializeConnection();
-  };
-
-  const handleAutoDiscover = () => {
-    setIsLoading(true);
-    setError(null);
-    autoDiscover();
+    setDiscoveryState('idle');
   };
 
   // HTML to display MJPEG stream in WebView
@@ -195,31 +158,40 @@ export default function CameraStream({ serverUrl, onServerDiscovered }) {
     </html>
   `;
 
-  if (isLoading) {
+  // Idle state - show "Detect Camera" button
+  if (discoveryState === 'idle') {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={PRIMARY} />
-        <Text style={styles.statusText}>Connecting to camera...</Text>
-        <Text style={styles.smallText}>{serverUrl}</Text>
-      </View>
-    );
-  }
-
-  if (error) {
-    return (
-      <View style={styles.centerContainer}>
-        <Ionicons name="alert-circle-outline" size={48} color="#D70E11" />
-        <Text style={styles.errorTitle}>Connection Failed</Text>
-        <Text style={styles.errorText}>{error}</Text>
-        <Text style={styles.serverUrl}>Server: {serverUrl}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
-          <Ionicons name="refresh" size={18} color="#fff" style={{ marginRight: 6 }} />
-          <Text style={styles.retryText}>Retry Connection</Text>
+        <TouchableOpacity style={styles.detectButton} onPress={startDiscovery}>
+          <Ionicons name="camera-outline" size={24} color="#fff" />
+          <Text style={styles.detectButtonText}>Detect Camera</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
+  // Discovering state - show loading
+  if (discoveryState === 'discovering') {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color={PRIMARY} />
+      </View>
+    );
+  }
+
+  // Failed state - show error and retry
+  if (discoveryState === 'failed') {
+    return (
+      <View style={styles.centerContainer}>
+        <Text style={styles.errorText}>No camera detected</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+          <Text style={styles.retryText}>Please try again</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Success state - show camera stream
   return (
     <View style={styles.container}>
       {/* Live Stream using WebView */}
@@ -281,7 +253,36 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+  },
+  detectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: PRIMARY,
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 8,
+  },
+  detectButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: PRIMARY,
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   streamContainer: {
     width: '100%',
@@ -373,55 +374,5 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 10,
     opacity: 0.8,
-  },
-  statusText: {
-    marginTop: 12,
-    color: '#666',
-    fontSize: 14,
-  },
-  smallText: {
-    marginTop: 8,
-    color: '#999',
-    fontSize: 12,
-  },
-  helpText: {
-    marginTop: 12,
-    color: '#666',
-    fontSize: 13,
-    textAlign: 'left',
-    lineHeight: 20,
-  },
-  errorTitle: {
-    marginTop: 12,
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#D70E11',
-  },
-  errorText: {
-    marginTop: 12,
-    color: '#333',
-    fontSize: 13,
-    textAlign: 'left',
-    paddingHorizontal: 20,
-    lineHeight: 20,
-  },
-  serverUrl: {
-    marginTop: 8,
-    color: PRIMARY,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  retryButton: {
-    marginTop: 16,
-    backgroundColor: PRIMARY,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  retryText: {
-    color: '#fff',
-    fontWeight: '600',
   },
 });
