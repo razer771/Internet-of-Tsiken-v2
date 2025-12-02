@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -9,8 +9,11 @@ import {
   SafeAreaView,
   Platform,
   StatusBar,
+  ActivityIndicator,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { db, auth } from "../../../config/firebaseconfig";
 import HeaderUpdated from "../../navigation/Header";
 import BottomNavigation from "../../navigation/BottomNavigation";
 import CalendarModal from "../../navigation/CalendarModal";
@@ -25,95 +28,159 @@ export default function ActivityLogs({ navigation }) {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
+  const [activityLogs, setActivityLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const [activityLogs, setActivityLogs] = useState([
-    {
-      id: 1,
-      date: "01-18-25",
-      time: "9:23 AM",
-      user: "Owner",
-      action: "Activated Sprinkler",
-      description: "Adjusts the water valve in order to keep the brooder clean",
-    },
-    {
-      id: 2,
-      date: "01-18-25",
-      time: "9:23 AM",
-      user: "Owner",
-      action: "Activated Sprinkler",
-      description: "Adjusts the water valve in order to keep the brooder clean",
-    },
-    {
-      id: 3,
-      date: "01-18-25",
-      time: "9:23 AM",
-      user: "Owner",
-      action: "Activated Sprinkler",
-      description: "Adjusts the water valve in order to keep the brooder clean",
-    },
-    {
-      id: 4,
-      date: "01-18-25",
-      time: "9:23 AM",
-      user: "Owner",
-      action: "Activated Sprinkler",
-      description: "Adjusts the water valve in order to keep the brooder clean",
-    },
-    {
-      id: 5,
-      date: "01-18-25",
-      time: "9:23 AM",
-      user: "Owner",
-      action: "Activated Sprinkler",
-      description: "Adjusts the water valve in order to keep the brooder clean",
-    },
-    {
-      id: 6,
-      date: "01-18-25",
-      time: "9:23 AM",
-      user: "Owner",
-      action: "Activated Sprinkler",
-      description: "Adjusts the water valve in order to keep the brooder clean",
-    },
-    {
-      id: 7,
-      date: "01-18-25",
-      time: "9:23 AM",
-      user: "Owner",
-      action: "Activated Sprinkler",
-      description: "Adjusts the water valve in order to keep the brooder clean",
-    },
-    {
-      id: 8,
-      date: "01-18-25",
-      time: "9:23 AM",
-      user: "Owner",
-      action: "Activated Sprinkler",
-      description: "Adjusts the water valve in order to keep the brooder clean",
-    },
-    {
-      id: 9,
-      date: "01-18-25",
-      time: "9:23 AM",
-      user: "Owner",
-      action: "Activated Sprinkler",
-      description: "Adjusts the water valve in order to keep the brooder clean",
-    },
-    {
-      id: 10,
-      date: "01-18-25",
-      time: "9:23 AM",
-      user: "Owner",
-      action: "Activated Sprinkler",
-      description: "Adjusts the water valve in order to keep the brooder clean",
-    },
-  ]);
+  // Fetch logs from Firestore
+  useEffect(() => {
+    const fetchActivityLogs = async () => {
+      try {
+        setLoading(true);
+        const currentUser = auth.currentUser;
+
+        if (!currentUser) {
+          console.log("No user logged in");
+          setLoading(false);
+          return;
+        }
+
+        const userId = currentUser.uid;
+        const collections = [
+          "addFeedSchedule_logs",
+          "deleteFeedSchedule_logs",
+          "editFeedSchedule_logs",
+          "nightTime_logs",
+          "wateringActivity_Logs",
+        ];
+
+        // Fetch logs from all collections
+        const allLogsPromises = collections.map(async (collectionName) => {
+          const q = query(
+            collection(db, collectionName),
+            where("userId", "==", userId)
+          );
+          const querySnapshot = await getDocs(q);
+
+          return querySnapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+            source: collectionName, // Add source field
+          }));
+        });
+
+        // Wait for all promises to resolve
+        const logsArrays = await Promise.all(allLogsPromises);
+
+        // Flatten and merge all logs
+        const mergedLogs = logsArrays.flat();
+
+        // Sort by timestamp (descending) - normalize timestamps first
+        const sortedLogs = mergedLogs.sort((a, b) => {
+          // Normalize timestamp for log A
+          let dateA;
+          if (a.timestamp?.toDate && typeof a.timestamp.toDate === "function") {
+            dateA = a.timestamp.toDate();
+          } else if (typeof a.timestamp === "string") {
+            dateA = new Date(a.timestamp);
+          } else if (a.timestamp instanceof Date) {
+            dateA = a.timestamp;
+          } else {
+            dateA = a.date || new Date(0);
+          }
+
+          // Normalize timestamp for log B
+          let dateB;
+          if (b.timestamp?.toDate && typeof b.timestamp.toDate === "function") {
+            dateB = b.timestamp.toDate();
+          } else if (typeof b.timestamp === "string") {
+            dateB = new Date(b.timestamp);
+          } else if (b.timestamp instanceof Date) {
+            dateB = b.timestamp;
+          } else {
+            dateB = b.date || new Date(0);
+          }
+
+          // Sort descending (latest first)
+          return dateB - dateA;
+        });
+
+        setActivityLogs(sortedLogs);
+      } catch (error) {
+        console.error("Error fetching activity logs:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchActivityLogs();
+  }, []);
 
   const formatDate = (date) => {
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
     const year = String(date.getFullYear()).slice(-2);
     return `${month}-${day}-${year}`;
+  };
+
+  // Convert Firestore timestamp to GMT+8 and format as MM/DD/YYYY
+  const formatToGMT8Date = (timestamp) => {
+    if (!timestamp) return "N/A";
+
+    let date;
+    // Handle Firestore Timestamp object
+    if (timestamp.toDate && typeof timestamp.toDate === "function") {
+      date = timestamp.toDate();
+    }
+    // Handle ISO string
+    else if (typeof timestamp === "string") {
+      date = new Date(timestamp);
+    }
+    // Handle Date object
+    else if (timestamp instanceof Date) {
+      date = timestamp;
+    } else {
+      return "N/A";
+    }
+
+    // Convert to GMT+8 (add 8 hours in milliseconds)
+    const gmt8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+
+    const month = String(gmt8Date.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(gmt8Date.getUTCDate()).padStart(2, "0");
+    const year = gmt8Date.getUTCFullYear();
+
+    return `${month}/${day}/${year}`;
+  };
+
+  // Convert Firestore timestamp to GMT+8 and format as HH:MM AM/PM
+  const formatToGMT8Time = (timestamp) => {
+    if (!timestamp) return "N/A";
+
+    let date;
+    // Handle Firestore Timestamp object
+    if (timestamp.toDate && typeof timestamp.toDate === "function") {
+      date = timestamp.toDate();
+    }
+    // Handle ISO string
+    else if (typeof timestamp === "string") {
+      date = new Date(timestamp);
+    }
+    // Handle Date object
+    else if (timestamp instanceof Date) {
+      date = timestamp;
+    } else {
+      return "N/A";
+    }
+
+    // Convert to GMT+8 (add 8 hours in milliseconds)
+    const gmt8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+
+    const hours = gmt8Date.getUTCHours();
+    const minutes = gmt8Date.getUTCMinutes();
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const hour12 = hours % 12 || 12;
+
+    return `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}`;
   };
 
   const isSameDate = (dateStr, selectedDate) => {
@@ -152,24 +219,12 @@ export default function ActivityLogs({ navigation }) {
   };
 
   const handleLogGenerated = (logData) => {
-    const newLog = {
-      id: activityLogs.length + 1,
-      date: logData.date,
-      time: logData.time,
-      user: logData.role,
-      action: logData.action,
-      description: logData.description,
-    };
-    setActivityLogs([newLog, ...activityLogs]);
+    // Close the modal
     setShowGenerateModal(false);
 
     // Show success message
-    setSuccessMessage(
-      "Report successfully generated\nRedirecting to Activity Logs..."
-    );
+    setSuccessMessage("Report successfully generated");
     setShowSuccessModal(true);
-
-    console.log("New log added:", newLog);
   };
 
   const handleSuccessComplete = () => {
@@ -219,72 +274,82 @@ export default function ActivityLogs({ navigation }) {
         </View>
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 80 }}
-      >
-        {/* Selected Date Display & Clear Button */}
-        {selectedDate && (
-          <View style={styles.dateFilterBanner}>
-            <View style={styles.dateFilterContent}>
-              <Icon name="calendar" size={16} color="#3b82f6" />
-              <Text style={styles.dateFilterText}>
-                Showing logs for {formatDate(selectedDate)}
-              </Text>
-            </View>
-            <TouchableOpacity
-              onPress={handleClearDateFilter}
-              style={styles.clearDateButton}
-            >
-              <Icon name="x" size={16} color="#64748b" />
-              <Text style={styles.clearDateText}>Clear</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        <View style={styles.tableContainer}>
-          {/* Table Header */}
-          <View style={styles.tableHeader}>
-            <Text style={[styles.tableHeaderText, styles.colDate]}>Date</Text>
-            <Text style={[styles.tableHeaderText, styles.colTime]}>Time</Text>
-            <Text style={[styles.tableHeaderText, styles.colUser]}>User</Text>
-            <Text style={[styles.tableHeaderText, styles.colAction]}>
-              Action
-            </Text>
-            <Text style={[styles.tableHeaderText, styles.colDescription]}>
-              Description
-            </Text>
-          </View>
-
-          {/* Table Rows */}
-          {filteredLogs.map((log) => (
-            <View key={log.id} style={styles.tableRow}>
-              <Text style={[styles.tableCellText, styles.colDate]}>
-                {log.date}
-              </Text>
-              <Text style={[styles.tableCellText, styles.colTime]}>
-                {log.time}
-              </Text>
-              <Text style={[styles.tableCellText, styles.colUser]}>
-                {log.user}
-              </Text>
-              <Text style={[styles.tableCellText, styles.colAction]}>
-                {log.action}
-              </Text>
-              <Text style={[styles.tableCellText, styles.colDescription]}>
-                {log.description}
-              </Text>
-            </View>
-          ))}
-
-          {/* Empty State */}
-          {filteredLogs.length === 0 && (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateText}>No logs found</Text>
+      {/* Loading State */}
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#3b82f6" />
+          <Text style={styles.loadingText}>Loading activity logs...</Text>
+        </View>
+      ) : (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 80 }}
+        >
+          {/* Selected Date Display & Clear Button */}
+          {selectedDate && (
+            <View style={styles.dateFilterBanner}>
+              <View style={styles.dateFilterContent}>
+                <Icon name="calendar" size={16} color="#3b82f6" />
+                <Text style={styles.dateFilterText}>
+                  Showing logs for {formatDate(selectedDate)}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={handleClearDateFilter}
+                style={styles.clearDateButton}
+              >
+                <Icon name="x" size={16} color="#64748b" />
+                <Text style={styles.clearDateText}>Clear</Text>
+              </TouchableOpacity>
             </View>
           )}
-        </View>
-      </ScrollView>
+
+          <View style={styles.tableContainer}>
+            {/* Table Header */}
+            <View style={styles.tableHeader}>
+              <Text style={[styles.tableHeaderText, styles.colDate]}>Date</Text>
+              <Text style={[styles.tableHeaderText, styles.colTime]}>Time</Text>
+              <Text style={[styles.tableHeaderText, styles.colUser]}>User</Text>
+              <Text style={[styles.tableHeaderText, styles.colAction]}>
+                Action
+              </Text>
+              <Text style={[styles.tableHeaderText, styles.colDescription]}>
+                Description
+              </Text>
+            </View>
+
+            {/* Table Rows */}
+            {filteredLogs.map((log) => (
+              <View key={log.id} style={styles.tableRow}>
+                <Text style={[styles.tableCellText, styles.colDate]}>
+                  {formatToGMT8Date(log.timestamp)}
+                </Text>
+                <Text style={[styles.tableCellText, styles.colTime]}>
+                  {formatToGMT8Time(log.timestamp)}
+                </Text>
+                <Text style={[styles.tableCellText, styles.colUser]}>
+                  {log.firstName && log.lastName
+                    ? `${log.firstName} ${log.lastName}`
+                    : log.firstName || log.userName || log.userEmail || "N/A"}
+                </Text>
+                <Text style={[styles.tableCellText, styles.colAction]}>
+                  {log.action || "N/A"}
+                </Text>
+                <Text style={[styles.tableCellText, styles.colDescription]}>
+                  {log.description || "N/A"}
+                </Text>
+              </View>
+            ))}
+
+            {/* Empty State */}
+            {filteredLogs.length === 0 && (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateText}>No logs found</Text>
+              </View>
+            )}
+          </View>
+        </ScrollView>
+      )}
 
       {/* Calendar Modal */}
       <CalendarModal
@@ -298,6 +363,7 @@ export default function ActivityLogs({ navigation }) {
         visible={showGenerateModal}
         onClose={() => setShowGenerateModal(false)}
         onGenerate={handleLogGenerated}
+        logs={activityLogs}
       />
 
       {/* Success Modal */}
@@ -459,6 +525,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   emptyStateText: {
+    fontSize: 14,
+    color: "#64748b",
+    fontWeight: "500",
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 60,
+  },
+  loadingText: {
+    marginTop: 12,
     fontSize: 14,
     color: "#64748b",
     fontWeight: "500",
