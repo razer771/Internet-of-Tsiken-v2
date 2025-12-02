@@ -14,6 +14,9 @@ import Home from "./screens/Dashboard/Home";
 import Notification from "./screens/controls/Notification";
 import ControlScreen from "./screens/controls/ControlScreen";
 import Settings from "./screens/controls/Settings";
+import TermsAndConditions from "./screens/controls/TermsAndConditions";
+import PrivacyPolicy from "./screens/controls/PrivacyPolicy";
+import InternetOfTsiken from "./screens/controls/InternetOfTsiken";
 
 const Stack = createNativeStackNavigator();
 
@@ -37,6 +40,10 @@ export default function App() {
         <Stack.Screen name="Notification" component={Notification} />
         <Stack.Screen name="Control" component={ControlScreen} />
         <Stack.Screen name="Settings" component={Settings} />
+        <Stack.Screen name="TermsAndConditions" component={TermsAndConditions} />
+        <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicy} />
+        <Stack.Screen name="InternetOfTsiken" component={InternetOfTsiken} />
+
       </Stack.Navigator>
     </NavigationContainer>
   );
