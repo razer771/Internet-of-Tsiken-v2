@@ -19,6 +19,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "../../../config/firebaseconfig";
 import { doc, setDoc, addDoc, collection } from "firebase/firestore";
+import CameraStream from "./CameraStream";
 
 const PRIMARY = "#133E87";
 const GREEN = "#249D1D";
@@ -89,6 +90,11 @@ export default function ControlScreen({ navigation }) {
 
   // camera placeholder modal
   const [cameraModal, setCameraModal] = useState(false);
+  
+  // Camera server URL - Using hostname instead of IP (works across networks)
+  // Alternative: Use IP if hostname doesn't work: "http://10.193.174.156:5000"
+  const [cameraServerUrl, setCameraServerUrl] = useState("http://rpi5desktop.local:5000");
+  const [showServerInput, setShowServerInput] = useState(false);
 
   // power schedule
   const [alertThreshold, setAlertThreshold] = useState(30);
@@ -957,24 +963,57 @@ export default function ControlScreen({ navigation }) {
 
       {/* Camera Modal */}
       <Modal visible={cameraModal} transparent animationType="slide">
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          onPress={() => setCameraModal(false)}
-        />
-        <View style={styles.editModal}>
-          <Text style={styles.modalTitle}>Live Camera</Text>
-          <Image
-            source={require("../../../assets/proposal meeting.png")}
-            style={{ width: "100%", height: 220, borderRadius: 8 }}
-          />
-          <TouchableOpacity
-            style={[styles.primaryBtn, { marginTop: 12 }]}
-            onPress={() =>
-              Alert.alert("Connect", "Placeholder to connect to IoT camera")
-            }
-          >
-            <Text style={styles.primaryBtnText}>Connect to IoT Stream</Text>
-          </TouchableOpacity>
+        <View style={styles.fullScreenModal}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Live Camera Surveillance</Text>
+            <TouchableOpacity onPress={() => setCameraModal(false)}>
+              <Ionicons name="close-circle" size={32} color={PRIMARY} />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.cameraStreamContainer}>
+            <CameraStream 
+              serverUrl={cameraServerUrl}
+              onServerDiscovered={(url) => {
+                console.log('Auto-discovered server:', url);
+                setCameraServerUrl(url);
+              }}
+            />
+          </View>
+
+          <View style={styles.modalActions}>
+            <TouchableOpacity
+              style={[styles.primaryBtn, { flex: 1, marginRight: 8 }]}
+              onPress={() => setShowServerInput(!showServerInput)}
+            >
+              <Ionicons name="settings-outline" size={18} color="#fff" style={{ marginRight: 6 }} />
+              <Text style={styles.primaryBtnText}>Server Settings</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.primaryBtn, { backgroundColor: "#999", flex: 1 }]}
+              onPress={() => setCameraModal(false)}
+            >
+              <Text style={styles.primaryBtnText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+
+          {showServerInput && (
+            <View style={styles.serverInputContainer}>
+              <Text style={styles.smallLabel}>Raspberry Pi Server URL:</Text>
+              <TextInput
+                style={styles.formInput}
+                value={cameraServerUrl}
+                onChangeText={setCameraServerUrl}
+                placeholder="http://rpi5desktop.local:5000"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <Text style={styles.smallNote}>
+                💡 Tip: Using hostname (rpi5desktop.local) works across different networks!
+                {'\n'}Or enter IP address manually (e.g., http://192.168.1.19:5000)
+              </Text>
+            </View>
+          )}
         </View>
       </Modal>
 
@@ -1481,12 +1520,40 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 12,
     elevation: 10,
   },
+  fullScreenModal: {
+    flex: 1,
+    backgroundColor: "#fff",
+    paddingTop: Platform.OS === "ios" ? 50 : 20,
+    paddingHorizontal: 16,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  cameraStreamContainer: {
+    flex: 1,
+    marginBottom: 16,
+  },
+  modalActions: {
+    flexDirection: "row",
+    marginBottom: 12,
+  },
+  serverInputContainer: {
+    padding: 12,
+    backgroundColor: "#f5f5f5",
+    borderRadius: 8,
+    marginBottom: 16,
+  },
   modalTitle: { fontWeight: "700", fontSize: 16, marginBottom: 8 },
   formInput: {
     borderWidth: 1,
     borderColor: "#ddd",
     borderRadius: 8,
     padding: 10,
+    marginTop: 6,
+    backgroundColor: "#fff",
   },
 
   popupBackground: {
