@@ -2,18 +2,11 @@ import React, { useState, useMemo } from "react";
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Modal, Pressable } from 'react-native';
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from '@react-navigation/native';
+import { useNotifications } from "./NotificationContext";
 
 const PRIMARY = "#133E87";
 const BORDER_LIGHT = "rgba(0,0,0,0.12)";
 const NOTIF_BORDER = "rgba(0,0,0,0.1)";
-
-const initialNotifications = [
-  { id: 1, category: "IoT: Internet of Tsiken", title: "Temperature too high/low", time: "October 21, 2025 (09:19 PM)", read: false },
-  { id: 2, category: "IoT: Internet of Tsiken", title: "Feeder empty", time: "October 21, 2025 (09:19 PM)", read: false },
-  { id: 3, category: "IoT: Internet of Tsiken", title: "Water low", time: "October 21, 2025 (09:19 PM)", read: true },
-  { id: 4, category: "IoT: Internet of Tsiken", title: "Switched to Solar Mode", time: "October 21, 2025 (09:19 PM)", read: true },
-  { id: 5, category: "IoT: Internet of Tsiken", title: "Power outage", time: "October 21, 2025 (09:19 PM)", read: false },
-];
 
 const TimePeriod = ["Daily", "Weekly", "Monthly"];
 
@@ -80,31 +73,35 @@ function SmallCalendar({ onClose }) {
   );
 }
 
-function NotificationItem({ item }) {
+function NotificationItem({ item, onPress }) {
   return (
-    <View style={[styles.notificationItem, { backgroundColor: item.read ? "#f7f7f7" : "#fff" }]}>
+    <TouchableOpacity 
+      style={[styles.notificationItem, { backgroundColor: item.read ? "#f7f7f7" : "#fff" }]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
       <Text style={{ fontWeight: '700' }}>{item.category}: {item.title}</Text>
       <Text style={styles.notificationText}>
         Lorem ipsum dolor sit amet, consectetur adipiscing elit.
       </Text>
       <Text style={styles.notificationTime}>{item.time}</Text>
-    </View>
+    </TouchableOpacity>
   );
 }
 
 export default function Notification() {
   const [activeTab, setActiveTab] = useState("Daily");
   const [calendarVisible, setCalendarVisible] = useState(false);
-  const [notifications, setNotifications] = useState(initialNotifications);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const navigation = useNavigation();
+  const { notifications, toggleAllRead, markAsRead } = useNotifications();
 
   const openDrawer = () => setDrawerVisible(true);
   const closeDrawer = () => setDrawerVisible(false);
   const allRead = useMemo(() => notifications.every(n => n.read), [notifications]);
 
   const toggleMarkAll = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: !allRead })));
+    toggleAllRead();
   };
 
   return (
@@ -145,7 +142,13 @@ export default function Notification() {
         </View>  
 
         <View>  
-          {notifications.map(n => <NotificationItem key={n.id} item={n} />)}  
+          {notifications.map(n => (
+            <NotificationItem 
+              key={n.id} 
+              item={n} 
+              onPress={() => markAsRead(n.id)}
+            />
+          ))}  
         </View>  
 
         <Modal visible={calendarVisible} transparent animationType="slide">  

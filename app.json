@@ -2,9 +2,6 @@
   "expo": {
     "name": "Internet Of Tsiken",
     "slug": "capstone",
-    "plugins": [
-      "expo-video"
-    ],
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",

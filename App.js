@@ -5,6 +5,7 @@ import { NavigationContainer, useFocusEffect } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { navigationRef } from "./services/NavigationService";
 import * as SplashScreen from "expo-splash-screen";
+import { NotificationProvider } from "./screens/User/controls/NotificationContext";
 
 // Keep the splash screen visible while we fetch resources
 try {
@@ -127,8 +128,9 @@ export default function App() {
   };
 
   return (
-    <View style={styles.container}>
-      <NavigationContainer ref={navigationRef}>
+    <NotificationProvider>
+      <View style={styles.container}>
+        <NavigationContainer ref={navigationRef}>
         {!isAuthScreen && <Header />}
         <View style={[styles.content, !isAuthScreen && styles.contentWithNav]}>
           <Stack.Navigator
@@ -338,6 +340,7 @@ export default function App() {
         )}
       </NavigationContainer>
     </View>
+    </NotificationProvider>
   );
 }
 
