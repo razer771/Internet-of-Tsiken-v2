@@ -1,4 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { auth, db } from "../../../config/firebaseconfig";
+import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
 // ----------- GROUPED BAR CHART COMPONENT -----------
 // SingleBarChart: simplified version for feeding tab (single bar per group)
 function GroupedBarChart({
@@ -192,6 +194,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Dimensions,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -231,16 +234,202 @@ export default function Analytics() {
     },
   ];
 
-  // Feeding data
-  const feedingData = [12, 13, 10, 12, 11, 11, 12];
+  // Feeding data - now fetched from Firestore
+  const [feedingData, setFeedingData] = useState([0, 0, 0, 0, 0, 0, 0]);
+  const [feedingLoading, setFeedingLoading] = useState(true);
+  const [totalFeedUsed, setTotalFeedUsed] = useState(0);
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const maxFeed = Math.max(...feedingData);
   const [activeFeedIndex, setActiveFeedIndex] = useState(null);
 
-  // Water data
-  const waterLevels = [82, 75, 60, 70, 80];
-  const waterTimes = ["00:00", "04:00", "08:00", "12:00", "20:00"];
+  // Fetch feeding data from Firestore
+  useEffect(() => {
+    fetchFeedingData();
+  }, [selectedDateRange]);
+
+  const fetchFeedingData = async () => {
+    setFeedingLoading(true);
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        console.log("No user logged in");
+        setFeedingLoading(false);
+        return;
+      }
+
+      // Calculate date range
+      const now = new Date();
+      let startDate = new Date();
+      
+      if (selectedDateRange === "Last 7 Days") {
+        startDate.setDate(now.getDate() - 7);
+      } else if (selectedDateRange === "Last 30 Days") {
+        startDate.setDate(now.getDate() - 30);
+      } else if (selectedDateRange === "This Month") {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      }
+
+      // Fetch from addFeedSchedule collection
+      const feedScheduleRef = collection(db, "addFeedSchedule");
+      const feedsSnapshot = await getDocs(feedScheduleRef);
+      
+      // Initialize counts for each day of week
+      const dayCounts = [0, 0, 0, 0, 0, 0, 0]; // Mon-Sun
+      let total = 0;
+
+      feedsSnapshot.forEach((doc) => {
+        const data = doc.data();
+        
+        // Filter by user
+        if (data.userId !== user.uid) return;
+        
+        // Parse timestamp
+        let docDate;
+        if (data.timestamp) {
+          docDate = new Date(data.timestamp);
+        } else if (data.selectedTime) {
+          docDate = new Date(data.selectedTime);
+        } else {
+          return;
+        }
+
+        // Filter by date range
+        if (docDate < startDate || docDate > now) return;
+
+        // Get day of week (0 = Sunday, so we need to adjust for Mon-Sun)
+        const dayOfWeek = docDate.getDay();
+        // Convert: Sunday(0)->6, Monday(1)->0, Tuesday(2)->1, etc.
+        const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+        
+        dayCounts[adjustedDay]++;
+        total++;
+      });
+
+      console.log("Feeding data from Firestore:", dayCounts);
+      setFeedingData(dayCounts);
+      setTotalFeedUsed(total);
+    } catch (error) {
+      console.error("Error fetching feeding data:", error);
+    } finally {
+      setFeedingLoading(false);
+    }
+  };
+
+  // Water data - now fetched from Firestore
+  const [waterLevels, setWaterLevels] = useState([0, 0, 0, 0, 0]);
+  const [waterTimes, setWaterTimes] = useState(["00:00", "04:00", "08:00", "12:00", "20:00"]);
+  const [waterLoading, setWaterLoading] = useState(true);
+  const [waterStats, setWaterStats] = useState({
+    currentLevel: 0,
+    dailyConsumption: 0,
+    weeklyTotal: 0,
+  });
   const [activeWaterIndex, setActiveWaterIndex] = useState(null);
+
+  // Fetch water data from Firestore
+  useEffect(() => {
+    fetchWaterData();
+  }, [selectedDateRange]);
+
+  const fetchWaterData = async () => {
+    setWaterLoading(true);
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        console.log("No user logged in");
+        setWaterLoading(false);
+        return;
+      }
+
+      // Calculate date range
+      const now = new Date();
+      let startDate = new Date();
+      
+      if (selectedDateRange === "Last 7 Days") {
+        startDate.setDate(now.getDate() - 7);
+      } else if (selectedDateRange === "Last 30 Days") {
+        startDate.setDate(now.getDate() - 30);
+      } else if (selectedDateRange === "This Month") {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      }
+
+      // Fetch from wateringActivityLogs collection
+      const waterLogsRef = collection(db, "wateringActivityLogs");
+      const waterSnapshot = await getDocs(waterLogsRef);
+      
+      // Group data by time slots
+      const timeSlots = {
+        "00:00": [],
+        "04:00": [],
+        "08:00": [],
+        "12:00": [],
+        "20:00": [],
+      };
+      
+      let totalLogs = 0;
+      let latestLevel = 0;
+
+      waterSnapshot.forEach((doc) => {
+        const data = doc.data();
+        
+        // Filter by user
+        if (data.userId !== user.uid) return;
+        
+        // Parse timestamp
+        let docDate;
+        if (data.timestamp) {
+          docDate = new Date(data.timestamp);
+        } else if (data.selectedTime) {
+          docDate = new Date(data.selectedTime);
+        } else {
+          return;
+        }
+
+        // Filter by date range
+        if (docDate < startDate || docDate > now) return;
+
+        totalLogs++;
+        
+        // Get hour and assign to nearest time slot
+        const hour = docDate.getHours();
+        let slot = "00:00";
+        if (hour >= 2 && hour < 6) slot = "04:00";
+        else if (hour >= 6 && hour < 10) slot = "08:00";
+        else if (hour >= 10 && hour < 16) slot = "12:00";
+        else if (hour >= 16 && hour < 22) slot = "20:00";
+        else slot = "00:00";
+
+        // Use waterLevel if available, otherwise count as activity
+        const level = data.waterLevel || data.level || 1;
+        timeSlots[slot].push(level);
+        
+        // Track latest level
+        if (docDate > new Date(latestLevel)) {
+          latestLevel = level;
+        }
+      });
+
+      // Calculate average for each time slot (or count if no levels)
+      const levels = Object.keys(timeSlots).map(slot => {
+        const values = timeSlots[slot];
+        if (values.length === 0) return 0;
+        // If values are small numbers (counts), multiply for visualization
+        const avg = values.reduce((a, b) => a + b, 0) / values.length;
+        return Math.round(avg > 10 ? avg : avg * 20); // Scale up small values
+      });
+
+      console.log("Water data from Firestore:", levels);
+      setWaterLevels(levels);
+      setWaterStats({
+        currentLevel: latestLevel > 10 ? latestLevel : latestLevel * 20,
+        dailyConsumption: totalLogs,
+        weeklyTotal: totalLogs,
+      });
+    } catch (error) {
+      console.error("Error fetching water data:", error);
+    } finally {
+      setWaterLoading(false);
+    }
+  };
 
   // Energy data
   const [activeEnergyIndex, setActiveEnergyIndex] = useState(null);
@@ -356,33 +545,42 @@ export default function Analytics() {
           {/* Feeding Bar Chart (Single Bar) */}
           <View style={[styles.card, { width: cardWidth }]}>
             <Text style={styles.chartTitle}>Feeding Frequency Chart</Text>
-            <GroupedBarChart
-              actions={feedingData}
-              labels={days}
-              barColors={["#000"]}
-              maxValue={16}
-              style={{ marginTop: 10, marginBottom: 10, justifyContent: 'center', alignItems: 'center' }}
-              activeIndex={activeFeedIndex}
-              setActiveIndex={setActiveFeedIndex}
-              tooltipFormatter={(group, idx, val) =>
-                `${days[idx]} amount: ${val}`
-              }
-            />
+            {feedingLoading ? (
+              <View style={{ height: 180, justifyContent: "center", alignItems: "center" }}>
+                <ActivityIndicator size="large" color="#133E87" />
+                <Text style={{ marginTop: 10, color: "#666" }}>Loading data...</Text>
+              </View>
+            ) : (
+              <GroupedBarChart
+                actions={feedingData}
+                labels={days}
+                barColors={["#000"]}
+                maxValue={Math.max(...feedingData, 1) + 2}
+                style={{ marginTop: 10, marginBottom: 10, justifyContent: 'center', alignItems: 'center' }}
+                activeIndex={activeFeedIndex}
+                setActiveIndex={setActiveFeedIndex}
+                tooltipFormatter={(group, idx, val) =>
+                  `${days[idx]}: ${val} feeds`
+                }
+              />
+            )}
           </View>
           {/* Weekly Summary (Updated Section) */}
           <View style={[styles.weeklyCard, { width: cardWidth }]}>
             <Text style={styles.weeklyTitle}>Weekly Summary</Text>
             <View style={styles.weeklyRow}>
-              <Text style={styles.weeklyLabel}>Total Feed Used</Text>
-              <Text style={styles.weeklyValue}>92 kg</Text>
+              <Text style={styles.weeklyLabel}>Total Feed Schedules</Text>
+              <Text style={styles.weeklyValue}>{totalFeedUsed}</Text>
             </View>
             <View style={styles.weeklyRow}>
               <Text style={styles.weeklyLabel}>Daily Average</Text>
-              <Text style={styles.weeklyValue}>13.1 kg</Text>
+              <Text style={styles.weeklyValue}>{(totalFeedUsed / 7).toFixed(1)}</Text>
             </View>
             <View style={styles.weeklyRow}>
-              <Text style={styles.weeklyLabel}>Per Chick</Text>
-              <Text style={styles.weeklyValue}>52.5 g/day</Text>
+              <Text style={styles.weeklyLabel}>Most Active Day</Text>
+              <Text style={styles.weeklyValue}>
+                {feedingData.every(v => v === 0) ? "N/A" : days[feedingData.indexOf(Math.max(...feedingData))]}
+              </Text>
             </View>
           </View>
         </>
@@ -395,71 +593,78 @@ export default function Analytics() {
           <View style={[styles.card, { width: cardWidth }]}>
             <Text style={styles.chartTitle}>Water Level Chart</Text>
 
-            <View style={styles.waterChartContainer}>
-              {/* Y-Axis Labels */}
-              <View style={{
-                position: "absolute",
-                left: 0,
-                bottom: 0,
-                top: 0,
-                justifyContent: "space-between",
-                paddingLeft: 5,
-                height: "100%",
-              }}>
-                <Text style={{ fontSize: 10, color: "#333" }}>100</Text>
-                <Text style={{ fontSize: 10, color: "#333" }}>75</Text>
-                <Text style={{ fontSize: 10, color: "#333" }}>50</Text>
-                <Text style={{ fontSize: 10, color: "#333" }}>25</Text>
-                <Text style={{ fontSize: 10, color: "#333" }}>0</Text>
+            {waterLoading ? (
+              <View style={{ height: 180, justifyContent: "center", alignItems: "center" }}>
+                <ActivityIndicator size="large" color="#133E87" />
+                <Text style={{ marginTop: 10, color: "#666" }}>Loading data...</Text>
               </View>
-              <View style={{ flex: 1, flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginLeft: 30 }}>
-                {waterTimes.map((time, index) => (
-                  <View key={index} style={styles.waterPointWrapper}>
-                    {(activeWaterIndex === index || waterLevels[index] === Math.max(...waterLevels)) && (
-                      <View
+            ) : (
+              <View style={styles.waterChartContainer}>
+                {/* Y-Axis Labels */}
+                <View style={{
+                  position: "absolute",
+                  left: 0,
+                  bottom: 0,
+                  top: 0,
+                  justifyContent: "space-between",
+                  paddingLeft: 5,
+                  height: "100%",
+                }}>
+                  <Text style={{ fontSize: 10, color: "#333" }}>100</Text>
+                  <Text style={{ fontSize: 10, color: "#333" }}>75</Text>
+                  <Text style={{ fontSize: 10, color: "#333" }}>50</Text>
+                  <Text style={{ fontSize: 10, color: "#333" }}>25</Text>
+                  <Text style={{ fontSize: 10, color: "#333" }}>0</Text>
+                </View>
+                <View style={{ flex: 1, flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginLeft: 30 }}>
+                  {waterTimes.map((time, index) => (
+                    <View key={index} style={styles.waterPointWrapper}>
+                      {(activeWaterIndex === index || waterLevels[index] === Math.max(...waterLevels)) && (
+                        <View
+                          style={[
+                            styles.waterVerticalLine,
+                            { bottom: 0, height: waterLevels[index] * 1.8 }
+                          ]}
+                        />
+                      )}
+                      <TouchableOpacity
+                        onPress={() => {
+                          setActiveWaterIndex(index);
+                          setTimeout(() => setActiveWaterIndex(null), 1000);
+                        }}
+                        activeOpacity={0.8}
                         style={[
-                          styles.waterVerticalLine,
-                          { bottom: 0, height: waterLevels[index] * 1.8 }
+                          styles.waterDot,
+                          { bottom: waterLevels[index] * 1.8 },
                         ]}
                       />
-                    )}
-                    <TouchableOpacity
-                      onPress={() => {
-                        setActiveWaterIndex(index);
-                        setTimeout(() => setActiveWaterIndex(null), 1000);
-                      }}
-                      activeOpacity={0.8}
-                      style={[
-                        styles.waterDot,
-                        { bottom: waterLevels[index] * 1.8 },
-                      ]}
-                    />
-                    {/* Tooltip above dot */}
-                    {activeWaterIndex === index && (
-                      <View
-                        style={[
-                          styles.feedTooltip,
-                          {
-                            position: "absolute",
-                            bottom: waterLevels[index] * 1.8 + 18,
-                            left: "50%",
-                            transform: [{ translateX: -50 }],
-                            minWidth: 90,
-                            zIndex: 10,
-                          },
-                        ]}
-                      >
-                        <Text style={styles.tooltipText}>{waterTimes[index]}</Text>
-                        <Text style={styles.tooltipText}>Level: {waterLevels[index]}</Text>
-                      </View>
-                    )}
-                    {/* Move label below the baseline, outside the dot container */}
-                    <View style={{ height: 180 }} /> {/* Spacer to push label below baseline */}
-                    <Text style={styles.waterTimeLabel}>{time}</Text>
-                  </View>
-                ))}
+                      {/* Tooltip above dot */}
+                      {activeWaterIndex === index && (
+                        <View
+                          style={[
+                            styles.feedTooltip,
+                            {
+                              position: "absolute",
+                              bottom: waterLevels[index] * 1.8 + 18,
+                              left: "50%",
+                              transform: [{ translateX: -50 }],
+                              minWidth: 90,
+                              zIndex: 10,
+                            },
+                          ]}
+                        >
+                          <Text style={styles.tooltipText}>{waterTimes[index]}</Text>
+                          <Text style={styles.tooltipText}>Level: {waterLevels[index]}</Text>
+                        </View>
+                      )}
+                      {/* Spacer to push label below baseline */}
+                      <View style={{ height: 180 }} />
+                      <Text style={styles.waterTimeLabel}>{time}</Text>
+                    </View>
+                  ))}
+                </View>
               </View>
-            </View>
+            )}
           </View>
 
           {/* Water Usage Summary */}
@@ -468,17 +673,19 @@ export default function Analytics() {
 
             <View style={styles.weeklyRow}>
               <Text style={styles.weeklyLabel}>Current Level</Text>
-              <Text style={styles.weeklyValue}>80%</Text>
+              <Text style={styles.weeklyValue}>{waterStats.currentLevel}%</Text>
             </View>
 
             <View style={styles.weeklyRow}>
-              <Text style={styles.weeklyLabel}>Daily Consumption</Text>
-              <Text style={styles.weeklyValue}>21.5 L</Text>
+              <Text style={styles.weeklyLabel}>Total Activities</Text>
+              <Text style={styles.weeklyValue}>{waterStats.dailyConsumption}</Text>
             </View>
 
             <View style={styles.weeklyRow}>
-              <Text style={styles.weeklyLabel}>Weekly Total</Text>
-              <Text style={styles.weeklyValue}>145 L</Text>
+              <Text style={styles.weeklyLabel}>Peak Time</Text>
+              <Text style={styles.weeklyValue}>
+                {waterLevels.every(v => v === 0) ? "N/A" : waterTimes[waterLevels.indexOf(Math.max(...waterLevels))]}
+              </Text>
             </View>
           </View>
         </>
