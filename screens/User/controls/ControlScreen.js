@@ -1,5 +1,5 @@
 // screensample/ControlScreen.js
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   Alert,
   Platform,
   PanResponder,
+  ActivityIndicator,
 } from "react-native";
 import Slider from "@react-native-community/slider";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -29,6 +30,18 @@ import {
   where,
   getDoc,
 } from "firebase/firestore";
+import {
+  initializeSensors,
+  getAllSensorReadings,
+  getConnectionStatus,
+  startSensorPolling,
+} from "../../../modules/UltrasonicSensorService";
+import {
+  initializeServos,
+  dispenseFeed,
+  activateSprinkler,
+  getServoConnectionStatus,
+} from "../../../modules/ServoMotorService";
 
 const PRIMARY = "#133E87";
 const GREEN = "#249D1D";
@@ -40,12 +53,14 @@ export default function ControlScreen({ navigation }) {
   // side menu
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // realtime
+  // realtime sensor data
+  const [waterNow, setWaterNow] = useState(0);
+  const [feederNow, setFeederNow] = useState(0);
+  const [sensorLoading, setSensorLoading] = useState(true);
+  const [sensorError, setSensorError] = useState(null);
+  const [isSimulated, setIsSimulated] = useState(true);
 
-  const [waterNow] = useState(85);
-  const [feederNow] = useState(62);
-
-  // controls
+  // Lighting and Ventilation controls
   const [lightOn, setLightOn] = useState(false);
   const [fanOn, setFanOn] = useState(false);
 
@@ -65,8 +80,78 @@ export default function ControlScreen({ navigation }) {
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedToDelete, setSelectedToDelete] = useState([]);
 
+  // Initialize sensors and start polling on mount
+  useEffect(() => {
+    let stopPolling = null;
+
+    const initSensors = async () => {
+      try {
+        setSensorLoading(true);
+        setSensorError(null);
+        
+        // Initialize sensors
+        const initResult = await initializeSensors();
+        console.log('Sensor initialization:', initResult);
+        
+        // Get initial readings
+        const readings = await getAllSensorReadings();
+        updateSensorValues(readings);
+        
+        // Start polling for continuous updates (every 5 seconds)
+        stopPolling = startSensorPolling((readings) => {
+          updateSensorValues(readings);
+        }, 5000);
+        
+      } catch (error) {
+        console.error('Sensor initialization error:', error);
+        setSensorError('Failed to initialize sensors. Using simulated data.');
+        setIsSimulated(true);
+        // Set default values on error
+        setWaterNow(85);
+        setFeederNow(62);
+      } finally {
+        setSensorLoading(false);
+      }
+    };
+
+    initSensors();
+
+    // Cleanup polling on unmount
+    return () => {
+      if (stopPolling) {
+        stopPolling();
+      }
+    };
+  }, []);
+
+  // Update sensor values from readings
+  const updateSensorValues = useCallback((readings) => {
+    if (readings) {
+      // Update water level
+      if (readings.water) {
+        setWaterNow(readings.water.level || 0);
+        if (readings.water.isSimulated) {
+          setIsSimulated(true);
+        }
+        if (readings.water.error || readings.water.warning) {
+          setSensorError(readings.water.error || readings.water.warning);
+        }
+      }
+      
+      // Update feeder level
+      if (readings.feeder) {
+        setFeederNow(readings.feeder.level || 0);
+      }
+      
+      // Check simulation mode
+      if (readings.simulationMode !== undefined) {
+        setIsSimulated(readings.simulationMode);
+      }
+    }
+  }, []);
+
   // Load feeds and watering schedule from Firestore on mount
-  React.useEffect(() => {
+  useEffect(() => {
     loadFeedsFromFirestore();
     loadWateringScheduleFromFirestore();
   }, []);
@@ -163,8 +248,6 @@ export default function ControlScreen({ navigation }) {
 
   // popups
   const [showSavedPopup, setShowSavedPopup] = useState(false);
-  const [dispenseModal, setDispenseModal] = useState(false);
-  const [sprinklerModal, setSprinklerModal] = useState(false);
 
   // camera placeholder modal
   const [cameraModal, setCameraModal] = useState(false);
@@ -569,14 +652,76 @@ export default function ControlScreen({ navigation }) {
     setTimeout(() => setShowSavedPopup(false), 1200);
   };
 
-  const handleDispense = () => {
-    setDispenseModal(true);
-    setTimeout(() => setDispenseModal(false), 1600);
+  // State for manual action operations
+  const [isDispensing, setIsDispensing] = useState(false);
+  const [isSprinklerActive, setIsSprinklerActive] = useState(false);
+  const [servoError, setServoError] = useState(null);
+  
+  // Motor warning modal state
+  const [motorWarningModal, setMotorWarningModal] = useState({
+    visible: false,
+    title: "",
+    message: "",
+  });
+
+  const showMotorWarning = (title, message) => {
+    setMotorWarningModal({ visible: true, title, message });
   };
 
-  const handleSprinkler = () => {
-    setSprinklerModal(true);
-    setTimeout(() => setSprinklerModal(false), 1600);
+  const hideMotorWarning = () => {
+    setMotorWarningModal({ visible: false, title: "", message: "" });
+  };
+
+  const handleDispense = async () => {
+    try {
+      setIsDispensing(true);
+      setServoError(null);
+      
+      const result = await dispenseFeed();
+      
+      if (result.success) {
+        // Show warning modal if simulated
+        if (result.isSimulated && result.warning) {
+          showMotorWarning(
+            "Motor Not Detected",
+            result.warning + "\n\nThe operation was simulated."
+          );
+        }
+      } else {
+        showMotorWarning("Dispense Error", result.error || "Failed to dispense feed.");
+      }
+    } catch (error) {
+      console.error("Dispense error:", error);
+      showMotorWarning("Error", "Feed dispenser motor not detected. Please check the connection.");
+    } finally {
+      setIsDispensing(false);
+    }
+  };
+
+  const handleSprinkler = async () => {
+    try {
+      setIsSprinklerActive(true);
+      setServoError(null);
+      
+      const result = await activateSprinkler();
+      
+      if (result.success) {
+        // Show warning modal if simulated
+        if (result.isSimulated && result.warning) {
+          showMotorWarning(
+            "Motor Not Detected",
+            result.warning + "\n\nThe operation was simulated."
+          );
+        }
+      } else {
+        showMotorWarning("Sprinkler Error", result.error || "Failed to activate sprinkler.");
+      }
+    } catch (error) {
+      console.error("Sprinkler error:", error);
+      showMotorWarning("Error", "Water sprinkler motor not detected. Please check the connection.");
+    } finally {
+      setIsSprinklerActive(false);
+    }
   };
 
   const saveWaterSchedule = () => {
@@ -746,17 +891,31 @@ export default function ControlScreen({ navigation }) {
         {/* Page Title */}
         <Text style={styles.pageTitle}>REAL-TIME STATUS</Text>
 
+        {/* Sensor Status Banner */}
+        {isSimulated && (
+          <View style={styles.sensorBanner}>
+            <Ionicons name="warning-outline" size={16} color="#856404" />
+            <Text style={styles.sensorBannerText}>
+              Sensor module not detected. Using simulated data.
+            </Text>
+          </View>
+        )}
+
         {/* Real-time cards */}
         <View style={styles.rowCenter}>
           <StatCard
             label="Water Level"
-            value={`${waterNow}%`}
-            dotColor="#4CAF50"
+            value={sensorLoading ? "..." : `${waterNow}%`}
+            dotColor={isSimulated ? "#FFC107" : "#4CAF50"}
+            loading={sensorLoading}
+            isSimulated={isSimulated}
           />
           <StatCard
             label="Feeder Level"
-            value={`${feederNow}%`}
-            dotColor="#2196F3"
+            value={sensorLoading ? "..." : `${feederNow}%`}
+            dotColor={isSimulated ? "#FFC107" : "#2196F3"}
+            loading={sensorLoading}
+            isSimulated={isSimulated}
           />
         </View>
 
@@ -778,62 +937,6 @@ export default function ControlScreen({ navigation }) {
               <Text style={{ color: "#fff", fontWeight: "700" }}>● LIVE</Text>
             </View>
           </TouchableOpacity>
-        </View>
-
-        {/* Lighting */}
-        <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
-          <CardHeader icon="bulb-outline" title="Lighting Control" />
-          <View
-            style={[
-              styles.innerBox,
-              { marginTop: 8, borderColor: BORDER_OVERLAY },
-            ]}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Ionicons
-                name="sunny-outline"
-                size={18}
-                color="#333"
-                style={{ marginRight: 8 }}
-              />
-              <Text style={{ fontWeight: "600" }}>Incandescent Light</Text>
-            </View>
-            <Switch
-              value={lightOn}
-              onValueChange={setLightOn}
-              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
-              ios_backgroundColor="#B0B0B0"
-              thumbColor="#fff"
-            />
-          </View>
-        </View>
-
-        {/* Ventilation */}
-        <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
-          <CardHeader icon="sync-outline" title="Ventilation" />
-          <View
-            style={[
-              styles.innerBox,
-              { marginTop: 8, borderColor: BORDER_OVERLAY },
-            ]}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Ionicons
-                name="sync-outline"
-                size={18}
-                color="#333"
-                style={{ marginRight: 8 }}
-              />
-              <Text style={{ fontWeight: "600" }}>Exhaust Fan</Text>
-            </View>
-            <Switch
-              value={fanOn}
-              onValueChange={setFanOn}
-              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
-              ios_backgroundColor="#B0B0B0"
-              thumbColor="#fff"
-            />
-          </View>
         </View>
 
         {/* Night Schedule */}
@@ -1039,6 +1142,92 @@ export default function ControlScreen({ navigation }) {
           </View>
         </View>
 
+        {/* Test Devices */}
+        <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
+          <Text style={styles.cardTitle}>Test Devices</Text>
+          <Text style={[styles.smallNote, { fontSize: 11 }]}>Check if the devices are working properly.</Text>
+
+          <TouchableOpacity 
+            style={[styles.testBtn, { marginTop: 8 }, isDispensing && styles.testBtnDisabled]} 
+            onPress={handleDispense}
+            disabled={isDispensing}
+          >
+            {isDispensing ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={PRIMARY} style={{ marginRight: 8 }} />
+                <Text style={styles.testBtnText}>Dispensing...</Text>
+              </View>
+            ) : (
+              <Text style={styles.testBtnText}>Test Feeding</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.testBtn, { marginTop: 10 }, isSprinklerActive && styles.testBtnDisabled]}
+            onPress={handleSprinkler}
+            disabled={isSprinklerActive}
+          >
+            {isSprinklerActive ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={PRIMARY} style={{ marginRight: 8 }} />
+                <Text style={styles.testBtnText}>Activating...</Text>
+              </View>
+            ) : (
+              <Text style={styles.testBtnText}>Test Hydro Defense Mechanism</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* Lighting & Ventilation */}
+        <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
+          <CardHeader icon="bulb-outline" title="Lighting & Ventilation" />
+          <View
+            style={[
+              styles.innerBox,
+              { marginTop: 8, borderColor: BORDER_OVERLAY },
+            ]}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Ionicons
+                name="sunny-outline"
+                size={18}
+                color="#333"
+                style={{ marginRight: 8 }}
+              />
+              <Text style={{ fontWeight: "600" }}>Incandescent Light</Text>
+            </View>
+            <Switch
+              value={lightOn}
+              onValueChange={setLightOn}
+              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
+              ios_backgroundColor="#B0B0B0"
+              thumbColor="#fff"
+            />
+          </View>
+          <View
+            style={[
+              styles.innerBox,
+              { marginTop: 8, borderColor: BORDER_OVERLAY },
+            ]}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Ionicons
+                name="sync-outline"
+                size={18}
+                color="#333"
+                style={{ marginRight: 8 }}
+              />
+              <Text style={{ fontWeight: "600" }}>Exhaust Fan</Text>
+            </View>
+            <Switch
+              value={fanOn}
+              onValueChange={setFanOn}
+              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
+              ios_backgroundColor="#B0B0B0"
+              thumbColor="#fff"
+            />
+          </View>
+        </View>
         {/* Power Schedule */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader
@@ -1112,42 +1301,6 @@ export default function ControlScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* Activity Log */}
-        <View
-          style={[styles.card, { borderColor: BORDER_OVERLAY, marginTop: 14 }]}
-        >
-          <Text style={[styles.cardTitle]}>Activity Log</Text>
-          <View style={[styles.logItem]}>
-            <Text style={{ fontWeight: "700" }}>Predatory Alert</Text>
-            <Text style={{ color: "#666" }}>
-              Water sprinkler and lights activated
-            </Text>
-            <Text style={{ color: "#999", fontSize: 12, marginTop: 6 }}>
-              10/21/2025, 9:35 PM
-            </Text>
-          </View>
-        </View>
-
-        {/* Manual Actions */}
-        <View
-          style={[
-            styles.card,
-            { borderColor: BORDER_OVERLAY, marginTop: 14, marginBottom: 28 },
-          ]}
-        >
-          <Text style={styles.cardTitle}>Manual Actions</Text>
-
-          <TouchableOpacity style={styles.actionBtn} onPress={handleDispense}>
-            <Text style={styles.actionText}>Dispense Feed Now</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionBtn, { marginTop: 10 }]}
-            onPress={handleSprinkler}
-          >
-            <Text style={styles.actionText}>Activate Water Sprinkler</Text>
-          </TouchableOpacity>
-        </View>
       </ScrollView>
 
       {/* Date / Time Pickers */}
@@ -1748,29 +1901,26 @@ export default function ControlScreen({ navigation }) {
         </View>
       </Modal>
 
-      {/* Dispense / Sprinkler simple popups */}
+      {/* Motor Warning Modal */}
       <Modal
-        key="dispenseModal"
-        visible={dispenseModal}
+        key="motorWarningModal"
+        visible={motorWarningModal.visible}
         transparent
         animationType="fade"
       >
         <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Text style={styles.popupText}>Dispense Feed Success</Text>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        key="sprinklerModal"
-        visible={sprinklerModal}
-        transparent
-        animationType="fade"
-      >
-        <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Text style={styles.popupText}>Sprinkler Activated</Text>
+          <View style={styles.motorWarningBox}>
+            <View style={styles.warningIconContainer}>
+              <Ionicons name="warning" size={40} color="#FFC107" />
+            </View>
+            <Text style={styles.motorWarningTitle}>{motorWarningModal.title}</Text>
+            <Text style={styles.motorWarningMessage}>{motorWarningModal.message}</Text>
+            <TouchableOpacity
+              style={styles.motorWarningButton}
+              onPress={hideMotorWarning}
+            >
+              <Text style={styles.motorWarningButtonText}>OK</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1779,16 +1929,25 @@ export default function ControlScreen({ navigation }) {
 }
 
 /* ---------------- helpers ---------------- */
-function StatCard({ label, value, dotColor }) {
+function StatCard({ label, value, dotColor, loading, isSimulated }) {
   return (
     <View style={styles.statCard}>
       <View style={styles.statLeft}>
         <View style={[styles.dot, { backgroundColor: dotColor }]} />
-        <Text style={styles.statLabel}>{label}</Text>
+        <View>
+          <Text style={styles.statLabel}>{label}</Text>
+          {isSimulated && (
+            <Text style={styles.simulatedLabel}>Simulated</Text>
+          )}
+        </View>
       </View>
       <View style={styles.statRight}>
-        <View style={[styles.statBox, { borderLeftColor: PRIMARY }]}>
-          <Text style={styles.statValue}>{value}</Text>
+        <View style={[styles.statBox, { borderLeftColor: isSimulated ? "#FFC107" : PRIMARY }]}>
+          {loading ? (
+            <ActivityIndicator size="small" color={PRIMARY} />
+          ) : (
+            <Text style={styles.statValue}>{value}</Text>
+          )}
         </View>
       </View>
     </View>
@@ -1821,6 +1980,26 @@ const styles = StyleSheet.create({
 
   pageTitle: { fontSize: 14, color: PRIMARY, fontWeight: "700", marginTop: 14 },
 
+  // Sensor status banner
+  sensorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFF3CD",
+    borderColor: "#FFEEBA",
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  sensorBannerText: {
+    color: "#856404",
+    fontSize: 12,
+    marginLeft: 8,
+    flex: 1,
+  },
+
   statCard: {
     width: "100%",
     maxWidth: 340,
@@ -1837,6 +2016,7 @@ const styles = StyleSheet.create({
   statLeft: { flexDirection: "row", alignItems: "center" },
   dot: { width: 10, height: 10, borderRadius: 6, marginRight: 10 },
   statLabel: { fontSize: 15, fontWeight: "600", color: "#333" },
+  simulatedLabel: { fontSize: 10, color: "#856404", fontStyle: "italic" },
   statRight: { alignItems: "flex-end" },
   statBox: {
     paddingHorizontal: 12,
@@ -2014,7 +2194,31 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
   },
+  actionBtnDisabled: {
+    backgroundColor: "#999",
+    opacity: 0.7,
+  },
   actionText: { color: "#fff", fontWeight: "700" },
+  
+  // Test Device buttons - blue border only, smaller
+  testBtn: {
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: PRIMARY,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  testBtnDisabled: {
+    borderColor: "#999",
+    opacity: 0.7,
+  },
+  testBtnText: { 
+    color: PRIMARY, 
+    fontWeight: "600",
+    fontSize: 13,
+  },
 
   // modals
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
@@ -2066,6 +2270,50 @@ const styles = StyleSheet.create({
     height: "100%",
     backgroundColor: YELLOW,
     borderRadius: 8,
+  },
+
+  // Motor Warning Modal styles
+  motorWarningBox: {
+    backgroundColor: "#fff",
+    padding: 24,
+    borderRadius: 16,
+    alignItems: "center",
+    width: "85%",
+    maxWidth: 340,
+  },
+  warningIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "#FFF8E1",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  motorWarningTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#333",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  motorWarningMessage: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  motorWarningButton: {
+    backgroundColor: PRIMARY,
+    paddingVertical: 12,
+    paddingHorizontal: 40,
+    borderRadius: 8,
+  },
+  motorWarningButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
 
   // small helpers
