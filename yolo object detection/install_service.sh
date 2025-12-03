@@ -14,7 +14,18 @@ echo "📍 Installation directory: $YOLO_DIR"
 echo "🐍 Python path: $PYTHON_PATH"
 echo "👤 Running as user: $USER"
 
-# Create systemd service file
+# Create a wrapper script to handle the path with spaces
+WRAPPER_SCRIPT="$YOLO_DIR/service_wrapper.sh"
+cat > "$WRAPPER_SCRIPT" <<WRAPPER_EOF
+#!/bin/bash
+cd "$YOLO_DIR"
+exec $PYTHON_PATH stream_server.py
+WRAPPER_EOF
+
+chmod +x "$WRAPPER_SCRIPT"
+echo "✅ Wrapper script created at $WRAPPER_SCRIPT"
+
+# Create systemd service file (use absolute path to wrapper)
 sudo tee /etc/systemd/system/yolo-camera.service > /dev/null <<EOF
 [Unit]
 Description=YOLO Camera Stream Server for Internet of Tsiken
@@ -23,8 +34,7 @@ After=network.target
 [Service]
 Type=simple
 User=$USER
-WorkingDirectory=$YOLO_DIR
-ExecStart=$PYTHON_PATH $YOLO_DIR/stream_server.py
+ExecStart=/bin/bash "$WRAPPER_SCRIPT"
 Restart=always
 RestartSec=10
 StandardOutput=journal
