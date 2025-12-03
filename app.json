@@ -14,6 +14,12 @@
       "expo-font"
     ],
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "nativeVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/0f74e60b-9e1c-4f77-b863-a1c9a46b25ba"
+    },
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
@@ -31,7 +37,6 @@
         "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
       "package": "com.ailynmay.capstone"
     },
     "web": {

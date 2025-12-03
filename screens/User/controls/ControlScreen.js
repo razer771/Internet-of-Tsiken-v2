@@ -251,6 +251,17 @@ export default function ControlScreen({ navigation }) {
 
   // camera placeholder modal
   const [cameraModal, setCameraModal] = useState(false);
+  
+  // Camera server auto-discovery - no user input needed!
+  const [cameraServerUrl, setCameraServerUrl] = useState("http://rpi5desktop.local:5000");
+  const [showServerInput, setShowServerInput] = useState(false);
+  
+  // Callback when camera server is auto-discovered
+  const handleServerDiscovered = (discoveredUrl) => {
+    console.log('📡 Auto-discovered camera server:', discoveredUrl);
+    setCameraServerUrl(discoveredUrl);
+    // Don't show settings - it worked automatically!
+  };
 
   // power schedule
   const [alertThreshold, setAlertThreshold] = useState(30);
@@ -928,14 +939,12 @@ export default function ControlScreen({ navigation }) {
           <TouchableOpacity
             style={styles.cameraBox}
             onPress={() => setCameraModal(true)}
+            activeOpacity={0.8}
           >
-            <Image
-              source={require("../../../assets/proposal meeting.png")}
-              style={styles.cameraImage}
+            <CameraStream 
+              serverUrl={cameraServerUrl}
+              onServerDiscovered={handleServerDiscovered}
             />
-            <View style={styles.liveBadge}>
-              <Text style={{ color: "#fff", fontWeight: "700" }}>● LIVE</Text>
-            </View>
           </TouchableOpacity>
         </View>
 
@@ -1483,8 +1492,17 @@ export default function ControlScreen({ navigation }) {
               Alert.alert("Connect", "Placeholder to connect to IoT camera")
             }
           >
-            <Text style={styles.primaryBtnText}>Connect to IoT Stream</Text>
+            <Ionicons name="close-circle" size={40} color="#fff" />
           </TouchableOpacity>
+          
+          <View style={styles.fullScreenCameraContainer}>
+            <CameraStream 
+              serverUrl={cameraServerUrl}
+              onServerDiscovered={handleServerDiscovered}
+              autoConnect={true}
+              fullscreen={true}
+            />
+          </View>
         </View>
       </Modal>
 
@@ -2047,20 +2065,9 @@ const styles = StyleSheet.create({
 
   cameraBox: {
     marginTop: 10,
+    height: 200,
     borderRadius: 8,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#ddd",
-  },
-  cameraImage: { width: "100%", height: 145, resizeMode: "cover" },
-  liveBadge: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-    backgroundColor: "red",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+    overflow: 'hidden',
   },
 
   smallNote: { color: "#666", marginTop: 6 },
@@ -2233,12 +2240,60 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 12,
     elevation: 10,
   },
+  fullScreenCameraModal: {
+    flex: 1,
+    backgroundColor: "#000",
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 50 : 20,
+    right: 20,
+    zIndex: 999,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 20,
+  },
+  fullScreenCameraContainer: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullScreenModal: {
+    flex: 1,
+    backgroundColor: "#fff",
+    paddingTop: Platform.OS === "ios" ? 50 : 20,
+    paddingHorizontal: 16,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  cameraStreamContainer: {
+    flex: 1,
+    marginBottom: 16,
+  },
+  modalActions: {
+    flexDirection: "row",
+    marginBottom: 12,
+  },
+  serverInputContainer: {
+    padding: 12,
+    backgroundColor: "#f5f5f5",
+    borderRadius: 8,
+    marginBottom: 16,
+  },
   modalTitle: { fontWeight: "700", fontSize: 16, marginBottom: 8 },
   formInput: {
     borderWidth: 1,
     borderColor: "#ddd",
     borderRadius: 8,
     padding: 10,
+    marginTop: 6,
+    backgroundColor: "#fff",
   },
 
   popupBackground: {
