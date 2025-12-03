@@ -89,10 +89,48 @@ function NotificationItem({ item, onPress }) {
   );
 }
 
+function NotificationModal({ visible, item, onClose, onMarkRead }) {
+  if (!item) return null;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <Pressable style={styles.modalOverlay} onPress={onClose}>
+        <Pressable style={styles.notificationModalContent} onPress={(e) => e.stopPropagation()}>
+          <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
+            <Ionicons name="close" size={24} color="#222" />
+          </TouchableOpacity>
+
+          <Text style={styles.modalTitle}>{item.category}</Text>
+          <Text style={styles.modalHeading}>{item.title}</Text>
+
+          <Text style={styles.modalBody}>
+            Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+          </Text>
+
+          <Text style={styles.modalTime}>{item.time}</Text>
+
+          <TouchableOpacity 
+            style={styles.modalMarkBtn}
+            onPress={() => {
+              onMarkRead(item.id);
+              onClose();
+            }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '600' }}>Mark as read</Text>
+          </TouchableOpacity>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 export default function Notification() {
   const [activeTab, setActiveTab] = useState("Daily");
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
+  const [markAllClicked, setMarkAllClicked] = useState(false);
+  const [notificationModalVisible, setNotificationModalVisible] = useState(false);
+  const [selectedNotification, setSelectedNotification] = useState(null);
   const navigation = useNavigation();
   const { notifications, toggleAllRead, markAsRead } = useNotifications();
 
@@ -100,8 +138,25 @@ export default function Notification() {
   const closeDrawer = () => setDrawerVisible(false);
   const allRead = useMemo(() => notifications.every(n => n.read), [notifications]);
 
-  const toggleMarkAll = () => {
+  const handleMarkAll = () => {
     toggleAllRead();
+    setMarkAllClicked(true);
+  };
+
+  const handleUnreadAll = () => {
+    toggleAllRead();
+    setMarkAllClicked(false);
+  };
+
+  const handleNotificationPress = (id) => {
+    const notification = notifications.find(n => n.id === id);
+    setSelectedNotification(notification);
+    setNotificationModalVisible(true);
+  };
+
+  const handleMarkReadFromModal = (id) => {
+    markAsRead(id);
+    setMarkAllClicked(true);
   };
 
   return (
@@ -114,12 +169,24 @@ export default function Notification() {
 
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <TouchableOpacity 
-              onPress={toggleMarkAll} 
-              style={[styles.markAllBtn, allRead && { backgroundColor: PRIMARY }]}
+              onPress={handleMarkAll}
+              disabled={markAllClicked}
+              style={[styles.markAllBtn, markAllClicked && { backgroundColor: "#ccc", opacity: 0.6 }]
+            }
             >
-              <Ionicons name="mail-unread-outline" size={16} color={allRead ? '#fff' : '#222'} />
-              <Text style={{ marginLeft: 8, color: allRead ? '#fff' : '#222' }}>
+              <Text style={{ marginLeft: 1, color: markAllClicked ? '#999' : '#222' }}>
                 Mark all as read
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              onPress={handleUnreadAll}
+              disabled={!markAllClicked}
+              style={[styles.markAllBtn, !markAllClicked && { backgroundColor: "#ccc", opacity: 0.6 }]
+            }
+            >
+              <Text style={{ marginLeft: 1, color: !markAllClicked ? '#999' : '#222' }}>
+                Unread all
               </Text>
             </TouchableOpacity>
 
@@ -146,7 +213,7 @@ export default function Notification() {
             <NotificationItem 
               key={n.id} 
               item={n} 
-              onPress={() => markAsRead(n.id)}
+              onPress={() => handleNotificationPress(n.id)}
             />
           ))}  
         </View>  
@@ -155,7 +222,14 @@ export default function Notification() {
           <Pressable style={styles.modalOverlay} onPress={() => setCalendarVisible(false)}>  
             <SmallCalendar onClose={() => setCalendarVisible(false)} />  
           </Pressable>  
-        </Modal>  
+        </Modal>
+
+        <NotificationModal 
+          visible={notificationModalVisible}
+          item={selectedNotification}
+          onClose={() => setNotificationModalVisible(false)}
+          onMarkRead={handleMarkReadFromModal}
+        />
       </ScrollView>
     </View>
   );
@@ -165,7 +239,7 @@ const styles = StyleSheet.create({
   wrapper: { flex: 1, backgroundColor: "#f7fafc", padding: 16 },
   topRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12, flexWrap: 'wrap' },
   iconBtn: { height: 36, width: 36, borderRadius: 8, backgroundColor: "#fff", justifyContent: "center", alignItems: "center", marginRight: 8 },
-  markAllBtn: { height: 36, paddingHorizontal: 12, borderRadius: 8, flexDirection: "row", alignItems: "center", marginRight: 8, backgroundColor: "#fff" },
+  markAllBtn: { height: 36, paddingHorizontal: 12, borderRadius: 8, flexDirection: "row", alignItems: "center", marginRight: 8, backgroundColor: "#f7fafc" },
   tabs: { flexDirection: "row", marginBottom: 12 },
   tabBtn: { flex: 1, height: 38, borderRadius: 8, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'transparent' },
   notificationItem: { padding: 12, borderRadius: 8, borderWidth: 1, borderColor: NOTIF_BORDER, marginBottom: 10 },
@@ -178,5 +252,12 @@ const styles = StyleSheet.create({
   calendarDayName: { width: 30, height: 30, justifyContent: "center", alignItems: "center" },
   calendarGrid: { flexDirection: "row", flexWrap: "wrap" },
   calendarDay: { width: "14.28%", height: 35, justifyContent: "center", alignItems: "center" },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center" }
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center" },
+  notificationModalContent: { width: "85%", backgroundColor: "#fff", borderRadius: 12, padding: 20, alignItems: 'center', left: 30},
+  modalCloseBtn: { alignSelf: 'flex-end', padding: 8, marginBottom: 8 },
+  modalTitle: { fontSize: 12, color: PRIMARY, fontWeight: '600', marginBottom: 8 },
+  modalHeading: { fontSize: 18, fontWeight: '700', color: '#222', marginBottom: 12, textAlign: 'center' },
+  modalBody: { fontSize: 14, color: '#666', lineHeight: 22, marginBottom: 16, textAlign: 'center' },
+  modalTime: { fontSize: 12, color: '#999', marginBottom: 16 },
+  modalMarkBtn: { width: "100%", backgroundColor: PRIMARY, paddingVertical: 12, borderRadius: 8, alignItems: 'center' }
 });
