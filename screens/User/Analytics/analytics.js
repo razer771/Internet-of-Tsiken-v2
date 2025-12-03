@@ -269,7 +269,7 @@ export default function Analytics() {
       }
 
       // Fetch from addFeedSchedule collection
-      const feedScheduleRef = collection(db, "addFeedSchedule");
+      const feedScheduleRef = collection(db, "addFeedSchedule_logs");
       const feedsSnapshot = await getDocs(feedScheduleRef);
       
       // Initialize counts for each day of week
@@ -353,7 +353,7 @@ export default function Analytics() {
       }
 
       // Fetch from wateringActivityLogs collection
-      const waterLogsRef = collection(db, "wateringActivityLogs");
+      const waterLogsRef = collection(db, "wateringActivity_logs");
       const waterSnapshot = await getDocs(waterLogsRef);
       
       // Group data by time slots

@@ -256,7 +256,7 @@ export default function ControlScreen({ navigation }) {
         });
 
         // Log to addFeedSchedule collection
-        await addDoc(collection(db, "addFeedSchedule"), {
+        await addDoc(collection(db, "addFeedSchedule_logs"), {
           feedId: nextId,
           userId: user.uid,
           userName: user.displayName || user.email || "Unknown User",
@@ -414,7 +414,7 @@ export default function ControlScreen({ navigation }) {
         });
 
         // Log to editFeedSchedule collection
-        await addDoc(collection(db, "editFeedSchedule"), {
+        await addDoc(collection(db, "editFeedSchedule_logs"), {
           feedId: feedId,
           userId: user.uid,
           userName: user.displayName || user.email || "Unknown User",
@@ -463,8 +463,8 @@ export default function ControlScreen({ navigation }) {
         // Delete from Firestore feeds collection
         await deleteDoc(doc(db, "feeds", `${user.uid}_${pendingDeleteFeedId}`));
 
-        // Log delete activity in deleteFeedSchedule collection
-        await addDoc(collection(db, "deleteFeedSchedule"), {
+        // Log delete activity in deleteFeedSchedule_logs collection
+        await addDoc(collection(db, "deleteFeedSchedule_logs"), {
           feedId: pendingDeleteFeedId,
           userId: user.uid,
           userName: user.displayName || user.email || "Unknown User",
@@ -540,8 +540,8 @@ export default function ControlScreen({ navigation }) {
           timestamp: new Date().toISOString(),
         });
 
-        // Log to wateringActivityLogs collection
-        await addDoc(collection(db, "wateringActivityLogs"), {
+        // Log to wateringActivity_logs collection
+        await addDoc(collection(db, "wateringActivity_logs"), {
           userId: user.uid,
           userName: user.displayName || user.email || "Unknown User",
           scheduledDate: pendingWaterSchedule.date,
