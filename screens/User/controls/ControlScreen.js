@@ -1,5 +1,5 @@
 // screensample/ControlScreen.js
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,13 +13,35 @@ import {
   Alert,
   Platform,
   PanResponder,
+  ActivityIndicator,
 } from "react-native";
 import Slider from "@react-native-community/slider";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "../../../config/firebaseconfig";
-import { doc, setDoc, addDoc, collection } from "firebase/firestore";
-import CameraStream from "./CameraStream";
+import {
+  doc,
+  setDoc,
+  addDoc,
+  collection,
+  getDocs,
+  deleteDoc,
+  query,
+  where,
+  getDoc,
+} from "firebase/firestore";
+import {
+  initializeSensors,
+  getAllSensorReadings,
+  getConnectionStatus,
+  startSensorPolling,
+} from "../../../modules/UltrasonicSensorService";
+import {
+  initializeServos,
+  dispenseFeed,
+  activateSprinkler,
+  getServoConnectionStatus,
+} from "../../../modules/ServoMotorService";
 
 const PRIMARY = "#133E87";
 const GREEN = "#249D1D";
@@ -31,12 +53,14 @@ export default function ControlScreen({ navigation }) {
   // side menu
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // realtime
+  // realtime sensor data
+  const [waterNow, setWaterNow] = useState(0);
+  const [feederNow, setFeederNow] = useState(0);
+  const [sensorLoading, setSensorLoading] = useState(true);
+  const [sensorError, setSensorError] = useState(null);
+  const [isSimulated, setIsSimulated] = useState(true);
 
-  const [waterNow] = useState(85);
-  const [feederNow] = useState(62);
-
-  // controls
+  // Lighting and Ventilation controls
   const [lightOn, setLightOn] = useState(false);
   const [fanOn, setFanOn] = useState(false);
 
@@ -45,11 +69,7 @@ export default function ControlScreen({ navigation }) {
   const [showNightPicker, setShowNightPicker] = useState(false);
 
   // feed schedule: can add / delete / edit
-  const [feeds, setFeeds] = useState([
-    { id: 1, label: "Morning", time: "06:00 AM" },
-    { id: 2, label: "Noon", time: "12:00 PM" },
-    { id: 3, label: "Evening", time: "05:00 PM" },
-  ]);
+  const [feeds, setFeeds] = useState([]);
   const [feedEdit, setFeedEdit] = useState({
     open: false,
     idx: null,
@@ -60,9 +80,144 @@ export default function ControlScreen({ navigation }) {
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedToDelete, setSelectedToDelete] = useState([]);
 
+  // Initialize sensors and start polling on mount
+  useEffect(() => {
+    let stopPolling = null;
+
+    const initSensors = async () => {
+      try {
+        setSensorLoading(true);
+        setSensorError(null);
+        
+        // Initialize sensors
+        const initResult = await initializeSensors();
+        console.log('Sensor initialization:', initResult);
+        
+        // Get initial readings
+        const readings = await getAllSensorReadings();
+        updateSensorValues(readings);
+        
+        // Start polling for continuous updates (every 5 seconds)
+        stopPolling = startSensorPolling((readings) => {
+          updateSensorValues(readings);
+        }, 5000);
+        
+      } catch (error) {
+        console.error('Sensor initialization error:', error);
+        setSensorError('Failed to initialize sensors. Using simulated data.');
+        setIsSimulated(true);
+        // Set default values on error
+        setWaterNow(85);
+        setFeederNow(62);
+      } finally {
+        setSensorLoading(false);
+      }
+    };
+
+    initSensors();
+
+    // Cleanup polling on unmount
+    return () => {
+      if (stopPolling) {
+        stopPolling();
+      }
+    };
+  }, []);
+
+  // Update sensor values from readings
+  const updateSensorValues = useCallback((readings) => {
+    if (readings) {
+      // Update water level
+      if (readings.water) {
+        setWaterNow(readings.water.level || 0);
+        if (readings.water.isSimulated) {
+          setIsSimulated(true);
+        }
+        if (readings.water.error || readings.water.warning) {
+          setSensorError(readings.water.error || readings.water.warning);
+        }
+      }
+      
+      // Update feeder level
+      if (readings.feeder) {
+        setFeederNow(readings.feeder.level || 0);
+      }
+      
+      // Check simulation mode
+      if (readings.simulationMode !== undefined) {
+        setIsSimulated(readings.simulationMode);
+      }
+    }
+  }, []);
+
+  // Load feeds and watering schedule from Firestore on mount
+  useEffect(() => {
+    loadFeedsFromFirestore();
+    loadWateringScheduleFromFirestore();
+  }, []);
+
+  const loadFeedsFromFirestore = async () => {
+    try {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      const feedsSnapshot = await getDocs(collection(db, "feeds"));
+      const loadedFeeds = [];
+      feedsSnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data.userId === user.uid) {
+          loadedFeeds.push({
+            id: data.feedId,
+            label: data.label,
+            time: data.time,
+          });
+        }
+      });
+
+      // Sort by time
+      loadedFeeds.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+      setFeeds(loadedFeeds);
+    } catch (err) {
+      console.error("Failed to load feeds:", err);
+    }
+  };
+
+  const loadWateringScheduleFromFirestore = async () => {
+    try {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      const wateringSnapshot = await getDocs(
+        collection(db, "wateringSchedules")
+      );
+      wateringSnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data.userId === user.uid) {
+          // Load the most recent schedule
+          const loadedDate = new Date(data.date);
+          const loadedTime = new Date(data.time);
+          setWaterDate(loadedDate);
+          setWaterTime(loadedTime);
+          setLiters(data.liters);
+          setDuration(data.duration);
+          // Set confirmed values for display
+          setConfirmedWaterDate(loadedDate);
+          setConfirmedWaterTime(loadedTime);
+        }
+      });
+    } catch (err) {
+      console.error("Failed to load watering schedule:", err);
+    }
+  };
+
   // confirm modals
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
   const [confirmSaveVisible, setConfirmSaveVisible] = useState(false);
+  // edit and delete confirmation modals
+  const [confirmEditVisible, setConfirmEditVisible] = useState(false);
+  const [confirmDeleteFeedVisible, setConfirmDeleteFeedVisible] =
+    useState(false);
+  const [pendingDeleteFeedId, setPendingDeleteFeedId] = useState(null);
   // night time save confirmation
   const [confirmNightSaveVisible, setConfirmNightSaveVisible] = useState(false);
   const [pendingNightTime, setPendingNightTime] = useState(null);
@@ -82,11 +237,17 @@ export default function ControlScreen({ navigation }) {
   const [showWaterTimePicker, setShowWaterTimePicker] = useState(false);
   const [liters, setLiters] = useState(30);
   const [duration, setDuration] = useState(30);
+  // watering schedule confirmation
+  const [confirmWaterSaveVisible, setConfirmWaterSaveVisible] = useState(false);
+  const [pendingWaterSchedule, setPendingWaterSchedule] = useState(null);
+  const [showInvalidScheduleModal, setShowInvalidScheduleModal] =
+    useState(false);
+  // confirmed schedule for display (only updates after save)
+  const [confirmedWaterDate, setConfirmedWaterDate] = useState(null);
+  const [confirmedWaterTime, setConfirmedWaterTime] = useState(null);
 
   // popups
   const [showSavedPopup, setShowSavedPopup] = useState(false);
-  const [dispenseModal, setDispenseModal] = useState(false);
-  const [sprinklerModal, setSprinklerModal] = useState(false);
 
   // camera placeholder modal
   const [cameraModal, setCameraModal] = useState(false);
@@ -157,6 +318,7 @@ export default function ControlScreen({ navigation }) {
   const confirmAddFeed = async () => {
     if (!pendingFeedTime) {
       setConfirmFeedSaveVisible(false);
+      setShowFeedAddPicker(false);
       return;
     }
     const formattedTime = pendingFeedTime.toLocaleTimeString([], {
@@ -168,6 +330,7 @@ export default function ControlScreen({ navigation }) {
     const isDuplicate = feeds.some((f) => f.time === formattedTime);
     if (isDuplicate) {
       setConfirmFeedSaveVisible(false);
+      setShowFeedAddPicker(false);
       setPendingFeedTime(null);
       setShowDuplicateModal(true);
       return;
@@ -177,6 +340,59 @@ export default function ControlScreen({ navigation }) {
     const label = `Schedule ${nextId}`;
     const newFeed = { id: nextId, label, time: formattedTime };
 
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        // Fetch firstName and lastName from users collection
+        let firstName = "N/A";
+        let lastName = "N/A";
+
+        try {
+          const userDocRef = doc(db, "users", user.uid);
+          const userDocSnap = await getDoc(userDocRef);
+
+          if (userDocSnap.exists()) {
+            const userData = userDocSnap.data();
+            firstName = userData.firstName || "N/A";
+            lastName = userData.lastName || "N/A";
+          }
+        } catch (fetchErr) {
+          console.error("Failed to fetch user data:", fetchErr);
+          // firstName and lastName will remain "N/A"
+        }
+
+        // Persist to Firestore feeds collection
+        await setDoc(doc(db, "feeds", `${user.uid}_${nextId}`), {
+          feedId: nextId,
+          label: label,
+          time: formattedTime,
+          userId: user.uid,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Log to addFeedSchedule collection
+        await addDoc(collection(db, "addFeedSchedule_logs"), {
+          feedId: nextId,
+          userId: user.uid,
+          userName: user.displayName || user.email || "Unknown User",
+          firstName: firstName,
+          lastName: lastName,
+          selectedTime: pendingFeedTime.toISOString(),
+          selectedTimeFormatted: formattedTime,
+          newTime: formattedTime,
+          timestamp: new Date().toISOString(),
+          action: "Add new feeding schedule",
+          description: `Added ${formattedTime}`,
+        });
+      }
+    } catch (err) {
+      Alert.alert("Error", "Failed to save feed: " + err.message);
+      setConfirmFeedSaveVisible(false);
+      setShowFeedAddPicker(false);
+      setPendingFeedTime(null);
+      return;
+    }
+
     // Add and sort by time
     setFeeds((s) => {
       const updated = [...s, newFeed];
@@ -185,24 +401,9 @@ export default function ControlScreen({ navigation }) {
       );
     });
 
-    // Log to Firestore under feedingTime_logs/{docId}/addNew
-    try {
-      const user = auth.currentUser;
-      if (user) {
-        const docId = nextId.toString(); // use feed id as docId
-        await addDoc(collection(doc(db, "feedingTime_logs", docId), "addNew"), {
-          userId: user.uid,
-          userName: user.displayName || user.email || "Unknown User",
-          selectedTime: pendingFeedTime.toISOString(),
-          selectedTimeFormatted: formattedTime,
-          timestamp: new Date().toISOString(),
-        });
-      }
-    } catch (err) {
-      Alert.alert("Error", "Failed to log new feed: " + err.message);
-    }
-
+    // Close all related modals
     setConfirmFeedSaveVisible(false);
+    setShowFeedAddPicker(false);
     setPendingFeedTime(null);
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
@@ -313,67 +514,308 @@ export default function ControlScreen({ navigation }) {
   };
 
   const saveFeedEdit = async () => {
-    if (feedEdit.idx === null) return;
+    if (feedEdit.idx === null) {
+      setConfirmEditVisible(false);
+      setFeedEdit({ open: false, idx: null, timeDate: new Date() });
+      return;
+    }
     const newTime = feedEdit.timeDate.toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
     });
 
-    // Duplicate check
-    const isDuplicate = feeds.some(
-      (f, i) => i !== feedEdit.idx && f.time === newTime
-    );
-    if (isDuplicate) {
-      setShowDuplicateModal(true);
-      return;
-    }
-
-    // Update local state
     const oldTime = feeds[feedEdit.idx].time;
-    setFeeds((s) => {
-      const copy = [...s];
-      copy[feedEdit.idx].time = newTime;
-      return copy;
-    });
+    const feedId = feeds[feedEdit.idx].id;
 
-    // Log edit activity in Firestore
     try {
       const user = auth.currentUser;
       if (user) {
-        const docId = feeds[feedEdit.idx].id.toString(); // use feed id as docId
-        await addDoc(
-          collection(doc(db, "feedingTime_logs", docId), "edit_logs"),
-          {
-            userId: user.uid,
-            userName: user.displayName || user.email || "Unknown User",
-            oldTime,
-            newTime,
-            timestamp: new Date().toISOString(),
+        // Fetch firstName and lastName from users collection
+        let firstName = "N/A";
+        let lastName = "N/A";
+
+        try {
+          const userDocRef = doc(db, "users", user.uid);
+          const userDocSnap = await getDoc(userDocRef);
+
+          if (userDocSnap.exists()) {
+            const userData = userDocSnap.data();
+            firstName = userData.firstName || "N/A";
+            lastName = userData.lastName || "N/A";
           }
-        );
+        } catch (fetchErr) {
+          console.error("Failed to fetch user data:", fetchErr);
+          // firstName and lastName will remain "N/A"
+        }
+
+        // Update Firestore feeds document
+        await setDoc(doc(db, "feeds", `${user.uid}_${feedId}`), {
+          feedId: feedId,
+          label: feeds[feedEdit.idx].label,
+          time: newTime,
+          userId: user.uid,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Log to editFeedSchedule collection
+        await addDoc(collection(db, "editFeedSchedule_logs"), {
+          feedId: feedId,
+          userId: user.uid,
+          userName: user.displayName || user.email || "Unknown User",
+          firstName: firstName,
+          lastName: lastName,
+          oldTime,
+          newTime,
+          selectedTime: feedEdit.timeDate.toISOString(),
+          selectedTimeFormatted: newTime,
+          timestamp: new Date().toISOString(),
+          action: "Updated feeding time",
+          description: `From ${oldTime} to ${newTime}`,
+        });
       }
     } catch (err) {
-      Alert.alert("Error", "Failed to log edit: " + err.message);
+      Alert.alert("Error", "Failed to update feed: " + err.message);
+      setConfirmEditVisible(false);
+      setFeedEdit({ open: false, idx: null, timeDate: new Date() });
+      return;
     }
 
+    // Update local state and sort
+    setFeeds((s) => {
+      const copy = [...s];
+      copy[feedEdit.idx].time = newTime;
+      return copy.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+    });
+
+    // Close all related modals
+    setConfirmEditVisible(false);
     setFeedEdit({ open: false, idx: null, timeDate: new Date() });
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
 
-  const handleDispense = () => {
-    setDispenseModal(true);
-    setTimeout(() => setDispenseModal(false), 1600);
+  const confirmDeleteFeed = async () => {
+    if (!pendingDeleteFeedId) {
+      setConfirmDeleteFeedVisible(false);
+      setPendingDeleteFeedId(null);
+      return;
+    }
+
+    const feedToDelete = feeds.find((f) => f.id === pendingDeleteFeedId);
+    if (!feedToDelete) {
+      setConfirmDeleteFeedVisible(false);
+      setPendingDeleteFeedId(null);
+      return;
+    }
+
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        // Fetch firstName and lastName from users collection
+        let firstName = "N/A";
+        let lastName = "N/A";
+
+        try {
+          const userDocRef = doc(db, "users", user.uid);
+          const userDocSnap = await getDoc(userDocRef);
+
+          if (userDocSnap.exists()) {
+            const userData = userDocSnap.data();
+            firstName = userData.firstName || "N/A";
+            lastName = userData.lastName || "N/A";
+          }
+        } catch (fetchErr) {
+          console.error("Failed to fetch user data:", fetchErr);
+          // firstName and lastName will remain "N/A"
+        }
+
+        // Delete from Firestore feeds collection
+        await deleteDoc(doc(db, "feeds", `${user.uid}_${pendingDeleteFeedId}`));
+
+        // Log delete activity in deleteFeedSchedule collection
+        await addDoc(collection(db, "deleteFeedSchedule_logs"), {
+          feedId: pendingDeleteFeedId,
+          userId: user.uid,
+          userName: user.displayName || user.email || "Unknown User",
+          firstName: firstName,
+          lastName: lastName,
+          oldTime: feedToDelete.time,
+          timestamp: new Date().toISOString(),
+          action: "Deleted a feeding schedule",
+          description: `Deleted ${feedToDelete.time}`,
+        });
+      }
+    } catch (err) {
+      Alert.alert("Error", "Failed to delete feed: " + err.message);
+      // Close modal even on error
+      setConfirmDeleteFeedVisible(false);
+      setPendingDeleteFeedId(null);
+      return;
+    }
+
+    // Update local state
+    setFeeds((s) => s.filter((feed) => feed.id !== pendingDeleteFeedId));
+
+    // Close modal and cleanup
+    setConfirmDeleteFeedVisible(false);
+    setPendingDeleteFeedId(null);
+    setShowSavedPopup(true);
+    setTimeout(() => setShowSavedPopup(false), 1200);
   };
 
-  const handleSprinkler = () => {
-    setSprinklerModal(true);
-    setTimeout(() => setSprinklerModal(false), 1600);
+  // State for manual action operations
+  const [isDispensing, setIsDispensing] = useState(false);
+  const [isSprinklerActive, setIsSprinklerActive] = useState(false);
+  const [servoError, setServoError] = useState(null);
+  
+  // Motor warning modal state
+  const [motorWarningModal, setMotorWarningModal] = useState({
+    visible: false,
+    title: "",
+    message: "",
+  });
+
+  const showMotorWarning = (title, message) => {
+    setMotorWarningModal({ visible: true, title, message });
+  };
+
+  const hideMotorWarning = () => {
+    setMotorWarningModal({ visible: false, title: "", message: "" });
+  };
+
+  const handleDispense = async () => {
+    try {
+      setIsDispensing(true);
+      setServoError(null);
+      
+      const result = await dispenseFeed();
+      
+      if (result.success) {
+        // Show warning modal if simulated
+        if (result.isSimulated && result.warning) {
+          showMotorWarning(
+            "Motor Not Detected",
+            result.warning + "\n\nThe operation was simulated."
+          );
+        }
+      } else {
+        showMotorWarning("Dispense Error", result.error || "Failed to dispense feed.");
+      }
+    } catch (error) {
+      console.error("Dispense error:", error);
+      showMotorWarning("Error", "Feed dispenser motor not detected. Please check the connection.");
+    } finally {
+      setIsDispensing(false);
+    }
+  };
+
+  const handleSprinkler = async () => {
+    try {
+      setIsSprinklerActive(true);
+      setServoError(null);
+      
+      const result = await activateSprinkler();
+      
+      if (result.success) {
+        // Show warning modal if simulated
+        if (result.isSimulated && result.warning) {
+          showMotorWarning(
+            "Motor Not Detected",
+            result.warning + "\n\nThe operation was simulated."
+          );
+        }
+      } else {
+        showMotorWarning("Sprinkler Error", result.error || "Failed to activate sprinkler.");
+      }
+    } catch (error) {
+      console.error("Sprinkler error:", error);
+      showMotorWarning("Error", "Water sprinkler motor not detected. Please check the connection.");
+    } finally {
+      setIsSprinklerActive(false);
+    }
   };
 
   const saveWaterSchedule = () => {
-    // Optionally validate values:
-    // if (liters <= 0) { Alert.alert("Invalid", "Liters must be > 0"); return; }
+    // Validate past time
+    const scheduledDateTime = new Date(waterDate);
+    scheduledDateTime.setHours(
+      waterTime.getHours(),
+      waterTime.getMinutes(),
+      0,
+      0
+    );
+
+    if (scheduledDateTime.getTime() < Date.now()) {
+      setShowInvalidScheduleModal(true);
+      return;
+    }
+
+    // Store pending schedule and show confirmation modal
+    setPendingWaterSchedule({
+      date: waterDate.toISOString(),
+      time: waterTime.toISOString(),
+      liters,
+      duration,
+    });
+    setConfirmWaterSaveVisible(true);
+  };
+
+  const confirmSaveWaterSchedule = async () => {
+    if (!pendingWaterSchedule) {
+      setConfirmWaterSaveVisible(false);
+      return;
+    }
+
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        // Save to wateringSchedules collection
+        await setDoc(doc(db, "wateringSchedules", user.uid), {
+          userId: user.uid,
+          date: pendingWaterSchedule.date,
+          time: pendingWaterSchedule.time,
+          liters: pendingWaterSchedule.liters,
+          duration: pendingWaterSchedule.duration,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Log to wateringActivityLogs collection
+        // Convert scheduledTime to GMT+8 and format
+        const scheduledTimeDate = new Date(pendingWaterSchedule.time);
+        const gmt8Time = new Date(
+          scheduledTimeDate.getTime() + 8 * 60 * 60 * 1000
+        );
+        const hours = gmt8Time.getUTCHours();
+        const minutes = gmt8Time.getUTCMinutes();
+        const ampm = hours >= 12 ? "PM" : "AM";
+        const hour12 = hours % 12 || 12;
+        const timeFormatted = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}`;
+
+        await addDoc(collection(db, "wateringActivity_logs"), {
+          userId: user.uid,
+          userName: user.displayName || user.email || "Unknown User",
+          scheduledDate: pendingWaterSchedule.date,
+          scheduledTime: pendingWaterSchedule.time,
+          liters: pendingWaterSchedule.liters,
+          duration: pendingWaterSchedule.duration,
+          timestamp: new Date().toISOString(),
+          action: "New watering schedule",
+          description: `Watering schedule : Duration: ${pendingWaterSchedule.duration}, Liters: ${pendingWaterSchedule.liters}, Time : ${timeFormatted}`,
+        });
+
+        // Update confirmed display values after successful save
+        setConfirmedWaterDate(new Date(pendingWaterSchedule.date));
+        setConfirmedWaterTime(new Date(pendingWaterSchedule.time));
+      }
+    } catch (err) {
+      Alert.alert("Error", "Failed to save watering schedule: " + err.message);
+      setConfirmWaterSaveVisible(false);
+      setPendingWaterSchedule(null);
+      return;
+    }
+
+    setConfirmWaterSaveVisible(false);
+    setPendingWaterSchedule(null);
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
@@ -386,6 +828,21 @@ export default function ControlScreen({ navigation }) {
     try {
       const user = auth.currentUser;
       if (!user) return;
+
+      // Fetch firstName and lastName from users collection
+      let firstName = "N/A";
+      let lastName = "N/A";
+      try {
+        const userDocRef = doc(db, "users", user.uid);
+        const userDocSnap = await getDoc(userDocRef);
+        if (userDocSnap.exists()) {
+          const userData = userDocSnap.data();
+          firstName = userData.firstName || "N/A";
+          lastName = userData.lastName || "N/A";
+        }
+      } catch (userFetchError) {
+        console.error("Error fetching user data:", userFetchError);
+      }
 
       // Convert to GMT+8 and format as human-readable string
       const gmt8Time = new Date(time.getTime() + 8 * 60 * 60 * 1000);
@@ -408,13 +865,18 @@ export default function ControlScreen({ navigation }) {
         "Dec",
       ];
       const selectedTimeGMT8Formatted = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}, ${monthNames[gmt8Time.getUTCMonth()]} ${gmt8Time.getUTCDate()}, ${gmt8Time.getUTCFullYear()}`;
+      const timeOnly = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}`;
 
       await addDoc(collection(db, "nightTime_logs"), {
         userId: user.uid,
         userName: user.displayName || user.email || "Unknown User",
+        firstName: firstName,
+        lastName: lastName,
         selectedTime: time.toISOString(),
         selectedTimeGMT8Formatted: selectedTimeGMT8Formatted,
         timestamp: new Date().toISOString(),
+        action: "Set the night time",
+        description: `Night time starts at ${timeOnly}`,
       });
 
       setShowSavedPopup(true);
@@ -440,17 +902,31 @@ export default function ControlScreen({ navigation }) {
         {/* Page Title */}
         <Text style={styles.pageTitle}>REAL-TIME STATUS</Text>
 
+        {/* Sensor Status Banner */}
+        {isSimulated && (
+          <View style={styles.sensorBanner}>
+            <Ionicons name="warning-outline" size={16} color="#856404" />
+            <Text style={styles.sensorBannerText}>
+              Sensor module not detected. Using simulated data.
+            </Text>
+          </View>
+        )}
+
         {/* Real-time cards */}
         <View style={styles.rowCenter}>
           <StatCard
             label="Water Level"
-            value={`${waterNow}%`}
-            dotColor="#4CAF50"
+            value={sensorLoading ? "..." : `${waterNow}%`}
+            dotColor={isSimulated ? "#FFC107" : "#4CAF50"}
+            loading={sensorLoading}
+            isSimulated={isSimulated}
           />
           <StatCard
             label="Feeder Level"
-            value={`${feederNow}%`}
-            dotColor="#2196F3"
+            value={sensorLoading ? "..." : `${feederNow}%`}
+            dotColor={isSimulated ? "#FFC107" : "#2196F3"}
+            loading={sensorLoading}
+            isSimulated={isSimulated}
           />
         </View>
 
@@ -470,62 +946,6 @@ export default function ControlScreen({ navigation }) {
               onServerDiscovered={handleServerDiscovered}
             />
           </TouchableOpacity>
-        </View>
-
-        {/* Lighting */}
-        <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
-          <CardHeader icon="bulb-outline" title="Lighting Control" />
-          <View
-            style={[
-              styles.innerBox,
-              { marginTop: 8, borderColor: BORDER_OVERLAY },
-            ]}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Ionicons
-                name="sunny-outline"
-                size={18}
-                color="#333"
-                style={{ marginRight: 8 }}
-              />
-              <Text style={{ fontWeight: "600" }}>Incandescent Light</Text>
-            </View>
-            <Switch
-              value={lightOn}
-              onValueChange={setLightOn}
-              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
-              ios_backgroundColor="#B0B0B0"
-              thumbColor="#fff"
-            />
-          </View>
-        </View>
-
-        {/* Ventilation */}
-        <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
-          <CardHeader icon="sync-outline" title="Ventilation" />
-          <View
-            style={[
-              styles.innerBox,
-              { marginTop: 8, borderColor: BORDER_OVERLAY },
-            ]}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Ionicons
-                name="sync-outline"
-                size={18}
-                color="#333"
-                style={{ marginRight: 8 }}
-              />
-              <Text style={{ fontWeight: "600" }}>Exhaust Fan</Text>
-            </View>
-            <Switch
-              value={fanOn}
-              onValueChange={setFanOn}
-              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
-              ios_backgroundColor="#B0B0B0"
-              thumbColor="#fff"
-            />
-          </View>
         </View>
 
         {/* Night Schedule */}
@@ -598,7 +1018,7 @@ export default function ControlScreen({ navigation }) {
                     />
                   )}
 
-                  <Text style={{ fontWeight: "600" }}>{f.time}</Text>
+                  <Text style={styles.feedTimeText}>{f.time}</Text>
                 </View>
 
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -614,9 +1034,8 @@ export default function ControlScreen({ navigation }) {
                       { backgroundColor: RED, marginLeft: 6 },
                     ]}
                     onPress={() => {
-                      setFeeds((s) => s.filter((feed) => feed.id !== f.id));
-                      setShowSavedPopup(true);
-                      setTimeout(() => setShowSavedPopup(false), 1200);
+                      setPendingDeleteFeedId(f.id);
+                      setConfirmDeleteFeedVisible(true);
                     }}
                   >
                     <Text style={styles.editText}>Delete</Text>
@@ -659,7 +1078,7 @@ export default function ControlScreen({ navigation }) {
 
         {/* Water Scheduling */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
-          <CardHeader icon="water-outline" title="Water Scheduling" />
+          <CardHeader icon="water-outline" title="Watering Schedule" />
           <View style={styles.rowSpace}>
             <TouchableOpacity
               style={[styles.dateBox, { backgroundColor: "#7C8CA821" }]}
@@ -669,7 +1088,7 @@ export default function ControlScreen({ navigation }) {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.smallBtn}
-              onPress={() => setShowWaterTimePicker(true)}
+              onPress={() => setShowWaterDatePicker(true)}
             >
               <Ionicons name="calendar-outline" size={20} color="#333" />
             </TouchableOpacity>
@@ -715,7 +1134,9 @@ export default function ControlScreen({ navigation }) {
               ]}
             >
               <Text>
-                Upcoming scheduled: {fmtDate(waterDate)} at {fmtTime(waterTime)}
+                {confirmedWaterDate && confirmedWaterTime
+                  ? `Upcoming schedule : ${fmtDate(confirmedWaterDate)} at ${fmtTime(confirmedWaterTime)}`
+                  : "No upcoming schedule"}
               </Text>
             </View>
 
@@ -730,6 +1151,92 @@ export default function ControlScreen({ navigation }) {
           </View>
         </View>
 
+        {/* Test Devices */}
+        <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
+          <Text style={styles.cardTitle}>Test Devices</Text>
+          <Text style={[styles.smallNote, { fontSize: 11 }]}>Check if the devices are working properly.</Text>
+
+          <TouchableOpacity 
+            style={[styles.testBtn, { marginTop: 8 }, isDispensing && styles.testBtnDisabled]} 
+            onPress={handleDispense}
+            disabled={isDispensing}
+          >
+            {isDispensing ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={PRIMARY} style={{ marginRight: 8 }} />
+                <Text style={styles.testBtnText}>Dispensing...</Text>
+              </View>
+            ) : (
+              <Text style={styles.testBtnText}>Test Feeding</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.testBtn, { marginTop: 10 }, isSprinklerActive && styles.testBtnDisabled]}
+            onPress={handleSprinkler}
+            disabled={isSprinklerActive}
+          >
+            {isSprinklerActive ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={PRIMARY} style={{ marginRight: 8 }} />
+                <Text style={styles.testBtnText}>Activating...</Text>
+              </View>
+            ) : (
+              <Text style={styles.testBtnText}>Test Hydro Defense Mechanism</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* Lighting & Ventilation */}
+        <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
+          <CardHeader icon="bulb-outline" title="Lighting & Ventilation" />
+          <View
+            style={[
+              styles.innerBox,
+              { marginTop: 8, borderColor: BORDER_OVERLAY },
+            ]}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Ionicons
+                name="sunny-outline"
+                size={18}
+                color="#333"
+                style={{ marginRight: 8 }}
+              />
+              <Text style={{ fontWeight: "600" }}>Incandescent Light</Text>
+            </View>
+            <Switch
+              value={lightOn}
+              onValueChange={setLightOn}
+              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
+              ios_backgroundColor="#B0B0B0"
+              thumbColor="#fff"
+            />
+          </View>
+          <View
+            style={[
+              styles.innerBox,
+              { marginTop: 8, borderColor: BORDER_OVERLAY },
+            ]}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Ionicons
+                name="sync-outline"
+                size={18}
+                color="#333"
+                style={{ marginRight: 8 }}
+              />
+              <Text style={{ fontWeight: "600" }}>Exhaust Fan</Text>
+            </View>
+            <Switch
+              value={fanOn}
+              onValueChange={setFanOn}
+              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
+              ios_backgroundColor="#B0B0B0"
+              thumbColor="#fff"
+            />
+          </View>
+        </View>
         {/* Power Schedule */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader
@@ -803,42 +1310,6 @@ export default function ControlScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* Activity Log */}
-        <View
-          style={[styles.card, { borderColor: BORDER_OVERLAY, marginTop: 14 }]}
-        >
-          <Text style={[styles.cardTitle]}>Activity Log</Text>
-          <View style={[styles.logItem]}>
-            <Text style={{ fontWeight: "700" }}>Predatory Alert</Text>
-            <Text style={{ color: "#666" }}>
-              Water sprinkler and lights activated
-            </Text>
-            <Text style={{ color: "#999", fontSize: 12, marginTop: 6 }}>
-              10/21/2025, 9:35 PM
-            </Text>
-          </View>
-        </View>
-
-        {/* Manual Actions */}
-        <View
-          style={[
-            styles.card,
-            { borderColor: BORDER_OVERLAY, marginTop: 14, marginBottom: 28 },
-          ]}
-        >
-          <Text style={styles.cardTitle}>Manual Actions</Text>
-
-          <TouchableOpacity style={styles.actionBtn} onPress={handleDispense}>
-            <Text style={styles.actionText}>Dispense Feed Now</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionBtn, { marginTop: 10 }]}
-            onPress={handleSprinkler}
-          >
-            <Text style={styles.actionText}>Activate Water Sprinkler</Text>
-          </TouchableOpacity>
-        </View>
       </ScrollView>
 
       {/* Date / Time Pickers */}
@@ -847,6 +1318,7 @@ export default function ControlScreen({ navigation }) {
           value={waterDate}
           mode="date"
           display="default"
+          minimumDate={new Date()}
           onChange={(_, selected) => {
             setShowWaterDatePicker(false);
             if (selected) setWaterDate(selected);
@@ -907,7 +1379,12 @@ export default function ControlScreen({ navigation }) {
       )}
 
       {/* Feed Edit Modal (time picker like night schedule) */}
-      <Modal visible={feedEdit.open} transparent animationType="slide">
+      <Modal
+        key="feedEditModal"
+        visible={feedEdit.open}
+        transparent
+        animationType="slide"
+      >
         <TouchableOpacity
           style={styles.modalBackdrop}
           onPress={() =>
@@ -915,7 +1392,14 @@ export default function ControlScreen({ navigation }) {
           }
         />
         <View style={styles.editModal}>
-          <Text style={styles.modalTitle}>Edit Feeding Time</Text>
+          <Text
+            style={[
+              styles.modalTitle,
+              { textAlign: "center", fontWeight: "bold" },
+            ]}
+          >
+            Edit Feeding Time
+          </Text>
 
           <TouchableOpacity
             style={[styles.timeInput, { marginTop: 6 }]}
@@ -948,29 +1432,65 @@ export default function ControlScreen({ navigation }) {
             }}
           >
             <TouchableOpacity
-              style={[styles.primaryBtn, { flex: 1, marginRight: 6 }]}
-              onPress={saveFeedEdit}
-            >
-              <Text style={styles.primaryBtnText}>Save</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.primaryBtn, { backgroundColor: "#999", flex: 1 }]}
+              style={[
+                styles.primaryBtn,
+                { backgroundColor: "#999", flex: 1, marginRight: 6 },
+              ]}
               onPress={() =>
                 setFeedEdit({ open: false, idx: null, timeDate: new Date() })
               }
             >
               <Text style={styles.primaryBtnText}>Cancel</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.primaryBtn, { flex: 1 }]}
+              onPress={() => {
+                // Check for duplicate before showing confirm modal
+                if (feedEdit.idx !== null) {
+                  const newTime = feedEdit.timeDate.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  });
+                  const isDuplicate = feeds.some(
+                    (f, i) => i !== feedEdit.idx && f.time === newTime
+                  );
+                  if (isDuplicate) {
+                    // Keep edit modal open, just show duplicate error
+                    setShowDuplicateModal(true);
+                    return;
+                  }
+                }
+                setConfirmEditVisible(true);
+              }}
+            >
+              <Text style={styles.primaryBtnText}>Save</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
       {/* Camera Modal */}
-      <Modal visible={cameraModal} transparent animationType="fade">
-        <View style={styles.fullScreenCameraModal}>
-          <TouchableOpacity 
-            style={styles.closeButton}
-            onPress={() => setCameraModal(false)}
+      <Modal
+        key="cameraModal"
+        visible={cameraModal}
+        transparent
+        animationType="slide"
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          onPress={() => setCameraModal(false)}
+        />
+        <View style={styles.editModal}>
+          <Text style={styles.modalTitle}>Live Camera</Text>
+          <Image
+            source={require("../../../assets/proposal meeting.png")}
+            style={{ width: "100%", height: 220, borderRadius: 8 }}
+          />
+          <TouchableOpacity
+            style={[styles.primaryBtn, { marginTop: 12 }]}
+            onPress={() =>
+              Alert.alert("Connect", "Placeholder to connect to IoT camera")
+            }
           >
             <Ionicons name="close-circle" size={40} color="#fff" />
           </TouchableOpacity>
@@ -987,7 +1507,12 @@ export default function ControlScreen({ navigation }) {
       </Modal>
 
       {/* Confirm delete all */}
-      <Modal visible={confirmDeleteVisible} transparent animationType="fade">
+      <Modal
+        key="confirmDeleteAllModal"
+        visible={confirmDeleteVisible}
+        transparent
+        animationType="fade"
+      >
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
             <Text style={{ fontWeight: "700", fontSize: 16 }}>
@@ -1018,7 +1543,12 @@ export default function ControlScreen({ navigation }) {
       </Modal>
 
       {/* Confirm Save */}
-      <Modal visible={confirmSaveVisible} transparent animationType="fade">
+      <Modal
+        key="confirmSaveModal"
+        visible={confirmSaveVisible}
+        transparent
+        animationType="fade"
+      >
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
             <Text style={{ fontWeight: "700", fontSize: 16 }}>
@@ -1050,6 +1580,7 @@ export default function ControlScreen({ navigation }) {
 
       {/* Morning Warning Modal */}
       <Modal
+        key="morningWarningModal"
         visible={warnMorningVisible}
         transparent
         animationType="fade"
@@ -1093,6 +1624,7 @@ export default function ControlScreen({ navigation }) {
 
       {/* Confirm Night Time Save */}
       <Modal
+        key="confirmNightSaveModal"
         visible={confirmNightSaveVisible}
         transparent
         animationType="fade"
@@ -1143,10 +1675,15 @@ export default function ControlScreen({ navigation }) {
 
       {/* Confirm Feed Add */}
       <Modal
+        key="confirmFeedAddModal"
         visible={confirmFeedSaveVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setConfirmFeedSaveVisible(false)}
+        onRequestClose={() => {
+          setConfirmFeedSaveVisible(false);
+          setShowFeedAddPicker(false);
+          setPendingFeedTime(null);
+        }}
       >
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
@@ -1163,6 +1700,7 @@ export default function ControlScreen({ navigation }) {
                 style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
                 onPress={() => {
                   setConfirmFeedSaveVisible(false);
+                  setShowFeedAddPicker(false);
                   setPendingFeedTime(null);
                 }}
               >
@@ -1184,6 +1722,7 @@ export default function ControlScreen({ navigation }) {
 
       {/* Duplicate Time Modal */}
       <Modal
+        key="duplicateTimeModal"
         visible={showDuplicateModal}
         transparent
         animationType="fade"
@@ -1210,8 +1749,165 @@ export default function ControlScreen({ navigation }) {
         </View>
       </Modal>
 
+      {/* Confirm Edit Modal */}
+      <Modal
+        key="confirmEditModal"
+        visible={confirmEditVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setConfirmEditVisible(false);
+          setFeedEdit({ open: false, idx: null, timeDate: new Date() });
+        }}
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Text style={{ fontWeight: "700", fontSize: 16 }}>
+              Confirm Edit
+            </Text>
+            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+              Do you want to save changes to this schedule?
+            </Text>
+            <View style={{ flexDirection: "row", marginTop: 12 }}>
+              <TouchableOpacity
+                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                onPress={() => {
+                  setConfirmEditVisible(false);
+                  setFeedEdit({ open: false, idx: null, timeDate: new Date() });
+                }}
+              >
+                <Text style={styles.smallActionText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.smallActionBtn,
+                  { backgroundColor: PRIMARY, marginLeft: 8 },
+                ]}
+                onPress={saveFeedEdit}
+              >
+                <Text style={styles.smallActionText}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Confirm Delete Feed Modal */}
+      <Modal
+        key="confirmDeleteFeedModal"
+        visible={confirmDeleteFeedVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmDeleteFeedVisible(false)}
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Text style={{ fontWeight: "700", fontSize: 16 }}>
+              Confirm Delete
+            </Text>
+            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+              Are you sure you want to delete this schedule?
+            </Text>
+            <View style={{ flexDirection: "row", marginTop: 12 }}>
+              <TouchableOpacity
+                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                onPress={() => {
+                  setConfirmDeleteFeedVisible(false);
+                  setPendingDeleteFeedId(null);
+                }}
+              >
+                <Text style={styles.smallActionText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.smallActionBtn,
+                  { backgroundColor: RED, marginLeft: 8 },
+                ]}
+                onPress={confirmDeleteFeed}
+              >
+                <Text style={styles.smallActionText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Invalid Schedule Modal */}
+      <Modal
+        key="invalidScheduleModal"
+        visible={showInvalidScheduleModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowInvalidScheduleModal(false)}
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Text style={{ fontWeight: "700", fontSize: 16 }}>
+              Invalid Schedule
+            </Text>
+            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+              You cannot choose a past date or time.
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.smallActionBtn,
+                { backgroundColor: PRIMARY, marginTop: 12 },
+              ]}
+              onPress={() => setShowInvalidScheduleModal(false)}
+            >
+              <Text style={styles.smallActionText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Confirm Watering Schedule Modal */}
+      <Modal
+        key="confirmWaterSaveModal"
+        visible={confirmWaterSaveVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmWaterSaveVisible(false)}
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Text style={{ fontWeight: "700", fontSize: 16 }}>
+              Confirm Watering Schedule
+            </Text>
+            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+              Do you want to save this watering schedule?
+            </Text>
+            <View style={{ flexDirection: "row", marginTop: 12 }}>
+              <TouchableOpacity
+                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                onPress={() => {
+                  setConfirmWaterSaveVisible(false);
+                  setPendingWaterSchedule(null);
+                }}
+              >
+                <Text style={styles.smallActionText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.smallActionBtn,
+                  { backgroundColor: PRIMARY, marginLeft: 8 },
+                ]}
+                onPress={confirmSaveWaterSchedule}
+              >
+                <Text style={styles.smallActionText}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Save popup */}
-      <Modal visible={showSavedPopup} transparent animationType="fade">
+      <Modal
+        key="savePopupModal"
+        visible={showSavedPopup}
+        transparent
+        animationType="fade"
+      >
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
             <Image
@@ -1223,19 +1919,26 @@ export default function ControlScreen({ navigation }) {
         </View>
       </Modal>
 
-      {/* Dispense / Sprinkler simple popups */}
-      <Modal visible={dispenseModal} transparent animationType="fade">
+      {/* Motor Warning Modal */}
+      <Modal
+        key="motorWarningModal"
+        visible={motorWarningModal.visible}
+        transparent
+        animationType="fade"
+      >
         <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Text style={styles.popupText}>Dispense Feed Success</Text>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={sprinklerModal} transparent animationType="fade">
-        <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Text style={styles.popupText}>Sprinkler Activated</Text>
+          <View style={styles.motorWarningBox}>
+            <View style={styles.warningIconContainer}>
+              <Ionicons name="warning" size={40} color="#FFC107" />
+            </View>
+            <Text style={styles.motorWarningTitle}>{motorWarningModal.title}</Text>
+            <Text style={styles.motorWarningMessage}>{motorWarningModal.message}</Text>
+            <TouchableOpacity
+              style={styles.motorWarningButton}
+              onPress={hideMotorWarning}
+            >
+              <Text style={styles.motorWarningButtonText}>OK</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1244,16 +1947,25 @@ export default function ControlScreen({ navigation }) {
 }
 
 /* ---------------- helpers ---------------- */
-function StatCard({ label, value, dotColor }) {
+function StatCard({ label, value, dotColor, loading, isSimulated }) {
   return (
     <View style={styles.statCard}>
       <View style={styles.statLeft}>
         <View style={[styles.dot, { backgroundColor: dotColor }]} />
-        <Text style={styles.statLabel}>{label}</Text>
+        <View>
+          <Text style={styles.statLabel}>{label}</Text>
+          {isSimulated && (
+            <Text style={styles.simulatedLabel}>Simulated</Text>
+          )}
+        </View>
       </View>
       <View style={styles.statRight}>
-        <View style={[styles.statBox, { borderLeftColor: PRIMARY }]}>
-          <Text style={styles.statValue}>{value}</Text>
+        <View style={[styles.statBox, { borderLeftColor: isSimulated ? "#FFC107" : PRIMARY }]}>
+          {loading ? (
+            <ActivityIndicator size="small" color={PRIMARY} />
+          ) : (
+            <Text style={styles.statValue}>{value}</Text>
+          )}
         </View>
       </View>
     </View>
@@ -1286,6 +1998,26 @@ const styles = StyleSheet.create({
 
   pageTitle: { fontSize: 14, color: PRIMARY, fontWeight: "700", marginTop: 14 },
 
+  // Sensor status banner
+  sensorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFF3CD",
+    borderColor: "#FFEEBA",
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  sensorBannerText: {
+    color: "#856404",
+    fontSize: 12,
+    marginLeft: 8,
+    flex: 1,
+  },
+
   statCard: {
     width: "100%",
     maxWidth: 340,
@@ -1302,6 +2034,7 @@ const styles = StyleSheet.create({
   statLeft: { flexDirection: "row", alignItems: "center" },
   dot: { width: 10, height: 10, borderRadius: 6, marginRight: 10 },
   statLabel: { fontSize: 15, fontWeight: "600", color: "#333" },
+  simulatedLabel: { fontSize: 10, color: "#856404", fontStyle: "italic" },
   statRight: { alignItems: "flex-end" },
   statBox: {
     paddingHorizontal: 12,
@@ -1373,13 +2106,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 10,
   },
+  feedTimeText: {
+    fontWeight: "600",
+    fontSize: 14,
+    color: "#333",
+  },
   editBtn: {
     backgroundColor: PRIMARY,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
   },
-  editText: { color: "#fff", fontWeight: "700" },
+  editText: { color: "#fff", fontWeight: "700", fontSize: 14 },
 
   checkbox: {
     width: 22,
@@ -1463,7 +2201,31 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
   },
+  actionBtnDisabled: {
+    backgroundColor: "#999",
+    opacity: 0.7,
+  },
   actionText: { color: "#fff", fontWeight: "700" },
+  
+  // Test Device buttons - blue border only, smaller
+  testBtn: {
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: PRIMARY,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  testBtnDisabled: {
+    borderColor: "#999",
+    opacity: 0.7,
+  },
+  testBtnText: { 
+    color: PRIMARY, 
+    fontWeight: "600",
+    fontSize: 13,
+  },
 
   // modals
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
@@ -1563,6 +2325,50 @@ const styles = StyleSheet.create({
     height: "100%",
     backgroundColor: YELLOW,
     borderRadius: 8,
+  },
+
+  // Motor Warning Modal styles
+  motorWarningBox: {
+    backgroundColor: "#fff",
+    padding: 24,
+    borderRadius: 16,
+    alignItems: "center",
+    width: "85%",
+    maxWidth: 340,
+  },
+  warningIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "#FFF8E1",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  motorWarningTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#333",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  motorWarningMessage: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  motorWarningButton: {
+    backgroundColor: PRIMARY,
+    paddingVertical: 12,
+    paddingHorizontal: 40,
+    borderRadius: 8,
+  },
+  motorWarningButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
 
   // small helpers

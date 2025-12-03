@@ -2,16 +2,22 @@ import React, { useState } from "react";
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   Pressable,
   Modal,
   StyleSheet,
   ScrollView,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import CalendarModal from "../../navigation/CalendarModal";
-import TimePickerDropdown from "../../test/Talan/TimePickerDropdown";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
+import * as FileSystem from "expo-file-system/legacy";
+import { Asset } from "expo-asset";
+import { auth, db } from "../../../config/firebaseconfig";
+import { doc, getDoc } from "firebase/firestore";
 
 const Icon = Feather;
 
@@ -19,33 +25,13 @@ export default function GenerateLogReportModal({
   visible,
   onClose,
   onGenerate,
+  logs = [], // Array of log objects to include in the PDF
 }) {
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [showCalendar, setShowCalendar] = useState(false);
-  const [hours, setHours] = useState("09");
-  const [minutes, setMinutes] = useState("00");
-  const [period, setPeriod] = useState("AM");
-  const [showHoursPicker, setShowHoursPicker] = useState(false);
-  const [showMinutesPicker, setShowMinutesPicker] = useState(false);
-  const [showPeriodPicker, setShowPeriodPicker] = useState(false);
-  const [selectedRole, setSelectedRole] = useState("");
-  const [showRoleDropdown, setShowRoleDropdown] = useState(false);
-  const [details, setDetails] = useState("");
-  const [description, setDescription] = useState("");
-
-  const roles = ["Owner", "Admin", "User"];
-  const hoursList = Array.from({ length: 12 }, (_, i) => ({
-    id: i,
-    value: String(i + 1).padStart(2, "0"),
-  }));
-  const minutesList = Array.from({ length: 60 }, (_, i) => ({
-    id: i,
-    value: String(i).padStart(2, "0"),
-  }));
-  const periodList = [
-    { id: 0, value: "AM" },
-    { id: 1, value: "PM" },
-  ];
+  const [startDate, setStartDate] = useState(new Date());
+  const [endDate, setEndDate] = useState(new Date());
+  const [showStartCalendar, setShowStartCalendar] = useState(false);
+  const [showEndCalendar, setShowEndCalendar] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const formatDate = (date) => {
     const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -54,41 +40,393 @@ export default function GenerateLogReportModal({
     return `${month}-${day}-${year}`;
   };
 
-  const formatTime = () => {
-    return `${hours}:${minutes} ${period}`;
+  const formatFullDate = (date) => {
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const year = date.getFullYear();
+    return `${month}/${day}/${year}`;
   };
 
-  const handleDateSelect = (date) => {
-    setSelectedDate(date);
+  const formatTimestampGMT8 = () => {
+    const now = new Date();
+    const gmt8Date = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+    const month = String(gmt8Date.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(gmt8Date.getUTCDate()).padStart(2, "0");
+    const year = gmt8Date.getUTCFullYear();
+    const hours = gmt8Date.getUTCHours();
+    const minutes = gmt8Date.getUTCMinutes();
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const hour12 = hours % 12 || 12;
+    return `${month}/${day}/${year} ${hour12}:${String(minutes).padStart(2, "0")} ${ampm}`;
   };
 
-  const handleGenerate = () => {
-    if (!selectedRole || !details || !description) {
-      alert("Please fill in all fields");
+  const getFileNameTimestamp = () => {
+    const now = new Date();
+    const gmt8Date = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+    const year = gmt8Date.getUTCFullYear();
+    const month = String(gmt8Date.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(gmt8Date.getUTCDate()).padStart(2, "0");
+    const hours = String(gmt8Date.getUTCHours()).padStart(2, "0");
+    const minutes = String(gmt8Date.getUTCMinutes()).padStart(2, "0");
+    return `${year}-${month}-${day}_${hours}-${minutes}`;
+  };
+
+  const sanitizeFileName = (name) => {
+    // Remove special characters and replace spaces with underscores
+    return name.replace(/[^a-zA-Z0-9]/g, "_");
+  };
+
+  const filterLogsByDateRange = () => {
+    return logs.filter((log) => {
+      if (!log.timestamp) return false;
+
+      let logDate;
+      if (log.timestamp.toDate && typeof log.timestamp.toDate === "function") {
+        logDate = log.timestamp.toDate();
+      } else if (typeof log.timestamp === "string") {
+        logDate = new Date(log.timestamp);
+      } else if (log.timestamp instanceof Date) {
+        logDate = log.timestamp;
+      } else {
+        return false;
+      }
+
+      // Set times to start of day for comparison
+      const logDateOnly = new Date(
+        logDate.getFullYear(),
+        logDate.getMonth(),
+        logDate.getDate()
+      );
+      const startDateOnly = new Date(
+        startDate.getFullYear(),
+        startDate.getMonth(),
+        startDate.getDate()
+      );
+      const endDateOnly = new Date(
+        endDate.getFullYear(),
+        endDate.getMonth(),
+        endDate.getDate()
+      );
+
+      return logDateOnly >= startDateOnly && logDateOnly <= endDateOnly;
+    });
+  };
+
+  const formatLogDate = (timestamp) => {
+    if (!timestamp) return "N/A";
+
+    let date;
+    if (timestamp.toDate && typeof timestamp.toDate === "function") {
+      date = timestamp.toDate();
+    } else if (typeof timestamp === "string") {
+      date = new Date(timestamp);
+    } else if (timestamp instanceof Date) {
+      date = timestamp;
+    } else {
+      return "N/A";
+    }
+
+    const gmt8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+    const month = String(gmt8Date.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(gmt8Date.getUTCDate()).padStart(2, "0");
+    const year = gmt8Date.getUTCFullYear();
+    return `${month}/${day}/${year}`;
+  };
+
+  const formatLogTime = (timestamp) => {
+    if (!timestamp) return "N/A";
+
+    let date;
+    if (timestamp.toDate && typeof timestamp.toDate === "function") {
+      date = timestamp.toDate();
+    } else if (typeof timestamp === "string") {
+      date = new Date(timestamp);
+    } else if (timestamp instanceof Date) {
+      date = timestamp;
+    } else {
+      return "N/A";
+    }
+
+    const gmt8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+    const hours = gmt8Date.getUTCHours();
+    const minutes = gmt8Date.getUTCMinutes();
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const hour12 = hours % 12 || 12;
+    return `${hour12}:${String(minutes).padStart(2, "0")} ${ampm}`;
+  };
+
+  const getLogoBase64 = async () => {
+    try {
+      // Use require to get the asset
+      const logoUri = Asset.fromModule(require("../../../assets/logo.png")).uri;
+
+      // Download the asset if needed
+      const asset = Asset.fromModule(require("../../../assets/logo.png"));
+      if (!asset.downloaded) {
+        await asset.downloadAsync();
+      }
+
+      // Copy to cache and read as base64
+      const fileUri = `${FileSystem.cacheDirectory}logo-temp.png`;
+      await FileSystem.copyAsync({
+        from: asset.localUri,
+        to: fileUri,
+      });
+
+      const base64 = await FileSystem.readAsStringAsync(fileUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      // Clean up temp file
+      await FileSystem.deleteAsync(fileUri, { idempotent: true });
+
+      return `data:image/png;base64,${base64}`;
+    } catch (error) {
+      console.error("Error loading logo:", error);
+      // Return a fallback placeholder if logo fails to load
+      return "https://via.placeholder.com/150x50/133E87/FFFFFF?text=Internet+of+Tsiken";
+    }
+  };
+
+  const generateHTMLContent = async (userName) => {
+    const filteredLogs = filterLogsByDateRange();
+
+    const tableRows = filteredLogs
+      .map(
+        (log) => `
+      <tr>
+        <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 11px;">${formatLogDate(log.timestamp)}</td>
+        <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 11px;">${formatLogTime(log.timestamp)}</td>
+        <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 11px;">${
+          log.firstName && log.lastName
+            ? `${log.firstName} ${log.lastName}`
+            : log.firstName || log.userName || log.userEmail || "N/A"
+        }</td>
+        <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 11px;">${log.action || "N/A"}</td>
+        <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 11px;">${log.description || "N/A"}</td>
+      </tr>
+    `
+      )
+      .join("");
+
+    // Get company logo as base64
+    const companyLogoUrl = await getLogoBase64();
+
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              padding: 20px;
+              color: #1a1a1a;
+            }
+            .header {
+              display: flex;
+              align-items: center;
+              gap: 15px;
+              margin-bottom: 30px;
+              padding-bottom: 15px;
+              border-bottom: 2px solid #133E87;
+            }
+            .header-logo {
+              height: 50px;
+              width: auto;
+            }
+            .header-company-name {
+              font-size: 22px;
+              font-weight: 700;
+              color: #133E87;
+              margin: 0;
+            }
+            h1 {
+              color: #133E87;
+              font-size: 18px;
+              margin-bottom: 10px;
+              margin-top: 20px;
+            }
+            .info {
+              margin-bottom: 15px;
+              font-size: 12px;
+              color: #64748b;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 20px;
+            }
+            th {
+              background-color: #f8fafc;
+              padding: 10px;
+              border: 1px solid #e5e7eb;
+              font-size: 12px;
+              font-weight: 700;
+              text-align: left;
+            }
+            td {
+              padding: 8px;
+              border: 1px solid #e5e7eb;
+              font-size: 11px;
+            }
+            .footer {
+              margin-top: 30px;
+              font-size: 10px;
+              color: #94a3b8;
+              text-align: center;
+            }
+          </style>
+        </head>
+        <body>
+          <!-- Company Header -->
+          <div class="header">
+            <img src="${companyLogoUrl}" alt="Company Logo" class="header-logo" />
+            <h2 class="header-company-name">Internet of Tsiken</h2>
+          </div>
+
+          <!-- Report Title -->
+          <h1>Log Report of ${userName} as of ${formatTimestampGMT8()}</h1>
+          <div class="info">
+            <strong>Date Range:</strong> ${formatFullDate(startDate)} - ${formatFullDate(endDate)}
+          </div>
+          <div class="info">
+            <strong>Total Logs:</strong> ${filteredLogs.length}
+          </div>
+
+          <!-- Log Table -->
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Time</th>
+                <th>User</th>
+                <th>Action</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows || '<tr><td colspan="5" style="text-align: center; padding: 20px;">No logs found for this date range</td></tr>'}
+            </tbody>
+          </table>
+
+          <!-- Footer -->
+          <div class="footer">
+            Generated on ${formatTimestampGMT8()} (GMT+8)
+          </div>
+        </body>
+      </html>
+    `;
+  };
+
+  const handleGenerate = async () => {
+    if (endDate < startDate) {
+      Alert.alert("Invalid Date Range", "End date must be after start date");
       return;
     }
 
-    const logData = {
-      date: formatDate(selectedDate),
-      time: formatTime(),
-      role: selectedRole,
-      action: details,
-      description: description,
-    };
+    setIsGenerating(true);
 
-    onGenerate(logData);
-    resetForm();
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        Alert.alert("Error", "No user logged in");
+        setIsGenerating(false);
+        return;
+      }
+
+      // Fetch user's first name and last name
+      let userName = "User";
+      let firstName = "";
+      let lastName = "";
+      try {
+        const userDocRef = doc(db, "users", user.uid);
+        const userDocSnap = await getDoc(userDocRef);
+        if (userDocSnap.exists()) {
+          const userData = userDocSnap.data();
+          firstName = userData.firstName || "";
+          lastName = userData.lastName || "";
+          userName =
+            firstName && lastName
+              ? `${firstName} ${lastName}`
+              : firstName ||
+                lastName ||
+                user.displayName ||
+                user.email ||
+                "User";
+        } else {
+          userName = user.displayName || user.email || "User";
+        }
+      } catch (fetchErr) {
+        console.error("Failed to fetch user data:", fetchErr);
+        userName = user.displayName || user.email || "User";
+      }
+
+      // Generate HTML content
+      const htmlContent = await generateHTMLContent(userName);
+
+      // Generate filename with user's name and GMT+8 timestamp
+      const timestamp = getFileNameTimestamp();
+      const sanitizedFirstName = sanitizeFileName(firstName || "User");
+      const sanitizedLastName = sanitizeFileName(lastName || "");
+      const namePrefix = sanitizedLastName
+        ? `${sanitizedFirstName}_${sanitizedLastName}`
+        : sanitizedFirstName;
+      const fileName = `LogReport_${namePrefix}_${timestamp}.pdf`;
+
+      // Create PDF
+      const { uri } = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+      });
+
+      console.log("PDF generated at:", uri);
+
+      // Check if sharing is available
+      const isSharingAvailable = await Sharing.isAvailableAsync();
+      if (!isSharingAvailable) {
+        Alert.alert("Error", "Sharing is not available on this device");
+        setIsGenerating(false);
+        return;
+      }
+
+      // Share/save the PDF
+      await Sharing.shareAsync(uri, {
+        mimeType: "application/pdf",
+        dialogTitle: "Save Log Report",
+        UTI: "com.adobe.pdf",
+      });
+
+      console.log("PDF shared successfully");
+
+      // Call the original onGenerate callback
+      if (onGenerate) {
+        onGenerate({
+          startDate: formatDate(startDate),
+          endDate: formatDate(endDate),
+        });
+      }
+
+      setIsGenerating(false);
+      handleClose();
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+      Alert.alert("Error", "Failed to generate PDF: " + error.message);
+      setIsGenerating(false);
+    }
+  };
+
+  const handleStartDateSelect = (date) => {
+    setStartDate(date);
+  };
+
+  const handleEndDateSelect = (date) => {
+    setEndDate(date);
   };
 
   const resetForm = () => {
-    setSelectedDate(new Date());
-    setHours("09");
-    setMinutes("00");
-    setPeriod("AM");
-    setSelectedRole("");
-    setDetails("");
-    setDescription("");
-    setShowRoleDropdown(false);
+    setStartDate(new Date());
+    setEndDate(new Date());
   };
 
   const handleClose = () => {
@@ -120,141 +458,50 @@ export default function GenerateLogReportModal({
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              {/* Date Section */}
+              {/* Start Date Section */}
               <View style={styles.formGroup}>
-                <Text style={styles.label}>Date</Text>
+                <Text style={styles.label}>Start Date</Text>
                 <TouchableOpacity
                   style={styles.dateInput}
-                  onPress={() => setShowCalendar(true)}
+                  onPress={() => setShowStartCalendar(true)}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.inputText}>
-                    {formatDate(selectedDate)}
-                  </Text>
+                  <Text style={styles.inputText}>{formatDate(startDate)}</Text>
                   <Icon name="calendar" size={18} color="#64748b" />
                 </TouchableOpacity>
               </View>
 
-              {/* Time Section */}
+              {/* End Date Section */}
               <View style={styles.formGroup}>
-                <Text style={styles.label}>Time</Text>
-                <View style={styles.timeRow}>
-                  {/* Hours */}
-                  <TouchableOpacity
-                    style={styles.timeButton}
-                    onPress={() => setShowHoursPicker(true)}
-                  >
-                    <Text style={styles.timeButtonText}>{hours}</Text>
-                    <Icon name="chevron-down" size={14} color="#64748b" />
-                  </TouchableOpacity>
-
-                  <Text style={styles.timeSeparator}>:</Text>
-
-                  {/* Minutes */}
-                  <TouchableOpacity
-                    style={styles.timeButton}
-                    onPress={() => setShowMinutesPicker(true)}
-                  >
-                    <Text style={styles.timeButtonText}>{minutes}</Text>
-                    <Icon name="chevron-down" size={14} color="#64748b" />
-                  </TouchableOpacity>
-
-                  {/* Period */}
-                  <TouchableOpacity
-                    style={styles.timeButton}
-                    onPress={() => setShowPeriodPicker(true)}
-                  >
-                    <Text style={styles.timeButtonText}>{period}</Text>
-                    <Icon name="chevron-down" size={14} color="#64748b" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Role Selection */}
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Select Role</Text>
+                <Text style={styles.label}>End Date</Text>
                 <TouchableOpacity
                   style={styles.dateInput}
-                  onPress={() => setShowRoleDropdown(!showRoleDropdown)}
+                  onPress={() => setShowEndCalendar(true)}
+                  activeOpacity={0.7}
                 >
-                  <Text
-                    style={[
-                      styles.inputText,
-                      !selectedRole && styles.placeholder,
-                    ]}
-                  >
-                    {selectedRole || "Select a role"}
-                  </Text>
-                  <Icon
-                    name={showRoleDropdown ? "chevron-up" : "chevron-down"}
-                    size={18}
-                    color="#64748b"
-                  />
+                  <Text style={styles.inputText}>{formatDate(endDate)}</Text>
+                  <Icon name="calendar" size={18} color="#64748b" />
                 </TouchableOpacity>
-
-                {showRoleDropdown && (
-                  <View style={styles.dropdown}>
-                    {roles.map((role, index) => (
-                      <TouchableOpacity
-                        key={index}
-                        style={[
-                          styles.dropdownOption,
-                          index === roles.length - 1 &&
-                            styles.dropdownOptionLast,
-                        ]}
-                        onPress={() => {
-                          setSelectedRole(role);
-                          setShowRoleDropdown(false);
-                        }}
-                      >
-                        <Text style={styles.dropdownOptionText}>{role}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
               </View>
 
-              {/* Action */}
-              {!showRoleDropdown && (
-                <View style={styles.formGroup}>
-                  <Text style={styles.label}>Action</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="Enter action details"
-                    value={details}
-                    onChangeText={setDetails}
-                    placeholderTextColor="#94a3b8"
-                  />
-                </View>
-              )}
-
-              {/* Description */}
-              {!showRoleDropdown && (
-                <View style={styles.formGroup}>
-                  <Text style={styles.label}>Enter Description</Text>
-                  <TextInput
-                    style={[styles.textInput, styles.textArea]}
-                    placeholder="Enter description"
-                    value={description}
-                    onChangeText={setDescription}
-                    multiline
-                    numberOfLines={4}
-                    textAlignVertical="top"
-                    placeholderTextColor="#94a3b8"
-                  />
-                </View>
-              )}
-
               {/* Generate Button */}
-              {!showRoleDropdown && (
-                <Pressable onPress={handleGenerate}>
-                  {({ pressed }) => (
-                    <View
-                      style={[
-                        styles.generateButtonInner,
-                        pressed && styles.generateButtonPressed,
-                      ]}
-                    >
+              <Pressable onPress={handleGenerate} disabled={isGenerating}>
+                {({ pressed }) => (
+                  <View
+                    style={[
+                      styles.generateButtonInner,
+                      pressed && styles.generateButtonPressed,
+                      isGenerating && styles.generateButtonDisabled,
+                    ]}
+                  >
+                    {isGenerating ? (
+                      <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="small" color="#3b82f6" />
+                        <Text style={styles.generateButtonText}>
+                          Generating PDF...
+                        </Text>
+                      </View>
+                    ) : (
                       <Text
                         style={[
                           styles.generateButtonText,
@@ -263,45 +510,27 @@ export default function GenerateLogReportModal({
                       >
                         Generate Log Report
                       </Text>
-                    </View>
-                  )}
-                </Pressable>
-              )}
+                    )}
+                  </View>
+                )}
+              </Pressable>
             </ScrollView>
           </View>
         </View>
       </Modal>
 
-      {/* Calendar Modal */}
+      {/* Start Date Calendar Modal */}
       <CalendarModal
-        visible={showCalendar}
-        onClose={() => setShowCalendar(false)}
-        onSelectDate={handleDateSelect}
+        visible={showStartCalendar}
+        onClose={() => setShowStartCalendar(false)}
+        onSelectDate={handleStartDateSelect}
       />
 
-      {/* Time Picker Modals */}
-      <TimePickerDropdown
-        visible={showHoursPicker}
-        onClose={() => setShowHoursPicker(false)}
-        data={hoursList}
-        onSelect={setHours}
-        title="Select Hour"
-      />
-
-      <TimePickerDropdown
-        visible={showMinutesPicker}
-        onClose={() => setShowMinutesPicker(false)}
-        data={minutesList}
-        onSelect={setMinutes}
-        title="Select Minute"
-      />
-
-      <TimePickerDropdown
-        visible={showPeriodPicker}
-        onClose={() => setShowPeriodPicker(false)}
-        data={periodList}
-        onSelect={setPeriod}
-        title="Select Period"
+      {/* End Date Calendar Modal */}
+      <CalendarModal
+        visible={showEndCalendar}
+        onClose={() => setShowEndCalendar(false)}
+        onSelectDate={handleEndDateSelect}
       />
     </>
   );
@@ -356,82 +585,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  textInput: {
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    fontSize: 14,
-    color: "#1a1a1a",
-    backgroundColor: "#ffffff",
-  },
   inputText: {
     fontSize: 14,
     color: "#1a1a1a",
     flex: 1,
-  },
-  placeholder: {
-    color: "#94a3b8",
-  },
-  textArea: {
-    height: 100,
-    paddingTop: 12,
-  },
-  timeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  timeButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    backgroundColor: "#ffffff",
-    width: 70,
-    gap: 4,
-  },
-  timeButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#1a1a1a",
-  },
-  timeSeparator: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1a1a1a",
-  },
-  dropdown: {
-    marginTop: 8,
-    backgroundColor: "#ffffff",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  dropdownOption: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f1f5f9",
-    backgroundColor: "#ffffff",
-  },
-  dropdownOptionLast: {
-    borderBottomWidth: 0,
-  },
-  dropdownOptionText: {
-    fontSize: 14,
-    color: "#1a1a1a",
-    fontWeight: "500",
   },
   generateButtonInner: {
     backgroundColor: "#ffffff",
@@ -446,6 +603,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#3b82f6",
     borderColor: "#3b82f6",
   },
+  generateButtonDisabled: {
+    backgroundColor: "#f1f5f9",
+    borderColor: "#e5e7eb",
+    opacity: 0.6,
+  },
   generateButtonText: {
     color: "#1a1a1a",
     fontSize: 15,
@@ -453,5 +615,10 @@ const styles = StyleSheet.create({
   },
   generateButtonTextPressed: {
     color: "#ffffff",
+  },
+  loadingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
 });

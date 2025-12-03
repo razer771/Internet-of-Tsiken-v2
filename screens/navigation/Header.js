@@ -12,6 +12,7 @@ import { Image } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import SideNavigation from "./SideNavigation";
 import { useNavigation } from "@react-navigation/native";
+import { useNotifications } from "../User/controls/NotificationContext";
 
 const Icon = Feather;
 
@@ -60,6 +61,7 @@ const MenuIcon = ({ size = 22, color = "#1a1a1a", style, ...props }) => (
 export default function Header2() {
   const [menuVisible, setMenuVisible] = useState(false);
   const navigation = useNavigation();
+  const { unreadCount } = useNotifications();
 
   const toggleMenu = () => {
     setMenuVisible(!menuVisible);
@@ -95,9 +97,11 @@ export default function Header2() {
               onPress={handleNotificationPress}
             >
               <Icon name="bell" size={22} color="#1a1a1a" />
-              <View style={styles.notificationBadge}>
-                <Text style={styles.notificationBadgeText}>2</Text>
-              </View>
+              {unreadCount > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
+                </View>
+              )}
             </TouchableOpacity>
 
             <TouchableOpacity

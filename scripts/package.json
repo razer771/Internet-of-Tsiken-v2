@@ -1,0 +1,12 @@
+{
+  "name": "test-scripts",
+  "version": "1.0.0",
+  "description": "Test scripts for adding sample data to Firebase",
+  "scripts": {
+    "add-sensor-data": "node addTestSensorData.js",
+    "add-realtime-data": "node addRealtimeTestData.js"
+  },
+  "dependencies": {
+    "firebase": "^10.7.1"
+  }
+}
