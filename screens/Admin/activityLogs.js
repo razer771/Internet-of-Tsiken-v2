@@ -867,269 +867,280 @@ export default function ActivityLogs({ navigation }) {
           <Text style={styles.loadingText}>Loading activity logs...</Text>
         </View>
       ) : (
-      <ScrollView contentContainerStyle={styles.pageContent}>
-        {/* Buttons Row */}
-        <View style={styles.buttonsRow}>
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              pressedBtn === "generate" && {
-                backgroundColor: "#133E87",
-                borderColor: "#133E87",
-              },
-            ]}
-            activeOpacity={0.8}
-            onPressIn={() => setPressedBtn("generate")}
-            onPressOut={() => setPressedBtn(null)}
-            onPress={handleGenerateReport}
-          >
-            <Text
-              style={[
-                styles.actionButtonText,
-                pressedBtn === "generate" && { color: "#fff" },
-              ]}
-            >
-              Generate Log Report
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Title */}
-        <Text style={styles.title}>Activity Logs</Text>
-
-        {/* Filters */}
-        <View style={styles.filtersContainer}>
-          {/* Name Filter */}
-          <View style={styles.filterRow}>
-            <Text style={styles.filterLabel}>Search by Name:</Text>
-            <TextInput
-              style={styles.filterInput}
-              placeholder="Enter name..."
-              placeholderTextColor="#999"
-              value={nameFilter}
-              onChangeText={setNameFilter}
-            />
-          </View>
-
-          {/* Date Range Filter */}
-          <View style={styles.filterRow}>
-            <Text style={styles.filterLabel}>Date Range:</Text>
+        <ScrollView contentContainerStyle={styles.pageContent}>
+          {/* Buttons Row */}
+          <View style={styles.buttonsRow}>
             <TouchableOpacity
-              style={styles.dateRangeButton}
-              onPress={openDateRangeModal}
+              style={[
+                styles.actionButton,
+                pressedBtn === "generate" && {
+                  backgroundColor: "#133E87",
+                  borderColor: "#133E87",
+                },
+              ]}
+              activeOpacity={0.8}
+              onPressIn={() => setPressedBtn("generate")}
+              onPressOut={() => setPressedBtn(null)}
+              onPress={handleGenerateReport}
             >
-              <Text style={styles.dateRangeButtonText}>
-                {startDate && endDate
-                  ? `${formatDateGMT8(startDate)} - ${formatDateGMT8(endDate)}`
-                  : startDate
-                    ? `From ${formatDateGMT8(startDate)}`
-                    : "Select dates"}
+              <Text
+                style={[
+                  styles.actionButtonText,
+                  pressedBtn === "generate" && { color: "#fff" },
+                ]}
+              >
+                Generate Log Report
               </Text>
             </TouchableOpacity>
-            {(startDate || endDate) && (
+          </View>
+
+          {/* Title */}
+          <Text style={styles.title}>Activity Logs</Text>
+
+          {/* Filters */}
+          <View style={styles.filtersContainer}>
+            {/* Name Filter */}
+            <View style={styles.filterRow}>
+              <Text style={styles.filterLabel}>Search by Name:</Text>
+              <TextInput
+                style={styles.filterInput}
+                placeholder="Enter name..."
+                placeholderTextColor="#999"
+                value={nameFilter}
+                onChangeText={setNameFilter}
+              />
+            </View>
+
+            {/* Date Range Filter */}
+            <View style={styles.filterRow}>
+              <Text style={styles.filterLabel}>Date Range:</Text>
               <TouchableOpacity
-                style={styles.clearFilterButton}
-                onPress={clearFilters}
+                style={styles.dateRangeButton}
+                onPress={openDateRangeModal}
               >
-                <MaterialCommunityIcons
-                  name="close-circle"
-                  size={20}
-                  color="#c41e3a"
-                />
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        {/* Loading Indicator */}
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#133E87" />
-            <Text style={styles.loadingText}>Loading logs...</Text>
-          </View>
-        ) : (
-          <>
-            {/* Results Info */}
-            <View style={styles.resultsInfo}>
-              <Text style={styles.resultsText}>
-                Showing {currentLogs.length > 0 ? startIndex + 1 : 0}-
-                {Math.min(endIndex, filteredLogs.length)} of{" "}
-                {filteredLogs.length} logs
-              </Text>
-            </View>
-
-            {/* Table */}
-            <View style={styles.tableCard}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator
-                style={styles.horizontalScroll}
-                contentContainerStyle={{ width: TABLE_WIDTH }}
-              >
-                <View style={[styles.table, { width: TABLE_WIDTH }]}>
-                  {/* Header */}
-                  <View style={[styles.row, styles.headerRow]}>
-                    <View
-                      style={[
-                        styles.cell,
-                        styles.leftCell,
-                        { width: COLUMN_WIDTHS.date },
-                      ]}
-                    >
-                      <Text style={styles.headerText}>Date</Text>
-                    </View>
-                    <View style={[styles.cell, { width: COLUMN_WIDTHS.time }]}>
-                      <Text style={styles.headerText}>Time</Text>
-                    </View>
-                    <View style={[styles.cell, { width: COLUMN_WIDTHS.name }]}>
-                      <Text style={styles.headerText}>Name</Text>
-                    </View>
-                    <View style={[styles.cell, { width: COLUMN_WIDTHS.role }]}>
-                      <Text style={styles.headerText}>Role</Text>
-                    </View>
-                    <View
-                      style={[styles.cell, { width: COLUMN_WIDTHS.action }]}
-                    >
-                      <Text style={styles.headerText}>Action</Text>
-                    </View>
-                    <View
-                      style={[
-                        styles.cell,
-                        styles.rightCell,
-                        { width: COLUMN_WIDTHS.description },
-                      ]}
-                    >
-                      <Text style={styles.headerText}>Description</Text>
-                    </View>
-                  </View>
-
-                  {/* Body */}
-                  {currentLogs.length > 0 ? (
-                    currentLogs.map((log, idx) => (
-                      <View
-                        key={`${log.collectionName}-${log.id}`}
-                        style={[styles.row, idx % 2 === 1 && styles.altRow]}
-                      >
-                        <View
-                          style={[
-                            styles.cell,
-                            styles.leftCell,
-                            { width: COLUMN_WIDTHS.date },
-                          ]}
-                        >
-                          <Text style={[styles.cellText, styles.center]}>
-                            {formatDateGMT8(log.timestamp)}
-                          </Text>
-                        </View>
-                        <View
-                          style={[styles.cell, { width: COLUMN_WIDTHS.time }]}
-                        >
-                          <Text style={[styles.cellText, styles.center]}>
-                            {formatTimeGMT8(log.timestamp)}
-                          </Text>
-                        </View>
-                        <View
-                          style={[styles.cell, { width: COLUMN_WIDTHS.name }]}
-                        >
-                          <Text style={[styles.cellText, styles.center]}>
-                            {log.userName}
-                          </Text>
-                        </View>
-                        <View
-                          style={[styles.cell, { width: COLUMN_WIDTHS.role }]}
-                        >
-                          <Text style={[styles.cellText, styles.center]}>
-                            {log.role}
-                          </Text>
-                        </View>
-                        <View
-                          style={[styles.cell, { width: COLUMN_WIDTHS.action }]}
-                        >
-                          <Text style={[styles.cellText, styles.center]}>
-                            {log.action}
-                          </Text>
-                        </View>
-                        <View
-                          style={[
-                            styles.cell,
-                            styles.rightCell,
-                            { width: COLUMN_WIDTHS.description },
-                          ]}
-                        >
-                          <Text style={[styles.cellText, styles.center]}>
-                            {log.description}
-                          </Text>
-                        </View>
-                      </View>
-                    ))
-                  ) : (
-                    <View style={styles.noDataRow}>
-                      <Text style={styles.noDataText}>No logs found</Text>
-                    </View>
-                  )}
-                </View>
-              </ScrollView>
-            </View>
-
-            {/* Pagination */}
-            {filteredLogs.length > LOGS_PER_PAGE && (
-              <View style={styles.paginationContainer}>
-                <TouchableOpacity
-                  style={[
-                    styles.paginationButton,
-                    currentPage === 1 && styles.paginationButtonDisabled,
-                  ]}
-                  onPress={handlePrevPage}
-                  disabled={currentPage === 1}
-                >
-                  <MaterialCommunityIcons
-                    name="chevron-left"
-                    size={24}
-                    color={currentPage === 1 ? "#ccc" : "#133E87"}
-                  />
-                  <Text
-                    style={[
-                      styles.paginationButtonText,
-                      currentPage === 1 && styles.paginationButtonTextDisabled,
-                    ]}
-                  >
-                    Previous
-                  </Text>
-                </TouchableOpacity>
-
-                <Text style={styles.paginationInfo}>
-                  Page {currentPage} of {totalPages}
+                <Text style={styles.dateRangeButtonText}>
+                  {startDate && endDate
+                    ? `${formatDateGMT8(startDate)} - ${formatDateGMT8(endDate)}`
+                    : startDate
+                      ? `From ${formatDateGMT8(startDate)}`
+                      : "Select dates"}
                 </Text>
-
+              </TouchableOpacity>
+              {(startDate || endDate) && (
                 <TouchableOpacity
-                  style={[
-                    styles.paginationButton,
-                    currentPage === totalPages &&
-                      styles.paginationButtonDisabled,
-                  ]}
-                  onPress={handleNextPage}
-                  disabled={currentPage === totalPages}
+                  style={styles.clearFilterButton}
+                  onPress={clearFilters}
                 >
-                  <Text
-                    style={[
-                      styles.paginationButtonText,
-                      currentPage === totalPages &&
-                        styles.paginationButtonTextDisabled,
-                    ]}
-                  >
-                    Next
-                  </Text>
                   <MaterialCommunityIcons
-                    name="chevron-right"
-                    size={24}
-                    color={currentPage === totalPages ? "#ccc" : "#133E87"}
+                    name="close-circle"
+                    size={20}
+                    color="#c41e3a"
                   />
                 </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          {/* Loading Indicator */}
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#133E87" />
+              <Text style={styles.loadingText}>Loading logs...</Text>
+            </View>
+          ) : (
+            <>
+              {/* Results Info */}
+              <View style={styles.resultsInfo}>
+                <Text style={styles.resultsText}>
+                  Showing {currentLogs.length > 0 ? startIndex + 1 : 0}-
+                  {Math.min(endIndex, filteredLogs.length)} of{" "}
+                  {filteredLogs.length} logs
+                </Text>
               </View>
-            )}
-          </>
-        )}
-      </ScrollView>
+
+              {/* Table */}
+              <View style={styles.tableCard}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator
+                  style={styles.horizontalScroll}
+                  contentContainerStyle={{ width: TABLE_WIDTH }}
+                >
+                  <View style={[styles.table, { width: TABLE_WIDTH }]}>
+                    {/* Header */}
+                    <View style={[styles.row, styles.headerRow]}>
+                      <View
+                        style={[
+                          styles.cell,
+                          styles.leftCell,
+                          { width: COLUMN_WIDTHS.date },
+                        ]}
+                      >
+                        <Text style={styles.headerText}>Date</Text>
+                      </View>
+                      <View
+                        style={[styles.cell, { width: COLUMN_WIDTHS.time }]}
+                      >
+                        <Text style={styles.headerText}>Time</Text>
+                      </View>
+                      <View
+                        style={[styles.cell, { width: COLUMN_WIDTHS.name }]}
+                      >
+                        <Text style={styles.headerText}>Name</Text>
+                      </View>
+                      <View
+                        style={[styles.cell, { width: COLUMN_WIDTHS.role }]}
+                      >
+                        <Text style={styles.headerText}>Role</Text>
+                      </View>
+                      <View
+                        style={[styles.cell, { width: COLUMN_WIDTHS.action }]}
+                      >
+                        <Text style={styles.headerText}>Action</Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.cell,
+                          styles.rightCell,
+                          { width: COLUMN_WIDTHS.description },
+                        ]}
+                      >
+                        <Text style={styles.headerText}>Description</Text>
+                      </View>
+                    </View>
+
+                    {/* Body */}
+                    {currentLogs.length > 0 ? (
+                      currentLogs.map((log, idx) => (
+                        <View
+                          key={`${log.collectionName}-${log.id}`}
+                          style={[styles.row, idx % 2 === 1 && styles.altRow]}
+                        >
+                          <View
+                            style={[
+                              styles.cell,
+                              styles.leftCell,
+                              { width: COLUMN_WIDTHS.date },
+                            ]}
+                          >
+                            <Text style={[styles.cellText, styles.center]}>
+                              {formatDateGMT8(log.timestamp)}
+                            </Text>
+                          </View>
+                          <View
+                            style={[styles.cell, { width: COLUMN_WIDTHS.time }]}
+                          >
+                            <Text style={[styles.cellText, styles.center]}>
+                              {formatTimeGMT8(log.timestamp)}
+                            </Text>
+                          </View>
+                          <View
+                            style={[styles.cell, { width: COLUMN_WIDTHS.name }]}
+                          >
+                            <Text style={[styles.cellText, styles.center]}>
+                              {log.userName}
+                            </Text>
+                          </View>
+                          <View
+                            style={[styles.cell, { width: COLUMN_WIDTHS.role }]}
+                          >
+                            <Text style={[styles.cellText, styles.center]}>
+                              {log.role}
+                            </Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.cell,
+                              { width: COLUMN_WIDTHS.action },
+                            ]}
+                          >
+                            <Text style={[styles.cellText, styles.center]}>
+                              {log.action}
+                            </Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.cell,
+                              styles.rightCell,
+                              { width: COLUMN_WIDTHS.description },
+                            ]}
+                          >
+                            <Text style={[styles.cellText, styles.center]}>
+                              {log.description}
+                            </Text>
+                          </View>
+                        </View>
+                      ))
+                    ) : (
+                      <View style={styles.noDataRow}>
+                        <Text style={styles.noDataText}>No logs found</Text>
+                      </View>
+                    )}
+                  </View>
+                </ScrollView>
+              </View>
+
+              {/* Pagination */}
+              {filteredLogs.length > LOGS_PER_PAGE && (
+                <View style={styles.paginationContainer}>
+                  <TouchableOpacity
+                    style={[
+                      styles.paginationButton,
+                      currentPage === 1 && styles.paginationButtonDisabled,
+                    ]}
+                    onPress={handlePrevPage}
+                    disabled={currentPage === 1}
+                  >
+                    <MaterialCommunityIcons
+                      name="chevron-left"
+                      size={24}
+                      color={currentPage === 1 ? "#ccc" : "#133E87"}
+                    />
+                    <Text
+                      style={[
+                        styles.paginationButtonText,
+                        currentPage === 1 &&
+                          styles.paginationButtonTextDisabled,
+                      ]}
+                    >
+                      Previous
+                    </Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.paginationInfo}>
+                    Page {currentPage} of {totalPages}
+                  </Text>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.paginationButton,
+                      currentPage === totalPages &&
+                        styles.paginationButtonDisabled,
+                    ]}
+                    onPress={handleNextPage}
+                    disabled={currentPage === totalPages}
+                  >
+                    <Text
+                      style={[
+                        styles.paginationButtonText,
+                        currentPage === totalPages &&
+                          styles.paginationButtonTextDisabled,
+                      ]}
+                    >
+                      Next
+                    </Text>
+                    <MaterialCommunityIcons
+                      name="chevron-right"
+                      size={24}
+                      color={currentPage === totalPages ? "#ccc" : "#133E87"}
+                    />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </>
+          )}
+        </ScrollView>
+      )}
 
       {/* Date Range Modal */}
       <Modal

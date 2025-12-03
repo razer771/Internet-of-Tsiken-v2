@@ -204,8 +204,6 @@ export default function ControlScreen({ navigation }) {
           // Load the most recent schedule
           const loadedDate = data.date ? new Date(data.date) : new Date();
           const loadedTime = data.time ? new Date(data.time) : new Date();
-          const loadedDate = data.date ? new Date(data.date) : new Date();
-          const loadedTime = data.time ? new Date(data.time) : new Date();
           setWaterDate(loadedDate);
           setWaterTime(loadedTime);
           setLiters(data.liters);
