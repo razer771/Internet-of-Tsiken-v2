@@ -43,6 +43,8 @@ import {
   getServoConnectionStatus,
 } from "../../../modules/ServoMotorService";
 import CameraStream from "../../../modules/CameraStream";
+import { useAdminNotifications } from "../../Admin/AdminNotificationContext";
+import { useNotifications } from "./NotificationContext";
 
 const PRIMARY = "#133E87";
 const GREEN = "#249D1D";
@@ -51,6 +53,12 @@ const YELLOW = "#DFB118";
 const BORDER_OVERLAY = "#0D609C73";
 
 export default function ControlScreen({ navigation }) {
+  // Admin notifications
+  const { addNotification } = useAdminNotifications();
+  
+  // User notifications
+  const { addNotification: addUserNotification } = useNotifications();
+  
   // side menu
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -385,6 +393,21 @@ export default function ControlScreen({ navigation }) {
           action: "Add new feeding schedule",
           description: `Added ${formattedTime}`,
         });
+        
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "Feeding schedule added",
+          description: `New feeding schedule created for ${formattedTime}`,
+        });
+        
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "Feeding schedule added",
+          description: `${user.displayName || user.email} added feeding schedule at ${formattedTime}`,
+          type: "schedule",
+        });
       }
     } catch (err) {
       Alert.alert("Error", "Failed to save feed: " + err.message);
@@ -645,6 +668,21 @@ export default function ControlScreen({ navigation }) {
           action: "Deleted a feeding schedule",
           description: `Deleted ${feedToDelete.time}`,
         });
+        
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "Feeding schedule deleted",
+          description: `Feeding schedule at ${feedToDelete.time} has been removed`,
+        });
+        
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "Feeding schedule deleted",
+          description: `${user.displayName || user.email} deleted feeding schedule at ${feedToDelete.time}`,
+          type: "schedule",
+        });
       }
     } catch (err) {
       Alert.alert("Error", "Failed to delete feed: " + err.message);
@@ -692,6 +730,16 @@ export default function ControlScreen({ navigation }) {
       const result = await dispenseFeed();
       
       if (result.success) {
+        // Add admin notification for successful feeding
+        const currentUser = auth.currentUser;
+        const userName = currentUser?.email || "User";
+        addNotification({
+          category: "User Activity",
+          title: "Feeding completed",
+          description: `${userName} manually dispensed feed at ${new Date().toLocaleString()}`,
+          type: "feeding",
+        });
+        
         // Show warning modal if simulated
         if (result.isSimulated && result.warning) {
           showMotorWarning(
@@ -718,6 +766,16 @@ export default function ControlScreen({ navigation }) {
       const result = await activateSprinkler();
       
       if (result.success) {
+        // Add admin notification for successful watering
+        const currentUser = auth.currentUser;
+        const userName = currentUser?.email || "User";
+        addNotification({
+          category: "User Activity",
+          title: "Watering completed",
+          description: `${userName} manually activated sprinkler at ${new Date().toLocaleString()}`,
+          type: "watering",
+        });
+        
         // Show warning modal if simulated
         if (result.isSimulated && result.warning) {
           showMotorWarning(
@@ -802,6 +860,21 @@ export default function ControlScreen({ navigation }) {
           timestamp: new Date().toISOString(),
           action: "New watering schedule",
           description: `Watering schedule : Duration: ${pendingWaterSchedule.duration}, Liters: ${pendingWaterSchedule.liters}, Time : ${timeFormatted}`,
+        });
+        
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "Watering schedule saved",
+          description: `Watering scheduled for ${timeFormatted}: ${pendingWaterSchedule.liters}L for ${pendingWaterSchedule.duration} seconds`,
+        });
+        
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "Watering schedule saved",
+          description: `${user.displayName || user.email} scheduled watering at ${timeFormatted}: ${pendingWaterSchedule.liters}L for ${pendingWaterSchedule.duration}s`,
+          type: "schedule",
         });
 
         // Update confirmed display values after successful save

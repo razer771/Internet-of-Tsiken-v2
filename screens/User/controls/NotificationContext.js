@@ -1,16 +1,53 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+// import { db } from "../../config/firebaseconfig";
+// import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore";
 
 const NotificationContext = createContext();
 
 const STORAGE_KEY = "@notifications";
 
 const defaultNotifications = [
-  { id: 1, category: "IoT: Internet of Tsiken", title: "Temperature too high/low", time: "October 21, 2025 (09:19 PM)", read: false },
-  { id: 2, category: "IoT: Internet of Tsiken", title: "Feeder empty", time: "October 21, 2025 (09:19 PM)", read: false },
-  { id: 3, category: "IoT: Internet of Tsiken", title: "Water low", time: "October 21, 2025 (09:19 PM)", read: true },
-  { id: 4, category: "IoT: Internet of Tsiken", title: "Switched to Solar Mode", time: "October 21, 2025 (09:19 PM)", read: true },
-  { id: 5, category: "IoT: Internet of Tsiken", title: "Power outage", time: "October 21, 2025 (09:19 PM)", read: false },
+  { 
+    id: 1, 
+    category: "IoT: Internet of Tsiken", 
+    title: "Temperature too high/low", 
+    description: "The temperature in the chicken coop is outside the normal range.", 
+    time: "October 21, 2025 (09:19 PM)", 
+    read: false 
+  },
+  { 
+    id: 2, 
+    category: "IoT: Internet of Tsiken", 
+    title: "Feeder empty", 
+    description: "The feed container is running low or empty. Please refill soon.", 
+    time: "October 21, 2025 (09:19 PM)", 
+    read: false 
+  },
+  { 
+    id: 3, 
+    category: "IoT: Internet of Tsiken", 
+    title: "Water low", 
+    description: "The water level is low. Please check the water supply.", 
+    time: "October 21, 2025 (09:19 PM)", 
+    read: true 
+  },
+  { 
+    id: 4, 
+    category: "IoT: Internet of Tsiken", 
+    title: "Switched to Solar Mode", 
+    description: "The system has automatically switched to solar power mode.", 
+    time: "October 21, 2025 (09:19 PM)", 
+    read: true 
+  },
+  { 
+    id: 5, 
+    category: "IoT: Internet of Tsiken", 
+    title: "Power outage", 
+    description: "Power outage detected. System running on backup power.", 
+    time: "October 21, 2025 (09:19 PM)", 
+    read: false 
+  },
 ];
 
 export function NotificationProvider({ children }) {
@@ -86,6 +123,7 @@ export function NotificationProvider({ children }) {
       id: Date.now(),
       read: false,
       time: new Date().toLocaleString(),
+      description: "",
       ...notification,
     };
     setNotifications(prev => [newNotification, ...prev]);

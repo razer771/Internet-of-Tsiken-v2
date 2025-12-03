@@ -46,6 +46,8 @@ import AdminDashboard from "./screens/Admin/adminDashboard";
 import UserManagement from "./screens/Admin/userManagement";
 import CreateAccount from "./screens/Admin/createAccount";
 import AdminAnalytics from "./screens/Admin/adminAnalytics";
+import AdminNotification from "./screens/Admin/AdminNotification";
+import { AdminNotificationProvider } from "./screens/Admin/AdminNotificationContext";
 import Header from "./screens/navigation/Header";
 import BottomNavigation from "./screens/navigation/BottomNavigation";
 
@@ -67,6 +69,7 @@ const AUTH_SCREENS = [
   "CreateAccount",
   "AdminAnalytics",
   "AdminActivityLogs",
+  "AdminNotification",
 ];
 
 // Screen wrapper that reports its route name to parent
@@ -213,20 +216,21 @@ export default function App() {
 
   return (
     <NotificationProvider>
-      <View style={styles.container}>
-        <NavigationContainer ref={navigationRef}>
-        {!isAuthScreen && <Header />}
-        <View style={[styles.content, !isAuthScreen && styles.contentWithNav]}>
-          <Stack.Navigator
-            initialRouteName={initialRoute}
-            screenOptions={{
-              headerShown: false,
-              animation: "slide_from_right",
-              contentStyle: { backgroundColor: "#F4F6FA" },
-              // Prevent back navigation to auth screens when authenticated
-              gestureEnabled: !isAuthenticated || isAuthScreen,
-            }}
-          >
+      <AdminNotificationProvider>
+        <View style={styles.container}>
+          <NavigationContainer ref={navigationRef}>
+          {!isAuthScreen && <Header />}
+          <View style={[styles.content, !isAuthScreen && styles.contentWithNav]}>
+            <Stack.Navigator
+              initialRouteName={initialRoute}
+              screenOptions={{
+                headerShown: false,
+                animation: "slide_from_right",
+                contentStyle: { backgroundColor: "#F4F6FA" },
+                // Prevent back navigation to auth screens when authenticated
+                gestureEnabled: !isAuthenticated || isAuthScreen,
+              }}
+            >
             {/* Auth screens */}
             <Stack.Screen
               name="JsonSplash"
@@ -438,6 +442,14 @@ export default function App() {
                 setCurrentRoute
               )}
             />
+            <Stack.Screen
+              name="AdminNotification"
+              component={createTrackedScreen(
+                AdminNotification,
+                "AdminNotification",
+                setCurrentRoute
+              )}
+            />
           </Stack.Navigator>
         </View>
         {!isAuthScreen && (
@@ -450,6 +462,7 @@ export default function App() {
         )}
       </NavigationContainer>
     </View>
+    </AdminNotificationProvider>
     </NotificationProvider>
   );
 }
