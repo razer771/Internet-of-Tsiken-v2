@@ -75,6 +75,10 @@ const PredatorDetectionsList = ({ navigation }) => {
   const formatDate = (timestamp) => {
     try {
       const date = new Date(timestamp);
+      // Validate date is valid
+      if (isNaN(date.getTime())) {
+        return "Invalid Date";
+      }
       return date.toLocaleString("en-US", {
         month: "short",
         day: "numeric",
@@ -83,7 +87,8 @@ const PredatorDetectionsList = ({ navigation }) => {
         minute: "2-digit",
       });
     } catch (error) {
-      return timestamp;
+      console.warn("Error formatting date:", error);
+      return "Invalid Date";
     }
   };
 

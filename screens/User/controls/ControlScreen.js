@@ -195,16 +195,26 @@ export default function ControlScreen({ navigation }) {
       wateringSnapshot.forEach((doc) => {
         const data = doc.data();
         if (data.userId === user.uid) {
-          // Load the most recent schedule
-          const loadedDate = new Date(data.date);
-          const loadedTime = new Date(data.time);
-          setWaterDate(loadedDate);
-          setWaterTime(loadedTime);
-          setLiters(data.liters);
-          setDuration(data.duration);
-          // Set confirmed values for display
-          setConfirmedWaterDate(loadedDate);
-          setConfirmedWaterTime(loadedTime);
+          try {
+            // Load the most recent schedule with validation
+            const loadedDate = new Date(data.date);
+            const loadedTime = new Date(data.time);
+            
+            // Validate dates are valid
+            if (!isNaN(loadedDate.getTime()) && !isNaN(loadedTime.getTime())) {
+              setWaterDate(loadedDate);
+              setWaterTime(loadedTime);
+              setLiters(data.liters);
+              setDuration(data.duration);
+              // Set confirmed values for display
+              setConfirmedWaterDate(loadedDate);
+              setConfirmedWaterTime(loadedTime);
+            } else {
+              console.warn("Invalid date in watering schedule:", doc.id);
+            }
+          } catch (error) {
+            console.warn("Error parsing watering schedule dates:", error);
+          }
         }
       });
     } catch (err) {

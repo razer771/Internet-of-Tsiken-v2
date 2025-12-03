@@ -19,8 +19,12 @@ from datetime import datetime
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging with timestamp
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 logger = logging.getLogger(__name__)
 
 # Global variables
@@ -119,6 +123,26 @@ def process_frame():
                     'confidence': round(conf * 100, 2),
                     'bbox': box.xyxy[0].tolist()
                 })
+            
+            # Log detections to console (only when objects are detected and detection changed)
+            if len(detections) > 0:
+                # Create summary of detected objects
+                detection_summary = {}
+                for det in detections:
+                    obj_class = det['class']
+                    confidence = det['confidence']
+                    if obj_class not in detection_summary:
+                        detection_summary[obj_class] = []
+                    detection_summary[obj_class].append(confidence)
+                
+                # Format log message
+                log_parts = []
+                for obj_class, confidences in detection_summary.items():
+                    avg_conf = sum(confidences) / len(confidences)
+                    count = len(confidences)
+                    log_parts.append(f"{obj_class}({count}x, {avg_conf:.1f}%)")
+                
+                logger.info(f"🔍 Detected: {', '.join(log_parts)} | FPS: {fps:.1f}")
             
             # Update detection data
             detection_data = {

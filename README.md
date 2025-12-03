@@ -550,3 +550,10 @@ python stream_server.py
 
 ## temporarily stop the camera server
 pkill -f stream_server.py
+
+
+## running the camera server
+cd ~/Internet-of-Tsiken-v2/"yolo object detection" && python stream_server.py &
+
+
+cd ~/Internet-of-Tsiken-v2/"yolo object detection" ./install_service.sh

@@ -284,11 +284,21 @@ export default function Analytics() {
         
         // Parse timestamp
         let docDate;
-        if (data.timestamp) {
-          docDate = new Date(data.timestamp);
-        } else if (data.selectedTime) {
-          docDate = new Date(data.selectedTime);
-        } else {
+        try {
+          if (data.timestamp) {
+            docDate = new Date(data.timestamp);
+          } else if (data.selectedTime) {
+            docDate = new Date(data.selectedTime);
+          } else {
+            return;
+          }
+          // Validate date is valid
+          if (isNaN(docDate.getTime())) {
+            console.warn("Invalid date in document:", doc.id);
+            return;
+          }
+        } catch (error) {
+          console.warn("Error parsing date in document:", doc.id, error);
           return;
         }
 
@@ -376,11 +386,21 @@ export default function Analytics() {
         
         // Parse timestamp
         let docDate;
-        if (data.timestamp) {
-          docDate = new Date(data.timestamp);
-        } else if (data.selectedTime) {
-          docDate = new Date(data.selectedTime);
-        } else {
+        try {
+          if (data.timestamp) {
+            docDate = new Date(data.timestamp);
+          } else if (data.selectedTime) {
+            docDate = new Date(data.selectedTime);
+          } else {
+            return;
+          }
+          // Validate date is valid
+          if (isNaN(docDate.getTime())) {
+            console.warn("Invalid date in water document:", doc.id);
+            return;
+          }
+        } catch (error) {
+          console.warn("Error parsing date in water document:", doc.id, error);
           return;
         }
 
