@@ -557,3 +557,6 @@ cd ~/Internet-of-Tsiken-v2/"yolo object detection" && python stream_server.py &
 
 
 cd ~/Internet-of-Tsiken-v2/"yolo object detection" ./install_service.sh
+
+## check the status of server
+curl http://localhost:5000/status
