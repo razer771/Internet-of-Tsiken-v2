@@ -27,6 +27,7 @@ import {
   deleteDoc,
   query,
   where,
+  getDoc,
 } from "firebase/firestore";
 
 const PRIMARY = "#133E87";
@@ -223,6 +224,7 @@ export default function ControlScreen({ navigation }) {
   const confirmAddFeed = async () => {
     if (!pendingFeedTime) {
       setConfirmFeedSaveVisible(false);
+      setShowFeedAddPicker(false);
       return;
     }
     const formattedTime = pendingFeedTime.toLocaleTimeString([], {
@@ -234,6 +236,7 @@ export default function ControlScreen({ navigation }) {
     const isDuplicate = feeds.some((f) => f.time === formattedTime);
     if (isDuplicate) {
       setConfirmFeedSaveVisible(false);
+      setShowFeedAddPicker(false);
       setPendingFeedTime(null);
       setShowDuplicateModal(true);
       return;
@@ -246,6 +249,24 @@ export default function ControlScreen({ navigation }) {
     try {
       const user = auth.currentUser;
       if (user) {
+        // Fetch firstName and lastName from users collection
+        let firstName = "N/A";
+        let lastName = "N/A";
+
+        try {
+          const userDocRef = doc(db, "users", user.uid);
+          const userDocSnap = await getDoc(userDocRef);
+
+          if (userDocSnap.exists()) {
+            const userData = userDocSnap.data();
+            firstName = userData.firstName || "N/A";
+            lastName = userData.lastName || "N/A";
+          }
+        } catch (fetchErr) {
+          console.error("Failed to fetch user data:", fetchErr);
+          // firstName and lastName will remain "N/A"
+        }
+
         // Persist to Firestore feeds collection
         await setDoc(doc(db, "feeds", `${user.uid}_${nextId}`), {
           feedId: nextId,
@@ -260,15 +281,20 @@ export default function ControlScreen({ navigation }) {
           feedId: nextId,
           userId: user.uid,
           userName: user.displayName || user.email || "Unknown User",
+          firstName: firstName,
+          lastName: lastName,
           selectedTime: pendingFeedTime.toISOString(),
           selectedTimeFormatted: formattedTime,
           newTime: formattedTime,
           timestamp: new Date().toISOString(),
+          action: "Add new feeding schedule",
+          description: `Added ${formattedTime}`,
         });
       }
     } catch (err) {
       Alert.alert("Error", "Failed to save feed: " + err.message);
       setConfirmFeedSaveVisible(false);
+      setShowFeedAddPicker(false);
       setPendingFeedTime(null);
       return;
     }
@@ -281,7 +307,9 @@ export default function ControlScreen({ navigation }) {
       );
     });
 
+    // Close all related modals
     setConfirmFeedSaveVisible(false);
+    setShowFeedAddPicker(false);
     setPendingFeedTime(null);
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
@@ -392,7 +420,11 @@ export default function ControlScreen({ navigation }) {
   };
 
   const saveFeedEdit = async () => {
-    if (feedEdit.idx === null) return;
+    if (feedEdit.idx === null) {
+      setConfirmEditVisible(false);
+      setFeedEdit({ open: false, idx: null, timeDate: new Date() });
+      return;
+    }
     const newTime = feedEdit.timeDate.toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
@@ -404,6 +436,24 @@ export default function ControlScreen({ navigation }) {
     try {
       const user = auth.currentUser;
       if (user) {
+        // Fetch firstName and lastName from users collection
+        let firstName = "N/A";
+        let lastName = "N/A";
+
+        try {
+          const userDocRef = doc(db, "users", user.uid);
+          const userDocSnap = await getDoc(userDocRef);
+
+          if (userDocSnap.exists()) {
+            const userData = userDocSnap.data();
+            firstName = userData.firstName || "N/A";
+            lastName = userData.lastName || "N/A";
+          }
+        } catch (fetchErr) {
+          console.error("Failed to fetch user data:", fetchErr);
+          // firstName and lastName will remain "N/A"
+        }
+
         // Update Firestore feeds document
         await setDoc(doc(db, "feeds", `${user.uid}_${feedId}`), {
           feedId: feedId,
@@ -418,16 +468,21 @@ export default function ControlScreen({ navigation }) {
           feedId: feedId,
           userId: user.uid,
           userName: user.displayName || user.email || "Unknown User",
+          firstName: firstName,
+          lastName: lastName,
           oldTime,
           newTime,
           selectedTime: feedEdit.timeDate.toISOString(),
           selectedTimeFormatted: newTime,
           timestamp: new Date().toISOString(),
+          action: "Updated feeding time",
+          description: `From ${oldTime} to ${newTime}`,
         });
       }
     } catch (err) {
       Alert.alert("Error", "Failed to update feed: " + err.message);
       setConfirmEditVisible(false);
+      setFeedEdit({ open: false, idx: null, timeDate: new Date() });
       return;
     }
 
@@ -438,6 +493,7 @@ export default function ControlScreen({ navigation }) {
       return copy.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
     });
 
+    // Close all related modals
     setConfirmEditVisible(false);
     setFeedEdit({ open: false, idx: null, timeDate: new Date() });
     setShowSavedPopup(true);
@@ -447,6 +503,7 @@ export default function ControlScreen({ navigation }) {
   const confirmDeleteFeed = async () => {
     if (!pendingDeleteFeedId) {
       setConfirmDeleteFeedVisible(false);
+      setPendingDeleteFeedId(null);
       return;
     }
 
@@ -460,26 +517,52 @@ export default function ControlScreen({ navigation }) {
     try {
       const user = auth.currentUser;
       if (user) {
+        // Fetch firstName and lastName from users collection
+        let firstName = "N/A";
+        let lastName = "N/A";
+
+        try {
+          const userDocRef = doc(db, "users", user.uid);
+          const userDocSnap = await getDoc(userDocRef);
+
+          if (userDocSnap.exists()) {
+            const userData = userDocSnap.data();
+            firstName = userData.firstName || "N/A";
+            lastName = userData.lastName || "N/A";
+          }
+        } catch (fetchErr) {
+          console.error("Failed to fetch user data:", fetchErr);
+          // firstName and lastName will remain "N/A"
+        }
+
         // Delete from Firestore feeds collection
         await deleteDoc(doc(db, "feeds", `${user.uid}_${pendingDeleteFeedId}`));
 
-        // Log delete activity in deleteFeedSchedule_logs collection
+        // Log delete activity in deleteFeedSchedule collection
         await addDoc(collection(db, "deleteFeedSchedule_logs"), {
           feedId: pendingDeleteFeedId,
           userId: user.uid,
           userName: user.displayName || user.email || "Unknown User",
+          firstName: firstName,
+          lastName: lastName,
           oldTime: feedToDelete.time,
           timestamp: new Date().toISOString(),
+          action: "Deleted a feeding schedule",
+          description: `Deleted ${feedToDelete.time}`,
         });
       }
     } catch (err) {
       Alert.alert("Error", "Failed to delete feed: " + err.message);
+      // Close modal even on error
       setConfirmDeleteFeedVisible(false);
       setPendingDeleteFeedId(null);
       return;
     }
 
+    // Update local state
     setFeeds((s) => s.filter((feed) => feed.id !== pendingDeleteFeedId));
+
+    // Close modal and cleanup
     setConfirmDeleteFeedVisible(false);
     setPendingDeleteFeedId(null);
     setShowSavedPopup(true);
@@ -540,7 +623,18 @@ export default function ControlScreen({ navigation }) {
           timestamp: new Date().toISOString(),
         });
 
-        // Log to wateringActivity_logs collection
+        // Log to wateringActivityLogs collection
+        // Convert scheduledTime to GMT+8 and format
+        const scheduledTimeDate = new Date(pendingWaterSchedule.time);
+        const gmt8Time = new Date(
+          scheduledTimeDate.getTime() + 8 * 60 * 60 * 1000
+        );
+        const hours = gmt8Time.getUTCHours();
+        const minutes = gmt8Time.getUTCMinutes();
+        const ampm = hours >= 12 ? "PM" : "AM";
+        const hour12 = hours % 12 || 12;
+        const timeFormatted = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}`;
+
         await addDoc(collection(db, "wateringActivity_logs"), {
           userId: user.uid,
           userName: user.displayName || user.email || "Unknown User",
@@ -549,6 +643,8 @@ export default function ControlScreen({ navigation }) {
           liters: pendingWaterSchedule.liters,
           duration: pendingWaterSchedule.duration,
           timestamp: new Date().toISOString(),
+          action: "New watering schedule",
+          description: `Watering schedule : Duration: ${pendingWaterSchedule.duration}, Liters: ${pendingWaterSchedule.liters}, Time : ${timeFormatted}`,
         });
 
         // Update confirmed display values after successful save
@@ -577,6 +673,21 @@ export default function ControlScreen({ navigation }) {
       const user = auth.currentUser;
       if (!user) return;
 
+      // Fetch firstName and lastName from users collection
+      let firstName = "N/A";
+      let lastName = "N/A";
+      try {
+        const userDocRef = doc(db, "users", user.uid);
+        const userDocSnap = await getDoc(userDocRef);
+        if (userDocSnap.exists()) {
+          const userData = userDocSnap.data();
+          firstName = userData.firstName || "N/A";
+          lastName = userData.lastName || "N/A";
+        }
+      } catch (userFetchError) {
+        console.error("Error fetching user data:", userFetchError);
+      }
+
       // Convert to GMT+8 and format as human-readable string
       const gmt8Time = new Date(time.getTime() + 8 * 60 * 60 * 1000);
       const hours = gmt8Time.getUTCHours();
@@ -598,13 +709,18 @@ export default function ControlScreen({ navigation }) {
         "Dec",
       ];
       const selectedTimeGMT8Formatted = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}, ${monthNames[gmt8Time.getUTCMonth()]} ${gmt8Time.getUTCDate()}, ${gmt8Time.getUTCFullYear()}`;
+      const timeOnly = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}`;
 
       await addDoc(collection(db, "nightTime_logs"), {
         userId: user.uid,
         userName: user.displayName || user.email || "Unknown User",
+        firstName: firstName,
+        lastName: lastName,
         selectedTime: time.toISOString(),
         selectedTimeGMT8Formatted: selectedTimeGMT8Formatted,
         timestamp: new Date().toISOString(),
+        action: "Set the night time",
+        description: `Night time starts at ${timeOnly}`,
       });
 
       setShowSavedPopup(true);
@@ -1101,7 +1217,12 @@ export default function ControlScreen({ navigation }) {
       )}
 
       {/* Feed Edit Modal (time picker like night schedule) */}
-      <Modal visible={feedEdit.open} transparent animationType="slide">
+      <Modal
+        key="feedEditModal"
+        visible={feedEdit.open}
+        transparent
+        animationType="slide"
+      >
         <TouchableOpacity
           style={styles.modalBackdrop}
           onPress={() =>
@@ -1187,7 +1308,12 @@ export default function ControlScreen({ navigation }) {
       </Modal>
 
       {/* Camera Modal */}
-      <Modal visible={cameraModal} transparent animationType="slide">
+      <Modal
+        key="cameraModal"
+        visible={cameraModal}
+        transparent
+        animationType="slide"
+      >
         <TouchableOpacity
           style={styles.modalBackdrop}
           onPress={() => setCameraModal(false)}
@@ -1210,7 +1336,12 @@ export default function ControlScreen({ navigation }) {
       </Modal>
 
       {/* Confirm delete all */}
-      <Modal visible={confirmDeleteVisible} transparent animationType="fade">
+      <Modal
+        key="confirmDeleteAllModal"
+        visible={confirmDeleteVisible}
+        transparent
+        animationType="fade"
+      >
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
             <Text style={{ fontWeight: "700", fontSize: 16 }}>
@@ -1241,7 +1372,12 @@ export default function ControlScreen({ navigation }) {
       </Modal>
 
       {/* Confirm Save */}
-      <Modal visible={confirmSaveVisible} transparent animationType="fade">
+      <Modal
+        key="confirmSaveModal"
+        visible={confirmSaveVisible}
+        transparent
+        animationType="fade"
+      >
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
             <Text style={{ fontWeight: "700", fontSize: 16 }}>
@@ -1273,6 +1409,7 @@ export default function ControlScreen({ navigation }) {
 
       {/* Morning Warning Modal */}
       <Modal
+        key="morningWarningModal"
         visible={warnMorningVisible}
         transparent
         animationType="fade"
@@ -1316,6 +1453,7 @@ export default function ControlScreen({ navigation }) {
 
       {/* Confirm Night Time Save */}
       <Modal
+        key="confirmNightSaveModal"
         visible={confirmNightSaveVisible}
         transparent
         animationType="fade"
@@ -1366,10 +1504,15 @@ export default function ControlScreen({ navigation }) {
 
       {/* Confirm Feed Add */}
       <Modal
+        key="confirmFeedAddModal"
         visible={confirmFeedSaveVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setConfirmFeedSaveVisible(false)}
+        onRequestClose={() => {
+          setConfirmFeedSaveVisible(false);
+          setShowFeedAddPicker(false);
+          setPendingFeedTime(null);
+        }}
       >
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
@@ -1386,6 +1529,7 @@ export default function ControlScreen({ navigation }) {
                 style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
                 onPress={() => {
                   setConfirmFeedSaveVisible(false);
+                  setShowFeedAddPicker(false);
                   setPendingFeedTime(null);
                 }}
               >
@@ -1407,6 +1551,7 @@ export default function ControlScreen({ navigation }) {
 
       {/* Duplicate Time Modal */}
       <Modal
+        key="duplicateTimeModal"
         visible={showDuplicateModal}
         transparent
         animationType="fade"
@@ -1435,10 +1580,14 @@ export default function ControlScreen({ navigation }) {
 
       {/* Confirm Edit Modal */}
       <Modal
+        key="confirmEditModal"
         visible={confirmEditVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setConfirmEditVisible(false)}
+        onRequestClose={() => {
+          setConfirmEditVisible(false);
+          setFeedEdit({ open: false, idx: null, timeDate: new Date() });
+        }}
       >
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
@@ -1451,7 +1600,10 @@ export default function ControlScreen({ navigation }) {
             <View style={{ flexDirection: "row", marginTop: 12 }}>
               <TouchableOpacity
                 style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
-                onPress={() => setConfirmEditVisible(false)}
+                onPress={() => {
+                  setConfirmEditVisible(false);
+                  setFeedEdit({ open: false, idx: null, timeDate: new Date() });
+                }}
               >
                 <Text style={styles.smallActionText}>Cancel</Text>
               </TouchableOpacity>
@@ -1471,6 +1623,7 @@ export default function ControlScreen({ navigation }) {
 
       {/* Confirm Delete Feed Modal */}
       <Modal
+        key="confirmDeleteFeedModal"
         visible={confirmDeleteFeedVisible}
         transparent
         animationType="fade"
@@ -1510,6 +1663,7 @@ export default function ControlScreen({ navigation }) {
 
       {/* Invalid Schedule Modal */}
       <Modal
+        key="invalidScheduleModal"
         visible={showInvalidScheduleModal}
         transparent
         animationType="fade"
@@ -1538,6 +1692,7 @@ export default function ControlScreen({ navigation }) {
 
       {/* Confirm Watering Schedule Modal */}
       <Modal
+        key="confirmWaterSaveModal"
         visible={confirmWaterSaveVisible}
         transparent
         animationType="fade"
@@ -1576,7 +1731,12 @@ export default function ControlScreen({ navigation }) {
       </Modal>
 
       {/* Save popup */}
-      <Modal visible={showSavedPopup} transparent animationType="fade">
+      <Modal
+        key="savePopupModal"
+        visible={showSavedPopup}
+        transparent
+        animationType="fade"
+      >
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
             <Image
@@ -1589,7 +1749,12 @@ export default function ControlScreen({ navigation }) {
       </Modal>
 
       {/* Dispense / Sprinkler simple popups */}
-      <Modal visible={dispenseModal} transparent animationType="fade">
+      <Modal
+        key="dispenseModal"
+        visible={dispenseModal}
+        transparent
+        animationType="fade"
+      >
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
             <Text style={styles.popupText}>Dispense Feed Success</Text>
@@ -1597,7 +1762,12 @@ export default function ControlScreen({ navigation }) {
         </View>
       </Modal>
 
-      <Modal visible={sprinklerModal} transparent animationType="fade">
+      <Modal
+        key="sprinklerModal"
+        visible={sprinklerModal}
+        transparent
+        animationType="fade"
+      >
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
             <Text style={styles.popupText}>Sprinkler Activated</Text>
