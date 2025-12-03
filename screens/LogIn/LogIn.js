@@ -230,10 +230,6 @@ export default function Login() {
     await AsyncStorage.removeItem("isAdminBypass");
     await AsyncStorage.removeItem("adminEmail");
 
-    // Clear admin bypass flag for regular users
-    await AsyncStorage.removeItem("isAdminBypass");
-    await AsyncStorage.removeItem("adminEmail");
-
     console.log("Validation passed!");
 
     try {

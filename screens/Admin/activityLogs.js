@@ -861,6 +861,12 @@ export default function ActivityLogs({ navigation }) {
   return (
     <SafeAreaView style={styles.safe}>
       <Header2 />
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#234187" />
+          <Text style={styles.loadingText}>Loading activity logs...</Text>
+        </View>
+      ) : (
       <ScrollView contentContainerStyle={styles.pageContent}>
         {/* Buttons Row */}
         <View style={styles.buttonsRow}>
@@ -1303,20 +1309,61 @@ const BORDER = "#E5E7EB";
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#ffffff" },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: "#666",
+  },
   pageContent: { paddingVertical: 16, paddingHorizontal: 12 },
   buttonsRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
     gap: 8,
-    marginBottom: 16, // increased spacing
+    marginBottom: 16,
   },
   title: {
     fontSize: 24,
     fontWeight: "700",
     color: "#000",
     textAlign: "center",
-    marginBottom: 16, // increased spacing below title
+    marginBottom: 16,
+  },
+  dateFilterBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#EBF5FF",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  dateFilterContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  dateFilterText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#234187",
+  },
+  clearDateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  clearDateText: {
+    fontSize: 13,
+    color: "#64748b",
   },
   actionButton: {
     backgroundColor: "#fff",
@@ -1393,6 +1440,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   center: { textAlign: "center" },
+  emptyRow: {
+    paddingVertical: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyText: {
+    fontSize: 15,
+    color: "#666",
+    fontStyle: "italic",
+  },
 
   calendarOverlay: {
     flex: 1,
