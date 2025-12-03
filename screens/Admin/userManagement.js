@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   ScrollView,
   SafeAreaView,
-  Modal, ActivityIndicator,
+  Modal,
 } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import Icon from "react-native-vector-icons/Feather";
@@ -70,15 +70,11 @@ const BrandedAlertModal = ({ visible, type, title, message, onClose }) => {
 };
 
 const roleColors = {
-    admin: "#E3EAFD",
-    user: "#E3EAFD",
   owner: "#E3EAFD",
   manager: "#E3EAFD",
   worker: "#E3EAFD",
 };
 const roleTextColors = {
-    admin: "#234187",
-    user: "#234187",
   owner: "#234187",
   manager: "#234187",
   worker: "#234187",
@@ -244,41 +240,6 @@ export default function UserManagement({ navigation }) {
       unsubscribe();
     };
   }, []);
-
-    // Fetch users from Firestore
-    useEffect(() => {
-        fetchUsers();
-    }, []);
-
-    const fetchUsers = async () => {
-        try {
-            setLoading(true);
-            const usersRef = collection(db, "users");
-            const q = query(usersRef, orderBy("createdAt", "desc"));
-            const querySnapshot = await getDocs(q);
-            
-            const usersData = querySnapshot.docs.map(doc => {
-                const data = doc.data();
-                return {
-                    id: doc.id,
-                    firstName: data.firstName || "",
-                    middleName: data.middleName || "",
-                    lastName: data.lastName || "",
-                    email: data.email || "",
-                    phone: data.phone || data.phoneNumber || "",
-                    role: data.role || "user",
-                    status: data.status || "active",
-                    created: data.createdAt ? new Date(data.createdAt.seconds * 1000).toISOString().split('T')[0] : "N/A",
-                };
-            });
-            
-            setUsers(usersData);
-        } catch (error) {
-            console.error("Error fetching users:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
 
   // Apply filters: role + status + search
   const filteredUsers = users.filter((u) => {
@@ -1339,8 +1300,6 @@ export default function UserManagement({ navigation }) {
         message={alertMessage}
         onClose={closeAlert}
       />
-            </>
-            )}
     </SafeAreaView>
   );
 }
@@ -1352,17 +1311,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#fff",
   },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-        backgroundColor: "#fff",
-    },
-    loadingText: {
-        marginTop: 12,
-        fontSize: 16,
-        color: "#666",
-    },
   searchFiltersWrapper: {
     backgroundColor: "#fff",
     paddingHorizontal: 18,
