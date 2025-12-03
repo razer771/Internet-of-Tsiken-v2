@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Pressable,
   StyleSheet,
+  Image,
 } from "react-native";
 import Toast from "../../navigation/Toast";
 
@@ -23,6 +24,7 @@ export default function QuickSetupModal({
   );
   const [daysCount, setDaysCount] = useState(String(initialDaysCount ?? ""));
   const [showToast, setShowToast] = useState(false);
+  const [showSavedPopup, setShowSavedPopup] = useState(false);
 
   useEffect(() => {
     setChicksCount(String(initialChicksCount ?? ""));
@@ -31,12 +33,31 @@ export default function QuickSetupModal({
     setShowToast(false);
   }, [initialChicksCount, initialDaysCount, visible]);
 
+  const handleChicksChange = (text) => {
+    // Only allow numeric input
+    const numericText = text.replace(/[^0-9]/g, '');
+    setChicksCount(numericText);
+  };
+
+  const handleDaysChange = (text) => {
+    // Only allow numeric input
+    const numericText = text.replace(/[^0-9]/g, '');
+    setDaysCount(numericText);
+  };
+
   const handleSave = () => {
+    // Validate that both fields have values
+    if (!chicksCount.trim() || !daysCount.trim()) {
+      return; // Don't proceed if either field is empty
+    }
+    
     onSaveChicksCount?.(chicksCount.trim());
     onSaveDaysCount?.(daysCount.trim());
-    setShowToast(true);
+    
+    // Show saved popup
+    setShowSavedPopup(true);
     setTimeout(() => {
-      setShowToast(false);
+      setShowSavedPopup(false);
       onClose();
     }, 2000);
   };
@@ -53,8 +74,18 @@ export default function QuickSetupModal({
       transparent
       onRequestClose={handleClose}
     >
-      <View style={styles.backdrop}>
-        <View style={styles.card}>
+      <Pressable 
+        style={styles.backdrop} 
+        onPress={handleClose}
+        activeOpacity={1}
+      >
+        <Toast
+          visible={showToast}
+          message="Chicks count & Days count saved!"
+          onHide={() => setShowToast(false)}
+        />
+        
+        <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
           {/* Close Button X */}
           <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
             <Text style={styles.closeButtonText}>✕</Text>
@@ -63,46 +94,60 @@ export default function QuickSetupModal({
           <Text style={styles.sectionTitle}>Quick Overview Setup</Text>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Number of Chicks per Batch</Text>
+            <Text style={styles.inputLabel}>Number of Chicks </Text>
             <TextInput
               style={styles.input}
               placeholder="Enter number of chicks"
               placeholderTextColor="#9ca3af"
               value={chicksCount}
-              onChangeText={setChicksCount}
+              onChangeText={handleChicksChange}
               keyboardType="numeric"
             />
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Number of Days per Batch</Text>
+            <Text style={styles.inputLabel}>Number of Days</Text>
             <TextInput
               style={styles.input}
               placeholder="Enter number of days (-45)"
               placeholderTextColor="#9ca3af"
               value={daysCount}
-              onChangeText={setDaysCount}
+              onChangeText={handleDaysChange}
               keyboardType="numeric"
             />
           </View>
 
-          <Pressable onPress={handleSave}>
-            {({ pressed }) => (
-              <View style={[styles.saveButton, pressed && styles.saveButtonPressed]}>
-                <Text style={[styles.saveButtonText, pressed && styles.saveButtonTextPressed]}>
-                  Save
-                </Text>
-              </View>
-            )}
-          </Pressable>
-        </View>
+          <TouchableOpacity 
+            style={[
+              styles.saveButton,
+              (!chicksCount.trim() || !daysCount.trim()) && styles.saveButtonDisabled
+            ]}
+            activeOpacity={0.9}
+            onPress={handleSave}
+            disabled={!chicksCount.trim() || !daysCount.trim()}
+          >
+            <Text style={styles.saveButtonText}>Save</Text>
+          </TouchableOpacity>
+        </Pressable>
+      </Pressable>
 
-        <Toast
-          visible={showToast}
-          message="Chicks count & Days count saved!"
-          onHide={() => setShowToast(false)}
-        />
-      </View>
+      {/* Save popup */}
+      <Modal
+        key="savePopupModal"
+        visible={showSavedPopup}
+        transparent
+        animationType="fade"
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Image
+              source={require("../../../assets/logo.png")}
+              style={{ width: 56, height: 56 }}
+            />
+            <Text style={styles.popupText}>Saved Successfully!</Text>
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 }
@@ -170,22 +215,43 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     marginTop: 8,
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    paddingVertical: 14,
+    backgroundColor: "#154b99",
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 135,
     alignItems: "center",
-    borderColor: "#3b82f6",
-    borderWidth: 1,
+    alignSelf: "center",
   },
-  saveButtonPressed: {
-    backgroundColor: "#3b82f6",
-    borderColor: "#3b82f6",
+  saveButtonDisabled: {
+    backgroundColor: "#94a3b8",
+    opacity: 0.6,
   },
   saveButtonText: {
-    color: "#000000",
-    fontWeight: "600",
-  },
-  saveButtonTextPressed: {
     color: "#ffffff",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+  popupBackground: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  popupBox: {
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    padding: 32,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  popupText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#22c55e",
+    marginTop: 10,
   },
 });

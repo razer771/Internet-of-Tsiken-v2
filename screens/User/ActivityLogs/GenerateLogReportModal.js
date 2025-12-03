@@ -9,6 +9,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import CalendarModal from "../../navigation/CalendarModal";
@@ -32,6 +33,7 @@ export default function GenerateLogReportModal({
   const [showStartCalendar, setShowStartCalendar] = useState(false);
   const [showEndCalendar, setShowEndCalendar] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [showSavedPopup, setShowSavedPopup] = useState(false);
 
   const formatDate = (date) => {
     const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -399,6 +401,12 @@ export default function GenerateLogReportModal({
 
       console.log("PDF shared successfully");
 
+      // Show saved popup
+      setShowSavedPopup(true);
+      setTimeout(() => {
+        setShowSavedPopup(false);
+      }, 2000);
+
       // Call the original onGenerate callback
       if (onGenerate) {
         onGenerate({
@@ -496,7 +504,7 @@ export default function GenerateLogReportModal({
                   >
                     {isGenerating ? (
                       <View style={styles.loadingContainer}>
-                        <ActivityIndicator size="small" color="#3b82f6" />
+                        <ActivityIndicator size="small" color="#ffffff" />
                         <Text style={styles.generateButtonText}>
                           Generating PDF...
                         </Text>
@@ -532,6 +540,24 @@ export default function GenerateLogReportModal({
         onClose={() => setShowEndCalendar(false)}
         onSelectDate={handleEndDateSelect}
       />
+
+      {/* Saved Popup Modal */}
+      <Modal
+        key="savePopupModal"
+        visible={showSavedPopup}
+        transparent
+        animationType="fade"
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Image
+              source={require("../../../assets/logo.png")}
+              style={{ width: 56, height: 56 }}
+            />
+            <Text style={styles.popupText}>Generated Successfully!</Text>
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -591,17 +617,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   generateButtonInner: {
-    backgroundColor: "#ffffff",
+    backgroundColor: "#154b99",
     borderRadius: 8,
     paddingVertical: 14,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: "#3b82f6",
     marginTop: 8,
   },
   generateButtonPressed: {
-    backgroundColor: "#3b82f6",
-    borderColor: "#3b82f6",
+    backgroundColor: "#2563eb",
+    borderColor: "#2563eb",
   },
   generateButtonDisabled: {
     backgroundColor: "#f1f5f9",
@@ -609,7 +635,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   generateButtonText: {
-    color: "#1a1a1a",
+    color: "#ffffff",
     fontSize: 15,
     fontWeight: "700",
   },
@@ -619,6 +645,30 @@ const styles = StyleSheet.create({
   loadingContainer: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 8,
+  },
+  popupBackground: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  popupBox: {
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    padding: 24,
+    alignItems: "center",
+    gap: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  popupText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1a1a1a",
   },
 });
