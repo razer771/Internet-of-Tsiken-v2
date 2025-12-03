@@ -2,7 +2,8 @@ import React, { useState, useMemo } from "react";
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Modal, Pressable, SafeAreaView } from 'react-native';
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from '@react-navigation/native';
-import { useNotifications } from "./NotificationContext";
+import { useAdminNotifications } from "./AdminNotificationContext";
+import Header2 from "../navigation/adminHeader";
 
 const PRIMARY = "#133E87";
 const BORDER_LIGHT = "rgba(0,0,0,0.12)";
@@ -89,13 +90,13 @@ function NotificationItem({ item, onPress }) {
   );
 }
 
-export default function Notification() {
+export default function AdminNotification() {
   const [activeTab, setActiveTab] = useState("Daily");
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const navigation = useNavigation();
-  const { notifications, toggleAllRead, markAsRead } = useNotifications();
+  const { notifications, toggleAllRead, markAsRead } = useAdminNotifications();
 
   const allRead = useMemo(() => notifications.every(n => n.read), [notifications]);
 
@@ -116,6 +117,7 @@ export default function Notification() {
 
   return (
     <SafeAreaView style={{ flex: 1 }}>
+      <Header2 />
       <ScrollView style={styles.wrapper} contentContainerStyle={{ paddingBottom: 20 }}>
         <View style={styles.topRow}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>

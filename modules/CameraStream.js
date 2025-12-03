@@ -10,6 +10,8 @@ import {
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { discoverCameraServer, saveLastWorkingUrl, getLastWorkingUrl } from './CameraServerDiscovery';
+import { useAdminNotifications } from '../screens/Admin/AdminNotificationContext';
+import { useNotifications } from '../screens/User/controls/NotificationContext';
 
 const PRIMARY = '#133E87';
 
@@ -18,8 +20,11 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
   const [detections, setDetections] = useState({ objects: [], fps: 0, count: 0 });
   const [actualServerUrl, setActualServerUrl] = useState(serverUrl);
   const [discoveryState, setDiscoveryState] = useState('idle'); // idle, discovering, success, failed
+  const [lastPersonDetection, setLastPersonDetection] = useState(null);
   const webViewRef = useRef(null);
   const discoveryTimeoutRef = useRef(null);
+  const { addNotification: addAdminNotification } = useAdminNotifications();
+  const { addNotification: addUserNotification } = useNotifications();
 
   // Construct stream URL
   const streamUrl = `${actualServerUrl}/video_feed`;
@@ -126,6 +131,34 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
       clearTimeout(timeoutId);
       const data = await response.json();
       setDetections(data);
+      
+      // Check for person detection
+      if (data.objects && data.objects.length > 0) {
+        const personDetected = data.objects.some(obj => 
+          obj.class && obj.class.toLowerCase() === 'person'
+        );
+        
+        if (personDetected) {
+          const now = Date.now();
+          // Only send notification if no person was detected in the last 5 minutes (300000ms)
+          if (!lastPersonDetection || (now - lastPersonDetection) > 300000) {
+            setLastPersonDetection(now);
+            const notificationData = {
+              category: "IoT: Internet of Tsiken",
+              title: "Person detected",
+              description: `Camera detected a person in the brooder area at ${new Date().toLocaleString()}. Please verify for security purposes.`,
+              type: "security",
+            };
+            // Send to admin
+            addAdminNotification({
+              ...notificationData,
+              category: "System Alert",
+            });
+            // Send to user
+            addUserNotification(notificationData);
+          }
+        }
+      }
     } catch (err) {
       console.log('Detection fetch failed:', err.message);
     }

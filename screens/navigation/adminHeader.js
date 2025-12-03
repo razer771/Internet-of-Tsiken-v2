@@ -16,6 +16,7 @@ import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityI
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { auth } from "../../config/firebaseconfig";
 import { signOut } from "firebase/auth";
+import { useAdminNotifications } from "../Admin/AdminNotificationContext";
 
 const MenuIcon = ({ size = 22, color = "#1a1a1a", style, ...props }) => (
   <View
@@ -61,12 +62,13 @@ const MenuIcon = ({ size = 22, color = "#1a1a1a", style, ...props }) => (
 
 export default function Header2() {
   const navigation = useNavigation();
+  const { unreadCount } = useAdminNotifications();
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [confirmBtnPressed, setConfirmBtnPressed] = useState(false);
   const [cancelBtnPressed, setCancelBtnPressed] = useState(false);
 
   const handleNotificationPress = () => {
-    navigation.navigate("Notification");
+    navigation.navigate("AdminNotification");
   };
 
   const handleLogoutPress = () => {
@@ -125,9 +127,13 @@ export default function Header2() {
             onPress={handleNotificationPress}
           >
             <Icon name="bell" size={22} color="#1a1a1a" />
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationBadgeText}>2</Text>
-            </View>
+            {unreadCount > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -210,15 +216,10 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     backgroundColor: "#ffffff",
     borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 4,
+    borderBottomColor: "#e5e7eb",
   },
   leftSection: {
-    flex: 1,
+    width: 48,
     alignItems: "flex-start",
   },
   logoContainer: {
@@ -235,12 +236,15 @@ const styles = StyleSheet.create({
     borderRadius: 60,
   },
   centerSection: {
-    flex: 2,
+    position: "absolute",
+    left: 0,
+    right: 0,
     alignItems: "center",
-    paddingHorizontal: 8,
+    justifyContent: "center",
+    pointerEvents: "none",
   },
   rightSection: {
-    flex: 1,
+    width: 88,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
