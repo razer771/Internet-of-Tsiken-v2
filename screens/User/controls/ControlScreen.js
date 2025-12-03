@@ -42,6 +42,7 @@ import {
   activateSprinkler,
   getServoConnectionStatus,
 } from "../../../modules/ServoMotorService";
+import CameraStream from "../../../modules/CameraStream";
 
 const PRIMARY = "#133E87";
 const GREEN = "#249D1D";
