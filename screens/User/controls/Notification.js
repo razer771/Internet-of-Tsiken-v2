@@ -94,7 +94,10 @@ function NotificationModal({ visible, item, onClose, onMarkRead }) {
 
   return (
     <Modal visible={visible} transparent animationType="fade">
-      <Pressable style={styles.modalOverlay} onPress={onClose}>
+      <Pressable style={styles.modalOverlay} onPress={() => {
+        onMarkRead(item.id);
+        onClose();
+      }}>
         <Pressable style={styles.notificationModalContent} onPress={(e) => e.stopPropagation()}>
           <TouchableOpacity 
             onPress={() => {
@@ -165,22 +168,22 @@ export default function Notification() {
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <TouchableOpacity 
               onPress={handleMarkAll}
-              disabled={markAllClicked}
-              style={[styles.markAllBtn, markAllClicked ? { backgroundColor: "#fff" } : { backgroundColor: "#133E87", opacity: 1 }]
+              disabled={allRead}
+              style={[styles.markAllBtn, allRead ? { backgroundColor: "#fff" } : { backgroundColor: "#133E87", opacity: 1 }]
             }
             >
-              <Text style={{ marginLeft: 1, color: markAllClicked ? '#222' : '#fff' }}>
+              <Text style={{ marginLeft: 1, color: allRead ? '#222' : '#fff' }}>
                 Mark all as read
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
               onPress={handleUnreadAll}
-              disabled={!markAllClicked}
-              style={[styles.markAllBtn, !markAllClicked ? { backgroundColor: "#fff" } : { backgroundColor: "#133E87", opacity: 1 }]
+              disabled={!allRead}
+              style={[styles.markAllBtn, !allRead ? { backgroundColor: "#fff" } : { backgroundColor: "#133E87", opacity: 1 }]
             }
             >
-              <Text style={{ marginLeft: 1, color: !markAllClicked ? '#222' : '#fff' }}>
+              <Text style={{ marginLeft: 1, color: !allRead ? '#222' : '#fff' }}>
                 Unread all
               </Text>
             </TouchableOpacity>
