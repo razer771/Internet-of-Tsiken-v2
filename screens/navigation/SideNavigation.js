@@ -214,7 +214,7 @@ export default function SideNavigation({ visible, onClose, navigation }) {
               {({ pressed }) => (
                 <View style={[styles.menuItemInner, pressed && styles.menuItemPressed]}>
                   <Text style={[styles.menuItemText, pressed && styles.menuItemTextPressed]}>
-                    Settings
+                    App Info
                   </Text>
                 </View>
               )}

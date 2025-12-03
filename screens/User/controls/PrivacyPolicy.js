@@ -1,27 +1,17 @@
-// App Info screen with internal navigation for links
-import React, { useState } from "react";
+// Privacy Policy screen
+import React from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Linking,
 } from "react-native";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
-import Header from "../../navigation/Header";
-import SideNavigation from "../../navigation/SideNavigation";
-import BottomNavigation from "../../navigation/BottomNavigation";
 
-const Settings = ({ navigation }) => {
-  const [isSideNavVisible, setIsSideNavVisible] = useState(false);
-
-  const openLink = (url) => Linking.openURL(url);
-
+const PrivacyPolicy = ({ navigation }) => {
   return (
     <View style={styles.container}>
-      <Header onOpenMenu={() => setIsSideNavVisible(true)} navigation={navigation} />
-
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Icon name="arrow-back" size={24} color="#000" />
@@ -29,8 +19,7 @@ const Settings = ({ navigation }) => {
         <Text style={styles.headerTitle}>Privacy Policy</Text>
       </View>
 
-      <SideNavigation visible={isSideNavVisible} onClose={() => setIsSideNavVisible(false)} navigation={navigation} />
-            <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.sectionTitle}>1. Agreement to Terms</Text>
         <Text style={styles.paragraph}>By accessing or using our Service (the "Service"), you agree to be bound by these Terms and Conditions ("Terms"), and our Privacy Policy. If you disagree with any part of the terms, you may not access the Service.</Text>
 
@@ -82,16 +71,12 @@ const Settings = ({ navigation }) => {
         <Text style={styles.paragraph}>We reserve the right, at our sole discretion, to modify or replace these Terms at any time. We will try to provide at least [Number] days' notice prior to any new terms taking effect. By continuing to access or use our Service after those revisions become effective, you agree to be bound by the revised terms.</Text>
 
         <View style={{ height: 120 }} />
-            </ScrollView>
-
-            <View style={styles.bottomNavContainer}>
-        <BottomNavigation active="Settings" onNavigate={(screen) => navigation.navigate(screen)} />
-            </View>
+      </ScrollView>
     </View>
   );
 };
 
-export default Settings;
+export default PrivacyPolicy;
 
 const styles = StyleSheet.create({
   container: {
