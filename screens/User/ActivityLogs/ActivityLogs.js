@@ -51,6 +51,7 @@ export default function ActivityLogs({ navigation }) {
           "editFeedSchedule_logs",
           "nightTime_logs",
           "wateringActivity_Logs",
+          "predatorDetection_logs",
         ];
 
         // Fetch logs from all collections

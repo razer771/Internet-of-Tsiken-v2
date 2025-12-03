@@ -1,4 +1,4 @@
-// If you haven’t yet installed Firebase, run: // 👉 npm install firebase
+// If you haven't yet installed Firebase, run: // 👉 npm install firebase
 import { initializeApp } from "firebase/app";
 // Import the functions for persistence
 import { initializeAuth, getReactNativePersistence } from "firebase/auth";
@@ -7,6 +7,7 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager,
 } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 import { getAnalytics, isSupported } from "firebase/analytics"; // For the analytics warning
 
@@ -34,6 +35,9 @@ export const db = initializeFirestore(app, {
     tabManager: persistentMultipleTabManager(),
   }),
 });
+
+// Initialize Firebase Storage
+export const storage = getStorage(app);
 
 // Conditionally initialize Analytics to fix the other warning
 let analytics;

@@ -14,6 +14,7 @@ import {
   Platform,
   PanResponder,
   ActivityIndicator,
+  Animated,
 } from "react-native";
 import Slider from "@react-native-community/slider";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -387,7 +388,11 @@ export default function ControlScreen({ navigation }) {
         });
       }
     } catch (err) {
-      Alert.alert("Error", "Failed to save feed: " + err.message);
+      setErrorModal({
+        visible: true,
+        title: "Error",
+        message: "Failed to save feed: " + err.message,
+      });
       setConfirmFeedSaveVisible(false);
       setShowFeedAddPicker(false);
       setPendingFeedTime(null);
@@ -410,28 +415,10 @@ export default function ControlScreen({ navigation }) {
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
 
+  const [deleteOptionsModal, setDeleteOptionsModal] = useState(false);
+
   const beginDeleteFlow = () => {
-    // Show options: Delete All or Choose
-    Alert.alert(
-      "Delete schedules",
-      "Choose delete option",
-      [
-        {
-          text: "Delete All",
-          style: "destructive",
-          onPress: () => setConfirmDeleteVisible(true),
-        },
-        {
-          text: "Choose",
-          onPress: () => {
-            setDeleteMode(true);
-            setSelectedToDelete([]);
-          },
-        },
-        { text: "Cancel", style: "cancel" },
-      ],
-      { cancelable: true }
-    );
+    setDeleteOptionsModal(true);
   };
 
   const confirmDeleteAll = () => {
@@ -451,34 +438,27 @@ export default function ControlScreen({ navigation }) {
     });
   };
 
+  const [confirmDeleteSelectedModal, setConfirmDeleteSelectedModal] = useState(false);
+
   const deleteSelected = () => {
     if (selectedToDelete.length === 0) {
-      Alert.alert(
-        "No selection",
-        "Please select at least one schedule to delete."
-      );
+      setErrorModal({
+        visible: true,
+        title: "No selection",
+        message: "Please select at least one schedule to delete.",
+      });
       return;
     }
-    // confirmation
-    Alert.alert(
-      "Delete selected",
-      "Are you sure you want to delete selected schedules?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => {
-            setFeeds((s) => s.filter((f) => !selectedToDelete.includes(f.id)));
-            setDeleteMode(false);
-            setSelectedToDelete([]);
-            setShowSavedPopup(true);
-            setTimeout(() => setShowSavedPopup(false), 1200);
-          },
-        },
-      ],
-      { cancelable: true }
-    );
+    setConfirmDeleteSelectedModal(true);
+  };
+
+  const confirmDeleteSelectedFeeds = () => {
+    setFeeds((s) => s.filter((f) => !selectedToDelete.includes(f.id)));
+    setDeleteMode(false);
+    setSelectedToDelete([]);
+    setConfirmDeleteSelectedModal(false);
+    setShowSavedPopup(true);
+    setTimeout(() => setShowSavedPopup(false), 1200);
   };
 
   const beginSaveFlow = () => {
@@ -575,7 +555,11 @@ export default function ControlScreen({ navigation }) {
         });
       }
     } catch (err) {
-      Alert.alert("Error", "Failed to update feed: " + err.message);
+      setErrorModal({
+        visible: true,
+        title: "Error",
+        message: "Failed to update feed: " + err.message,
+      });
       setConfirmEditVisible(false);
       setFeedEdit({ open: false, idx: null, timeDate: new Date() });
       return;
@@ -647,7 +631,11 @@ export default function ControlScreen({ navigation }) {
         });
       }
     } catch (err) {
-      Alert.alert("Error", "Failed to delete feed: " + err.message);
+      setErrorModal({
+        visible: true,
+        title: "Error",
+        message: "Failed to delete feed: " + err.message,
+      });
       // Close modal even on error
       setConfirmDeleteFeedVisible(false);
       setPendingDeleteFeedId(null);
@@ -675,6 +663,14 @@ export default function ControlScreen({ navigation }) {
     title: "",
     message: "",
   });
+  
+  // Error modal state
+  const [errorModal, setErrorModal] = useState({
+    visible: false,
+    title: "",
+    message: "",
+  });
+  const errorModalScale = useState(new Animated.Value(0))[0];
 
   const showMotorWarning = (title, message) => {
     setMotorWarningModal({ visible: true, title, message });
@@ -683,6 +679,19 @@ export default function ControlScreen({ navigation }) {
   const hideMotorWarning = () => {
     setMotorWarningModal({ visible: false, title: "", message: "" });
   };
+
+  // Animate error modal
+  useEffect(() => {
+    if (errorModal.visible) {
+      Animated.spring(errorModalScale, {
+        toValue: 1,
+        friction: 5,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      errorModalScale.setValue(0);
+    }
+  }, [errorModal.visible]);
 
   const handleDispense = async () => {
     try {
@@ -809,7 +818,11 @@ export default function ControlScreen({ navigation }) {
         setConfirmedWaterTime(new Date(pendingWaterSchedule.time));
       }
     } catch (err) {
-      Alert.alert("Error", "Failed to save watering schedule: " + err.message);
+      setErrorModal({
+        visible: true,
+        title: "Error",
+        message: "Failed to save watering schedule: " + err.message,
+      });
       setConfirmWaterSaveVisible(false);
       setPendingWaterSchedule(null);
       return;
@@ -883,7 +896,11 @@ export default function ControlScreen({ navigation }) {
       setShowSavedPopup(true);
       setTimeout(() => setShowSavedPopup(false), 1400);
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setErrorModal({
+        visible: true,
+        title: "Error",
+        message: err.message,
+      });
     }
   };
 
@@ -1296,7 +1313,11 @@ export default function ControlScreen({ navigation }) {
         <View style={{ marginHorizontal: 14, marginTop: 14 }}>
           <TouchableOpacity
             style={[styles.continueBtn]}
-            onPress={() => Alert.alert("Continue", "Continue operations")}
+            onPress={() => setErrorModal({
+              visible: true,
+              title: "Continue",
+              message: "Continue operations",
+            })}
           >
             <Text style={{ color: "#fff", fontWeight: "700" }}>
               Continue Operations
@@ -1305,7 +1326,11 @@ export default function ControlScreen({ navigation }) {
 
           <TouchableOpacity
             style={[styles.pauseBtn]}
-            onPress={() => Alert.alert("Pause", "Paused non-critical tasks")}
+            onPress={() => setErrorModal({
+              visible: true,
+              title: "Pause",
+              message: "Paused non-critical tasks",
+            })}
           >
             <Text style={{ fontWeight: "700" }}>Pause non-critical tasks</Text>
           </TouchableOpacity>
@@ -1489,9 +1514,7 @@ export default function ControlScreen({ navigation }) {
           />
           <TouchableOpacity
             style={[styles.primaryBtn, { marginTop: 12 }]}
-            onPress={() =>
-              Alert.alert("Connect", "Placeholder to connect to IoT camera")
-            }
+            onPress={() => setCameraModal(false)}
           >
             <Ionicons name="close-circle" size={40} color="#fff" />
           </TouchableOpacity>
@@ -1943,6 +1966,112 @@ export default function ControlScreen({ navigation }) {
           </View>
         </View>
       </Modal>
+
+      {/* Error Modal */}
+      <Modal
+        visible={errorModal.visible}
+        transparent
+        animationType="none"
+      >
+        <View style={styles.popupBackground}>
+          <Animated.View style={[styles.errorModalBox, { transform: [{ scale: errorModalScale }] }]}>
+            <View style={styles.errorIconContainer}>
+              <Ionicons name="close-circle" size={50} color="#EF4444" />
+            </View>
+            <Text style={styles.errorModalTitle}>{errorModal.title}</Text>
+            <Text style={styles.errorModalMessage}>{errorModal.message}</Text>
+            <TouchableOpacity
+              style={styles.errorModalButton}
+              onPress={() => setErrorModal({ visible: false, title: '', message: '' })}
+            >
+              <Text style={styles.errorModalButtonText}>OK</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </Modal>
+
+      {/* Delete Options Modal */}
+      <Modal
+        visible={deleteOptionsModal}
+        transparent
+        animationType="fade"
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.deleteOptionsBox}>
+            <Text style={styles.deleteOptionsTitle}>Delete Feeds</Text>
+            <Text style={styles.deleteOptionsMessage}>Choose an option:</Text>
+            
+            <TouchableOpacity
+              style={styles.deleteOptionButton}
+              onPress={async () => {
+                setDeleteOptionsModal(false);
+                await handleDeleteAllFeeds();
+              }}
+            >
+              <Ionicons name="trash" size={20} color="#FFF" style={{ marginRight: 8 }} />
+              <Text style={styles.deleteOptionButtonText}>Delete All Feeds</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.deleteOptionButton, styles.deleteOptionButtonSecondary]}
+              onPress={() => {
+                setDeleteOptionsModal(false);
+                setSelectMode(true);
+              }}
+            >
+              <Ionicons name="checkmark-circle" size={20} color={PRIMARY} style={{ marginRight: 8 }} />
+              <Text style={[styles.deleteOptionButtonText, styles.deleteOptionButtonTextSecondary]}>
+                Choose Feeds to Delete
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.deleteOptionCancelButton}
+              onPress={() => setDeleteOptionsModal(false)}
+            >
+              <Text style={styles.deleteOptionCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Confirm Delete Selected Modal */}
+      <Modal
+        visible={confirmDeleteSelectedModal}
+        transparent
+        animationType="fade"
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.confirmDeleteBox}>
+            <View style={styles.confirmDeleteIconContainer}>
+              <Ionicons name="warning" size={40} color="#EF4444" />
+            </View>
+            <Text style={styles.confirmDeleteTitle}>Confirm Deletion</Text>
+            <Text style={styles.confirmDeleteMessage}>
+              Are you sure you want to delete the selected feeds? This action cannot be undone.
+            </Text>
+            
+            <View style={styles.confirmDeleteButtons}>
+              <TouchableOpacity
+                style={styles.confirmDeleteCancelButton}
+                onPress={() => setConfirmDeleteSelectedModal(false)}
+              >
+                <Text style={styles.confirmDeleteCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.confirmDeleteConfirmButton}
+                onPress={async () => {
+                  setConfirmDeleteSelectedModal(false);
+                  await handleDeleteSelected();
+                }}
+              >
+                <Text style={styles.confirmDeleteConfirmText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -2367,6 +2496,167 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   motorWarningButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+
+  // Error Modal styles
+  errorModalBox: {
+    backgroundColor: "#fff",
+    padding: 24,
+    borderRadius: 16,
+    alignItems: "center",
+    width: "85%",
+    maxWidth: 340,
+  },
+  errorIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "#FEE2E2",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  errorModalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#333",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  errorModalMessage: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  errorModalButton: {
+    backgroundColor: "#EF4444",
+    paddingVertical: 12,
+    paddingHorizontal: 40,
+    borderRadius: 8,
+  },
+  errorModalButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+
+  // Delete Options Modal styles
+  deleteOptionsBox: {
+    backgroundColor: "#fff",
+    padding: 24,
+    borderRadius: 16,
+    width: "85%",
+    maxWidth: 340,
+  },
+  deleteOptionsTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#333",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  deleteOptionsMessage: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  deleteOptionButton: {
+    backgroundColor: "#EF4444",
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  deleteOptionButtonSecondary: {
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: PRIMARY,
+  },
+  deleteOptionButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  deleteOptionButtonTextSecondary: {
+    color: PRIMARY,
+  },
+  deleteOptionCancelButton: {
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  deleteOptionCancelText: {
+    color: "#666",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+
+  // Confirm Delete Selected Modal styles
+  confirmDeleteBox: {
+    backgroundColor: "#fff",
+    padding: 24,
+    borderRadius: 16,
+    width: "85%",
+    maxWidth: 340,
+  },
+  confirmDeleteIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "#FEE2E2",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+    alignSelf: "center",
+  },
+  confirmDeleteTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#333",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  confirmDeleteMessage: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  confirmDeleteButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  confirmDeleteCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: "#D1D5DB",
+    alignItems: "center",
+  },
+  confirmDeleteCancelText: {
+    color: "#666",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  confirmDeleteConfirmButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: "#EF4444",
+    alignItems: "center",
+  },
+  confirmDeleteConfirmText: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",

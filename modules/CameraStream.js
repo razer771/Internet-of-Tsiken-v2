@@ -6,10 +6,14 @@ import {
   StyleSheet,
   ActivityIndicator,
   TouchableOpacity,
+  Modal,
+  Animated,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { discoverCameraServer, saveLastWorkingUrl, getLastWorkingUrl } from './CameraServerDiscovery';
+import { capturePredatorDetection, checkForPredators } from './PredatorDetectionService';
+import { useNotifications } from '../screens/User/controls/NotificationContext';
 
 const PRIMARY = '#133E87';
 
@@ -18,8 +22,15 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
   const [detections, setDetections] = useState({ objects: [], fps: 0, count: 0 });
   const [actualServerUrl, setActualServerUrl] = useState(serverUrl);
   const [discoveryState, setDiscoveryState] = useState('idle'); // idle, discovering, success, failed
+  const [capturing, setCapturing] = useState(false);
+  const [autoCapture, setAutoCapture] = useState(true); // Enable auto-capture by default
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [modalMessage, setModalMessage] = useState({ title: '', description: '', isAuto: false });
+  const lastCaptureRef = useRef(null);
   const webViewRef = useRef(null);
   const discoveryTimeoutRef = useRef(null);
+  const { addNotification } = useNotifications();
 
   // Construct stream URL
   const streamUrl = `${actualServerUrl}/video_feed`;
@@ -44,6 +55,25 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
       if (discoveryTimeoutRef.current) clearTimeout(discoveryTimeoutRef.current);
     };
   }, [isConnected]);
+
+  // Auto-capture predators when detected (high confidence)
+  useEffect(() => {
+    if (!isConnected || !autoCapture) return;
+
+    const predator = checkForPredators(detections, 80); // 80% confidence threshold
+    
+    if (predator) {
+      // Prevent duplicate captures within 10 seconds
+      const now = Date.now();
+      if (lastCaptureRef.current && (now - lastCaptureRef.current) < 10000) {
+        return;
+      }
+
+      // Auto-capture
+      lastCaptureRef.current = now;
+      handleCapturePredator(predator, true);
+    }
+  }, [detections, isConnected, autoCapture]);
 
   const startDiscovery = async () => {
     setDiscoveryState('discovering');
@@ -133,6 +163,49 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
 
   const handleRetry = () => {
     setDiscoveryState('idle');
+  };
+
+  const handleCapturePredator = async (detection = null, isAuto = false) => {
+    if (capturing) return;
+
+    setCapturing(true);
+    try {
+      const result = await capturePredatorDetection(actualServerUrl, detection);
+      
+      if (result.success) {
+        // Trigger notification
+        addNotification({
+          category: "IoT: Internet of Tsiken",
+          title: `⚠️ Predator Detected!`,
+          message: `${result.detectionData.detectedClass} detected with ${result.detectionData.confidence.toFixed(1)}% confidence`,
+          time: new Date().toLocaleString(),
+        });
+
+        setModalMessage({
+          title: result.detectionData.detectedClass.toUpperCase(),
+          description: `${result.detectionData.confidence.toFixed(1)}% confidence\n${isAuto ? 'Auto-captured' : 'Manually captured'} and saved to your detections.`,
+          isAuto: isAuto
+        });
+        setShowSuccessModal(true);
+      } else {
+        setModalMessage({
+          title: 'Capture Failed',
+          description: result.error || 'Could not capture detection',
+          isAuto: false
+        });
+        setShowErrorModal(true);
+      }
+    } catch (error) {
+      console.error("Capture error:", error);
+      setModalMessage({
+        title: 'Error',
+        description: 'Failed to capture predator detection',
+        isAuto: false
+      });
+      setShowErrorModal(true);
+    } finally {
+      setCapturing(false);
+    }
   };
 
   // HTML to display MJPEG stream in WebView
@@ -267,11 +340,303 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
               ))}
             </View>
           )}
+
+          {/* Predator Capture Controls */}
+          <View style={styles.captureControls}>
+            <TouchableOpacity
+              style={styles.autoCaptureToggle}
+              onPress={() => setAutoCapture(!autoCapture)}
+            >
+              <Ionicons
+                name={autoCapture ? "checkmark-circle" : "ellipse-outline"}
+                size={20}
+                color={autoCapture ? "#4CAF50" : "#999"}
+              />
+              <Text style={styles.autoCaptureText}>Auto-capture predators</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.captureButton, capturing && styles.captureButtonDisabled]}
+              onPress={() => handleCapturePredator(null, false)}
+              disabled={capturing}
+            >
+              {capturing ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="camera" size={18} color="#fff" />
+                  <Text style={styles.captureButtonText}>Capture Now</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       )}
+
+      {/* Success Modal */}
+      <SuccessModal
+        visible={showSuccessModal}
+        title={modalMessage.title}
+        description={modalMessage.description}
+        isAuto={modalMessage.isAuto}
+        onClose={() => setShowSuccessModal(false)}
+      />
+
+      {/* Error Modal */}
+      <ErrorModal
+        visible={showErrorModal}
+        title={modalMessage.title}
+        description={modalMessage.description}
+        onClose={() => setShowErrorModal(false)}
+      />
     </View>
   );
 }
+
+// Success Modal Component
+function SuccessModal({ visible, title, description, isAuto, onClose }) {
+  const scaleAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          tension: 50,
+          friction: 7,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      // Auto close after 3 seconds
+      const timeout = setTimeout(() => {
+        onClose();
+      }, 3000);
+
+      return () => clearTimeout(timeout);
+    } else {
+      scaleAnim.setValue(0);
+      fadeAnim.setValue(0);
+    }
+  }, [visible]);
+
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View style={modalStyles.overlay}>
+        <Animated.View
+          style={[
+            modalStyles.successContainer,
+            {
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
+            },
+          ]}
+        >
+          <Animated.View
+            style={[
+              modalStyles.iconCircle,
+              modalStyles.successCircle,
+              { transform: [{ scale: scaleAnim }] },
+            ]}
+          >
+            <Ionicons name="shield-checkmark" size={48} color="#4CAF50" />
+          </Animated.View>
+
+          <Text style={modalStyles.successTitle}>Predator Captured!</Text>
+          <Text style={modalStyles.predatorName}>{title}</Text>
+          <Text style={modalStyles.successDescription}>{description}</Text>
+
+          {isAuto && (
+            <View style={modalStyles.autoBadge}>
+              <Ionicons name="flash" size={14} color="#FF9800" />
+              <Text style={modalStyles.autoBadgeText}>Auto-captured</Text>
+            </View>
+          )}
+
+          <TouchableOpacity style={modalStyles.okButton} onPress={onClose}>
+            <Text style={modalStyles.okButtonText}>OK</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+// Error Modal Component
+function ErrorModal({ visible, title, description, onClose }) {
+  const scaleAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          tension: 50,
+          friction: 7,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      scaleAnim.setValue(0);
+      fadeAnim.setValue(0);
+    }
+  }, [visible]);
+
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View style={modalStyles.overlay}>
+        <Animated.View
+          style={[
+            modalStyles.errorContainer,
+            {
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
+            },
+          ]}
+        >
+          <Animated.View
+            style={[
+              modalStyles.iconCircle,
+              modalStyles.errorCircle,
+              { transform: [{ scale: scaleAnim }] },
+            ]}
+          >
+            <Ionicons name="alert-circle" size={48} color="#FF6B6B" />
+          </Animated.View>
+
+          <Text style={modalStyles.errorTitle}>{title}</Text>
+          <Text style={modalStyles.errorDescription}>{description}</Text>
+
+          <TouchableOpacity style={modalStyles.okButton} onPress={onClose}>
+            <Text style={modalStyles.okButtonText}>OK</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+const modalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  successContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 30,
+    alignItems: 'center',
+    width: '90%',
+    maxWidth: 400,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  errorContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 30,
+    alignItems: 'center',
+    width: '90%',
+    maxWidth: 400,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  iconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  successCircle: {
+    backgroundColor: '#E8F5E9',
+  },
+  errorCircle: {
+    backgroundColor: '#FFEBEE',
+  },
+  successTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#4CAF50',
+    marginBottom: 8,
+  },
+  errorTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#FF6B6B',
+    marginBottom: 8,
+  },
+  predatorName: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#000',
+    marginBottom: 12,
+  },
+  successDescription: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 24,
+  },
+  errorDescription: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 24,
+  },
+  autoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginBottom: 20,
+  },
+  autoBadgeText: {
+    fontSize: 12,
+    color: '#FF9800',
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  okButton: {
+    backgroundColor: PRIMARY,
+    paddingHorizontal: 40,
+    paddingVertical: 12,
+    borderRadius: 10,
+    minWidth: 120,
+  },
+  okButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -419,5 +784,38 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 10,
     opacity: 0.8,
+  },
+  captureControls: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  autoCaptureToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  autoCaptureText: {
+    marginLeft: 6,
+    fontSize: 13,
+    color: '#333',
+  },
+  captureButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF6B6B',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 6,
+  },
+  captureButtonDisabled: {
+    backgroundColor: '#CCC',
+  },
+  captureButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
