@@ -300,44 +300,253 @@ If you encounter issues not covered in this README, please:
 
 ## 📷 Camera Server (YOLO Object Detection)
 
-### Start Camera Server (Local Network Only)
+The camera server runs on your Raspberry Pi and streams live video with AI object detection to your mobile app.
 
-The camera server runs on the same network for fast, low-latency streaming with YOLO object detection.
+---
+
+### 🔧 Development vs Production Setup
+
+| Mode | When to Use | How to Start Camera |
+|------|-------------|---------------------|
+| **Development** | Testing with Expo Go | Run manually each time |
+| **Production** | APK installed on phone | Auto-starts on Pi boot |
+
+---
+
+## 📋 Complete Deployment Guide
+
+### **PHASE 1: Development & Testing** (What you're doing now)
+
+#### 1. Start Camera Server Manually
+
+While developing and testing with Expo Go, start the camera server manually:
+
+```bash
+cd ~/Internet-of-Tsiken-v2/"yolo object detection"
+python stream_server.py
+```
+
+Or use the convenience script:
 
 ```bash
 cd ~/Internet-of-Tsiken-v2/"yolo object detection" && ./start_camera.sh
 ```
 
+#### 2. Test the Mobile App
+
+```bash
+# In your project root
+npm start
+```
+
+- Scan QR code with Expo Go
+- Navigate to Control Screen
+- Click "Detect Camera" button
+- Camera should auto-connect
+
+#### 3. Stop Camera Server When Done
+
+```bash
+# Press Ctrl+C in the terminal running the server
+# Or kill the process
+pkill -f stream_server.py
+```
+
+---
+
+### **PHASE 2: Production Deployment** (For APK usage)
+
+When you're ready to build an APK and deploy for real use, follow these steps:
+
+#### Step 1: Install Camera Server as Auto-Start Service
+
+On your Raspberry Pi, run this **ONE TIME** setup:
+
+```bash
+cd ~/Internet-of-Tsiken-v2/"yolo object detection"
+chmod +x install_service.sh
+./install_service.sh
+```
+
+This will:
+- ✅ Install camera server as a systemd service
+- ✅ Configure auto-start on boot
+- ✅ Enable auto-restart if it crashes
+- ✅ Start the service immediately
+
+**After this, you NEVER need to manually start the camera server again!** It will:
+- Start automatically when Raspberry Pi boots
+- Keep running in the background 24/7
+- Restart automatically if it crashes
+- Persist across reboots
+
+#### Step 2: Verify Auto-Start is Working
+
+```bash
+# Check service status
+sudo systemctl status yolo-camera
+
+# View live logs
+sudo journalctl -u yolo-camera -f
+
+# Test the server is responding
+curl http://localhost:5000/status
+```
+
+#### Step 3: Build Your APK
+
+```bash
+# In your project root
+eas build --platform android --profile preview
+```
+
+#### Step 4: Install APK on Phone
+
+1. Download the APK from the build link
+2. Install on your Android phone
+3. Open the app
+4. Navigate to Control Screen
+5. Click "Detect Camera" - it will auto-connect to your Pi
+
+**The camera server is now running 24/7 automatically!**
+
+---
+
+### 🛠️ Service Management Commands
+
+Once installed as a service, use these commands:
+
+```bash
+# Check if service is running
+sudo systemctl status yolo-camera
+
+# Stop the service
+sudo systemctl stop yolo-camera
+
+# Start the service
+sudo systemctl start yolo-camera
+
+# Restart the service
+sudo systemctl restart yolo-camera
+
+# View real-time logs
+sudo journalctl -u yolo-camera -f
+
+# Disable auto-start (but keep installed)
+sudo systemctl disable yolo-camera
+
+# Re-enable auto-start
+sudo systemctl enable yolo-camera
+
+# Completely uninstall the service
+cd ~/Internet-of-Tsiken-v2/"yolo object detection"
+./uninstall_service.sh
+```
+
+---
+
+### 🔄 The Complete Flow
+
+```
+┌─────────────────────────────────────────────────────────┐
+│              DEVELOPMENT (Testing)                      │
+├─────────────────────────────────────────────────────────┤
+│ 1. You: python stream_server.py (manual start)         │
+│ 2. You: npm start (Expo Go)                             │
+│ 3. Test on phone with Expo Go app                       │
+│ 4. You: Ctrl+C to stop server when done                │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+                  When ready for production
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│              PRODUCTION (APK)                           │
+├─────────────────────────────────────────────────────────┤
+│ 1. You: ./install_service.sh (ONE TIME ONLY)           │
+│    → Camera server now auto-starts on boot             │
+│ 2. You: eas build --platform android                   │
+│ 3. You: Install APK on phone                            │
+│ 4. User: Opens app anytime                              │
+│    → Camera automatically connects (Pi always running)  │
+│ 5. Camera server: Runs 24/7, restarts if crashes       │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 📊 Quick Reference
+
 **Access URLs:**
-- Local IP: `http://192.168.68.134:5000` (changes based on your network)
-- Hostname: `http://rpi5desktop.local:5000` (works across all networks)
+- Local IP: `http://192.168.68.134:5000` (changes per network)
+- Hostname: `http://rpi5desktop.local:5000` (recommended - works everywhere)
 
-### Check Server Status
-
+**Health Check:**
 ```bash
 curl -s http://localhost:5000/status
 ```
 
-### How It Works
+**View What's Being Detected:**
+```bash
+curl -s http://localhost:5000/detections
+```
 
-1. Start the camera server using the command above
-2. Open the app and navigate to **Control Screen**
-3. Click **"Detect Camera"** button
-4. The app will automatically find the camera server on your network
-5. Live stream with YOLO detection will appear
+---
 
-**Note:** Make sure your phone and Raspberry Pi are on the same WiFi network for best performance.
+### ⚠️ Important Notes
 
+1. **Development Mode**: Manually start/stop camera server as needed
+2. **Production Mode**: Install service ONCE, then forget about it
+3. **The APK doesn't run the camera** - the Raspberry Pi does
+4. **The APK only connects** to the already-running camera server
+5. **Network requirement**: Phone and Pi must be on same WiFi/network
+6. **Auto-discovery**: App automatically finds the Pi (no IP entry needed)
 
-## How to run the camera server
+---
 
-cd ~/Internet-of-Tsiken-v2/"yolo object detection" && ./start_camera.sh
+### 🐛 Troubleshooting Production Deployment
 
-# Check if the process is running
-ps aux | grep stream_server.py
+**Camera not connecting in APK:**
 
-# Check the server status (if running)
+```bash
+# 1. Check if service is running
+sudo systemctl status yolo-camera
+
+# 2. Check if server is responding
 curl http://localhost:5000/status
 
-# Or check with your Pi's IP
-curl http://192.168.68.134:5000/status
+# 3. Restart the service
+sudo systemctl restart yolo-camera
+
+# 4. Check logs for errors
+sudo journalctl -u yolo-camera -n 50
+```
+
+**Service won't start:**
+
+```bash
+# Check for errors
+sudo journalctl -u yolo-camera -n 100
+
+# Common fixes:
+# - Make sure Python dependencies are installed
+cd ~/Internet-of-Tsiken-v2/"yolo object detection"
+pip install -r requirements.txt
+
+# - Reinstall the service
+./uninstall_service.sh
+./install_service.sh
+```
+
+**Need to go back to manual control:**
+
+```bash
+# Temporarily disable auto-start
+sudo systemctl stop yolo-camera
+sudo systemctl disable yolo-camera
+
+# Now you can run manually
+python stream_server.py
+```
+
+## temporarily stop the camera server
+pkill -f stream_server.py
