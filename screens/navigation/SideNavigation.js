@@ -170,12 +170,13 @@ export default function SideNavigation({ visible, onClose, navigation }) {
           <View style={styles.menuContent}>
             <Pressable
               style={styles.menuItem}
-              onPress={() => handleMenuItemPress("Reports")}
+              onPress={() => handleMenuItemPress("User Profile")}
             >
               {({ pressed }) => (
                 <View style={[styles.menuItemInner, pressed && styles.menuItemPressed]}>
+                  <Icon name="user" size={20} color={pressed ? "#ffffff" : "#1a1a1a"} />
                   <Text style={[styles.menuItemText, pressed && styles.menuItemTextPressed]}>
-                    Reports
+                    User Profile
                   </Text>
                 </View>
               )}
@@ -187,6 +188,7 @@ export default function SideNavigation({ visible, onClose, navigation }) {
             >
               {({ pressed }) => (
                 <View style={[styles.menuItemInner, pressed && styles.menuItemPressed]}>
+                  <Icon name="activity" size={20} color={pressed ? "#ffffff" : "#1a1a1a"} />
                   <Text style={[styles.menuItemText, pressed && styles.menuItemTextPressed]}>
                     Activity Logs
                   </Text>
@@ -196,12 +198,13 @@ export default function SideNavigation({ visible, onClose, navigation }) {
 
             <Pressable
               style={styles.menuItem}
-              onPress={() => handleMenuItemPress("User Profile")}
+              onPress={() => handleMenuItemPress("Reports")}
             >
               {({ pressed }) => (
                 <View style={[styles.menuItemInner, pressed && styles.menuItemPressed]}>
+                  <Icon name="file-text" size={20} color={pressed ? "#ffffff" : "#1a1a1a"} />
                   <Text style={[styles.menuItemText, pressed && styles.menuItemTextPressed]}>
-                    User Profile
+                    Reports
                   </Text>
                 </View>
               )}
@@ -213,6 +216,7 @@ export default function SideNavigation({ visible, onClose, navigation }) {
             >
               {({ pressed }) => (
                 <View style={[styles.menuItemInner, pressed && styles.menuItemPressed]}>
+                  <Icon name="info" size={20} color={pressed ? "#ffffff" : "#1a1a1a"} />
                   <Text style={[styles.menuItemText, pressed && styles.menuItemTextPressed]}>
                     App Info
                   </Text>
@@ -228,7 +232,7 @@ export default function SideNavigation({ visible, onClose, navigation }) {
             >
               {({ pressed }) => (
                 <View style={[styles.logoutButtonInner, pressed && styles.logoutButtonPressed]}>
-                  <Icon name="log-out" size={20} color={pressed ? "#ffffff" : "#1a1a1a"} />
+                  <Icon name="log-out" size={20} color={pressed ? "#ffffff" : "#ef4444"} />
                   <Text style={[styles.logoutText, pressed && styles.logoutTextPressed]}>
                     Logout
                   </Text>
@@ -301,7 +305,7 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   menuHeader: {
-    backgroundColor: "#ffffff",
+    backgroundColor: "#154b99",
     borderBottomWidth: 1,
     borderBottomColor: "#e5e7eb",
     paddingTop:
@@ -312,7 +316,7 @@ const styles = StyleSheet.create({
   menuHeaderText: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#1a1a1a",
+    color: "#ffffff",
   },
   menuContent: {
     flex: 1,
@@ -323,6 +327,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
   },
   menuItemInner: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 16,
     paddingHorizontal: 16,
     borderRadius: 8,
@@ -331,13 +337,14 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
   },
   menuItemPressed: {
-    backgroundColor: "#3b82f6",
-    borderColor: "#3b82f6",
+    backgroundColor: "#154b99",
+    borderColor: "#154b99",
   },
   menuItemText: {
     fontSize: 16,
     fontWeight: "bold",
     color: "#1a1a1a",
+    marginLeft: 10,
   },
   menuItemTextPressed: {
     color: "#ffffff",
@@ -361,13 +368,13 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
   },
   logoutButtonPressed: {
-    backgroundColor: "#3b82f6",
-    borderColor: "#3b82f6",
+    backgroundColor: "#ef4444",
+    borderColor: "#ef4444",
   },
   logoutText: {
     fontSize: 16,
     fontWeight: "bold",
-    color: "#1a1a1a",
+    color: "#ef4444",
     marginLeft: 10,
   },
   logoutTextPressed: {

@@ -1,11 +1,14 @@
 import "react-native-gesture-handler";
 import React, { useEffect, useState, useCallback } from "react";
-import { View, StyleSheet } from "react-native";
+import { View, StyleSheet, ActivityIndicator, BackHandler } from "react-native";
 import { NavigationContainer, useFocusEffect } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { navigationRef } from "./services/NavigationService";
 import * as SplashScreen from "expo-splash-screen";
 import { NotificationProvider } from "./screens/User/controls/NotificationContext";
+import { auth } from "./config/firebaseconfig";
+import { onAuthStateChanged } from "firebase/auth";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Keep the splash screen visible while we fetch resources
 try {
@@ -97,7 +100,34 @@ function createTrackedScreen(Component, routeName, onRouteChange) {
 
 export default function App() {
   const [currentRoute, setCurrentRoute] = useState("JsonSplash");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [initialRoute, setInitialRoute] = useState("JsonSplash");
   const isAuthScreen = AUTH_SCREENS.includes(currentRoute);
+
+  // Listen to authentication state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        // User is signed in
+        setIsAuthenticated(true);
+        // Check if user is admin
+        const isAdmin = await AsyncStorage.getItem("isAdminBypass");
+        if (isAdmin === "true") {
+          setInitialRoute("AdminDashboard");
+        } else {
+          setInitialRoute("Home");
+        }
+      } else {
+        // User is signed out
+        setIsAuthenticated(false);
+        setInitialRoute("LogIn");
+      }
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     async function prepare() {
@@ -111,6 +141,48 @@ export default function App() {
     }
     prepare();
   }, []);
+
+  // Prevent hardware back button from navigating to auth screens when authenticated
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        if (isAuthenticated && AUTH_SCREENS.includes(currentRoute)) {
+          // Prevent going back to auth screens when authenticated
+          return true;
+        }
+        // Allow default back behavior
+        return false;
+      }
+    );
+
+    return () => backHandler.remove();
+  }, [isAuthenticated, currentRoute]);
+
+  // Redirect authenticated users away from auth screens
+  useEffect(() => {
+    if (isAuthenticated && !authLoading) {
+      // If user is authenticated but on an auth screen, redirect
+      if (AUTH_SCREENS.includes(currentRoute) && currentRoute !== "AdminDashboard" && currentRoute !== "JsonSplash") {
+        if (navigationRef.isReady()) {
+          navigationRef.reset({
+            index: 0,
+            routes: [{ name: initialRoute }],
+          });
+        }
+      }
+    } else if (!isAuthenticated && !authLoading) {
+      // If user is not authenticated but on a protected screen, redirect to login
+      if (!AUTH_SCREENS.includes(currentRoute)) {
+        if (navigationRef.isReady()) {
+          navigationRef.reset({
+            index: 0,
+            routes: [{ name: "LogIn" }],
+          });
+        }
+      }
+    }
+  }, [isAuthenticated, currentRoute, authLoading, initialRoute]);
 
   const getActiveTab = () => {
     if (currentRoute === "Home") return "Home";
@@ -130,6 +202,15 @@ export default function App() {
     }
   };
 
+  // Show loading screen while checking auth state
+  if (authLoading) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#4CAF50" />
+      </View>
+    );
+  }
+
   return (
     <NotificationProvider>
       <View style={styles.container}>
@@ -137,11 +218,13 @@ export default function App() {
         {!isAuthScreen && <Header />}
         <View style={[styles.content, !isAuthScreen && styles.contentWithNav]}>
           <Stack.Navigator
-            initialRouteName="JsonSplash"
+            initialRouteName={initialRoute}
             screenOptions={{
               headerShown: false,
               animation: "slide_from_right",
               contentStyle: { backgroundColor: "#F4F6FA" },
+              // Prevent back navigation to auth screens when authenticated
+              gestureEnabled: !isAuthenticated || isAuthScreen,
             }}
           >
             {/* Auth screens */}
@@ -376,4 +459,8 @@ const styles = StyleSheet.create({
   content: { flex: 1 },
   contentWithNav: { paddingBottom: 70 },
   bottomNavContainer: { position: "absolute", bottom: 0, left: 0, right: 0 },
+  centerContent: { 
+    justifyContent: "center", 
+    alignItems: "center" 
+  },
 });

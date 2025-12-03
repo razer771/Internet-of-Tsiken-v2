@@ -228,96 +228,6 @@ export default function QuickOverviewSetup({ navigation }) {
             </View>
           </View>
 
-          {/* Sensor Monitoring Grid */}
-          <Text style={styles.sectionTitle}>Live Monitoring</Text>
-          <View style={styles.sensorGrid}>
-            {/* Temperature Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>🌡️</Text>
-              <Text style={styles.sensorLabel}>Temperature</Text>
-              <Text style={styles.sensorValue}>32°C</Text>
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>✓ Optimal</Text>
-              </View>
-            </View>
-
-            {/* Water Level Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>💧</Text>
-              <Text style={styles.sensorLabel}>Water Level</Text>
-              <Text style={styles.sensorValue}>85%</Text>
-              <View style={[styles.statusBadge, styles.statusBadgeWarning]}>
-                <Text style={styles.statusBadgeText}>Good</Text>
-              </View>
-            </View>
-
-            {/* Feed Level Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>🍴</Text>
-              <Text style={styles.sensorLabel}>Feed Level</Text>
-              <Text style={styles.sensorValue}>62%</Text>
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>✓ Optimal</Text>
-              </View>
-            </View>
-
-            {/* Solar Charge Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>☀️</Text>
-              <Text style={styles.sensorLabel}>Solar Charge</Text>
-              <Text style={styles.sensorValue}>62%</Text>
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>✓ Optimal</Text>
-              </View>
-            </View>
-
-            {/* Humidity Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>💨</Text>
-              <Text style={styles.sensorLabel}>Humidity</Text>
-              <Text style={styles.sensorValue}>78%</Text>
-              <View style={[styles.statusBadge, styles.statusBadgeWarning]}>
-                <Text style={styles.statusBadgeText}>Good</Text>
-              </View>
-            </View>
-
-            {/* Light Status Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>💡</Text>
-              <Text style={styles.sensorLabel}>Light Status</Text>
-              <Text style={styles.sensorValue}>On</Text>
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>Active</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Recent Alerts Card */}
-          <Text style={styles.sectionTitle}>Recent Alerts</Text>
-          <View style={styles.alertsCard}>
-            <View style={styles.alertItem}>
-              <View style={styles.alertIconContainer}>
-                <Text style={styles.alertItemIcon}>🔔</Text>
-              </View>
-              <View style={styles.alertContent}>
-                <Text style={styles.alertText}>Feeding completed</Text>
-                <Text style={styles.alertTime}>2 hours ago</Text>
-              </View>
-            </View>
-
-            <View style={styles.alertDivider} />
-
-            <View style={styles.alertItem}>
-              <View style={styles.alertIconContainer}>
-                <Text style={styles.alertItemIcon}>🔔</Text>
-              </View>
-              <View style={styles.alertContent}>
-                <Text style={styles.alertText}>Temperature adjusted</Text>
-                <Text style={styles.alertTime}>5 hours ago</Text>
-              </View>
-            </View>
-          </View>
-
           {/* Brooder Information Card */}
           <Text style={styles.sectionTitle}>Brooder Information</Text>
           <View style={styles.brooderCard}>
@@ -363,9 +273,42 @@ export default function QuickOverviewSetup({ navigation }) {
             onPress={openQuickSetup}
           >
             <View style={styles.ctaButton}>
-              <Text style={styles.ctaText}>Go to Quick Setup</Text>
+              <Text style={styles.ctaText}>Add Batch </Text>
             </View>
           </TouchableOpacity>
+
+          {/* Sensor Monitoring Grid */}
+          <Text style={styles.sectionTitle}>Live Monitoring</Text>
+          <View style={styles.sensorGrid}>
+
+            {/* Water Level Card */}
+            <View style={styles.sensorCard}>
+              <Text style={styles.sensorIcon}>💧</Text>
+              <Text style={styles.sensorLabel}>Water Level</Text>
+              <Text style={styles.sensorValue}>85%</Text>
+            </View>
+
+            {/* Feed Level Card */}
+            <View style={styles.sensorCard}>
+              <Text style={styles.sensorIcon}>🍴</Text>
+              <Text style={styles.sensorLabel}>Feed Level</Text>
+              <Text style={styles.sensorValue}>62%</Text>
+            </View>
+
+            {/* Solar Charge Card */}
+            <View style={styles.sensorCard}>
+              <Text style={styles.sensorIcon}>☀️</Text>
+              <Text style={styles.sensorLabel}>Solar Charge</Text>
+              <Text style={styles.sensorValue}>62%</Text>
+            </View>
+
+            {/* Light Status Card */}
+            <View style={styles.sensorCard}>
+              <Text style={styles.sensorIcon}>💡</Text>
+              <Text style={styles.sensorLabel}>Light Status</Text>
+              <Text style={styles.sensorValue}>On</Text>
+            </View>
+          </View>
 
           <QuickSetupModal
             visible={showQuickSetup}
@@ -641,18 +584,16 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   ctaWrapper: {
-    backgroundColor: "#f1f5f9",
-    borderRadius: 14,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    alignSelf: "stretch",
-    marginHorizontal: 8,
-  },
-  ctaButton: {
     backgroundColor: "#154b99",
     borderRadius: 16,
-    paddingVertical: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    alignSelf: "flex-start",
+    marginBottom: 24,
+    marginLeft: 8,
+  },
+  ctaButton: {
     alignItems: "center",
   },
   ctaText: { color: "#fff", fontWeight: "700", fontSize: 16 },
