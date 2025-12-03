@@ -13,6 +13,9 @@ import { Image } from "react-native";
 import Icon from "react-native-vector-icons/Feather";
 import { useNavigation } from "@react-navigation/native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { auth } from "../../config/firebaseconfig";
+import { signOut } from "firebase/auth";
 
 const MenuIcon = ({ size = 22, color = "#1a1a1a", style, ...props }) => (
   <View
@@ -70,10 +73,27 @@ export default function Header2() {
     setLogoutModalVisible(true);
   };
 
-  const handleConfirmLogout = () => {
-    console.log("Logout confirmed");
-    setLogoutModalVisible(false);
-    navigation.replace("LogIn");
+  const handleConfirmLogout = async () => {
+    try {
+      // Sign out from Firebase
+      await signOut(auth);
+      
+      // Clear stored admin data
+      await AsyncStorage.removeItem("isAdminBypass");
+      await AsyncStorage.removeItem("adminEmail");
+      
+      console.log("Admin logged out successfully");
+      setLogoutModalVisible(false);
+      
+      // Navigate to Login screen and reset navigation stack
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "LogIn" }],
+      });
+    } catch (error) {
+      console.error("Logout error:", error);
+      setLogoutModalVisible(false);
+    }
   };
 
   const handleCancelLogout = () => {

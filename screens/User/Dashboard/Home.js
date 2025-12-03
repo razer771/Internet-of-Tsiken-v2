@@ -231,15 +231,6 @@ export default function QuickOverviewSetup({ navigation }) {
           {/* Sensor Monitoring Grid */}
           <Text style={styles.sectionTitle}>Live Monitoring</Text>
           <View style={styles.sensorGrid}>
-            {/* Temperature Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>🌡️</Text>
-              <Text style={styles.sensorLabel}>Temperature</Text>
-              <Text style={styles.sensorValue}>32°C</Text>
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>✓ Optimal</Text>
-              </View>
-            </View>
 
             {/* Water Level Card */}
             <View style={styles.sensorCard}>
@@ -268,16 +259,6 @@ export default function QuickOverviewSetup({ navigation }) {
               <Text style={styles.sensorValue}>62%</Text>
               <View style={styles.statusBadge}>
                 <Text style={styles.statusBadgeText}>✓ Optimal</Text>
-              </View>
-            </View>
-
-            {/* Humidity Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>💨</Text>
-              <Text style={styles.sensorLabel}>Humidity</Text>
-              <Text style={styles.sensorValue}>78%</Text>
-              <View style={[styles.statusBadge, styles.statusBadgeWarning]}>
-                <Text style={styles.statusBadgeText}>Good</Text>
               </View>
             </View>
 
