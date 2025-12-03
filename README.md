@@ -327,3 +327,17 @@ curl -s http://localhost:5000/status
 5. Live stream with YOLO detection will appear
 
 **Note:** Make sure your phone and Raspberry Pi are on the same WiFi network for best performance.
+
+
+## How to run the camera server
+
+cd ~/Internet-of-Tsiken-v2/"yolo object detection" && ./start_camera.sh
+
+# Check if the process is running
+ps aux | grep stream_server.py
+
+# Check the server status (if running)
+curl http://localhost:5000/status
+
+# Or check with your Pi's IP
+curl http://192.168.68.134:5000/status
