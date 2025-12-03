@@ -73,10 +73,10 @@ function SmallCalendar({ onClose }) {
   );
 }
 
-function NotificationItem({ item, onPress }) {
+function NotificationItem({ item, onPress, markAllClicked }) {
   return (
     <TouchableOpacity 
-      style={[styles.notificationItem, { backgroundColor: item.read ? "#f7f7f7" : "#fff" }]}
+      style={[styles.notificationItem, { backgroundColor: markAllClicked ? "#d3d3d3" : (item.read ? "#d3d3d3" : "#fff") }]}
       onPress={onPress}
       activeOpacity={0.7}
     >
@@ -96,7 +96,13 @@ function NotificationModal({ visible, item, onClose, onMarkRead }) {
     <Modal visible={visible} transparent animationType="fade">
       <Pressable style={styles.modalOverlay} onPress={onClose}>
         <Pressable style={styles.notificationModalContent} onPress={(e) => e.stopPropagation()}>
-          <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
+          <TouchableOpacity 
+            onPress={() => {
+              onMarkRead(item.id);
+              onClose();
+            }} 
+            style={styles.modalCloseBtn}
+          >
             <Ionicons name="close" size={24} color="#222" />
           </TouchableOpacity>
 
@@ -108,16 +114,6 @@ function NotificationModal({ visible, item, onClose, onMarkRead }) {
           </Text>
 
           <Text style={styles.modalTime}>{item.time}</Text>
-
-          <TouchableOpacity 
-            style={styles.modalMarkBtn}
-            onPress={() => {
-              onMarkRead(item.id);
-              onClose();
-            }}
-          >
-            <Text style={{ color: '#fff', fontWeight: '600' }}>Mark as read</Text>
-          </TouchableOpacity>
         </Pressable>
       </Pressable>
     </Modal>
@@ -132,19 +128,19 @@ export default function Notification() {
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState(null);
   const navigation = useNavigation();
-  const { notifications, toggleAllRead, markAsRead } = useNotifications();
+  const { notifications, markAllAsRead, markAllAsUnread, markAsRead } = useNotifications();
 
   const openDrawer = () => setDrawerVisible(true);
   const closeDrawer = () => setDrawerVisible(false);
   const allRead = useMemo(() => notifications.every(n => n.read), [notifications]);
 
   const handleMarkAll = () => {
-    toggleAllRead();
+    markAllAsRead();
     setMarkAllClicked(true);
   };
 
   const handleUnreadAll = () => {
-    toggleAllRead();
+    markAllAsUnread();
     setMarkAllClicked(false);
   };
 
@@ -156,7 +152,6 @@ export default function Notification() {
 
   const handleMarkReadFromModal = (id) => {
     markAsRead(id);
-    setMarkAllClicked(true);
   };
 
   return (
@@ -171,10 +166,10 @@ export default function Notification() {
             <TouchableOpacity 
               onPress={handleMarkAll}
               disabled={markAllClicked}
-              style={[styles.markAllBtn, markAllClicked && { backgroundColor: "#ccc", opacity: 0.6 }]
+              style={[styles.markAllBtn, markAllClicked ? { backgroundColor: "#fff" } : { backgroundColor: "#133E87", opacity: 1 }]
             }
             >
-              <Text style={{ marginLeft: 1, color: markAllClicked ? '#999' : '#222' }}>
+              <Text style={{ marginLeft: 1, color: markAllClicked ? '#222' : '#fff' }}>
                 Mark all as read
               </Text>
             </TouchableOpacity>
@@ -182,10 +177,10 @@ export default function Notification() {
             <TouchableOpacity 
               onPress={handleUnreadAll}
               disabled={!markAllClicked}
-              style={[styles.markAllBtn, !markAllClicked && { backgroundColor: "#ccc", opacity: 0.6 }]
+              style={[styles.markAllBtn, !markAllClicked ? { backgroundColor: "#fff" } : { backgroundColor: "#133E87", opacity: 1 }]
             }
             >
-              <Text style={{ marginLeft: 1, color: !markAllClicked ? '#999' : '#222' }}>
+              <Text style={{ marginLeft: 1, color: !markAllClicked ? '#222' : '#fff' }}>
                 Unread all
               </Text>
             </TouchableOpacity>
@@ -214,6 +209,7 @@ export default function Notification() {
               key={n.id} 
               item={n} 
               onPress={() => handleNotificationPress(n.id)}
+              markAllClicked={markAllClicked}
             />
           ))}  
         </View>  
@@ -242,7 +238,7 @@ const styles = StyleSheet.create({
   markAllBtn: { height: 36, paddingHorizontal: 12, borderRadius: 8, flexDirection: "row", alignItems: "center", marginRight: 8, backgroundColor: "#f7fafc" },
   tabs: { flexDirection: "row", marginBottom: 12 },
   tabBtn: { flex: 1, height: 38, borderRadius: 8, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'transparent' },
-  notificationItem: { padding: 12, borderRadius: 8, borderWidth: 1, borderColor: NOTIF_BORDER, marginBottom: 10 },
+  notificationItem: { padding: 12, borderRadius: 8, borderWidth: 1, borderColor: NOTIF_BORDER, marginBottom: 0 },
   notificationText: { marginTop: 6, color: "#666", fontSize: 13 },
   notificationTime: { marginTop: 8, color: "#999", fontSize: 12 },
   calendarBox: { width: "90%", backgroundColor: "#fff", padding: 12, borderRadius: 10, borderWidth: 1, borderColor: BORDER_LIGHT, alignSelf: 'center' },
