@@ -3,7 +3,6 @@
     "name": "Internet Of Tsiken",
     "slug": "capstone",
     "plugins": [
-      "expo-video",
       [
         "expo-media-library",
         {
@@ -11,7 +10,8 @@
           "savePhotosPermission": "Allow Internet of Tsiken to save PDF reports to your Downloads folder.",
           "isAccessMediaLocationEnabled": true
         }
-      ]
+      ],
+      "expo-font"
     ],
     "version": "1.0.0",
     "orientation": "portrait",
