@@ -89,23 +89,22 @@ export default function ControlScreen({ navigation }) {
       try {
         setSensorLoading(true);
         setSensorError(null);
-        
+
         // Initialize sensors
         const initResult = await initializeSensors();
-        console.log('Sensor initialization:', initResult);
-        
+        console.log("Sensor initialization:", initResult);
+
         // Get initial readings
         const readings = await getAllSensorReadings();
         updateSensorValues(readings);
-        
+
         // Start polling for continuous updates (every 5 seconds)
         stopPolling = startSensorPolling((readings) => {
           updateSensorValues(readings);
         }, 5000);
-        
       } catch (error) {
-        console.error('Sensor initialization error:', error);
-        setSensorError('Failed to initialize sensors. Using simulated data.');
+        console.error("Sensor initialization error:", error);
+        setSensorError("Failed to initialize sensors. Using simulated data.");
         setIsSimulated(true);
         // Set default values on error
         setWaterNow(85);
@@ -138,12 +137,12 @@ export default function ControlScreen({ navigation }) {
           setSensorError(readings.water.error || readings.water.warning);
         }
       }
-      
+
       // Update feeder level
       if (readings.feeder) {
         setFeederNow(readings.feeder.level || 0);
       }
-      
+
       // Check simulation mode
       if (readings.simulationMode !== undefined) {
         setIsSimulated(readings.simulationMode);
@@ -195,8 +194,8 @@ export default function ControlScreen({ navigation }) {
         const data = doc.data();
         if (data.userId === user.uid) {
           // Load the most recent schedule
-          const loadedDate = new Date(data.date);
-          const loadedTime = new Date(data.time);
+          const loadedDate = data.date ? new Date(data.date) : new Date();
+          const loadedTime = data.time ? new Date(data.time) : new Date();
           setWaterDate(loadedDate);
           setWaterTime(loadedTime);
           setLiters(data.liters);
@@ -252,14 +251,16 @@ export default function ControlScreen({ navigation }) {
 
   // camera placeholder modal
   const [cameraModal, setCameraModal] = useState(false);
-  
+
   // Camera server auto-discovery - no user input needed!
-  const [cameraServerUrl, setCameraServerUrl] = useState("http://rpi5desktop.local:5000");
+  const [cameraServerUrl, setCameraServerUrl] = useState(
+    "http://rpi5desktop.local:5000"
+  );
   const [showServerInput, setShowServerInput] = useState(false);
-  
+
   // Callback when camera server is auto-discovered
   const handleServerDiscovered = (discoveredUrl) => {
-    console.log('📡 Auto-discovered camera server:', discoveredUrl);
+    console.log("📡 Auto-discovered camera server:", discoveredUrl);
     setCameraServerUrl(discoveredUrl);
     // Don't show settings - it worked automatically!
   };
@@ -668,7 +669,7 @@ export default function ControlScreen({ navigation }) {
   const [isDispensing, setIsDispensing] = useState(false);
   const [isSprinklerActive, setIsSprinklerActive] = useState(false);
   const [servoError, setServoError] = useState(null);
-  
+
   // Motor warning modal state
   const [motorWarningModal, setMotorWarningModal] = useState({
     visible: false,
@@ -688,9 +689,9 @@ export default function ControlScreen({ navigation }) {
     try {
       setIsDispensing(true);
       setServoError(null);
-      
+
       const result = await dispenseFeed();
-      
+
       if (result.success) {
         // Show warning modal if simulated
         if (result.isSimulated && result.warning) {
@@ -700,11 +701,17 @@ export default function ControlScreen({ navigation }) {
           );
         }
       } else {
-        showMotorWarning("Dispense Error", result.error || "Failed to dispense feed.");
+        showMotorWarning(
+          "Dispense Error",
+          result.error || "Failed to dispense feed."
+        );
       }
     } catch (error) {
       console.error("Dispense error:", error);
-      showMotorWarning("Error", "Feed dispenser motor not detected. Please check the connection.");
+      showMotorWarning(
+        "Error",
+        "Feed dispenser motor not detected. Please check the connection."
+      );
     } finally {
       setIsDispensing(false);
     }
@@ -714,9 +721,9 @@ export default function ControlScreen({ navigation }) {
     try {
       setIsSprinklerActive(true);
       setServoError(null);
-      
+
       const result = await activateSprinkler();
-      
+
       if (result.success) {
         // Show warning modal if simulated
         if (result.isSimulated && result.warning) {
@@ -726,11 +733,17 @@ export default function ControlScreen({ navigation }) {
           );
         }
       } else {
-        showMotorWarning("Sprinkler Error", result.error || "Failed to activate sprinkler.");
+        showMotorWarning(
+          "Sprinkler Error",
+          result.error || "Failed to activate sprinkler."
+        );
       }
     } catch (error) {
       console.error("Sprinkler error:", error);
-      showMotorWarning("Error", "Water sprinkler motor not detected. Please check the connection.");
+      showMotorWarning(
+        "Error",
+        "Water sprinkler motor not detected. Please check the connection."
+      );
     } finally {
       setIsSprinklerActive(false);
     }
@@ -805,8 +818,16 @@ export default function ControlScreen({ navigation }) {
         });
 
         // Update confirmed display values after successful save
-        setConfirmedWaterDate(new Date(pendingWaterSchedule.date));
-        setConfirmedWaterTime(new Date(pendingWaterSchedule.time));
+        setConfirmedWaterDate(
+          pendingWaterSchedule.date
+            ? new Date(pendingWaterSchedule.date)
+            : new Date()
+        );
+        setConfirmedWaterTime(
+          pendingWaterSchedule.time
+            ? new Date(pendingWaterSchedule.time)
+            : new Date()
+        );
       }
     } catch (err) {
       Alert.alert("Error", "Failed to save watering schedule: " + err.message);
@@ -942,7 +963,7 @@ export default function ControlScreen({ navigation }) {
             onPress={() => setCameraModal(true)}
             activeOpacity={0.8}
           >
-            <CameraStream 
+            <CameraStream
               serverUrl={cameraServerUrl}
               onServerDiscovered={handleServerDiscovered}
             />
@@ -1155,16 +1176,26 @@ export default function ControlScreen({ navigation }) {
         {/* Test Devices */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <Text style={styles.cardTitle}>Test Devices</Text>
-          <Text style={[styles.smallNote, { fontSize: 11 }]}>Check if the devices are working properly.</Text>
+          <Text style={[styles.smallNote, { fontSize: 11 }]}>
+            Check if the devices are working properly.
+          </Text>
 
-          <TouchableOpacity 
-            style={[styles.testBtn, { marginTop: 8 }, isDispensing && styles.testBtnDisabled]} 
+          <TouchableOpacity
+            style={[
+              styles.testBtn,
+              { marginTop: 8 },
+              isDispensing && styles.testBtnDisabled,
+            ]}
             onPress={handleDispense}
             disabled={isDispensing}
           >
             {isDispensing ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <ActivityIndicator size="small" color={PRIMARY} style={{ marginRight: 8 }} />
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <ActivityIndicator
+                  size="small"
+                  color={PRIMARY}
+                  style={{ marginRight: 8 }}
+                />
                 <Text style={styles.testBtnText}>Dispensing...</Text>
               </View>
             ) : (
@@ -1173,17 +1204,27 @@ export default function ControlScreen({ navigation }) {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.testBtn, { marginTop: 10 }, isSprinklerActive && styles.testBtnDisabled]}
+            style={[
+              styles.testBtn,
+              { marginTop: 10 },
+              isSprinklerActive && styles.testBtnDisabled,
+            ]}
             onPress={handleSprinkler}
             disabled={isSprinklerActive}
           >
             {isSprinklerActive ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <ActivityIndicator size="small" color={PRIMARY} style={{ marginRight: 8 }} />
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <ActivityIndicator
+                  size="small"
+                  color={PRIMARY}
+                  style={{ marginRight: 8 }}
+                />
                 <Text style={styles.testBtnText}>Activating...</Text>
               </View>
             ) : (
-              <Text style={styles.testBtnText}>Test Hydro Defense Mechanism</Text>
+              <Text style={styles.testBtnText}>
+                Test Hydro Defense Mechanism
+              </Text>
             )}
           </TouchableOpacity>
         </View>
@@ -1310,7 +1351,6 @@ export default function ControlScreen({ navigation }) {
             <Text style={{ fontWeight: "700" }}>Pause non-critical tasks</Text>
           </TouchableOpacity>
         </View>
-
       </ScrollView>
 
       {/* Date / Time Pickers */}
@@ -1495,9 +1535,9 @@ export default function ControlScreen({ navigation }) {
           >
             <Ionicons name="close-circle" size={40} color="#fff" />
           </TouchableOpacity>
-          
+
           <View style={styles.fullScreenCameraContainer}>
-            <CameraStream 
+            <CameraStream
               serverUrl={cameraServerUrl}
               onServerDiscovered={handleServerDiscovered}
               autoConnect={true}
@@ -1932,8 +1972,12 @@ export default function ControlScreen({ navigation }) {
             <View style={styles.warningIconContainer}>
               <Ionicons name="warning" size={40} color="#FFC107" />
             </View>
-            <Text style={styles.motorWarningTitle}>{motorWarningModal.title}</Text>
-            <Text style={styles.motorWarningMessage}>{motorWarningModal.message}</Text>
+            <Text style={styles.motorWarningTitle}>
+              {motorWarningModal.title}
+            </Text>
+            <Text style={styles.motorWarningMessage}>
+              {motorWarningModal.message}
+            </Text>
             <TouchableOpacity
               style={styles.motorWarningButton}
               onPress={hideMotorWarning}
@@ -1955,13 +1999,16 @@ function StatCard({ label, value, dotColor, loading, isSimulated }) {
         <View style={[styles.dot, { backgroundColor: dotColor }]} />
         <View>
           <Text style={styles.statLabel}>{label}</Text>
-          {isSimulated && (
-            <Text style={styles.simulatedLabel}>Simulated</Text>
-          )}
+          {isSimulated && <Text style={styles.simulatedLabel}>Simulated</Text>}
         </View>
       </View>
       <View style={styles.statRight}>
-        <View style={[styles.statBox, { borderLeftColor: isSimulated ? "#FFC107" : PRIMARY }]}>
+        <View
+          style={[
+            styles.statBox,
+            { borderLeftColor: isSimulated ? "#FFC107" : PRIMARY },
+          ]}
+        >
           {loading ? (
             <ActivityIndicator size="small" color={PRIMARY} />
           ) : (
@@ -2068,7 +2115,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
     height: 200,
     borderRadius: 8,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
 
   smallNote: { color: "#666", marginTop: 6 },
@@ -2207,7 +2254,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   actionText: { color: "#fff", fontWeight: "700" },
-  
+
   // Test Device buttons - blue border only, smaller
   testBtn: {
     backgroundColor: "transparent",
@@ -2222,8 +2269,8 @@ const styles = StyleSheet.create({
     borderColor: "#999",
     opacity: 0.7,
   },
-  testBtnText: { 
-    color: PRIMARY, 
+  testBtnText: {
+    color: PRIMARY,
     fontWeight: "600",
     fontSize: 13,
   },
@@ -2244,22 +2291,22 @@ const styles = StyleSheet.create({
   fullScreenCameraModal: {
     flex: 1,
     backgroundColor: "#000",
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   closeButton: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 50 : 20,
+    position: "absolute",
+    top: Platform.OS === "ios" ? 50 : 20,
     right: 20,
     zIndex: 999,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: "rgba(0,0,0,0.5)",
     borderRadius: 20,
   },
   fullScreenCameraContainer: {
     flex: 1,
-    width: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: "100%",
+    justifyContent: "center",
+    alignItems: "center",
   },
   fullScreenModal: {
     flex: 1,

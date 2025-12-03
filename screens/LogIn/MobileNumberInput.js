@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   Image,
-  Alert,
   Keyboard,
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
@@ -14,8 +13,10 @@ import {
   ActivityIndicator,
   ScrollView,
   Pressable,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation } from "@react-navigation/native";
 import { auth, db } from "../../config/firebaseconfig.js";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
@@ -28,6 +29,50 @@ import {
 
 const Logo = require("../../assets/logo.png");
 
+// Reusable Branded Alert Modal Component
+const BrandedAlertModal = ({ visible, type, title, message, onClose }) => {
+  const getIconConfig = () => {
+    switch (type) {
+      case "success":
+        return { name: "check-circle", color: "#4CAF50" };
+      case "error":
+        return { name: "alert-circle", color: "#c41e3a" };
+      case "info":
+        return { name: "information", color: "#2196F3" };
+      default:
+        return { name: "information", color: "#2196F3" };
+    }
+  };
+
+  const iconConfig = getIconConfig();
+
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View style={styles.alertOverlay}>
+        <View style={styles.alertModal}>
+          <View
+            style={[
+              styles.alertIconContainer,
+              { backgroundColor: `${iconConfig.color}20` },
+            ]}
+          >
+            <MaterialCommunityIcons
+              name={iconConfig.name}
+              size={48}
+              color={iconConfig.color}
+            />
+          </View>
+          <Text style={styles.alertTitle}>{title}</Text>
+          <Text style={styles.alertMessage}>{message}</Text>
+          <TouchableOpacity style={styles.alertButton} onPress={onClose}>
+            <Text style={styles.alertButtonText}>OK</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 export default function MobileNumberInput() {
   const [mobileNumber, setMobileNumber] = useState("");
   const [loading, setLoading] = useState(false);
@@ -35,7 +80,24 @@ export default function MobileNumberInput() {
   const [deviceLocked, setDeviceLocked] = useState(false);
   const [lockoutTime, setLockoutTime] = useState(null);
 
+  // Alert Modal State
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertType, setAlertType] = useState("info");
+  const [alertTitle, setAlertTitle] = useState("");
+  const [alertMessage, setAlertMessage] = useState("");
+
   const navigation = useNavigation();
+
+  const showAlert = (type, title, message) => {
+    setAlertType(type);
+    setAlertTitle(title);
+    setAlertMessage(message);
+    setAlertVisible(true);
+  };
+
+  const closeAlert = () => {
+    setAlertVisible(false);
+  };
 
   useEffect(() => {
     checkDeviceLockoutStatus();
@@ -103,7 +165,8 @@ export default function MobileNumberInput() {
         console.log("Account is locked");
         setDeviceLocked(true);
         setLockoutTime(lockoutStatus.remainingTime);
-        Alert.alert(
+        showAlert(
+          "error",
           "Account Locked",
           `Too many failed attempts. Please try again in ${formatLockoutTime(
             lockoutStatus.remainingTime
@@ -121,8 +184,14 @@ export default function MobileNumberInput() {
     try {
       const user = auth.currentUser;
       if (!user) {
-        Alert.alert("Error", "User not authenticated. Please login again.");
-        navigation.navigate("LogIn");
+        showAlert(
+          "error",
+          "Error",
+          "User not authenticated. Please login again."
+        );
+        setTimeout(() => {
+          navigation.navigate("LogIn");
+        }, 2000);
         return;
       }
 
@@ -132,7 +201,11 @@ export default function MobileNumberInput() {
 
       if (!userDoc.exists()) {
         console.log("❌ User document does not exist in Firestore");
-        Alert.alert("Error", "User data not found. Please contact support.");
+        showAlert(
+          "error",
+          "Error",
+          "User data not found. Please contact support."
+        );
         setLoading(false);
         return;
       }
@@ -145,7 +218,8 @@ export default function MobileNumberInput() {
       console.log("Entered mobile:", enteredMobile);
 
       if (!storedMobile) {
-        Alert.alert(
+        showAlert(
+          "info",
           "Mobile Number Not Set",
           "No mobile number found for your account. Please contact the owner to add your mobile number."
         );
@@ -161,12 +235,14 @@ export default function MobileNumberInput() {
         if (remainingAttempts <= 0) {
           setDeviceLocked(true);
           setLockoutTime(60000); // 1 minute lockout for development
-          Alert.alert(
+          showAlert(
+            "error",
             "Account Locked",
             "Too many failed mobile verification attempts. Your account is locked temporarily."
           );
         } else {
-          Alert.alert(
+          showAlert(
+            "error",
             "Mobile Number Mismatch",
             `The mobile number you have entered does not match your account.`
           );
@@ -197,7 +273,11 @@ export default function MobileNumberInput() {
     } catch (error) {
       console.error("Mobile verification error:", error);
       setLoading(false);
-      Alert.alert("Error", "Failed to verify mobile number. Please try again.");
+      showAlert(
+        "error",
+        "Error",
+        "Failed to verify mobile number. Please try again."
+      );
     }
   };
 
@@ -304,6 +384,15 @@ export default function MobileNumberInput() {
           </View>
         </ScrollView>
       </TouchableWithoutFeedback>
+
+      {/* Branded Alert Modal */}
+      <BrandedAlertModal
+        visible={alertVisible}
+        type={alertType}
+        title={alertTitle}
+        message={alertMessage}
+        onClose={closeAlert}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -484,6 +573,57 @@ const styles = StyleSheet.create({
   lockedMessage: {
     fontSize: 13,
     color: "#666",
+    textAlign: "center",
+  },
+  // Alert Modal Styles
+  alertOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  alertModal: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 40,
+    width: "90%",
+    maxWidth: 400,
+    alignItems: "center",
+  },
+  alertIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  alertTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#133E87",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  alertMessage: {
+    fontSize: 16,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  alertButton: {
+    backgroundColor: "#133E87",
+    paddingVertical: 12,
+    paddingHorizontal: 48,
+    borderRadius: 8,
+    minWidth: 120,
+  },
+  alertButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
     textAlign: "center",
   },
 });

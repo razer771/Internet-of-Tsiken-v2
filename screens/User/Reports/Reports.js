@@ -13,7 +13,13 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { doc, getDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  collection,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
 import { db, auth } from "../../../config/firebaseconfig";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
@@ -636,6 +642,26 @@ export default function Reports({ navigation }) {
         Alert.alert("Success", "PDF saved successfully!");
       }
 
+      // Log report export to Firestore (non-blocking)
+      try {
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          await addDoc(collection(db, "report_logs"), {
+            userId: currentUser.uid,
+            type: "pdf",
+            timestamp: serverTimestamp(),
+            reportName: selectedReportForExport?.displayName || "Sensor Report",
+            fileName: fileName,
+          });
+          console.log("📝 Report export logged (PDF)");
+        }
+      } catch (logError) {
+        console.log(
+          "⚠️ Failed to log PDF export (non-critical):",
+          logError.message
+        );
+      }
+
       setIsExporting(false);
     } catch (error) {
       console.error("Error generating PDF:", error);
@@ -786,6 +812,26 @@ export default function Reports({ navigation }) {
         setShowSuccessModal(true);
       } else {
         Alert.alert("Success", "Excel file saved successfully!");
+      }
+
+      // Log report export to Firestore (non-blocking)
+      try {
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          await addDoc(collection(db, "report_logs"), {
+            userId: currentUser.uid,
+            type: "excel",
+            timestamp: serverTimestamp(),
+            reportName: selectedReportForExport?.displayName || "Sensor Report",
+            fileName: fileName,
+          });
+          console.log("📝 Report export logged (Excel)");
+        }
+      } catch (logError) {
+        console.log(
+          "⚠️ Failed to log Excel export (non-critical):",
+          logError.message
+        );
       }
 
       setIsExporting(false);

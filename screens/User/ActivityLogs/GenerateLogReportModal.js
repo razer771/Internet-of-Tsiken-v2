@@ -17,7 +17,13 @@ import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
 import { Asset } from "expo-asset";
 import { auth, db } from "../../../config/firebaseconfig";
-import { doc, getDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  collection,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
 
 const Icon = Feather;
 
@@ -398,6 +404,31 @@ export default function GenerateLogReportModal({
       });
 
       console.log("PDF shared successfully");
+
+      // Log report export to Firestore (non-blocking)
+      try {
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          await addDoc(collection(db, "report_logs"), {
+            userId: currentUser.uid,
+            type: "pdf",
+            timestamp: serverTimestamp(),
+            reportName: "Activity Log Report",
+            fileName: fileName,
+            filters: {
+              startDate: formatFullDate(startDate),
+              endDate: formatFullDate(endDate),
+              logCount: logs.length,
+            },
+          });
+          console.log("📝 Report export logged (Activity Log PDF)");
+        }
+      } catch (logError) {
+        console.log(
+          "⚠️ Failed to log PDF export (non-critical):",
+          logError.message
+        );
+      }
 
       // Call the original onGenerate callback
       if (onGenerate) {

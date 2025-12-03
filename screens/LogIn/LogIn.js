@@ -6,21 +6,29 @@ import {
   TouchableOpacity,
   StyleSheet,
   Image,
-  Alert,
   Keyboard,
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
   Platform,
   ActivityIndicator,
   Pressable,
+  Modal,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
+import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import Checkbox from "expo-checkbox";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  collection,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig.js";
 import {
   checkLoginLockout,
@@ -32,6 +40,50 @@ import {
 
 const Logo = require("../../assets/logo.png");
 
+// Reusable Branded Alert Modal Component
+const BrandedAlertModal = ({ visible, type, title, message, onClose }) => {
+  const getIconConfig = () => {
+    switch (type) {
+      case "success":
+        return { name: "check-circle", color: "#4CAF50" };
+      case "error":
+        return { name: "alert-circle", color: "#c41e3a" };
+      case "info":
+        return { name: "information", color: "#2196F3" };
+      default:
+        return { name: "information", color: "#2196F3" };
+    }
+  };
+
+  const iconConfig = getIconConfig();
+
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View style={styles.alertOverlay}>
+        <View style={styles.alertModal}>
+          <View
+            style={[
+              styles.alertIconContainer,
+              { backgroundColor: `${iconConfig.color}20` },
+            ]}
+          >
+            <MaterialCommunityIcons
+              name={iconConfig.name}
+              size={48}
+              color={iconConfig.color}
+            />
+          </View>
+          <Text style={styles.alertTitle}>{title}</Text>
+          <Text style={styles.alertMessage}>{message}</Text>
+          <TouchableOpacity style={styles.alertButton} onPress={onClose}>
+            <Text style={styles.alertButtonText}>OK</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -42,7 +94,24 @@ export default function Login() {
   const [deviceLocked, setDeviceLocked] = useState(false);
   const [lockoutTime, setLockoutTime] = useState(null);
 
+  // Alert Modal State
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertType, setAlertType] = useState("info");
+  const [alertTitle, setAlertTitle] = useState("");
+  const [alertMessage, setAlertMessage] = useState("");
+
   const navigation = useNavigation();
+
+  const showAlert = (type, title, message) => {
+    setAlertType(type);
+    setAlertTitle(title);
+    setAlertMessage(message);
+    setAlertVisible(true);
+  };
+
+  const closeAlert = () => {
+    setAlertVisible(false);
+  };
 
   useEffect(() => {
     checkDeviceLockoutStatus();
@@ -125,11 +194,35 @@ export default function Login() {
 
     // Admin bypass login
     if (email === "admin@example.com" && password === "admin1234") {
-      console.log("✅ Admin login successful!");
+      console.log("✅ Admin bypass login successful! (admin@example.com)");
+      console.log("🔀 Navigating to AdminDashboard (bypass route)");
+
+      // Log admin bypass login event to session_logs collection (non-blocking)
+      try {
+        await addDoc(collection(db, "session_logs"), {
+          userId: "admin_bypass",
+          action: "login",
+          description: "Logged in",
+          timestamp: serverTimestamp(),
+          deviceInfo: Platform.OS,
+          email: "admin@example.com",
+          loginType: "admin_bypass",
+        });
+        console.log("📝 Admin bypass login event logged to session_logs");
+      } catch (logError) {
+        console.log(
+          "⚠️ Failed to log admin bypass login (non-critical):",
+          logError.message
+        );
+      }
+
       // Save admin bypass flag
       await AsyncStorage.setItem("isAdminBypass", "true");
       await AsyncStorage.setItem("adminEmail", "admin@example.com");
-      navigation.navigate("AdminDashboard");
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "AdminDashboard" }],
+      });
       return;
     }
 
@@ -152,7 +245,8 @@ export default function Login() {
         console.log("Account is locked");
         setDeviceLocked(true);
         setLockoutTime(lockoutStatus.remainingTime);
-        Alert.alert(
+        showAlert(
+          "error",
           "Account Locked",
           `Too many failed login attempts. Please try again in ${formatLockoutTime(
             lockoutStatus.remainingTime
@@ -177,6 +271,24 @@ export default function Login() {
       const user = userCredential.user;
       console.log("✅ Login successful! User ID:", user.uid);
 
+      // Log login event to session_logs collection (non-blocking)
+      try {
+        await addDoc(collection(db, "session_logs"), {
+          userId: user.uid,
+          action: "login",
+          description: "Logged in",
+          timestamp: serverTimestamp(),
+          deviceInfo: Platform.OS,
+          email: email.trim(),
+        });
+        console.log("📝 Login event logged to session_logs");
+      } catch (logError) {
+        console.log(
+          "⚠️ Failed to log login event (non-critical):",
+          logError.message
+        );
+      }
+
       try {
         const userRef = doc(db, "users", user.uid);
         const userDoc = await getDoc(userRef);
@@ -184,21 +296,66 @@ export default function Login() {
         if (userDoc.exists()) {
           console.log("✅ User data loaded:", userDoc.data());
           const userData = userDoc.data();
-          // Check if user is already verified (check both field names)
+
+          // Check if account is inactive
           if (
-            userData.verified === true ||
-            userData.isVerified === true ||
-            user.emailVerified
+            userData.accountStatus === "inactive" ||
+            userData.accountStatus === "Inactive"
           ) {
+            console.log("❌ Account is inactive, blocking login");
+            setLoading(false);
+            showAlert(
+              "error",
+              "Account Inactive",
+              "Your account has been deactivated. Please contact the administrator for assistance."
+            );
+            // Sign out the user
+            await auth.signOut();
+            return;
+          }
+
+          // Check if password change is required
+          if (userData.requirePasswordChange === true) {
+            console.log(
+              "⚠️ Password change required, redirecting to Create New Password screen"
+            );
+            setLoading(false);
+            // Navigate to Create New Password screen
+            navigation.navigate("CreateNewPassword", { userId: user.uid });
+            return;
+          }
+
+          // Check if user is already verified in Firestore
+          if (userData.verified === true || userData.isVerified === true) {
             console.log("✅ User is verified, skipping OTP");
-            
+
             try {
               await resetLoginAttempts();
             } catch (resetError) {
-              console.log("Error resetting login attempts (non-critical):", resetError);
+              console.log(
+                "Error resetting login attempts (non-critical):",
+                resetError
+              );
             }
-            
-            navigation.navigate("Home");
+
+            // Check user role and navigate accordingly
+            if (userData.role === "Admin") {
+              console.log("👤 User role: Admin");
+              console.log(
+                "🔀 Navigating to AdminDashboard (verified admin user)"
+              );
+              navigation.reset({
+                index: 0,
+                routes: [{ name: "AdminDashboard" }],
+              });
+            } else {
+              console.log("👤 User role:", userData.role || "Regular user");
+              console.log("🔀 Navigating to Home (verified regular user)");
+              navigation.reset({
+                index: 0,
+                routes: [{ name: "Home" }],
+              });
+            }
             return;
           }
 
@@ -207,7 +364,7 @@ export default function Login() {
         } else {
           console.log("❌ User document does not exist in Firestore");
           setLoading(false);
-          setErrors({ auth: "User data not found. Please contact support." });
+          setErrors({ auth: "User data not found." });
           return;
         }
 
@@ -220,7 +377,7 @@ export default function Login() {
       }
     } catch (error) {
       console.error("Firebase Login Error:", error.code, error.message);
-      
+
       try {
         const attempts = await incrementLoginAttempts();
         const remainingAttempts = 5 - attempts;
@@ -245,7 +402,6 @@ export default function Login() {
         if (remainingAttempts <= 0) {
           setDeviceLocked(true);
           setLockoutTime(LOCKOUT_DURATION);
-          setErrors({ auth: "Too many failed login attempts. Account locked for 10 seconds." });
         } else {
           setErrors({ auth: errorMessage });
         }
@@ -274,9 +430,7 @@ export default function Login() {
           <Text style={styles.lockedTime}>
             {lockoutTime ? formatLockoutTime(lockoutTime) : "00:00"}
           </Text>
-          <Text style={styles.lockedMessage}>
-            Please try again later or contact support.
-          </Text>
+          <Text style={styles.lockedMessage}>Please try again later.</Text>
         </View>
       </View>
     );
@@ -393,6 +547,15 @@ export default function Login() {
           </View>
         </KeyboardAwareScrollView>
       </TouchableWithoutFeedback>
+
+      {/* Branded Alert Modal */}
+      <BrandedAlertModal
+        visible={alertVisible}
+        type={alertType}
+        title={alertTitle}
+        message={alertMessage}
+        onClose={closeAlert}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -604,6 +767,57 @@ const styles = StyleSheet.create({
   lockedMessage: {
     fontSize: 13,
     color: "#666",
+    textAlign: "center",
+  },
+  // Alert Modal Styles
+  alertOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  alertModal: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 40,
+    width: "90%",
+    maxWidth: 400,
+    alignItems: "center",
+  },
+  alertIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  alertTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#133E87",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  alertMessage: {
+    fontSize: 16,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  alertButton: {
+    backgroundColor: "#133E87",
+    paddingVertical: 12,
+    paddingHorizontal: 48,
+    borderRadius: 8,
+    minWidth: 120,
+  },
+  alertButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
     textAlign: "center",
   },
 });
