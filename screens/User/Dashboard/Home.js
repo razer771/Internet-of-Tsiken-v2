@@ -71,6 +71,7 @@ class ErrorBoundary extends React.Component {
 export default function QuickOverviewSetup({ navigation }) {
   const [chicksCount, setChicksCount] = useState("");
   const [daysCount, setDaysCount] = useState("");
+  const [harvestDays, setHarvestDays] = useState("");
   const [todayDate, setTodayDate] = useState("");
   const [showQuickSetup, setShowQuickSetup] = useState(false);
   const [userName, setUserName] = useState("User");
@@ -126,12 +127,16 @@ export default function QuickOverviewSetup({ navigation }) {
     try {
       const savedChicks = await AsyncStorage.getItem("chicksCount");
       const savedDays = await AsyncStorage.getItem("daysCount");
+      const savedHarvest = await AsyncStorage.getItem("harvestDays");
 
       if (savedChicks !== null) {
         setChicksCount(savedChicks);
       }
       if (savedDays !== null) {
         setDaysCount(savedDays);
+      }
+      if (savedHarvest !== null) {
+        setHarvestDays(savedHarvest);
       }
     } catch (error) {
       console.error("Error loading saved data:", error);
@@ -178,9 +183,31 @@ export default function QuickOverviewSetup({ navigation }) {
   const openQuickSetup = () => setShowQuickSetup(true);
   const closeQuickSetup = () => setShowQuickSetup(false);
 
-  const handleSaveChicksCountModal = (value) => {
+  const handleSaveChicksCountModal = async (value) => {
     setChicksCount(value);
-    setShowQuickSetup(false);
+    try {
+      await AsyncStorage.setItem("chicksCount", value);
+    } catch (error) {
+      console.error("Error saving chicks count:", error);
+    }
+  };
+
+  const handleSaveDaysCountModal = async (value) => {
+    setDaysCount(value);
+    try {
+      await AsyncStorage.setItem("daysCount", value);
+    } catch (error) {
+      console.error("Error saving days count:", error);
+    }
+  };
+
+  const handleSaveHarvestDaysModal = async (value) => {
+    setHarvestDays(value);
+    try {
+      await AsyncStorage.setItem("harvestDays", value);
+    } catch (error) {
+      console.error("Error saving harvest days:", error);
+    }
   };
 
   // Swipe gesture handler - swipe left to go to Control screen
@@ -237,7 +264,9 @@ export default function QuickOverviewSetup({ navigation }) {
               </View>
               <View style={styles.brooderTextContainer}>
                 <Text style={styles.brooderLabel}>Total Chicks</Text>
-                <Text style={styles.brooderValue}>20</Text>
+                <Text style={styles.brooderValue}>
+                  {chicksCount || "0"}
+                </Text>
               </View>
             </View>
 
@@ -249,7 +278,9 @@ export default function QuickOverviewSetup({ navigation }) {
               </View>
               <View style={styles.brooderTextContainer}>
                 <Text style={styles.brooderLabel}>Age</Text>
-                <Text style={styles.brooderValue}>18 days</Text>
+                <Text style={styles.brooderValue}>
+                  {daysCount ? `${daysCount} days` : "0 days"}
+                </Text>
               </View>
             </View>
 
@@ -261,7 +292,9 @@ export default function QuickOverviewSetup({ navigation }) {
               </View>
               <View style={styles.brooderTextContainer}>
                 <Text style={styles.brooderLabel}>Expected Harvest</Text>
-                <Text style={styles.brooderValue}>27 days</Text>
+                <Text style={styles.brooderValue}>
+                  {harvestDays ? `${harvestDays} days` : "0 days"}
+                </Text>
               </View>
             </View>
           </View>
@@ -313,7 +346,11 @@ export default function QuickOverviewSetup({ navigation }) {
           <QuickSetupModal
             visible={showQuickSetup}
             initialChicksCount={chicksCount}
-            onSave={handleSaveChicksCountModal}
+            initialDaysCount={daysCount}
+            initialHarvestDays={harvestDays}
+            onSaveChicksCount={handleSaveChicksCountModal}
+            onSaveDaysCount={handleSaveDaysCountModal}
+            onSaveHarvestDays={handleSaveHarvestDaysModal}
             onClose={closeQuickSetup}
           />
         </View>
@@ -586,12 +623,11 @@ const styles = StyleSheet.create({
   ctaWrapper: {
     backgroundColor: "#154b99",
     borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
+    paddingVertical: 14,
     alignItems: "center",
-    alignSelf: "flex-start",
+    alignSelf: "stretch",
+    marginHorizontal: 8,
     marginBottom: 24,
-    marginLeft: 8,
   },
   ctaButton: {
     alignItems: "center",
