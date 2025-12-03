@@ -295,3 +295,35 @@ If you encounter issues not covered in this README, please:
 ## 📄 License
 
 0BSD
+
+---
+
+## 📷 Camera Server (YOLO Object Detection)
+
+### Start Camera Server (Local Network Only)
+
+The camera server runs on the same network for fast, low-latency streaming with YOLO object detection.
+
+```bash
+cd ~/Internet-of-Tsiken-v2/"yolo object detection" && ./start_camera.sh
+```
+
+**Access URLs:**
+- Local IP: `http://192.168.68.134:5000` (changes based on your network)
+- Hostname: `http://rpi5desktop.local:5000` (works across all networks)
+
+### Check Server Status
+
+```bash
+curl -s http://localhost:5000/status
+```
+
+### How It Works
+
+1. Start the camera server using the command above
+2. Open the app and navigate to **Control Screen**
+3. Click **"Detect Camera"** button
+4. The app will automatically find the camera server on your network
+5. Live stream with YOLO detection will appear
+
+**Note:** Make sure your phone and Raspberry Pi are on the same WiFi network for best performance.

@@ -13,7 +13,7 @@ import { discoverCameraServer, saveLastWorkingUrl, getLastWorkingUrl } from './C
 
 const PRIMARY = '#133E87';
 
-export default function CameraStream({ serverUrl, onServerDiscovered }) {
+export default function CameraStream({ serverUrl, onServerDiscovered, autoConnect = false, fullscreen = false }) {
   const [isConnected, setIsConnected] = useState(false);
   const [detections, setDetections] = useState({ objects: [], fps: 0, count: 0 });
   const [actualServerUrl, setActualServerUrl] = useState(serverUrl);
@@ -24,6 +24,13 @@ export default function CameraStream({ serverUrl, onServerDiscovered }) {
   // Construct stream URL
   const streamUrl = `${actualServerUrl}/video_feed`;
   const detectionsUrl = `${actualServerUrl}/detections`;
+
+  useEffect(() => {
+    // Auto-connect on mount if enabled (for fullscreen modal)
+    if (autoConnect && discoveryState === 'idle') {
+      startDiscovery();
+    }
+  }, [autoConnect]);
 
   useEffect(() => {
     // Fetch detection data every second if connected
@@ -158,35 +165,49 @@ export default function CameraStream({ serverUrl, onServerDiscovered }) {
     </html>
   `;
 
-  // Idle state - show "Detect Camera" button
+  // Idle state - show placeholder with "Detect Camera" button
   if (discoveryState === 'idle') {
     return (
-      <View style={styles.centerContainer}>
-        <TouchableOpacity style={styles.detectButton} onPress={startDiscovery}>
-          <Ionicons name="camera-outline" size={24} color="#fff" />
-          <Text style={styles.detectButtonText}>Detect Camera</Text>
-        </TouchableOpacity>
+      <View style={styles.container}>
+        <View style={styles.streamContainer}>
+          <View style={styles.placeholderBox}>
+            <TouchableOpacity style={styles.detectButton} onPress={startDiscovery}>
+              <Ionicons name="camera-outline" size={24} color="#fff" />
+              <Text style={styles.detectButtonText}>Detect Camera</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
     );
   }
 
-  // Discovering state - show loading
+  // Discovering state - show placeholder with loading
   if (discoveryState === 'discovering') {
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={PRIMARY} />
+      <View style={styles.container}>
+        <View style={styles.streamContainer}>
+          <View style={styles.placeholderBox}>
+            <ActivityIndicator size="large" color={PRIMARY} />
+            <Text style={styles.searchingText}>Searching for camera...</Text>
+          </View>
+        </View>
       </View>
     );
   }
 
-  // Failed state - show error and retry
+  // Failed state - show placeholder with error and retry
   if (discoveryState === 'failed') {
     return (
-      <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>No camera detected</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
-          <Text style={styles.retryText}>Please try again</Text>
-        </TouchableOpacity>
+      <View style={styles.container}>
+        <View style={styles.streamContainer}>
+          <View style={styles.placeholderBox}>
+            <Ionicons name="warning-outline" size={48} color="#666" style={{marginBottom: 12}} />
+            <Text style={styles.errorText}>No camera detected</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+              <Text style={styles.retryText}>Try Again</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
     );
   }
@@ -195,7 +216,7 @@ export default function CameraStream({ serverUrl, onServerDiscovered }) {
   return (
     <View style={styles.container}>
       {/* Live Stream using WebView */}
-      <View style={styles.streamContainer}>
+      <View style={fullscreen ? styles.streamContainerFullscreen : styles.streamContainer}>
         <WebView
           ref={webViewRef}
           source={{ html: streamHTML }}
@@ -208,39 +229,46 @@ export default function CameraStream({ serverUrl, onServerDiscovered }) {
           }}
         />
         
-        {/* Live Badge */}
-        <View style={styles.liveBadge}>
-          <View style={styles.liveDot} />
-          <Text style={styles.liveText}>LIVE</Text>
-        </View>
+        {/* Show badges only when NOT in fullscreen */}
+        {!fullscreen && (
+          <>
+            {/* Live Badge */}
+            <View style={styles.liveBadge}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveText}>LIVE</Text>
+            </View>
 
-        {/* FPS Counter */}
-        <View style={styles.fpsBadge}>
-          <Text style={styles.fpsText}>{detections.fps} FPS</Text>
-        </View>
-      </View>
-
-      {/* Detection Info */}
-      <View style={styles.infoContainer}>
-        <View style={styles.infoRow}>
-          <Ionicons name="eye-outline" size={20} color={PRIMARY} />
-          <Text style={styles.infoText}>
-            {detections.count} object{detections.count !== 1 ? 's' : ''} detected
-          </Text>
-        </View>
-
-        {/* List detected objects */}
-        {detections.objects && detections.objects.length > 0 && (
-          <View style={styles.objectsList}>
-            {detections.objects.slice(0, 5).map((obj, idx) => (
-              <View key={idx} style={styles.objectTag}>
-                <Text style={styles.objectName}>{obj.class}</Text>
-                <Text style={styles.objectConf}>{obj.confidence}%</Text>
-              </View>
-            ))}
-          </View>
+            {/* FPS Counter */}
+            <View style={styles.fpsBadge}>
+              <Text style={styles.fpsText}>{detections.fps} FPS</Text>
+            </View>
+          </>
         )}
       </View>
+
+      {/* Show detection info only when NOT in fullscreen */}
+      {!fullscreen && (
+        <View style={styles.infoContainer}>
+          <View style={styles.infoRow}>
+            <Ionicons name="eye-outline" size={20} color={PRIMARY} />
+            <Text style={styles.infoText}>
+              {detections.count} object{detections.count !== 1 ? 's' : ''} detected
+            </Text>
+          </View>
+
+          {/* List detected objects */}
+          {detections.objects && detections.objects.length > 0 && (
+            <View style={styles.objectsList}>
+              {detections.objects.slice(0, 5).map((obj, idx) => (
+                <View key={idx} style={styles.objectTag}>
+                  <Text style={styles.objectName}>{obj.class}</Text>
+                  <Text style={styles.objectConf}>{obj.confidence}%</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -249,10 +277,19 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  centerContainer: {
+  placeholderBox: {
     flex: 1,
+    backgroundColor: '#1a1a1a',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#333',
+    borderStyle: 'dashed',
+  },
+  searchingText: {
+    color: '#999',
+    fontSize: 14,
+    marginTop: 12,
   },
   detectButton: {
     flexDirection: 'row',
@@ -270,7 +307,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 16,
-    color: '#666',
+    color: '#999',
     marginBottom: 20,
   },
   retryButton: {
@@ -291,6 +328,14 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
     position: 'relative',
+  },
+  streamContainerFullscreen: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000',
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   webView: {
     flex: 1,

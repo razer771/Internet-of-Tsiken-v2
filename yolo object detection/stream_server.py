@@ -38,8 +38,9 @@ def initialize_camera():
     global camera
     try:
         camera = Picamera2()
-        # Configure for streaming - smaller resolution for better performance
-        camera.preview_configuration.main.size = (640, 480)
+        # Configure for streaming - YOLO optimized resolution (416x416)
+        # Smaller resolution = faster processing
+        camera.preview_configuration.main.size = (416, 416)
         camera.preview_configuration.main.format = "RGB888"
         camera.preview_configuration.align()
         camera.configure("preview")
@@ -54,8 +55,10 @@ def initialize_model():
     """Initialize YOLO model"""
     global model
     try:
-        # Use PyTorch .pt model instead of NCNN for easier installation
+        # Use PyTorch .pt model with optimizations
         model = YOLO("yolov8n.pt")
+        # Enable GPU if available (will use CPU on Pi 5)
+        model.to('cpu')  # Explicitly use CPU for Pi
         logger.info("YOLO model loaded successfully")
         return True
     except Exception as e:
@@ -66,6 +69,9 @@ def process_frame():
     """Capture and process frames with YOLO detection"""
     global current_frame, detection_data
     
+    frame_count = 0
+    last_detections = None
+    
     while True:
         try:
             if camera is None or model is None:
@@ -74,8 +80,15 @@ def process_frame():
             # Capture frame
             frame = camera.capture_array()
             
-            # Run YOLO detection
-            results = model(frame, verbose=False)
+            # Skip YOLO detection on some frames for speed (detect every 2nd frame)
+            frame_count += 1
+            if frame_count % 2 == 0 and last_detections is not None:
+                # Reuse previous detection results
+                results = last_detections
+            else:
+                # Run YOLO detection with optimizations
+                results = model(frame, verbose=False, conf=0.5, iou=0.45, imgsz=416)
+                last_detections = results
             
             # Annotate frame with detection boxes
             annotated_frame = results[0].plot()
@@ -115,8 +128,8 @@ def process_frame():
                 'count': len(detections)
             }
             
-            # Encode frame to JPEG
-            _, buffer = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            # Encode frame to JPEG with lower quality for faster encoding
+            _, buffer = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             current_frame = buffer.tobytes()
             
         except Exception as e:
@@ -152,6 +165,23 @@ def status():
         'model': model is not None,
         'timestamp': datetime.now().isoformat()
     })
+
+@app.route('/get_public_url')
+def get_public_url():
+    """Get Cloudflare tunnel public URL"""
+    try:
+        with open('/tmp/tunnel_url.txt', 'r') as f:
+            url = f.read().strip()
+            return jsonify({
+                'url': url,
+                'type': 'cloudflare_tunnel'
+            })
+    except FileNotFoundError:
+        return jsonify({
+            'url': None,
+            'type': 'local_only',
+            'message': 'Tunnel not active - local network only'
+        })
 
 @app.route('/snapshot')
 def snapshot():

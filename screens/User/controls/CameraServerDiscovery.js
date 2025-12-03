@@ -1,5 +1,40 @@
 // CameraServerDiscovery.js - Auto-discover camera server using network scanning
-import { Platform } from 'react-native';
+
+/**
+ * Try to get public URL from local server (if on same network)
+ */
+async function tryGetPublicUrl() {
+  const localUrls = [
+    'http://192.168.68.134:5000',
+    'http://192.168.1.19:5000',
+    'http://10.193.174.156:5000'
+  ];
+  
+  for (const baseUrl of localUrls) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      
+      const response = await fetch(`${baseUrl}/get_public_url`, {
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.url) {
+          console.log('📡 Got public URL from server:', data.url);
+          return data.url;
+        }
+      }
+    } catch (err) {
+      // Continue to next URL
+    }
+  }
+  
+  return null;
+}
 
 /**
  * Generate list of IPs to scan across common network ranges
@@ -8,17 +43,18 @@ function generateIPsToScan() {
   const urls = [];
   
   // Common IP addresses to check in each subnet
-  const commonLastOctets = [1, 2, 5, 10, 19, 20, 50, 100, 150, 156, 200, 254];
+  const commonLastOctets = [1, 2, 5, 10, 19, 20, 50, 100, 134, 150, 156, 200, 254];
   
   // Common subnet prefixes
   const subnets = [
+    '192.168.68',  // Current network
     '192.168.1',   // Most common home router
     '192.168.0',   // Second most common
     '192.168.43',  // Android hotspot
     '172.20.10',   // iOS hotspot
     '10.0.0',      // Corporate/Apple
     '10.0.1',      // Corporate variation
-    '10.193.174',  // Current network
+    '10.193.174',  // Previous network
     '172.27.223',  // Mobile carrier
     '192.168.137', // Windows hotspot
   ];
@@ -40,7 +76,17 @@ function generateIPsToScan() {
 export async function discoverCameraServer(timeout = 2000) {
   console.log('🔍 Auto-discovering camera server...');
   
-  // Step 1: Try hostname (mDNS) - works if network supports it
+  // Step 1: Try to get public URL from local server (if on same network)
+  const publicUrl = await tryGetPublicUrl();
+  if (publicUrl) {
+    const found = await tryUrl(publicUrl, timeout);
+    if (found) {
+      console.log('✅ Using public URL:', publicUrl);
+      return found;
+    }
+  }
+  
+  // Step 2: Try hostname (mDNS) - works if network supports it
   const hostnameUrls = [
     'http://rpi5desktop.local:5000',
     'http://RPi5Desktop.local:5000',
@@ -51,7 +97,7 @@ export async function discoverCameraServer(timeout = 2000) {
     if (found) return found;
   }
   
-  // Step 2: Scan common IPs across multiple subnets
+  // Step 3: Scan common IPs across multiple subnets
   const allUrls = generateIPsToScan();
   console.log(`🔎 Scanning ${allUrls.length} IPs across common networks...`);
   

@@ -463,14 +463,12 @@ export default function ControlScreen({ navigation }) {
           <TouchableOpacity
             style={styles.cameraBox}
             onPress={() => setCameraModal(true)}
+            activeOpacity={0.8}
           >
-            <Image
-              source={require("../../../assets/proposal meeting.png")}
-              style={styles.cameraImage}
+            <CameraStream 
+              serverUrl={cameraServerUrl}
+              onServerDiscovered={handleServerDiscovered}
             />
-            <View style={styles.liveBadge}>
-              <Text style={{ color: "#fff", fontWeight: "700" }}>● LIVE</Text>
-            </View>
           </TouchableOpacity>
         </View>
 
@@ -968,50 +966,23 @@ export default function ControlScreen({ navigation }) {
       </Modal>
 
       {/* Camera Modal */}
-      <Modal visible={cameraModal} transparent animationType="slide">
-        <View style={styles.fullScreenModal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Live Camera Surveillance</Text>
-            <TouchableOpacity onPress={() => setCameraModal(false)}>
-              <Ionicons name="close-circle" size={32} color={PRIMARY} />
-            </TouchableOpacity>
-          </View>
+      <Modal visible={cameraModal} transparent animationType="fade">
+        <View style={styles.fullScreenCameraModal}>
+          <TouchableOpacity 
+            style={styles.closeButton}
+            onPress={() => setCameraModal(false)}
+          >
+            <Ionicons name="close-circle" size={40} color="#fff" />
+          </TouchableOpacity>
           
-          <View style={styles.cameraStreamContainer}>
+          <View style={styles.fullScreenCameraContainer}>
             <CameraStream 
               serverUrl={cameraServerUrl}
               onServerDiscovered={handleServerDiscovered}
+              autoConnect={true}
+              fullscreen={true}
             />
           </View>
-
-          <View style={styles.modalActions}>
-            <TouchableOpacity
-              style={[styles.primaryBtn, { backgroundColor: "#999", flex: 1 }]}
-              onPress={() => setCameraModal(false)}
-            >
-              <Ionicons name="close-circle" size={18} color="#fff" style={{ marginRight: 6 }} />
-              <Text style={styles.primaryBtnText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Advanced settings - hidden by default, only shown if auto-discovery fails */}
-          {showServerInput && (
-            <View style={styles.serverInputContainer}>
-              <Text style={styles.smallLabel}>Raspberry Pi Server URL:</Text>
-              <TextInput
-                style={styles.formInput}
-                value={cameraServerUrl}
-                onChangeText={setCameraServerUrl}
-                placeholder="http://rpi5desktop.local:5000"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <Text style={styles.smallNote}>
-                💡 Tip: Using hostname (rpi5desktop.local) works across different networks!
-                {'\n'}Or enter IP address manually (e.g., http://192.168.1.19:5000)
-              </Text>
-            </View>
-          )}
         </View>
       </Modal>
 
@@ -1361,20 +1332,9 @@ const styles = StyleSheet.create({
 
   cameraBox: {
     marginTop: 10,
+    height: 200,
     borderRadius: 8,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#ddd",
-  },
-  cameraImage: { width: "100%", height: 145, resizeMode: "cover" },
-  liveBadge: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-    backgroundColor: "red",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+    overflow: 'hidden',
   },
 
   smallNote: { color: "#666", marginTop: 6 },
@@ -1517,6 +1477,26 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
     elevation: 10,
+  },
+  fullScreenCameraModal: {
+    flex: 1,
+    backgroundColor: "#000",
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 50 : 20,
+    right: 20,
+    zIndex: 999,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 20,
+  },
+  fullScreenCameraContainer: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   fullScreenModal: {
     flex: 1,
