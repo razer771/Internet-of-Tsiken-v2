@@ -2,7 +2,8 @@ import React, { useState } from "react";
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Modal } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import Icon from "react-native-vector-icons/Feather";
-import Header2 from "../navigation/adminHeader";
+import Header2 from "./adminHeader";
+
 
 const users = [
     {

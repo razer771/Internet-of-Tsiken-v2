@@ -16,81 +16,91 @@ import {
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
-import Checkbox from "expo-checkbox";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig.js";
 import {
   checkLoginLockout,
   incrementLoginAttempts,
   resetLoginAttempts,
   formatLockoutTime,
-  LOCKOUT_DURATION,
+  getLockoutMessage,
+  getRemainingAttemptsMessage,
+  LOCKOUT_DURATIONS, // ADD THIS
 } from "./deviceLockout";
 
 const Logo = require("../../assets/logo.png");
 
 export default function Login() {
+  const navigation = useNavigation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [deviceLocked, setDeviceLocked] = useState(false);
   const [lockoutTime, setLockoutTime] = useState(null);
+  const [lockoutMessage, setLockoutMessage] = useState("");
 
-  const navigation = useNavigation();
-
+  // Timer effect to countdown lockout time
   useEffect(() => {
-    checkDeviceLockoutStatus();
-    // Temporary: Clear old lockout data for testing
-    clearOldLockoutData();
-  }, []);
-
-  const clearOldLockoutData = async () => {
-    try {
-      await AsyncStorage.removeItem("device_login_lockout");
-      await AsyncStorage.removeItem("device_login_attempts");
-      console.log("Cleared old lockout data");
-    } catch (error) {
-      console.error("Error clearing lockout data:", error);
-    }
-  };
-
-  // Always clear email, password, and errors whenever Login regains focus
-  useFocusEffect(
-    React.useCallback(() => {
-      setEmail("");
-      setPassword("");
-      setErrors({});
-    }, [])
-  );
-
-  useEffect(() => {
-    let interval;
+    let timer;
     if (deviceLocked && lockoutTime > 0) {
-      interval = setInterval(() => {
-        setLockoutTime((prev) => {
-          const newTime = prev - 1000;
+      timer = setInterval(() => {
+        setLockoutTime((prevTime) => {
+          const newTime = prevTime - 1000; // Decrease by 1 second
+          
           if (newTime <= 0) {
+            // Lockout expired
+            console.log("✅ Lockout timer expired, unlocking...");
             setDeviceLocked(false);
-            return null;
+            setLockoutTime(null);
+            setLockoutMessage("");
+            
+            // Clear lockout from AsyncStorage
+            if (email && email.trim()) {
+              resetLoginAttempts(email.trim());
+            }
+            
+            return 0;
           }
+          
           return newTime;
         });
-      }, 1000);
+      }, 1000); // Update every second
     }
-    return () => clearInterval(interval);
-  }, [deviceLocked, lockoutTime]);
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [deviceLocked, lockoutTime, email]);
+
+  // Check lockout status when email changes
+  useEffect(() => {
+    if (email && email.trim() !== "") {
+      checkDeviceLockoutStatus();
+    }
+  }, [email]);
 
   const checkDeviceLockoutStatus = async () => {
-    const lockoutStatus = await checkLoginLockout();
+    if (!email || email.trim() === "") return;
+    
+    console.log("🔍 Checking lockout status for account:", email);
+    const lockoutStatus = await checkLoginLockout(email.trim());
+    console.log("Lockout status:", lockoutStatus);
+    
     if (lockoutStatus.isLockedOut) {
+      console.log("🔒 Account was already locked");
       setDeviceLocked(true);
       setLockoutTime(lockoutStatus.remainingTime);
+      setLockoutMessage(getLockoutMessage(lockoutStatus.totalAttempts));
+    } else {
+      console.log("✅ Account is not locked");
+      setDeviceLocked(false);
+      setLockoutTime(null);
+      setLockoutMessage("");
     }
   };
 
@@ -126,43 +136,61 @@ export default function Login() {
     // Admin bypass login
     if (email === "admin@example.com" && password === "admin1234") {
       console.log("✅ Admin login successful!");
-      // Save admin bypass flag
       await AsyncStorage.setItem("isAdminBypass", "true");
       await AsyncStorage.setItem("adminEmail", "admin@example.com");
       navigation.navigate("AdminDashboard");
       return;
     }
 
-    // Clear admin bypass flag for regular users
-    await AsyncStorage.removeItem("isAdminBypass");
-    await AsyncStorage.removeItem("adminEmail");
-
-    // Clear admin bypass flag for regular users
-    await AsyncStorage.removeItem("isAdminBypass");
-    await AsyncStorage.removeItem("adminEmail");
-
-    console.log("Validation passed!");
-
-    try {
-      console.log("Checking lockout status...");
-      const lockoutStatus = await checkLoginLockout();
-      console.log("Lockout status:", lockoutStatus);
-
-      if (lockoutStatus && lockoutStatus.isLockedOut) {
-        console.log("Account is locked");
-        setDeviceLocked(true);
-        setLockoutTime(lockoutStatus.remainingTime);
-        Alert.alert(
-          "Account Locked",
-          `Too many failed login attempts. Please try again in ${formatLockoutTime(
-            lockoutStatus.remainingTime
-          )}.`
-        );
-        return;
-      }
-    } catch (lockoutError) {
-      console.log("Lockout check error (continuing anyway):", lockoutError);
+    // Check if account is already locked FIRST
+    const lockoutStatus = await checkLoginLockout(email.trim());
+    if (lockoutStatus.isLockedOut) {
+      console.log("🔒 Account is locked - showing locked screen");
+      setDeviceLocked(true);
+      setLockoutTime(lockoutStatus.remainingTime);
+      setLockoutMessage(getLockoutMessage(lockoutStatus.totalAttempts));
+      return;
     }
+
+    // Check if account is locked in Firestore
+    try {
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("email", "==", email.trim()));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const userData = querySnapshot.docs[0].data();
+        
+        if (userData.accountLocked) {
+          const lockedAt = new Date(userData.lockedAt);
+          const lockDuration = userData.lockoutDuration || LOCKOUT_DURATIONS.FIRST;
+          const unlockTime = lockedAt.getTime() + lockDuration;
+          const now = Date.now();
+          
+          if (now < unlockTime) {
+            const remainingTime = unlockTime - now;
+            console.log("🔒 Account locked in Firestore - showing locked screen");
+            setDeviceLocked(true);
+            setLockoutTime(remainingTime);
+            setLockoutMessage(getLockoutMessage(userData.totalAttempts || 5));
+            return;
+          } else {
+            // Unlock the account
+            await updateDoc(doc(db, "users", querySnapshot.docs[0].id), {
+              accountLocked: false,
+              lockedAt: null,
+            });
+            await resetLoginAttempts(email.trim());
+          }
+        }
+      }
+    } catch (checkError) {
+      console.error("Error checking account lock:", checkError);
+    }
+
+    // Clear admin bypass flag for regular users
+    await AsyncStorage.removeItem("isAdminBypass");
+    await AsyncStorage.removeItem("adminEmail");
 
     console.log("Starting Firebase authentication...");
     setLoading(true);
@@ -177,6 +205,9 @@ export default function Login() {
       const user = userCredential.user;
       console.log("✅ Login successful! User ID:", user.uid);
 
+      // Reset attempts on successful login for this account
+      await resetLoginAttempts(email.trim());
+
       try {
         const userRef = doc(db, "users", user.uid);
         const userDoc = await getDoc(userRef);
@@ -184,26 +215,18 @@ export default function Login() {
         if (userDoc.exists()) {
           console.log("✅ User data loaded:", userDoc.data());
           const userData = userDoc.data();
-          // Check if user is already verified (check both field names)
+          // Check if user is already verified
           if (
             userData.verified === true ||
             userData.isVerified === true ||
             user.emailVerified
           ) {
             console.log("✅ User is verified, skipping OTP");
-            
-            try {
-              await resetLoginAttempts();
-            } catch (resetError) {
-              console.log("Error resetting login attempts (non-critical):", resetError);
-            }
-            
             navigation.navigate("Home");
             return;
           }
 
           console.log("✅ User data loaded:", userData);
-          // You can store userData in global state (Context/Redux) if needed
         } else {
           console.log("❌ User document does not exist in Firestore");
           setLoading(false);
@@ -211,7 +234,7 @@ export default function Login() {
           return;
         }
 
-        // Navigate to VerifyIdentity for OTP verification (only if not verified)
+        // Navigate to VerifyIdentity for OTP verification
         console.log("⏳ User not verified, redirecting to OTP");
         navigation.navigate("VerifyIdentity");
       } catch (firestoreError) {
@@ -221,37 +244,58 @@ export default function Login() {
     } catch (error) {
       console.error("Firebase Login Error:", error.code, error.message);
       
-      try {
-        const attempts = await incrementLoginAttempts();
-        const remainingAttempts = 5 - attempts;
+      const result = await incrementLoginAttempts(email.trim());
+      
+      console.log(`❌ Failed attempt #${result.attempts} for ${email}`);
 
-        let errorMessage = "Invalid email or password.";
-        if (error.code === "auth/invalid-credential") {
-          errorMessage = "Invalid email or password.";
-        } else if (error.code === "auth/invalid-email") {
-          errorMessage = "Invalid email address format.";
-        } else if (error.code === "auth/too-many-requests") {
-          errorMessage = "Too many login attempts. Please try again later.";
-        } else if (error.code === "auth/user-not-found") {
-          errorMessage = "No account found with this email.";
-        } else if (error.code === "auth/wrong-password") {
-          errorMessage = "Incorrect password.";
-        } else if (error.code === "auth/network-request-failed") {
-          errorMessage = "Network error. Please check your connection.";
-        } else {
-          errorMessage = "Login failed. Please try again.";
+      let errorMessage = "Invalid email or password.";
+      if (error.code === "auth/invalid-credential") {
+        errorMessage = "Invalid email or password.";
+      } else if (error.code === "auth/invalid-email") {
+        errorMessage = "Invalid email address format.";
+      } else if (error.code === "auth/too-many-requests") {
+        errorMessage = "Too many login attempts. Please try again later.";
+      } else if (error.code === "auth/user-not-found") {
+        errorMessage = "No account found with this email.";
+      } else if (error.code === "auth/wrong-password") {
+        errorMessage = "Incorrect password.";
+      } else if (error.code === "auth/network-request-failed") {
+        errorMessage = "Network error. Please check your connection.";
+      }
+
+      if (result.shouldLock) {
+        console.log(`🔒 LOCKING ACCOUNT ${email}: ${result.message}`);
+        
+        // Lock the account in Firestore
+        try {
+          const usersRef = collection(db, "users");
+          const q = query(usersRef, where("email", "==", email.trim()));
+          const querySnapshot = await getDocs(q);
+          
+          if (!querySnapshot.empty) {
+            const userDoc = querySnapshot.docs[0];
+            await updateDoc(doc(db, "users", userDoc.id), {
+              accountLocked: true,
+              lockedAt: new Date().toISOString(),
+              lockoutDuration: result.duration,
+              totalAttempts: result.attempts,
+            });
+            console.log(`✅ Account ${email} locked in Firestore: ${result.message}`);
+          }
+        } catch (lockError) {
+          console.error("Error locking account in Firestore:", lockError);
         }
 
-        if (remainingAttempts <= 0) {
-          setDeviceLocked(true);
-          setLockoutTime(LOCKOUT_DURATION);
-          setErrors({ auth: "Too many failed login attempts. Account locked for 10 seconds." });
-        } else {
-          setErrors({ auth: errorMessage });
-        }
-      } catch (lockoutError) {
-        console.error("Lockout handling error:", lockoutError);
-        setErrors({ auth: "Login failed. Please try again." });
+        // SHOW LOCKED SCREEN IMMEDIATELY
+        setDeviceLocked(true);
+        setLockoutTime(result.duration);
+        setLockoutMessage(getLockoutMessage(result.attempts));
+        console.log("🔒 LOCKED SCREEN SHOULD NOW BE VISIBLE");
+      } else {
+        const remainingMessage = getRemainingAttemptsMessage(result.attempts);
+        setErrors({ 
+          auth: `${errorMessage} (${remainingMessage})` 
+        });
       }
     } finally {
       setLoading(false);
@@ -269,13 +313,13 @@ export default function Login() {
           <Ionicons name="lock-closed" size={48} color="#c41e3a" />
           <Text style={styles.lockedTitle}>Account Locked</Text>
           <Text style={styles.lockedSubtitle}>
-            Too many failed login attempts
+            {lockoutMessage}
           </Text>
           <Text style={styles.lockedTime}>
             {lockoutTime ? formatLockoutTime(lockoutTime) : "00:00"}
           </Text>
           <Text style={styles.lockedMessage}>
-            Please try again later or contact support.
+            Please wait for the timer to expire or contact support.
           </Text>
         </View>
       </View>
@@ -357,16 +401,6 @@ export default function Login() {
 
             {/* Options Row */}
             <View style={styles.optionsRow}>
-              <View style={styles.checkboxContainer}>
-                <Checkbox
-                  value={remember}
-                  onValueChange={setRemember}
-                  color={remember ? "#3b4cca" : undefined}
-                  style={styles.checkbox}
-                />
-                <Text style={styles.rememberText}>Remember password</Text>
-              </View>
-
               <View style={styles.forgotWrapper}>
                 <TouchableOpacity onPress={handleForgotPassword}>
                   <Text style={styles.forgotText}>Forgot password?</Text>
@@ -489,21 +523,13 @@ const styles = StyleSheet.create({
   },
   optionsRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
     alignItems: "center",
     width: "100%",
     marginVertical: 14,
-    gap: 12,
   },
-  checkboxContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  checkbox: {
-    marginRight: 2,
-  },
-  rememberText: {
-    color: "#333",
+  forgotWrapper: {
+    // Removed extra styles, inherits from parent
   },
   forgotText: {
     color: "#3b4cca",

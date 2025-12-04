@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { SafeAreaView, ScrollView, View, Text, StyleSheet, TouchableOpacity, Modal } from "react-native";
-import Header2 from "../navigation/adminHeader";
+import Header2 from "./adminHeader";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 
 const COLUMN_WIDTHS = {
