@@ -1,4 +1,4 @@
-import Header2 from "./adminHeader";
+import Header2 from "../navigation/adminHeader";
 import React, { useState, useEffect } from "react";
 import { SafeAreaView, ScrollView, View, Text, StyleSheet, TouchableOpacity, Modal, ActivityIndicator } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";

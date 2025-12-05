@@ -32,6 +32,7 @@ import ConfirmPassword from "./screens/LogIn/ConfirmPassword";
 import Home from "./screens/User/Dashboard/Home";
 import Notification from "./screens/User/controls/Notification";
 import AdminNotification from "./screens/Admin/AdminNotification";
+import AdminNotificationContext from "./screens/Admin/AdminNotificationContext";
 import ControlScreen from "./screens/User/controls/ControlScreen";
 import AppInfo from "./screens/User/controls/appInfo";
 import TermsAndConditions from "./screens/User/controls/TermsAndConditions";
@@ -49,6 +50,7 @@ import UserManagement from "./screens/Admin/userManagement";
 import CreateAccount from "./screens/Admin/createAccount";
 import AdminAnalytics from "./screens/Admin/adminAnalytics";
 import Header from "./screens/navigation/Header";
+import AdminHeader from "./screens/navigation/adminHeader";
 import BottomNavigation from "./screens/navigation/BottomNavigation";
 import ActivityLogs from "./screens/Admin/activityLogs";
 
@@ -65,6 +67,17 @@ const AUTH_SCREENS = [
   "MobileNumberInput",
   "OTPVerification",
   "ConfirmPassword",
+  "AdminDashboard",
+  "UserManagement",
+  "CreateAccount",
+  "AdminAnalytics",
+  "AdminActivityLogs",
+  "AdminNotification",
+  "AdminNotificationContext"
+];
+
+// Admin screens that should show AdminHeader instead of regular Header
+const ADMIN_SCREENS = [
   "AdminDashboard",
   "UserManagement",
   "CreateAccount",
@@ -183,7 +196,14 @@ export default function App() {
   useEffect(() => {
     if (isAuthenticated && !authLoading) {
       // If user is authenticated but on an auth screen, redirect
-      if (AUTH_SCREENS.includes(currentRoute) && currentRoute !== "AdminDashboard" && currentRoute !== "JsonSplash") {
+      if (AUTH_SCREENS.includes(currentRoute) && 
+          currentRoute !== "AdminDashboard" && 
+          currentRoute !== "AdminNotification" &&
+          currentRoute !== "UserManagement" &&
+          currentRoute !== "CreateAccount" &&
+          currentRoute !== "AdminAnalytics" &&
+          currentRoute !== "AdminActivityLogs" &&
+          currentRoute !== "JsonSplash") {
         if (navigationRef.isReady()) {
           navigationRef.reset({
             index: 0,
@@ -241,7 +261,7 @@ export default function App() {
       <AdminNotificationProvider>
         <View style={styles.container}>
           <NavigationContainer ref={navigationRef}>
-          {!isAuthScreen && <Header />}
+          {!isAuthScreen && (ADMIN_SCREENS.includes(currentRoute) ? <AdminHeader /> : <Header />)}
           <View style={[styles.content, !isAuthScreen && styles.contentWithNav]}>
           <Stack.Navigator
             initialRouteName={initialRoute}

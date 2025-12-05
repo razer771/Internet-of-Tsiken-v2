@@ -12,7 +12,7 @@ import {
   Modal,
 } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
-import Header2 from "./adminHeader";
+import Header2 from "../navigation/adminHeader";
 
 export default function CreateAccount({ navigation }) {
   const [firstName, setFirstName] = useState("");

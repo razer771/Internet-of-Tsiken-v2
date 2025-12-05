@@ -12,7 +12,7 @@ import {
   Button,
   Alert,
 } from "react-native";
-import Header2 from "./adminHeader";
+import Header2 from "../navigation/adminHeader";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation } from "@react-navigation/native";
 

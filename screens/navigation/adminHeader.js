@@ -60,7 +60,7 @@ const MenuIcon = ({ size = 22, color = "#1a1a1a", style, ...props }) => (
   </View>
 );
 
-export default function Header2() {
+export default function AdminHeader() {
   const navigation = useNavigation();
   const { unreadCount } = useAdminNotifications();
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
