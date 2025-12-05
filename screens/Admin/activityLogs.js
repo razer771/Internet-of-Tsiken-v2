@@ -1,4 +1,3 @@
-import Header2 from "../navigation/adminHeader";
 import React, { useState, useEffect } from "react";
 import {
   SafeAreaView,

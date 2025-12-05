@@ -6,6 +6,7 @@ import {
   SafeAreaView,
   ScrollView,
   TouchableOpacity,
+  Dimensions,
 } from "react-native";
 import Header2 from "../navigation/adminHeader";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
@@ -19,6 +20,8 @@ import {
   getDoc,
 } from "firebase/firestore";
 import { db } from "../../config/firebaseconfig";
+
+const { width: windowWidth } = Dimensions.get("window");
 
 export default function AdminDashboard() {
   const navigation = useNavigation();
@@ -377,7 +380,7 @@ export default function AdminDashboard() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Header2 />
+      <Header2 showBackButton={false} />
       <ScrollView
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
@@ -462,11 +465,6 @@ export default function AdminDashboard() {
               color="#234187"
             />
           </View>
-        </View>
-
-        {/* Reports tab */}
-        <View style={{ width: "100%", marginTop: 12, marginBottom: 24 }}>
-          <ReportsTab barData={barData} metrics={metrics} />
         </View>
 
         {/* --- Admin Actions Section --- */}

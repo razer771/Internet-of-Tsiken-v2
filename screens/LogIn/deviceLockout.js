@@ -14,6 +14,7 @@ export const OTP_LOCKOUT_DURATION = IS_PRODUCTION
 // Attempt limits
 const LOGIN_ATTEMPT_LIMIT = 5;
 const OTP_ATTEMPT_LIMIT = 5;
+const MAX_ATTEMPTS = LOGIN_ATTEMPT_LIMIT; // For backward compatibility
 
 // Legacy export for backward compatibility
 export const LOCKOUT_DURATION = LOGIN_LOCKOUT_DURATION;
@@ -156,6 +157,16 @@ export const incrementLoginAttempts = async (email) => {
       duration: 0, 
       message: "Attempt recorded, not locked." 
     };
+  } catch (error) {
+    console.error("Error incrementing login attempts:", error);
+    return { 
+      attempts: 0, 
+      shouldLock: false, 
+      duration: 0, 
+      message: "Error recording attempt." 
+    };
+  }
+};
 
 /**
  * Lock out login on device
@@ -182,8 +193,8 @@ export const lockoutLoginOnDevice = async () => {
 };
 
 /**
- * Clears the failed login attempt count and lockout status.
- * @param {string} email - The email address to reset.
+ * Lock out OTP on device
+ * @returns {Promise<void>}
  */
 export const lockoutOTPOnDevice = async () => {
   try {
@@ -202,6 +213,11 @@ export const lockoutOTPOnDevice = async () => {
   }
 };
 
+/**
+ * Clears the failed login attempt count and lockout status.
+ * @param {string} email - The email address to reset.
+ */
+export const resetLoginAttempts = async (email) => {
   const attemptsKey = getAttemptsKey(email);
   const lockoutKey = getLockoutKey(email);
   

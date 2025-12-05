@@ -155,13 +155,13 @@ export default function UserManagement({ navigation }) {
           const userId = userDoc.id;
 
           // Fetch session logs for this user to determine status
+          // Simplified query to avoid composite index requirement
           const sessionLogsRef = collection(db, "session_logs");
           const loginQuery = query(
             sessionLogsRef,
             where("userId", "==", userId),
-            where("action", "==", "login"),
             orderBy("timestamp", "desc"),
-            limit(1)
+            limit(10)
           );
 
           let status = "inactive";
@@ -172,8 +172,13 @@ export default function UserManagement({ navigation }) {
               sessionSnapshot.size
             );
 
-            if (!sessionSnapshot.empty) {
-              const lastLogin = sessionSnapshot.docs[0].data().timestamp;
+            // Filter for login actions in memory
+            const loginLogs = sessionSnapshot.docs.filter(
+              doc => doc.data().action === "login"
+            );
+
+            if (loginLogs.length > 0) {
+              const lastLogin = loginLogs[0].data().timestamp;
               const lastLoginDate = lastLogin?.toDate();
 
               if (lastLoginDate) {

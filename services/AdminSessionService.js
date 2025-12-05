@@ -18,10 +18,11 @@ const SESSION_TIMEOUT = 24 * 60 * 60 * 1000;
 
 /**
  * Create a new admin session
+ * @param {string} userId - User ID
  * @param {string} email - Admin email address
  * @param {string} role - Admin role (optional)
  */
-export const createAdminSession = async (email, role = "admin") => {
+export const createAdminSession = async (userId, email, role = "admin") => {
   try {
     const sessionData = {
       [ADMIN_SESSION_KEYS.IS_ADMIN]: "true",
@@ -53,7 +54,6 @@ export const validateAdminSession = async () => {
   try {
     const currentUser = auth.currentUser;
     if (!currentUser) {
-      await clearAdminSession();
       return { isValid: false, email: null, role: null };
     }
 
@@ -64,9 +64,8 @@ export const validateAdminSession = async () => {
       AsyncStorage.getItem(ADMIN_SESSION_KEYS.ADMIN_ROLE),
     ]);
 
-    // Check if all required data exists
+    // Check if this is an admin session (no admin data means regular user)
     if (isAdmin !== "true" || !adminEmail || !timestamp) {
-      await clearAdminSession();
       return { isValid: false, email: null, role: null };
     }
 
@@ -95,7 +94,6 @@ export const validateAdminSession = async () => {
     return { isValid: true, email: adminEmail, role: role || "admin" };
   } catch (error) {
     console.error("Error validating admin session:", error);
-    await clearAdminSession();
     return { isValid: false, email: null, role: null };
   }
 };
@@ -119,45 +117,59 @@ export const clearAdminSession = async () => {
 };
 
 /**
- * Check if current user has an active admin session
- * @returns {boolean}
- */
-export const isAdminSession = async () => {
-  const { isValid } = await validateAdminSession();
-  return isValid;
-};
-
-/**
- * Get admin session info
- * @returns {Object} { email: string | null, role: string | null, timestamp: string | null }
+ * Get current admin session info without validation
+ * @returns {Object} { isAdmin: boolean, email: string | null, role: string | null }
  */
 export const getAdminSessionInfo = async () => {
   try {
-    const [email, role, timestamp] = await Promise.all([
+    const [isAdmin, email, role] = await Promise.all([
+      AsyncStorage.getItem(ADMIN_SESSION_KEYS.IS_ADMIN),
       AsyncStorage.getItem(ADMIN_SESSION_KEYS.ADMIN_EMAIL),
       AsyncStorage.getItem(ADMIN_SESSION_KEYS.ADMIN_ROLE),
-      AsyncStorage.getItem(ADMIN_SESSION_KEYS.SESSION_TIMESTAMP),
     ]);
 
-    return { email, role, timestamp };
+    return {
+      isAdmin: isAdmin === "true",
+      email: email || null,
+      role: role || null,
+    };
   } catch (error) {
     console.error("Error getting admin session info:", error);
-    return { email: null, role: null, timestamp: null };
+    return {
+      isAdmin: false,
+      email: null,
+      role: null,
+    };
+  }
+};
+
+/**
+ * Check if current session is admin without full validation
+ * Useful for quick checks without triggering session expiry
+ * @returns {boolean}
+ */
+export const isAdminSession = async () => {
+  try {
+    const isAdmin = await AsyncStorage.getItem(ADMIN_SESSION_KEYS.IS_ADMIN);
+    return isAdmin === "true";
+  } catch (error) {
+    console.error("Error checking admin session:", error);
+    return false;
   }
 };
 
 /**
  * Refresh admin session timestamp
+ * Call this periodically to keep session alive
  */
 export const refreshAdminSession = async () => {
   try {
-    const { isValid } = await validateAdminSession();
-    if (isValid) {
+    const isAdmin = await AsyncStorage.getItem(ADMIN_SESSION_KEYS.IS_ADMIN);
+    if (isAdmin === "true") {
       await AsyncStorage.setItem(
         ADMIN_SESSION_KEYS.SESSION_TIMESTAMP,
         new Date().toISOString()
       );
-      console.log("✓ Admin session refreshed");
       return true;
     }
     return false;
@@ -165,13 +177,4 @@ export const refreshAdminSession = async () => {
     console.error("Error refreshing admin session:", error);
     return false;
   }
-};
-
-export default {
-  createAdminSession,
-  validateAdminSession,
-  clearAdminSession,
-  isAdminSession,
-  getAdminSessionInfo,
-  refreshAdminSession,
 };

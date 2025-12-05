@@ -80,7 +80,11 @@ export default function AdminHeader({ showBackButton = true }) {
   };
 
   const handleBackPress = () => {
-    navigation.goBack();
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate("AdminDashboard");
+    }
   };
 
   const handleConfirmLogout = async () => {
@@ -91,6 +95,7 @@ export default function AdminHeader({ showBackButton = true }) {
       // Clear stored admin data
       await AsyncStorage.removeItem("isAdminBypass");
       await AsyncStorage.removeItem("adminEmail");
+      await AsyncStorage.removeItem("@user_active_session");
       
       console.log("Admin logged out successfully");
       setLogoutModalVisible(false);

@@ -152,12 +152,6 @@ export default function CreateAccount({ navigation }) {
     return passwordRegex.test(password);
   };
 
-  const validateName = (name) => {
-    // Only letters, spaces, hyphens, and apostrophes
-    const nameRegex = /^[a-zA-Z\s'-]+$/;
-    return nameRegex.test(name) && name.trim().length >= 2;
-  };
-
   // Check if email already exists in Firestore
   const checkEmailExists = async (email) => {
     try {

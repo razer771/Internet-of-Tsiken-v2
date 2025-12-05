@@ -33,8 +33,6 @@ import CreateNewPassword from "./screens/LogIn/CreateNewPassword";
 
 import Home from "./screens/User/Dashboard/Home";
 import Notification from "./screens/User/controls/Notification";
-import AdminNotification from "./screens/Admin/AdminNotification";
-import AdminNotificationContext from "./screens/Admin/AdminNotificationContext";
 import ControlScreen from "./screens/User/controls/ControlScreen";
 import AppInfo from "./screens/User/controls/appInfo";
 import TermsAndConditions from "./screens/User/controls/TermsAndConditions";
@@ -52,7 +50,6 @@ import UserManagement from "./screens/Admin/userManagement";
 import CreateAccount from "./screens/Admin/createAccount";
 import AdminAnalytics from "./screens/Admin/adminAnalytics";
 import AdminNotification from "./screens/Admin/AdminNotification";
-import { AdminNotificationProvider } from "./screens/Admin/AdminNotificationContext";
 import Header from "./screens/navigation/Header";
 import AdminHeader from "./screens/navigation/adminHeader";
 import BottomNavigation from "./screens/navigation/BottomNavigation";
@@ -149,18 +146,34 @@ export default function App() {
       try {
         if (user) {
           // User is signed in
-          setIsAuthenticated(true);
           
           // Validate admin session using the session service
           const { isValid, email, role } = await validateAdminSession();
           
           if (isValid) {
+            setIsAuthenticated(true);
             setIsAdmin(true);
             setInitialRoute("AdminDashboard");
             console.log(`✓ Admin session active for: ${email} (${role})`);
           } else {
-            setIsAdmin(false);
-            setInitialRoute("Home");
+            // Regular user - require fresh login after app restart
+            // Check if this is a fresh app start by checking AsyncStorage flag
+            const hasActiveSession = await AsyncStorage.getItem("@user_active_session");
+            
+            if (hasActiveSession === "true") {
+              // User had an active session
+              setIsAuthenticated(true);
+              setIsAdmin(false);
+              setInitialRoute("Home");
+            } else {
+              // No active session flag - require login
+              setIsAuthenticated(false);
+              setIsAdmin(false);
+              setInitialRoute("LogIn");
+              // Sign out from Firebase
+              await auth.signOut();
+              console.log("No active user session - redirecting to login");
+            }
           }
         } else {
           // User is signed out - clear all session data
@@ -170,6 +183,8 @@ export default function App() {
           
           // Clear admin session using the session service
           await clearAdminSession();
+          // Clear user session flag
+          await AsyncStorage.removeItem("@user_active_session");
         }
       } catch (error) {
         console.error("Error in auth state change:", error);
@@ -278,9 +293,9 @@ export default function App() {
       <AdminNotificationProvider>
         <View style={styles.container}>
           <NavigationContainer ref={navigationRef}>
-            {!isAuthScreen && <Header />}
+            {!isAuthScreen && !isAdminScreen && <Header />}
             <View
-              style={[styles.content, !isAuthScreen && styles.contentWithNav]}
+              style={[styles.content, !isAuthScreen && !isAdminScreen && styles.contentWithNav]}
             >
               <Stack.Navigator
                 initialRouteName={initialRoute}
@@ -525,7 +540,7 @@ export default function App() {
                 />
               </Stack.Navigator>
             </View>
-            {!isAuthScreen && (
+            {!isAuthScreen && !isAdminScreen && (
               <View style={styles.bottomNavContainer}>
                 <BottomNavigation
                   active={getActiveTab()}

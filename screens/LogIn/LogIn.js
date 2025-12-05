@@ -104,8 +104,6 @@ export default function Login() {
   const [alertTitle, setAlertTitle] = useState("");
   const [alertMessage, setAlertMessage] = useState("");
 
-  const navigation = useNavigation();
-
   const showAlert = (type, title, message) => {
     setAlertType(type);
     setAlertTitle(title);
@@ -273,6 +271,10 @@ export default function Login() {
 
     try {
       console.log("Calling signInWithEmailAndPassword...");
+      
+      // Set user session flag BEFORE authentication to prevent logout loop
+      await AsyncStorage.setItem("@user_active_session", "true");
+      
       const userCredential = await signInWithEmailAndPassword(
         auth,
         email.trim(),
@@ -354,6 +356,8 @@ export default function Login() {
               console.log(
                 "🔀 Navigating to AdminDashboard (verified admin user)"
               );
+              // Create admin session
+              await createAdminSession(user.uid, email.trim(), "Admin");
               navigation.reset({
                 index: 0,
                 routes: [{ name: "AdminDashboard" }],
@@ -361,6 +365,7 @@ export default function Login() {
             } else {
               console.log("👤 User role:", userData.role || "Regular user");
               console.log("🔀 Navigating to Home (verified regular user)");
+              // Session flag already set before authentication
               navigation.reset({
                 index: 0,
                 routes: [{ name: "Home" }],
@@ -386,6 +391,9 @@ export default function Login() {
     } catch (error) {
       console.error("Firebase Login Error:", error.code, error.message);
 
+      // Clear session flag on login failure
+      await AsyncStorage.removeItem("@user_active_session");
+
       try {
         const attempts = await incrementLoginAttempts();
         const remainingAttempts = 5 - attempts;
@@ -409,21 +417,13 @@ export default function Login() {
 
         if (remainingAttempts <= 0) {
           setDeviceLocked(true);
-          setLockoutTime(LOCKOUT_DURATION);
+          setLockoutTime(LOCKOUT_DURATIONS[0]);
         } else {
           setErrors({ auth: errorMessage });
         }
-
-        // SHOW LOCKED SCREEN IMMEDIATELY
-        setDeviceLocked(true);
-        setLockoutTime(result.duration);
-        setLockoutMessage(getLockoutMessage(result.attempts));
-        console.log("🔒 LOCKED SCREEN SHOULD NOW BE VISIBLE");
-      } else {
-        const remainingMessage = getRemainingAttemptsMessage(result.attempts);
-        setErrors({ 
-          auth: `${errorMessage} (${remainingMessage})` 
-        });
+      } catch (lockoutError) {
+        console.error("Lockout handling error:", lockoutError);
+        setErrors({ auth: "Login failed. Please try again." });
       }
     } finally {
       setLoading(false);
