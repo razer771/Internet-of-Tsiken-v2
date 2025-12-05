@@ -22,6 +22,7 @@ import {
   query,
   where,
   getDocs,
+  serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig";
 
@@ -265,8 +266,8 @@ export default function CreateAccount({ navigation }) {
           verified: false,
           phoneVerified: false,
           otpVerified: false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
           failedLoginAttempts: 0,
           failedOtpAttempts: 0,
           mobileVerificationAttempts: 0,

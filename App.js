@@ -66,6 +66,10 @@ const AUTH_SCREENS = [
   "OTPVerification",
   "ConfirmPassword",
   "CreateNewPassword",
+];
+
+// Admin screens (no header/bottom nav, but should not trigger redirects)
+const ADMIN_SCREENS = [
   "AdminDashboard",
   "UserManagement",
   "CreateAccount",
@@ -73,6 +77,9 @@ const AUTH_SCREENS = [
   "AdminActivityLogs",
   "AdminNotification",
 ];
+
+// Combined list for UI rendering (screens without header/bottom nav)
+const NO_NAV_SCREENS = [...AUTH_SCREENS, ...ADMIN_SCREENS];
 
 // Screen wrapper that reports its route name to parent
 function ScreenWithRouteTracker({
@@ -108,7 +115,7 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [initialRoute, setInitialRoute] = useState("JsonSplash");
-  const isAuthScreen = AUTH_SCREENS.includes(currentRoute);
+  const isAuthScreen = NO_NAV_SCREENS.includes(currentRoute);
 
   // Listen to authentication state changes
   useEffect(() => {
@@ -153,7 +160,7 @@ export default function App() {
       "hardwareBackPress",
       () => {
         if (isAuthenticated && AUTH_SCREENS.includes(currentRoute)) {
-          // Prevent going back to auth screens when authenticated
+          // Prevent going back to auth screens when authenticated (not admin screens)
           return true;
         }
         // Allow default back behavior
@@ -167,10 +174,9 @@ export default function App() {
   // Redirect authenticated users away from auth screens
   useEffect(() => {
     if (isAuthenticated && !authLoading) {
-      // If user is authenticated but on an auth screen, redirect
+      // If user is authenticated but on an actual auth screen (not admin screens), redirect
       if (
         AUTH_SCREENS.includes(currentRoute) &&
-        currentRoute !== "AdminDashboard" &&
         currentRoute !== "JsonSplash"
       ) {
         if (navigationRef.isReady()) {
@@ -309,6 +315,14 @@ export default function App() {
                   component={createTrackedScreen(
                     ConfirmPassword,
                     "ConfirmPassword",
+                    setCurrentRoute
+                  )}
+                />
+                <Stack.Screen
+                  name="CreateNewPassword"
+                  component={createTrackedScreen(
+                    CreateNewPassword,
+                    "CreateNewPassword",
                     setCurrentRoute
                   )}
                 />

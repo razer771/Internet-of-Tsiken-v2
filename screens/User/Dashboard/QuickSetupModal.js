@@ -37,21 +37,27 @@ export default function QuickSetupModal({
   }, [initialChicksCount, initialDaysCount, initialHarvestDays, visible]);
 
   const handleChicksChange = (text) => {
-    // Only allow numeric input
+    // Only allow numeric input, max 3 digits
     const numericText = text.replace(/[^0-9]/g, '');
-    setChicksCount(numericText);
+    if (numericText.length <= 3) {
+      setChicksCount(numericText);
+    }
   };
 
   const handleDaysChange = (text) => {
-    // Only allow numeric input
+    // Only allow numeric input, max 3 digits
     const numericText = text.replace(/[^0-9]/g, '');
-    setDaysCount(numericText);
+    if (numericText.length <= 3) {
+      setDaysCount(numericText);
+    }
   };
 
   const handleHarvestChange = (text) => {
-    // Only allow numeric input
+    // Only allow numeric input, max 3 digits
     const numericText = text.replace(/[^0-9]/g, '');
-    setHarvestDays(numericText);
+    if (numericText.length <= 3) {
+      setHarvestDays(numericText);
+    }
   };
 
   const handleSave = () => {
@@ -74,12 +80,24 @@ export default function QuickSetupModal({
       setErrorModal({ visible: true, message: "Number of chicks must be greater than 0" });
       return;
     }
+    if (parseInt(chicksCount) > 999) {
+      setErrorModal({ visible: true, message: "Number of chicks cannot exceed 999" });
+      return;
+    }
     if (parseInt(daysCount) <= 0) {
       setErrorModal({ visible: true, message: "Number of days must be greater than 0" });
       return;
     }
+    if (parseInt(daysCount) > 365) {
+      setErrorModal({ visible: true, message: "Number of days cannot exceed 365 days" });
+      return;
+    }
     if (parseInt(harvestDays) <= 0) {
       setErrorModal({ visible: true, message: "Expected harvest days must be greater than 0" });
+      return;
+    }
+    if (parseInt(harvestDays) > 365) {
+      setErrorModal({ visible: true, message: "Expected harvest days cannot exceed 365 days" });
       return;
     }
 
