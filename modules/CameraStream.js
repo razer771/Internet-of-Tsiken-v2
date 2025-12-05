@@ -17,10 +17,12 @@ import { useNotifications } from '../screens/User/controls/NotificationContext';
 
 const PRIMARY = '#133E87';
 
-export default function CameraStream({ serverUrl, onServerDiscovered, autoConnect = false, fullscreen = false }) {
-  const [isConnected, setIsConnected] = useState(false);
+export default function CameraStream({ serverUrl, onServerDiscovered, autoConnect = false, fullscreen = false, persistConnection = false }) {
+  const [isConnected, setIsConnected] = useState(persistConnection);
   const [detections, setDetections] = useState({ objects: [], fps: 0, count: 0 });
+  const [detectionHistory, setDetectionHistory] = useState([]); // Track last 5 detections
   const [actualServerUrl, setActualServerUrl] = useState(serverUrl);
+<<<<<<< Updated upstream
   const [discoveryState, setDiscoveryState] = useState('idle'); // idle, discovering, success, failed
   const [capturing, setCapturing] = useState(false);
   const [autoCapture, setAutoCapture] = useState(true); // Enable auto-capture by default
@@ -28,6 +30,9 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [modalMessage, setModalMessage] = useState({ title: '', description: '', isAuto: false });
   const lastCaptureRef = useRef(null);
+=======
+  const [discoveryState, setDiscoveryState] = useState(persistConnection ? 'success' : 'idle');
+>>>>>>> Stashed changes
   const webViewRef = useRef(null);
   const discoveryTimeoutRef = useRef(null);
   const { addNotification } = useNotifications();
@@ -36,12 +41,16 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
   const streamUrl = `${actualServerUrl}/video_feed`;
   const detectionsUrl = `${actualServerUrl}/detections`;
 
+  // Update state when persistConnection or serverUrl changes
   useEffect(() => {
-    // Auto-connect on mount if enabled (for fullscreen modal)
-    if (autoConnect && discoveryState === 'idle') {
+    if (persistConnection && serverUrl) {
+      setDiscoveryState('success');
+      setIsConnected(true);
+      setActualServerUrl(serverUrl);
+    } else if (autoConnect && discoveryState === 'idle') {
       startDiscovery();
     }
-  }, [autoConnect]);
+  }, [autoConnect, persistConnection, serverUrl]);
 
   useEffect(() => {
     // Fetch detection data every second if connected
@@ -156,6 +165,33 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
       clearTimeout(timeoutId);
       const data = await response.json();
       setDetections(data);
+      
+      // Add new detections to history
+      if (data.objects && data.objects.length > 0) {
+        const timestamp = new Date();
+        const newDetections = data.objects.map(obj => ({
+          ...obj,
+          timestamp: timestamp.toISOString(),
+        }));
+        
+        // Add to history and keep only last 5 unique detections
+        setDetectionHistory(prev => {
+          const combined = [...newDetections, ...prev];
+          // Remove duplicates based on class name and keep most recent
+          const unique = [];
+          const seen = new Set();
+          
+          for (const det of combined) {
+            const key = `${det.class}-${det.timestamp}`;
+            if (!seen.has(key) && unique.length < 5) {
+              seen.add(key);
+              unique.push(det);
+            }
+          }
+          
+          return unique;
+        });
+      }
     } catch (err) {
       console.log('Detection fetch failed:', err.message);
     }
@@ -242,7 +278,7 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
   if (discoveryState === 'idle') {
     return (
       <View style={styles.container}>
-        <View style={styles.streamContainer}>
+        <View style={fullscreen ? styles.placeholderBoxFullscreen : styles.streamContainer}>
           <View style={styles.placeholderBox}>
             <TouchableOpacity style={styles.detectButton} onPress={startDiscovery}>
               <Ionicons name="camera-outline" size={24} color="#fff" />
@@ -258,7 +294,7 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
   if (discoveryState === 'discovering') {
     return (
       <View style={styles.container}>
-        <View style={styles.streamContainer}>
+        <View style={fullscreen ? styles.placeholderBoxFullscreen : styles.streamContainer}>
           <View style={styles.placeholderBox}>
             <ActivityIndicator size="large" color={PRIMARY} />
             <Text style={styles.searchingText}>Searching for camera...</Text>
@@ -272,7 +308,7 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
   if (discoveryState === 'failed') {
     return (
       <View style={styles.container}>
-        <View style={styles.streamContainer}>
+        <View style={fullscreen ? styles.placeholderBoxFullscreen : styles.streamContainer}>
           <View style={styles.placeholderBox}>
             <Ionicons name="warning-outline" size={48} color="#666" style={{marginBottom: 12}} />
             <Text style={styles.errorText}>No camera detected</Text>
@@ -322,23 +358,41 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
       {/* Show detection info only when NOT in fullscreen */}
       {!fullscreen && (
         <View style={styles.infoContainer}>
-          <View style={styles.infoRow}>
-            <Ionicons name="eye-outline" size={20} color={PRIMARY} />
-            <Text style={styles.infoText}>
-              {detections.count} object{detections.count !== 1 ? 's' : ''} detected
-            </Text>
+          <View style={styles.tableHeaderRow}>
+            <Text style={styles.tableHeaderText}>Object</Text>
+            <Text style={styles.tableHeaderText}>Accuracy</Text>
+            <Text style={styles.tableHeaderText}>Date & Time</Text>
           </View>
 
-          {/* List detected objects */}
-          {detections.objects && detections.objects.length > 0 && (
-            <View style={styles.objectsList}>
-              {detections.objects.slice(0, 5).map((obj, idx) => (
-                <View key={idx} style={styles.objectTag}>
-                  <Text style={styles.objectName}>{obj.class}</Text>
-                  <Text style={styles.objectConf}>{obj.confidence}%</Text>
-                </View>
-              ))}
+          {/* Detection Table */}
+          {detectionHistory.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="search-outline" size={32} color="#999" />
+              <Text style={styles.emptyText}>No objects detected yet</Text>
             </View>
+          ) : (
+            detectionHistory.map((obj, idx) => {
+              const detectionTime = new Date(obj.timestamp);
+              const timeString = detectionTime.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: true 
+              });
+              const dateString = detectionTime.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric' 
+              });
+              
+              return (
+                <View key={idx} style={styles.tableRow}>
+                  <Text style={styles.tableCell}>{obj.class}</Text>
+                  <Text style={[styles.tableCell, styles.accuracyText]}>{obj.confidence}%</Text>
+                  <Text style={[styles.tableCell, styles.dateTimeText]}>
+                    {dateString} {timeString}
+                  </Text>
+                </View>
+              );
+            })
           )}
 
           {/* Predator Capture Controls */}
@@ -644,12 +698,20 @@ const styles = StyleSheet.create({
   },
   placeholderBox: {
     flex: 1,
+    minHeight: 200,
     backgroundColor: '#1a1a1a',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
     borderColor: '#333',
     borderStyle: 'dashed',
+  },
+  placeholderBoxFullscreen: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#1a1a1a',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   searchingText: {
     color: '#999',
@@ -745,45 +807,56 @@ const styles = StyleSheet.create({
   },
   infoContainer: {
     marginTop: 12,
-    padding: 12,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#fff',
     borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
   },
-  infoRow: {
+  tableHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-  },
-  infoText: {
-    marginLeft: 8,
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-  },
-  objectsList: {
-    marginTop: 8,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  objectTag: {
     backgroundColor: PRIMARY,
+    paddingVertical: 10,
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginRight: 6,
-    marginBottom: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
   },
-  objectName: {
+  tableHeaderText: {
+    flex: 1,
     color: '#fff',
     fontSize: 12,
-    fontWeight: '600',
-    marginRight: 4,
+    fontWeight: '700',
+    textAlign: 'center',
   },
-  objectConf: {
-    color: '#fff',
+  tableRow: {
+    flexDirection: 'row',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    alignItems: 'center',
+  },
+  tableCell: {
+    flex: 1,
+    fontSize: 11,
+    color: '#333',
+    textAlign: 'center',
+  },
+  accuracyText: {
+    fontWeight: '700',
+    color: '#249D1D',
+  },
+  dateTimeText: {
     fontSize: 10,
-    opacity: 0.8,
+    color: '#666',
+  },
+  emptyState: {
+    paddingVertical: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#999',
   },
   captureControls: {
     marginTop: 12,
