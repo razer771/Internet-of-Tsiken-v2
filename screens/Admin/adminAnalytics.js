@@ -197,7 +197,7 @@ export default function AdminAnalytics() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Header2 /> {/* Add the header at the top */}
+      <Header2 showBackButton={true} /> {/* Add the header at the top */}
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.pickerRow}>
           <Text style={styles.pickerLabel}>Select Date Range:</Text>

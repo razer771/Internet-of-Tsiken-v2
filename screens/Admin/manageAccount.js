@@ -122,7 +122,7 @@ export default function ManageAccount({ navigation }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Header2 />
+      <Header2 showBackButton={true} />
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
