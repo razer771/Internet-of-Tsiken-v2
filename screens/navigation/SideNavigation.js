@@ -14,8 +14,9 @@ import {
 import { Feather } from "@expo/vector-icons";
 import { CommonActions } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { auth } from "../../config/firebaseconfig";
+import { auth, db } from "../../config/firebaseconfig";
 import { signOut } from "firebase/auth";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 const Icon = Feather;
 
@@ -61,7 +62,7 @@ export default function SideNavigation({ visible, onClose, navigation }) {
     console.log(`[SideNavigation] Menu item clicked: ${item}`);
     console.log("[SideNavigation] Navigation object exists:", !!navigation);
     onClose();
-    
+
     if (item === "Reports" && navigation) {
       console.log("[SideNavigation] Attempting to navigate to Reports screen");
       try {
@@ -74,7 +75,9 @@ export default function SideNavigation({ visible, onClose, navigation }) {
         console.error("[SideNavigation] Navigation error:", error);
       }
     } else if (item === "Activity Logs" && navigation) {
-      console.log("[SideNavigation] Attempting to navigate to Activity Logs screen");
+      console.log(
+        "[SideNavigation] Attempting to navigate to Activity Logs screen"
+      );
       try {
         navigation.navigate("ActivityLogs");
         console.log("[SideNavigation] Navigate to Activity Logs successful");
@@ -82,7 +85,9 @@ export default function SideNavigation({ visible, onClose, navigation }) {
         console.error("[SideNavigation] Navigation error:", error);
       }
     } else if (item === "User Profile" && navigation) {
-      console.log("[SideNavigation] Attempting to navigate to UserProfile screen");
+      console.log(
+        "[SideNavigation] Attempting to navigate to UserProfile screen"
+      );
       try {
         navigation.navigate("UserProfile");
         console.log("[SideNavigation] Navigate to UserProfile successful");
@@ -106,19 +111,41 @@ export default function SideNavigation({ visible, onClose, navigation }) {
 
   const confirmLogout = async () => {
     try {
+      const currentUser = auth.currentUser;
+
+      // Log logout event to session_logs collection (non-blocking)
+      if (currentUser) {
+        try {
+          await addDoc(collection(db, "session_logs"), {
+            userId: currentUser.uid,
+            action: "logout",
+            description: "Logged out",
+            timestamp: serverTimestamp(),
+            deviceInfo: Platform.OS,
+            email: currentUser.email,
+          });
+          console.log("📝 Logout event logged to session_logs");
+        } catch (logError) {
+          console.log(
+            "⚠️ Failed to log logout event (non-critical):",
+            logError.message
+          );
+        }
+      }
+
       // Sign out from Firebase
       await signOut(auth);
-      
+
       // Clear stored data
       await AsyncStorage.removeItem("isAdminBypass");
       await AsyncStorage.removeItem("adminEmail");
       await AsyncStorage.removeItem("chicksCount");
       await AsyncStorage.removeItem("daysCount");
-      
+
       console.log("Logged out successfully");
       setShowLogoutModal(false);
       onClose();
-      
+
       // Navigate to Login screen and reset navigation stack
       navigation.reset({
         index: 0,
@@ -173,9 +200,23 @@ export default function SideNavigation({ visible, onClose, navigation }) {
               onPress={() => handleMenuItemPress("User Profile")}
             >
               {({ pressed }) => (
-                <View style={[styles.menuItemInner, pressed && styles.menuItemPressed]}>
-                  <Icon name="user" size={20} color={pressed ? "#ffffff" : "#1a1a1a"} />
-                  <Text style={[styles.menuItemText, pressed && styles.menuItemTextPressed]}>
+                <View
+                  style={[
+                    styles.menuItemInner,
+                    pressed && styles.menuItemPressed,
+                  ]}
+                >
+                  <Icon
+                    name="user"
+                    size={20}
+                    color={pressed ? "#ffffff" : "#1a1a1a"}
+                  />
+                  <Text
+                    style={[
+                      styles.menuItemText,
+                      pressed && styles.menuItemTextPressed,
+                    ]}
+                  >
                     User Profile
                   </Text>
                 </View>
@@ -187,9 +228,23 @@ export default function SideNavigation({ visible, onClose, navigation }) {
               onPress={() => handleMenuItemPress("Activity Logs")}
             >
               {({ pressed }) => (
-                <View style={[styles.menuItemInner, pressed && styles.menuItemPressed]}>
-                  <Icon name="activity" size={20} color={pressed ? "#ffffff" : "#1a1a1a"} />
-                  <Text style={[styles.menuItemText, pressed && styles.menuItemTextPressed]}>
+                <View
+                  style={[
+                    styles.menuItemInner,
+                    pressed && styles.menuItemPressed,
+                  ]}
+                >
+                  <Icon
+                    name="activity"
+                    size={20}
+                    color={pressed ? "#ffffff" : "#1a1a1a"}
+                  />
+                  <Text
+                    style={[
+                      styles.menuItemText,
+                      pressed && styles.menuItemTextPressed,
+                    ]}
+                  >
                     Activity Logs
                   </Text>
                 </View>
@@ -201,9 +256,23 @@ export default function SideNavigation({ visible, onClose, navigation }) {
               onPress={() => handleMenuItemPress("Reports")}
             >
               {({ pressed }) => (
-                <View style={[styles.menuItemInner, pressed && styles.menuItemPressed]}>
-                  <Icon name="file-text" size={20} color={pressed ? "#ffffff" : "#1a1a1a"} />
-                  <Text style={[styles.menuItemText, pressed && styles.menuItemTextPressed]}>
+                <View
+                  style={[
+                    styles.menuItemInner,
+                    pressed && styles.menuItemPressed,
+                  ]}
+                >
+                  <Icon
+                    name="file-text"
+                    size={20}
+                    color={pressed ? "#ffffff" : "#1a1a1a"}
+                  />
+                  <Text
+                    style={[
+                      styles.menuItemText,
+                      pressed && styles.menuItemTextPressed,
+                    ]}
+                  >
                     Reports
                   </Text>
                 </View>
@@ -215,9 +284,23 @@ export default function SideNavigation({ visible, onClose, navigation }) {
               onPress={() => handleMenuItemPress("Settings")}
             >
               {({ pressed }) => (
-                <View style={[styles.menuItemInner, pressed && styles.menuItemPressed]}>
-                  <Icon name="info" size={20} color={pressed ? "#ffffff" : "#1a1a1a"} />
-                  <Text style={[styles.menuItemText, pressed && styles.menuItemTextPressed]}>
+                <View
+                  style={[
+                    styles.menuItemInner,
+                    pressed && styles.menuItemPressed,
+                  ]}
+                >
+                  <Icon
+                    name="info"
+                    size={20}
+                    color={pressed ? "#ffffff" : "#1a1a1a"}
+                  />
+                  <Text
+                    style={[
+                      styles.menuItemText,
+                      pressed && styles.menuItemTextPressed,
+                    ]}
+                  >
                     App Info
                   </Text>
                 </View>
@@ -226,14 +309,25 @@ export default function SideNavigation({ visible, onClose, navigation }) {
           </View>
 
           <View style={styles.menuFooter}>
-            <Pressable
-              style={styles.logoutButton}
-              onPress={handleLogout}
-            >
+            <Pressable style={styles.logoutButton} onPress={handleLogout}>
               {({ pressed }) => (
-                <View style={[styles.logoutButtonInner, pressed && styles.logoutButtonPressed]}>
-                  <Icon name="log-out" size={20} color={pressed ? "#ffffff" : "#ef4444"} />
-                  <Text style={[styles.logoutText, pressed && styles.logoutTextPressed]}>
+                <View
+                  style={[
+                    styles.logoutButtonInner,
+                    pressed && styles.logoutButtonPressed,
+                  ]}
+                >
+                  <Icon
+                    name="log-out"
+                    size={20}
+                    color={pressed ? "#ffffff" : "#ef4444"}
+                  />
+                  <Text
+                    style={[
+                      styles.logoutText,
+                      pressed && styles.logoutTextPressed,
+                    ]}
+                  >
                     Logout
                   </Text>
                 </View>
@@ -256,23 +350,51 @@ export default function SideNavigation({ visible, onClose, navigation }) {
               <Icon name="log-out" size={32} color="#ef4444" />
             </View>
             <Text style={styles.logoutModalTitle}>Logout</Text>
-            <Text style={styles.logoutModalMessage}>Are you sure you want to logout?</Text>
-            
+            <Text style={styles.logoutModalMessage}>
+              Are you sure you want to logout?
+            </Text>
+
             <View style={styles.logoutModalButtons}>
-              <Pressable onPress={cancelLogout} style={styles.logoutModalCancelButton}>
+              <Pressable
+                onPress={cancelLogout}
+                style={styles.logoutModalCancelButton}
+              >
                 {({ pressed }) => (
-                  <View style={[styles.logoutModalButtonInner, pressed && styles.logoutModalButtonPressed]}>
-                    <Text style={[styles.logoutModalCancelText, pressed && styles.logoutModalButtonTextPressed]}>
+                  <View
+                    style={[
+                      styles.logoutModalButtonInner,
+                      pressed && styles.logoutModalButtonPressed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.logoutModalCancelText,
+                        pressed && styles.logoutModalButtonTextPressed,
+                      ]}
+                    >
                       Cancel
                     </Text>
                   </View>
                 )}
               </Pressable>
-              
-              <Pressable onPress={confirmLogout} style={styles.logoutModalConfirmButton}>
+
+              <Pressable
+                onPress={confirmLogout}
+                style={styles.logoutModalConfirmButton}
+              >
                 {({ pressed }) => (
-                  <View style={[styles.logoutModalConfirmInner, pressed && styles.logoutModalConfirmPressed]}>
-                    <Text style={[styles.logoutModalConfirmText, pressed && styles.logoutModalConfirmTextPressed]}>
+                  <View
+                    style={[
+                      styles.logoutModalConfirmInner,
+                      pressed && styles.logoutModalConfirmPressed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.logoutModalConfirmText,
+                        pressed && styles.logoutModalConfirmTextPressed,
+                      ]}
+                    >
                       Logout
                     </Text>
                   </View>
@@ -355,8 +477,7 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === "android" ? 24 : 40,
     backgroundColor: "#ffffff",
   },
-  logoutButton: {
-  },
+  logoutButton: {},
   logoutButtonInner: {
     flexDirection: "row",
     alignItems: "center",

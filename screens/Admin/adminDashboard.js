@@ -6,685 +6,320 @@ import {
   SafeAreaView,
   ScrollView,
   TouchableOpacity,
-  Dimensions,
-  Modal,
-  FlatList,
-  Button,
-  Alert,
 } from "react-native";
 import Header2 from "../navigation/adminHeader";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation } from "@react-navigation/native";
-
-const { width: windowWidth } = Dimensions.get("window");
-
-/* Simple table icon built from Views */
-function TableIcon({ size = 18, color = "#334e68", style }) {
-  const strokeWidth = Math.max(1, Math.round(size * 0.12));
-  const innerPadding = Math.max(2, Math.round(size * 0.14));
-  const width = size;
-  const height = size;
-
-  const thirdX = (width - innerPadding * 2) / 3;
-  const thirdY = (height - innerPadding * 2) / 3;
-
-  return (
-    <View style={[{ width, height, position: "relative" }, style]}>
-      <View
-        style={[
-          styles.tableIconOuter,
-          {
-            borderColor: color,
-            borderWidth: strokeWidth,
-            borderRadius: Math.max(2, Math.round(size * 0.12)),
-          },
-        ]}
-      />
-      <View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          left: innerPadding + thirdX - strokeWidth / 2,
-          top: innerPadding,
-          bottom: innerPadding,
-          width: strokeWidth,
-          backgroundColor: color,
-        }}
-      />
-      <View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          left: innerPadding + thirdX * 2 - strokeWidth / 2,
-          top: innerPadding,
-          bottom: innerPadding,
-          width: strokeWidth,
-          backgroundColor: color,
-        }}
-      />
-      <View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          top: innerPadding + thirdY - strokeWidth / 2,
-          left: innerPadding,
-          right: innerPadding,
-          height: strokeWidth,
-          backgroundColor: color,
-        }}
-      />
-      <View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          top: innerPadding + thirdY * 2 - strokeWidth / 2,
-          left: innerPadding,
-          right: innerPadding,
-          height: strokeWidth,
-          backgroundColor: color,
-        }}
-      />
-    </View>
-  );
-}
-
-/* DownloadBadge */
-function DownloadBadge({ size = 32, bg = "#133E87", iconColor = "#fff", style }) {
-  const iconSize = Math.round(size * 0.55);
-  return (
-    <View style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: bg, alignItems: "center", justifyContent: "center" }, style]}>
-      <MaterialCommunityIcons name="download" size={iconSize} color={iconColor} />
-    </View>
-  );
-}
-
-/* DateRangePicker */
-function DateRangePicker({ selected, onChange, options = [] }) {
-  const [open, setOpen] = useState(false);
-  const [buttonLayout, setButtonLayout] = useState(null);
-
-  return (
-    <>
-      <TouchableOpacity
-        onPress={() => setOpen(true)}
-        style={styles.rangeButton}
-        activeOpacity={0.85}
-        onLayout={(e) => setButtonLayout(e.nativeEvent.layout)}
-      >
-        <Text style={styles.rangeText}>{selected}</Text>
-        <MaterialCommunityIcons name="chevron-down" size={16} color="#6b7280" />
-      </TouchableOpacity>
-
-      <Modal visible={open} transparent animationType="fade">
-        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setOpen(false)}>
-          {buttonLayout && (
-            <View style={{ position: "absolute", top: buttonLayout.y + buttonLayout.height, right: 16 }}>
-              <View
-                style={{
-                  width: 160,
-                  backgroundColor: "white",
-                  borderRadius: 8,
-                  paddingVertical: 6,
-                  elevation: 4,
-                  shadowColor: "#000",
-                  shadowOpacity: 0.2,
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowRadius: 4,
-                }}
-              >
-                <FlatList
-                  data={options}
-                  keyExtractor={(i) => i}
-                  renderItem={({ item }) => (
-                    <TouchableOpacity
-                      style={styles.option}
-                      onPress={() => {
-                        onChange(item);
-                        setOpen(false);
-                      }}
-                    >
-                      <Text style={styles.dropdownOptionText}>{item}</Text>
-                    </TouchableOpacity>
-                  )}
-                />
-              </View>
-            </View>
-          )}
-        </TouchableOpacity>
-      </Modal>
-    </>
-  );
-}
-
-/* MetricCard */
-function MetricCard({ icon = "chart-line", title, value, subtitle }) {
-  let iconName = icon;
-  let extraTitleStyle = {};
-  if (title === "Total Users" || title === "Active Sessions") {
-    iconName = title === "Total Users" ? "account-group-outline" : "chart-timeline-variant";
-    extraTitleStyle = { marginLeft: -6, fontSize: 15 };
-  }
-
-  return (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <View style={styles.iconCircle}>
-          <MaterialCommunityIcons name={iconName} size={18} color="#154985" />
-        </View>
-        <Text
-          style={[
-            styles.cardTitle,
-            { flexShrink: 1, flexGrow: 1, flexBasis: 0 },
-            extraTitleStyle,
-          ]}
-          numberOfLines={1}
-        >
-          {title}
-        </Text>
-      </View>
-      <Text style={styles.cardValue}>{value}</Text>
-      <Text style={styles.cardSubtitle}>{subtitle}</Text>
-    </View>
-  );
-}
-
-/* GroupedBarChart */
-function GroupedBarChart({ data = [], height = 180 }) {
-  const [layoutWidth, setLayoutWidth] = useState(0);
-  const [active, setActive] = useState(null);
-  const [tooltipWidth, setTooltipWidth] = useState(0);
-  const totalSlots = data.length;
-
-  const yAxisWidth = 44;
-  const outerPadding = 12;
-  const loginsColor = "#154985";
-  const actionsColor = "#000";
-
-  const rawMax = Math.max(...data.map((d) => Math.max(d.actions, d.logins)), 1);
-  const magnitude = Math.pow(10, Math.floor(Math.log10(rawMax)));
-  let niceMax = Math.ceil(rawMax / magnitude) * magnitude;
-  if (niceMax / 2 >= rawMax) niceMax = niceMax / 2;
-  const finalMax = niceMax;
-  const ticks = 5;
-
-  const onBarPress = (index, val) => {
-    if (!layoutWidth) return;
-    const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
-    const columnWidth = innerWidth / totalSlots;
-    const centerRelative = index * columnWidth + columnWidth / 2;
-    const barTop = height - (val / finalMax) * height;
-    const tooltipTop = Math.max(6, barTop - 60);
-    setActive({ index, centerRelative, top: tooltipTop });
-    setTimeout(() => setActive(null), 2400);
-  };
-
-  return (
-    <View
-      style={{ width: "100%", paddingHorizontal: outerPadding, paddingTop: 8 }}
-      onLayout={(e) => setLayoutWidth(e.nativeEvent.layout.width)}
-    >
-      <View style={{ height }} />
-
-      {layoutWidth > 0 && (
-        <View style={{ position: "absolute", top: 8, left: outerPadding, right: outerPadding }}>
-          <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-            <View style={{ width: yAxisWidth, height }}>
-              {Array.from({ length: ticks }).map((_, i) => {
-                const ratio = i / (ticks - 1);
-                const value = Math.round((1 - ratio) * finalMax);
-                const topPos = ratio * height - 8;
-                return (
-                  <View key={i} style={{ position: "absolute", top: Math.max(0, topPos), left: 0, right: 0 }}>
-                    <Text style={{ fontSize: 11, color: "#333", textAlign: "right", paddingRight: 6 }}>{value}</Text>
-                  </View>
-                );
-              })}
-            </View>
-
-            <View style={{ flex: 1, height, position: "relative" }}>
-              {Array.from({ length: ticks }).map((_, i) => {
-                const top = (i / (ticks - 1)) * height;
-                return <View key={i} style={{ position: "absolute", top, left: 0, right: 0, height: 1, backgroundColor: "#eee" }} />;
-              })}
-
-              <View style={{ flexDirection: "row", width: "100%", height, justifyContent: "space-between" }}>
-                {(() => {
-                  const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
-                  const columnWidth = innerWidth / totalSlots;
-
-                  const maxTotalBarWidth = columnWidth * 0.7;
-                  const barGap = Math.max(6, Math.min(14, columnWidth * 0.08));
-                  const singleBarWidth = Math.max(12, Math.min(48, Math.floor((maxTotalBarWidth - barGap) / 2)));
-                  const barsContainerWidth = singleBarWidth * 2 + barGap;
-
-                  return data.map((d, i) => {
-                    const loginsHeight = Math.round((d.logins / finalMax) * height);
-                    const actionsHeight = Math.round((d.actions / finalMax) * height);
-
-                    return (
-                      <View key={i} style={{ width: columnWidth, alignItems: "center" }}>
-                        <View style={{ height, justifyContent: "flex-end", alignItems: "center" }}>
-                          <View style={{ width: barsContainerWidth, flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", height }}>
-                            <TouchableOpacity activeOpacity={0.85} onPress={() => onBarPress(i, d.logins)}
-                              style={{ width: singleBarWidth, height: loginsHeight, backgroundColor: loginsColor, borderTopLeftRadius: 4, borderTopRightRadius: 4 }} />
-                            <TouchableOpacity activeOpacity={0.85} onPress={() => onBarPress(i, d.actions)}
-                              style={{ width: singleBarWidth, height: actionsHeight, backgroundColor: actionsColor, borderTopLeftRadius: 4, borderTopRightRadius: 4 }} />
-                          </View>
-                        </View>
-
-                        <View style={{ width: columnWidth, alignItems: "center", marginTop: 6 }}>
-                          <Text numberOfLines={1} ellipsizeMode="tail" style={{ fontSize: 12 }}>{d.label}</Text>
-                        </View>
-                      </View>
-                    );
-                  });
-                })()}
-              </View>
-
-              {active !== null && (
-                <View style={{ position: "absolute", left: 0, top: 0, width: "100%", height, zIndex: 30, pointerEvents: "none" }}>
-                  <CenteredTooltip active={active} layoutWidth={layoutWidth} yAxisWidth={44} outerPadding={12} tooltipWidth={tooltipWidth} setTooltipWidth={setTooltipWidth} maxTooltipWidth={200} height={height} data={data} loginsColor={"#154985"} />
-                </View>
-              )}
-            </View>
-          </View>
-        </View>
-      )}
-    </View>
-  );
-}
-
-/* CenteredTooltip */
-function CenteredTooltip({ active, layoutWidth, yAxisWidth, outerPadding, tooltipWidth, setTooltipWidth, maxTooltipWidth, height, data, loginsColor }) {
-  const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
-  const centerRelative = active.centerRelative;
-
-  const desiredLeft = centerRelative - (tooltipWidth || maxTooltipWidth) / 2;
-  const minLeft = 6;
-  const maxLeft = Math.max(6, innerWidth - (tooltipWidth || maxTooltipWidth) - 6);
-  const leftClamped = Math.max(minLeft, Math.min(desiredLeft, maxLeft));
-  const topPos = Math.max(6, active.top - 54);
-
-  return (
-    <View style={{ position: "absolute", left: yAxisWidth, top: topPos, width: innerWidth }}>
-      <View
-        onLayout={(e) => {
-          const w = e.nativeEvent.layout.width;
-          if (w && w !== tooltipWidth) setTooltipWidth(w);
-        }}
-        style={{ position: "absolute", left: leftClamped, backgroundColor: "#fff", paddingVertical: 6, paddingHorizontal: 8, borderRadius: 6, borderWidth: 1, borderColor: "#ccc", alignItems: "flex-start", maxWidth: maxTooltipWidth }}
-      >
-        <Text style={{ fontWeight: "700" }}>{data[active.index].label}</Text>
-        <Text style={{ marginTop: 6 }}>Actions: {data[active.index].actions}</Text>
-        <Text style={{ color: loginsColor, fontWeight: "700" }}>Logins: {data[active.index].logins}</Text>
-      </View>
-    </View>
-  );
-}
-
-/* ReportsTab */
-function ReportsTab({ barData = [], metrics = [] }) {
-  const [selected, setSelected] = useState(null);
-  const [generatedAt, setGeneratedAt] = useState(null);
-  const [pressedBtn, setPressedBtn] = useState(null);
-  const [pressedTab, setPressedTab] = useState(null);
-
-  const totalUsers = metrics?.[0]?.value ?? 0;
-  const activeUsers = metrics?.[1]?.value ?? 0;
-  const totalLogins = barData.reduce((s, r) => s + (r.logins || 0), 0);
-  const totalActions = barData.reduce((s, r) => s + (r.actions || 0), 0);
-
-  const newUsersDemo = 3;
-  const inactiveUsers = Math.max(0, totalUsers - activeUsers - newUsersDemo);
-  const avgLoginsPerUser = totalUsers > 0 ? (totalLogins / totalUsers).toFixed(1) : "0.0";
-
-  const uptime = 99.8;
-  const avgResponseTime = "120ms";
-  const peakUsage = "2:00 - 4:00 PM";
-  const errorRate = 0.2;
-
-  const items = [
-    { id: "system", title: "System Overview", desc: "Complete system usage and performance metrics" },
-    { id: "engagement", title: "User Engagement", desc: "User activity and engagement analysis" },
-    { id: "performance", title: "Performance Report", desc: "System Performance and uptime statistics" },
-  ];
-
-  const handleGenerate = (title) => {
-    setSelected(title);
-    setGeneratedAt(new Date());
-  };
-
-  const handleExportPdf = () => {
-    Alert.alert("Export PDF", "PDF export is not implemented in this demo.");
-  };
-
-  const handleExportCsv = () => {
-    Alert.alert("Export CSV", "CSV export is not implemented in this demo.");
-  };
-
-  const handleGenerateAnother = () => {
-    setSelected(null);
-    setGeneratedAt(null);
-  };
-
-  return (
-    <View style={styles.reportsWrapper}>
-      <View style={styles.reportsHeader}>
-        <View style={{ marginRight: 8 }}>
-          <DownloadBadge size={36} bg="transparent" iconColor="#000" />
-        </View>
-        <Text style={[styles.reportsTitle, { color: "#000" }]}>Generate Analytics Reports</Text>
-      </View>
-
-      {selected === "System Overview" && (
-        <View>
-          <View style={styles.reportGeneratedCard}>
-            <Text style={styles.reportGeneratedTitle}>Report Generated Successfully</Text>
-            <Text style={styles.reportGeneratedTime}>{generatedAt ? generatedAt.toLocaleString() : ""}</Text>
-
-            <View style={styles.reportRows}>
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>Total Users:</Text>
-                <Text style={styles.reportRowValue}>{totalUsers}</Text>
-              </View>
-
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>Active Users:</Text>
-                <Text style={styles.reportRowValue}>{activeUsers}</Text>
-              </View>
-
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>Total Logins:</Text>
-                <Text style={styles.reportRowValue}>{totalLogins}</Text>
-              </View>
-
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>Total Actions:</Text>
-                <Text style={styles.reportRowValue}>{totalActions}</Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.exportButtonsRow}>
-            <TouchableOpacity
-              style={[
-                styles.exportPdfButton,
-                { backgroundColor: "#fff", borderColor: "#cbdff5", borderWidth: 1 },
-                pressedBtn === "pdf" && { backgroundColor: "#133E87", borderColor: "#133E87" }
-              ]}
-              activeOpacity={0.85}
-              onPressIn={() => setPressedBtn("pdf")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={handleExportPdf}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <MaterialCommunityIcons name="file-pdf-box" size={16} color={pressedBtn === "pdf" ? "#fff" : "#000"} style={{ marginRight: 8 }} />
-                <Text style={[
-                  styles.exportPdfText,
-                  { color: pressedBtn === "pdf" ? "#fff" : "#000" }
-                ]}>
-                  Export PDF
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.exportCsvButton,
-                pressedBtn === "csv" && { backgroundColor: "#133E87", borderColor: "#133E87" }
-              ]}
-              activeOpacity={0.85}
-              onPressIn={() => setPressedBtn("csv")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={handleExportCsv}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <TableIcon size={16} color={pressedBtn === "csv" ? "#fff" : "#000"} style={{ marginRight: 8 }} />
-                <Text style={[
-                  styles.exportCsvText,
-                  pressedBtn === "csv" && { color: "#fff" }
-                ]}>Export CSV</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            style={[
-              styles.generateAnotherButton,
-              { borderColor: "#cbdff5", borderWidth: 1, backgroundColor: "#fff" },
-              pressedBtn === "generateAnother" && { backgroundColor: "#133E87", borderColor: "#133E87" }
-            ]}
-            activeOpacity={0.85}
-            onPressIn={() => setPressedBtn("generateAnother")}
-            onPressOut={() => setPressedBtn(null)}
-            onPress={handleGenerateAnother}
-          >
-            <Text style={[
-              styles.generateAnotherText,
-              { color: "#000" },
-              pressedBtn === "generateAnother" && { color: "#fff" }
-            ]}>
-              Generate Another Report
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {selected === "User Engagement" && (
-        <View>
-          <View style={styles.reportGeneratedCard}>
-            <Text style={styles.reportGeneratedTitle}>Report Generated Successfully</Text>
-            <Text style={styles.reportGeneratedTime}>{generatedAt ? generatedAt.toLocaleString() : ""}</Text>
-
-            <View style={styles.reportRows}>
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>New Users:</Text>
-                <Text style={styles.reportRowValue}>{newUsersDemo}</Text>
-              </View>
-
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>Active Users:</Text>
-                <Text style={styles.reportRowValue}>{activeUsers}</Text>
-              </View>
-
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>Inactive Users:</Text>
-                <Text style={styles.reportRowValue}>{inactiveUsers}</Text>
-              </View>
-
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>Avg Logins Per User:</Text>
-                <Text style={styles.reportRowValue}>{avgLoginsPerUser}</Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.exportButtonsRow}>
-            <TouchableOpacity
-              style={[
-                styles.exportPdfButton,
-                { backgroundColor: "#fff", borderColor: "#cbdff5", borderWidth: 1 },
-                pressedBtn === "pdf" && { backgroundColor: "#133E87", borderColor: "#133E87" }
-              ]}
-              activeOpacity={0.85}
-              onPressIn={() => setPressedBtn("pdf")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={handleExportPdf}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <MaterialCommunityIcons name="file-pdf-box" size={16} color={pressedBtn === "pdf" ? "#fff" : "#000"} style={{ marginRight: 8 }} />
-                <Text style={[
-                  styles.exportPdfText,
-                  { color: pressedBtn === "pdf" ? "#fff" : "#000" }
-                ]}>
-                  Export PDF
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.exportCsvButton,
-                pressedBtn === "csv" && { backgroundColor: "#133E87", borderColor: "#133E87" }
-              ]}
-              activeOpacity={0.85}
-              onPressIn={() => setPressedBtn("csv")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={handleExportCsv}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <TableIcon size={16} color={pressedBtn === "csv" ? "#fff" : "#000"} style={{ marginRight: 8 }} />
-                <Text style={[
-                  styles.exportCsvText,
-                  pressedBtn === "csv" && { color: "#fff" }
-                ]}>Export CSV</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            style={[
-              styles.generateAnotherButton,
-              { borderColor: "#cbdff5", borderWidth: 1, backgroundColor: "#fff" },
-              pressedBtn === "generateAnother" && { backgroundColor: "#133E87", borderColor: "#133E87" }
-            ]}
-            activeOpacity={0.85}
-            onPressIn={() => setPressedBtn("generateAnother")}
-            onPressOut={() => setPressedBtn(null)}
-            onPress={handleGenerateAnother}
-          >
-            <Text style={[
-              styles.generateAnotherText,
-              { color: "#000" },
-              pressedBtn === "generateAnother" && { color: "#fff" }
-            ]}>
-              Generate Another Report
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {selected === "Performance Report" && (
-        <View>
-          <View style={styles.reportGeneratedCard}>
-            <Text style={styles.reportGeneratedTitle}>Report Generated Successfully</Text>
-            <Text style={styles.reportGeneratedTime}>{generatedAt ? generatedAt.toLocaleString() : ""}</Text>
-
-            <View style={styles.reportRows}>
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>Uptime:</Text>
-                <Text style={styles.reportRowValue}>{uptime}</Text>
-              </View>
-
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>Avg Response Time:</Text>
-                <Text style={styles.reportRowValue}>{avgResponseTime}</Text>
-              </View>
-
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>Peak Usage:</Text>
-                <Text style={styles.reportRowValue}>{peakUsage}</Text>
-              </View>
-
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>Error Rate:</Text>
-                <Text style={styles.reportRowValue}>{errorRate}</Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.exportButtonsRow}>
-            <TouchableOpacity
-              style={[
-                styles.exportPdfButton,
-                { backgroundColor: "#fff", borderColor: "#cbdff5", borderWidth: 1 },
-                pressedBtn === "pdf" && { backgroundColor: "#133E87", borderColor: "#133E87" }
-              ]}
-              activeOpacity={0.85}
-              onPressIn={() => setPressedBtn("pdf")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={handleExportPdf}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <MaterialCommunityIcons name="file-pdf-box" size={16} color={pressedBtn === "pdf" ? "#fff" : "#000"} style={{ marginRight: 8 }} />
-                <Text style={[
-                  styles.exportPdfText,
-                  { color: pressedBtn === "pdf" ? "#fff" : "#000" }
-                ]}>
-                  Export PDF
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.exportCsvButton,
-                pressedBtn === "csv" && { backgroundColor: "#133E87", borderColor: "#133E87" }
-              ]}
-              activeOpacity={0.85}
-              onPressIn={() => setPressedBtn("csv")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={handleExportCsv}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <TableIcon size={16} color={pressedBtn === "csv" ? "#fff" : "#000"} style={{ marginRight: 8 }} />
-                <Text style={[
-                  styles.exportCsvText,
-                  pressedBtn === "csv" && { color: "#fff" }
-                ]}>Export CSV</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            style={[
-              styles.generateAnotherButton,
-              { borderColor: "#cbdff5", borderWidth: 1, backgroundColor: "#fff" },
-              pressedBtn === "generateAnother" && { backgroundColor: "#133E87", borderColor: "#133E87" }
-            ]}
-            activeOpacity={0.85}
-            onPressIn={() => setPressedBtn("generateAnother")}
-            onPressOut={() => setPressedBtn(null)}
-            onPress={handleGenerateAnother}
-          >
-            <Text style={[
-              styles.generateAnotherText,
-              { color: "#000" },
-              pressedBtn === "generateAnother" && { color: "#fff" }
-            ]}>
-              Generate Another Report
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {selected === null && (
-        <View style={styles.reportsList}>
-          {items.map((it) => (
-            <TouchableOpacity
-              key={it.id}
-              style={[
-                styles.reportItem,
-                pressedTab === it.id && { backgroundColor: "rgba(13,96,156,0.21)" }
-              ]}
-              activeOpacity={0.85}
-              onPressIn={() => setPressedTab(it.id)}
-              onPressOut={() => setPressedTab(null)}
-              onPress={() => handleGenerate(it.title)}
-            >
-              <Text style={styles.reportItemTitle}>{it.title}</Text>
-              <Text style={styles.reportItemDesc}>{it.desc}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+  doc,
+  getDoc,
+} from "firebase/firestore";
+import { db } from "../../config/firebaseconfig";
 
 export default function AdminDashboard() {
   const navigation = useNavigation();
   const [pressedBtn, setPressedBtn] = useState(null);
+  const [totalUsers, setTotalUsers] = useState(0);
+  const [usersThisMonth, setUsersThisMonth] = useState(0);
+  const [activeSessions, setActiveSessions] = useState(0);
+  const [activePercentage, setActivePercentage] = useState(0);
+  const [reportsThisWeek, setReportsThisWeek] = useState(0);
+  const [recentLogs, setRecentLogs] = useState([]);
+
+  useEffect(() => {
+    console.log("Create Account card removed from dashboard");
+    fetchUserMetrics();
+    fetchReportMetrics();
+    fetchActivityLogs();
+  }, []);
+
+  const fetchUserMetrics = async () => {
+    try {
+      console.log("Fetching user metrics from Firestore...");
+
+      // Fetch all users
+      const usersRef = collection(db, "users");
+      const usersSnapshot = await getDocs(usersRef);
+      const total = usersSnapshot.size;
+      setTotalUsers(total);
+      console.log("Total users:", total);
+
+      // Calculate users created this month
+      const now = new Date();
+      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      firstDayOfMonth.setHours(0, 0, 0, 0);
+
+      console.log(
+        "Filtering users created since:",
+        firstDayOfMonth.toISOString()
+      );
+
+      let monthCount = 0;
+      let activeCount = 0;
+
+      usersSnapshot.forEach((doc) => {
+        const userData = doc.data();
+
+        // Count users created this month
+        if (userData.createdAt) {
+          // Handle Firestore Timestamp
+          let createdDate;
+          if (userData.createdAt.toDate) {
+            // Firestore Timestamp object
+            createdDate = userData.createdAt.toDate();
+          } else if (userData.createdAt.seconds) {
+            // Firestore Timestamp in serialized format
+            createdDate = new Date(userData.createdAt.seconds * 1000);
+          } else if (userData.createdAt instanceof Date) {
+            // Already a Date object
+            createdDate = userData.createdAt;
+          }
+
+          if (createdDate && createdDate >= firstDayOfMonth) {
+            monthCount++;
+          }
+        }
+
+        // Count active sessions
+        // Check if user has isActiveSession field or recent lastLogin (within last 30 minutes)
+        if (userData.isActiveSession === true) {
+          activeCount++;
+        } else if (userData.lastLogin) {
+          let lastLoginDate;
+          if (userData.lastLogin.toDate) {
+            lastLoginDate = userData.lastLogin.toDate();
+          } else if (userData.lastLogin.seconds) {
+            lastLoginDate = new Date(userData.lastLogin.seconds * 1000);
+          } else if (userData.lastLogin instanceof Date) {
+            lastLoginDate = userData.lastLogin;
+          }
+
+          // Consider active if logged in within last 30 minutes
+          const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
+          if (lastLoginDate && lastLoginDate >= thirtyMinutesAgo) {
+            activeCount++;
+          }
+        }
+      });
+
+      setUsersThisMonth(monthCount);
+      console.log("Users created this month:", monthCount);
+
+      setActiveSessions(activeCount);
+      console.log("Active users:", activeCount);
+
+      // Calculate percentage of active sessions
+      const percentage =
+        total > 0 ? Math.round((activeCount / total) * 100) : 0;
+      setActivePercentage(percentage);
+      console.log("Percentage online:", percentage + "%");
+    } catch (error) {
+      console.error("Error fetching user metrics:", error);
+    }
+  };
+
+  const fetchReportMetrics = async () => {
+    try {
+      console.log("Fetching report metrics from Firestore...");
+
+      // Fetch all report logs
+      const reportsRef = collection(db, "report_logs");
+      const reportsSnapshot = await getDocs(reportsRef);
+
+      // Calculate reports generated this week
+      const now = new Date();
+      const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+      const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Days since last Monday
+      const firstDayOfWeek = new Date(now);
+      firstDayOfWeek.setDate(now.getDate() - daysToMonday);
+      firstDayOfWeek.setHours(0, 0, 0, 0);
+
+      console.log(
+        "Filtering reports generated since:",
+        firstDayOfWeek.toISOString()
+      );
+
+      let weekCount = 0;
+
+      reportsSnapshot.forEach((doc) => {
+        const reportData = doc.data();
+        if (reportData.timestamp) {
+          let reportDate;
+          if (reportData.timestamp.toDate) {
+            reportDate = reportData.timestamp.toDate();
+          } else if (reportData.timestamp.seconds) {
+            reportDate = new Date(reportData.timestamp.seconds * 1000);
+          } else if (reportData.timestamp instanceof Date) {
+            reportDate = reportData.timestamp;
+          }
+
+          if (reportDate && reportDate >= firstDayOfWeek) {
+            weekCount++;
+          }
+        }
+      });
+
+      setReportsThisWeek(weekCount);
+      console.log("Reports generated this week:", weekCount);
+    } catch (error) {
+      console.error("Error fetching report metrics:", error);
+    }
+  };
+
+  const getRelativeTime = (timestamp) => {
+    try {
+      let date;
+      if (timestamp.toDate) {
+        date = timestamp.toDate();
+      } else if (timestamp.seconds) {
+        date = new Date(timestamp.seconds * 1000);
+      } else if (timestamp instanceof Date) {
+        date = timestamp;
+      } else {
+        return "Unknown time";
+      }
+
+      const now = new Date();
+      const diffMs = now - date;
+      const diffMinutes = Math.floor(diffMs / (1000 * 60));
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+      if (diffMinutes < 1) {
+        return "Just now";
+      } else if (diffMinutes < 60) {
+        return `${diffMinutes} minute${diffMinutes !== 1 ? "s" : ""} ago`;
+      } else if (diffHours < 24) {
+        return `${diffHours} hour${diffHours !== 1 ? "s" : ""} ago`;
+      } else {
+        return `${diffDays} day${diffDays !== 1 ? "s" : ""} ago`;
+      }
+    } catch (error) {
+      console.error("Error computing relative time:", error);
+      return "Unknown time";
+    }
+  };
+
+  const fetchActivityLogs = async () => {
+    try {
+      console.log("Fetching activity logs from Firestore...");
+
+      const logCollections = [
+        "addFeedSchedule_logs",
+        "deleteFeedSchedule_logs",
+        "editFeedSchedule_logs",
+        "nightTime_logs",
+        "report_logs",
+        "session_logs",
+        "wateringActivity_logs",
+      ];
+
+      const allLogs = [];
+
+      // Fetch logs from each collection
+      for (const collectionName of logCollections) {
+        try {
+          const logsRef = collection(db, collectionName);
+          const logsSnapshot = await getDocs(logsRef);
+
+          console.log(
+            `Fetched ${logsSnapshot.size} logs from ${collectionName}`
+          );
+
+          // Process each log document
+          for (const docSnap of logsSnapshot.docs) {
+            const logData = docSnap.data();
+
+            // Fetch user data from users collection
+            let firstName = "Unknown";
+            let lastName = "User";
+
+            if (logData.userId) {
+              try {
+                const userRef = doc(db, "users", logData.userId);
+                const userDoc = await getDoc(userRef);
+
+                if (userDoc.exists()) {
+                  const userData = userDoc.data();
+                  firstName = userData.firstName || "Unknown";
+                  lastName = userData.lastName || "User";
+                }
+              } catch (userError) {
+                console.warn(
+                  `Error fetching user ${logData.userId}:`,
+                  userError.message
+                );
+              }
+            }
+
+            // Create a unified log entry
+            allLogs.push({
+              id: docSnap.id,
+              collection: collectionName,
+              userId: logData.userId || "Unknown",
+              firstName: firstName,
+              lastName: lastName,
+              action: logData.action || logData.type || "action",
+              description:
+                logData.description ||
+                getDefaultDescription(collectionName, logData),
+              timestamp: logData.timestamp,
+            });
+          }
+        } catch (collectionError) {
+          console.warn(
+            `Error fetching ${collectionName}:`,
+            collectionError.message
+          );
+        }
+      }
+
+      console.log("Merged logs:", allLogs.length);
+
+      // Sort by timestamp descending (latest first)
+      const sortedLogs = allLogs.sort((a, b) => {
+        const timeA = a.timestamp?.seconds || 0;
+        const timeB = b.timestamp?.seconds || 0;
+        return timeB - timeA;
+      });
+
+      console.log("Sorted logs:", sortedLogs.length);
+
+      // Limit to 10 most recent
+      const recentLogs = sortedLogs.slice(0, 10);
+
+      console.log("Recent logs (limited to 10):", recentLogs.length);
+
+      setRecentLogs(recentLogs);
+    } catch (error) {
+      console.error("Error fetching activity logs:", error);
+    }
+  };
+
+  const getDefaultDescription = (collectionName, logData) => {
+    switch (collectionName) {
+      case "addFeedSchedule_logs":
+        return "Added feed schedule";
+      case "deleteFeedSchedule_logs":
+        return "Deleted feed schedule";
+      case "editFeedSchedule_logs":
+        return "Edited feed schedule";
+      case "nightTime_logs":
+        return "Updated night time settings";
+      case "report_logs":
+        return `Generated ${logData.type || "report"} report`;
+      case "session_logs":
+        return logData.action === "login" ? "Logged in" : "Logged out";
+      case "wateringActivity_logs":
+        return "Performed watering activity";
+      default:
+        return "Performed system action";
+    }
+  };
 
   // Analytics state
   const [range, setRange] = useState("Last 7 Days");
@@ -742,10 +377,31 @@ export default function AdminDashboard() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Header2 showBackButton={false} />
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Welcome Card - No background */}
-        <View style={styles.welcomeCard}>
+      <Header2 />
+      <ScrollView
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Welcome Card */}
+        <View
+          style={[
+            styles.welcomeCard,
+            {
+              backgroundColor: "transparent",
+              overflow: "hidden",
+            },
+          ]}
+        >
+          <View
+            style={{
+              ...StyleSheet.absoluteFillObject,
+              zIndex: 0,
+              borderRadius: 16,
+              // Simulate the gradient background using a linear gradient library if available
+              // If not, fallback to a solid color similar to the gradient
+              backgroundColor: "#EBF2F8",
+            }}
+          />
           <Text style={styles.welcomeTitle}>Welcome, Administrator</Text>
           <Text style={styles.welcomeSubtitle}>
             Manage users, view system activity,{"\n"}
@@ -753,105 +409,58 @@ export default function AdminDashboard() {
           </Text>
         </View>
 
-        {/* Line chart */}
-        <View style={{ width: "100%", marginTop: 8 }}>
-          <View style={styles.chartCard}>
-            <Text style={styles.chartTitle}>User Growth Over Time</Text>
-
-            {LineChartComp ? (
-              <View style={{ position: "relative", width: chartWidth, marginLeft: -10 }}>
-                <LineChartComp
-                  data={chartData}
-                  width={chartWidth}
-                  height={chartHeight}
-                  chartConfig={{
-                    backgroundGradientFrom: "#ffffff",
-                    backgroundGradientTo: "#ffffff",
-                    decimalPlaces: 0,
-                    color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
-                    labelColor: (opacity = 1) => `rgba(44, 62, 80, ${opacity})`,
-                    propsForDots: { r: "4", strokeWidth: "2", stroke: "#154985" },
-                  }}
-                  bezier
-                  style={{ marginTop: 8 }}
-                  withVerticalLines={false}
-                  withInnerLines={false}
-                  withHorizontalLines={false}
-                  fromZero
-                  onDataPointClick={(data) => {
-                    const point = {
-                      index: data.index,
-                      value: data.value,
-                      label: chartData.labels[data.index],
-                      x: data.x,
-                      y: data.y,
-                    };
-                    showPointTooltip(point);
-                  }}
+        {/* Metrics Row */}
+        <View style={styles.metricsRow}>
+          <View style={[styles.metricCard, { marginRight: 12 }]}>
+            <View style={styles.metricHeader}>
+              <View style={styles.metricCircleIcon}>
+                <MaterialCommunityIcons
+                  name="account-group-outline"
+                  size={22}
+                  color="#234187"
                 />
-
-                {activePoint !== null && (
-                  <View
-                    pointerEvents="none"
-                    style={[
-                      styles.tooltipWrapper,
-                      {
-                        left: Math.max(6, activePoint.x - 1),
-                        top: 0,
-                        height: chartHeight,
-                      },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.tooltipVerticalLine,
-                        {
-                          top: activePoint.y + 4,
-                          height: chartHeight - activePoint.y - 18,
-                        },
-                      ]}
-                    />
-                    <View
-                      style={[
-                        styles.tooltipBox,
-                        {
-                          position: "absolute",
-                          bottom: chartHeight - activePoint.y + 10,
-                          left: -40,
-                        },
-                      ]}
-                    >
-                      <Text style={styles.tooltipLabel}>{activePoint.label}</Text>
-                      <Text style={styles.tooltipValue}>Users: {activePoint.value}</Text>
-                    </View>
-                  </View>
-                )}
               </View>
-            ) : (
-              <View style={styles.fallback}>
-                <Text style={styles.fallbackText}>Chart component not available.</Text>
-                <Text style={styles.fallbackTextSmall}>
-                  {chartError ? `Reason: ${chartError}` : "react-native-chart-kit or react-native-svg might be missing."}
-                </Text>
-                <View style={{ marginTop: 8 }}>
-                  <Button
-                    title="Install / Rebuild (instructions)"
-                    onPress={() => console.log("Run: expo install react-native-svg && npm install react-native-chart-kit && expo start -c")}
-                  />
-                </View>
-                <Text style={styles.instructions}>
-                  To fix: install react-native-svg and react-native-chart-kit, then restart Metro with cache clear.
-                </Text>
+              <Text style={[styles.metricTitle, { marginLeft: -8 }]}>
+                Total Users
+              </Text>
+            </View>
+            <Text style={styles.metricValue}>{totalUsers}</Text>
+            <Text style={styles.metricSub}>+{usersThisMonth} this month</Text>
+          </View>
+          <View style={styles.metricCard}>
+            <View style={styles.metricHeader}>
+              <View style={[styles.metricCircleIcon, { marginRight: 6 }]}>
+                <MaterialCommunityIcons
+                  name="chart-timeline-variant"
+                  size={22}
+                  color="#234187"
+                />
               </View>
-            )}
+              <Text
+                style={[styles.metricTitle, { marginLeft: -8, lineHeight: 18 }]}
+                numberOfLines={2}
+              >
+                Active Sessions
+              </Text>
+            </View>
+            <Text style={styles.metricValue}>{activeSessions}</Text>
+            <Text style={styles.metricSub}>{activePercentage}% online</Text>
           </View>
         </View>
 
-        {/* Grouped bar chart */}
-        <View style={{ width: "100%", marginTop: 12 }}>
-          <View style={[styles.chartCard, { overflow: "hidden", minHeight: barChartHeight + 80 }]}>
-            <Text style={styles.chartTitle}>System Usage & Activity</Text>
-            <GroupedBarChart data={barData} height={barChartHeight} />
+        {/* Reports Generated */}
+        <View style={styles.reportCard}>
+          <View style={styles.reportLeft}>
+            <Text style={styles.reportTitle}>Reports Generated</Text>
+            <Text style={styles.reportValue}>{reportsThisWeek}</Text>
+            <Text style={styles.reportSub}>This week</Text>
+          </View>
+          <View style={styles.reportCircleIcon}>
+            <MaterialCommunityIcons
+              name="presentation"
+              size={28}
+              color="#234187"
+            />
           </View>
         </View>
 
@@ -863,7 +472,12 @@ export default function AdminDashboard() {
         {/* --- Admin Actions Section --- */}
         <View style={styles.actionCard}>
           <View style={styles.actionRow}>
-            <MaterialCommunityIcons name="account-group-outline" size={28} color="#133E87" style={styles.actionIcon} />
+            <MaterialCommunityIcons
+              name="account-group-outline"
+              size={28}
+              color="#133E87"
+              style={styles.actionIcon}
+            />
             <View style={{ flex: 1 }}>
               <Text style={styles.actionTitle}>Manage User Accounts</Text>
               <Text style={styles.actionDesc}>
@@ -873,17 +487,21 @@ export default function AdminDashboard() {
                 style={[
                   styles.fullWidthButton,
                   { borderColor: "#234187" },
-                  pressedBtn === "userManagement" && { backgroundColor: "#133E87" }
+                  pressedBtn === "userManagement" && {
+                    backgroundColor: "#133E87",
+                  },
                 ]}
                 activeOpacity={0.85}
                 onPressIn={() => setPressedBtn("userManagement")}
                 onPressOut={() => setPressedBtn(null)}
                 onPress={() => navigation.navigate("UserManagement")}
               >
-                <Text style={[
-                  styles.fullWidthButtonText,
-                  pressedBtn === "userManagement" && { color: "#fff" }
-                ]}>
+                <Text
+                  style={[
+                    styles.fullWidthButtonText,
+                    pressedBtn === "userManagement" && { color: "#fff" },
+                  ]}
+                >
                   Open User Management
                 </Text>
               </TouchableOpacity>
@@ -893,28 +511,38 @@ export default function AdminDashboard() {
 
         <View style={styles.actionCard}>
           <View style={styles.actionRow}>
-            <MaterialCommunityIcons name="account-plus-outline" size={28} color="#133E87" style={styles.actionIcon} />
+            <MaterialCommunityIcons
+              name="file-document-outline"
+              size={28}
+              color="#133E87"
+              style={styles.actionIcon}
+            />
             <View style={{ flex: 1 }}>
-              <Text style={styles.actionTitle}>Create Account</Text>
+              <Text style={styles.actionTitle}>View Activity Logs</Text>
               <Text style={styles.actionDesc}>
-                Create a new user account with role and permissions
+                Monitor system activity, view audit logs, and generate activity
+                reports.
               </Text>
               <TouchableOpacity
                 style={[
                   styles.fullWidthButton,
                   { borderColor: "#234187" },
-                  pressedBtn === "createAccount" && { backgroundColor: "#133E87" }
+                  pressedBtn === "activityLogs" && {
+                    backgroundColor: "#133E87",
+                  },
                 ]}
                 activeOpacity={0.85}
-                onPressIn={() => setPressedBtn("createAccount")}
+                onPressIn={() => setPressedBtn("activityLogs")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() => navigation.navigate("CreateAccount")}
+                onPress={() => navigation.navigate("AdminActivityLogs")}
               >
-                <Text style={[
-                  styles.fullWidthButtonText,
-                  pressedBtn === "createAccount" && { color: "#fff" }
-                ]}>
-                  Create
+                <Text
+                  style={[
+                    styles.fullWidthButtonText,
+                    pressedBtn === "activityLogs" && { color: "#fff" },
+                  ]}
+                >
+                  Open Activity Logs
                 </Text>
               </TouchableOpacity>
             </View>
@@ -923,32 +551,67 @@ export default function AdminDashboard() {
 
         <View style={styles.actionCard}>
           <View style={styles.actionRow}>
-            <MaterialCommunityIcons name="file-document-outline" size={28} color="#133E87" style={styles.actionIcon} />
+            <MaterialCommunityIcons
+              name="chart-bar"
+              size={28}
+              color="#133E87"
+              style={styles.actionIcon}
+            />
             <View style={{ flex: 1 }}>
-              <Text style={styles.actionTitle}>View Activity Logs</Text>
+              <Text style={styles.actionTitle}>View Analytics</Text>
               <Text style={styles.actionDesc}>
-                Monitor system activity, view audit logs, and generate activity reports.
+                View comprehensive system analytics and generate detailed
+                reports.
               </Text>
               <TouchableOpacity
                 style={[
                   styles.fullWidthButton,
                   { borderColor: "#234187" },
-                  pressedBtn === "activityLogs" && { backgroundColor: "#133E87" }
+                  pressedBtn === "analytics" && { backgroundColor: "#133E87" }, // All buttons turn blue when pressed
                 ]}
                 activeOpacity={0.85}
-                onPressIn={() => setPressedBtn("activityLogs")}
+                onPressIn={() => setPressedBtn("analytics")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() => navigation.navigate("AdminActivityLogs")}
+                onPress={() => navigation.navigate("AdminAnalytics")} // Navigate to adminAnalytics.js
               >
-                <Text style={[
-                  styles.fullWidthButtonText,
-                  pressedBtn === "activityLogs" && { color: "#fff" }
-                ]}>
-                  Open Activity Logs
+                <Text
+                  style={[
+                    styles.fullWidthButtonText,
+                    pressedBtn === "analytics" && { color: "#fff" },
+                  ]}
+                >
+                  Open Analytics
                 </Text>
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+
+        {/* Recent System Activity */}
+        <View style={styles.activityCard}>
+          <Text style={styles.activityTitle}>Recent System Activity</Text>
+          {recentLogs.length === 0 ? (
+            <View style={styles.activityItem}>
+              <Text style={styles.activityDesc}>No recent activity</Text>
+            </View>
+          ) : (
+            recentLogs.map((log) => (
+              <View
+                key={`${log.collection}-${log.id}`}
+                style={styles.activityItem}
+              >
+                <View>
+                  <Text style={styles.activityUser}>
+                    {log.firstName} {log.lastName}
+                  </Text>
+                  <Text style={styles.activityDesc}>{log.description}</Text>
+                </View>
+                <Text style={styles.activityTime}>
+                  {getRelativeTime(log.timestamp)}
+                </Text>
+              </View>
+            ))
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -983,6 +646,105 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#5A6B7B",
     lineHeight: 20,
+  },
+  metricsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 24, // increased space below
+  },
+  metricCard: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: "rgba(13,96,156,0.21)",
+    alignItems: "flex-start",
+  },
+  metricHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+    gap: 6, // add a small gap between icon and title for both cards
+  },
+  metricCircleIcon: {
+    width: 32, // minimized size
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F2F6FA",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+    shadowColor: "#6E95D9",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 2, // for Android shadow
+  },
+  metricIcon: {
+    marginRight: 8,
+    marginBottom: 0, // Remove any bottom margin
+  },
+  metricTitle: {
+    fontSize: 14, // match actionTitle, reportTitle, activityTitle
+    fontWeight: "500", // match actionTitle, reportTitle, activityTitle
+    color: "#000000", // match actionTitle, reportTitle, activityTitle
+    marginBottom: 0,
+    marginLeft: -5,
+  },
+  metricValue: {
+    fontSize: 30,
+    fontWeight: "bold",
+    color: "#222",
+    marginBottom: 8, // increased space below value
+  },
+  metricSub: {
+    fontSize: 14,
+    color: "#133E87",
+  },
+  reportCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: "rgba(13,96,156,0.21)",
+    marginTop: 4,
+    marginBottom: 24, // increased space below
+    justifyContent: "space-between",
+  },
+  reportLeft: {
+    flex: 1,
+  },
+  reportTitle: {
+    fontSize: 16, // match actionTitle
+    fontWeight: "600", // match actionTitle
+    color: "#000000", // match actionTitle
+    marginBottom: 4, // match actionTitle
+  },
+  reportValue: {
+    fontSize: 34,
+    fontWeight: "bold",
+    color: "#222",
+    marginBottom: 8, // increased space below value
+  },
+  reportSub: {
+    fontSize: 14,
+    color: "#133E87",
+  },
+  reportCircleIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F2F6FA",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#6E95D9",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 3, // for Android shadow
   },
   actionCard: {
     backgroundColor: "#fff",
@@ -1033,11 +795,24 @@ const styles = StyleSheet.create({
     textAlign: "center",
     letterSpacing: 0.2,
   },
-
-  // Analytics styles
-  pickerRow: {
-    width: "100%", backgroundColor: "#ffffff", borderRadius: 12, borderWidth: 1.5, borderColor: "#d9e9f6",
-    padding: 14, flexDirection: "row", alignItems: "center", marginBottom: 16, justifyContent: "space-between",
+  activityCard: {
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: "rgba(13,96,156,0.21)",
+    marginBottom: 32, // increased space below
+    marginTop: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  activityTitle: {
+    fontSize: 16, // match actionTitle
+    fontWeight: "600", // match actionTitle
+    color: "#000000", // match actionTitle
+    marginBottom: 14,
   },
   pickerLabel: { fontSize: 16, color: "#0b2336" },
 
@@ -1108,11 +883,4 @@ const styles = StyleSheet.create({
     color: "#000",
     fontWeight: "700",
   },
-  exportCsvButton: { backgroundColor: "#fff", paddingVertical: 12, paddingHorizontal: 18, borderRadius: 10, borderWidth: 1, borderColor: "#cbdff5" },
-  exportCsvText: { color: "#000", fontWeight: "700" },
-
-  generateAnotherButton: { backgroundColor: "#cfe9fb", paddingVertical: 12, borderRadius: 10, marginTop: 14, alignItems: "center" },
-  generateAnotherText: { color: "#133E87", fontWeight: "700" },
-
-  tableIconOuter: { position: "absolute", left: 0, top: 0, right: 0, bottom: 0, justifyContent: "center", alignItems: "center" },
 });

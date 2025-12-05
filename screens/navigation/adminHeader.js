@@ -152,7 +152,7 @@ export default function AdminHeader({ showBackButton = true }) {
             {unreadCount > 0 && (
               <View style={styles.notificationBadge}>
                 <Text style={styles.notificationBadgeText}>
-                  {unreadCount > 99 ? "99+" : unreadCount}
+                  {unreadCount > 9 ? '9+' : unreadCount}
                 </Text>
               </View>
             )}
@@ -238,15 +238,10 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     backgroundColor: "#ffffff",
     borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 4,
+    borderBottomColor: "#e5e7eb",
   },
   leftSection: {
-    flex: 1,
+    width: 48,
     alignItems: "flex-start",
   },
   backButton: {
@@ -270,12 +265,15 @@ const styles = StyleSheet.create({
     borderRadius: 60,
   },
   centerSection: {
-    flex: 2,
+    position: "absolute",
+    left: 0,
+    right: 0,
     alignItems: "center",
-    paddingHorizontal: 8,
+    justifyContent: "center",
+    pointerEvents: "none",
   },
   rightSection: {
-    flex: 1,
+    width: 88,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",

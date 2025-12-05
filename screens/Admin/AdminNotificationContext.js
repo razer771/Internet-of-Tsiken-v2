@@ -1,16 +1,85 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { db } from "../../config/firebaseconfig";
+import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore";
 
 const AdminNotificationContext = createContext();
 
 const STORAGE_KEY = "@admin_notifications";
 
 const defaultNotifications = [
-  { id: 1, category: "User Management", title: "New user registered", description: "A new user has registered to the system.", time: "December 4, 2025 (09:19 PM)", read: false },
-  { id: 2, category: "System Alert", title: "High temperature detected", description: "Temperature exceeded normal range in brooder area.", time: "December 4, 2025 (09:15 PM)", read: false },
-  { id: 3, category: "Schedule Management", title: "Feeding schedule updated", description: "User updated feeding schedule for 10:00 AM.", time: "December 4, 2025 (08:30 PM)", read: true },
-  { id: 4, category: "User Activity", title: "Manual watering completed", description: "User activated sprinkler manually at 6:45 PM.", time: "December 4, 2025 (06:45 PM)", read: true },
-  { id: 5, category: "System Alert", title: "Low feed level", description: "Feed container is running low. Please refill soon.", time: "December 4, 2025 (05:00 PM)", read: false },
+  { 
+    id: 1, 
+    category: "User Management", 
+    title: "New user registration", 
+    description: "John Doe has registered a new account",
+    time: "December 4, 2025 (10:30 AM)", 
+    read: false,
+    type: "user_registration"
+  },
+  { 
+    id: 2, 
+    category: "System Alert", 
+    title: "High activity detected", 
+    description: "Unusual number of login attempts detected",
+    time: "December 4, 2025 (09:45 AM)", 
+    read: false,
+    type: "security"
+  },
+  { 
+    id: 3, 
+    category: "IoT Device", 
+    title: "Device offline", 
+    description: "Brooder #5 has gone offline",
+    time: "December 4, 2025 (08:20 AM)", 
+    read: true,
+    type: "device"
+  },
+  { 
+    id: 4, 
+    category: "User Activity", 
+    title: "Batch completed", 
+    description: "User Maria Santos completed batch harvest",
+    time: "December 3, 2025 (05:15 PM)", 
+    read: true,
+    type: "batch"
+  },
+  { 
+    id: 5, 
+    category: "System Alert", 
+    title: "Database backup completed", 
+    description: "Automated backup completed successfully",
+    time: "December 3, 2025 (02:00 AM)", 
+    read: false,
+    type: "system"
+  },
+  { 
+    id: 6, 
+    category: "User Management", 
+    title: "Account deletion request", 
+    description: "User requested account deletion",
+    time: "December 2, 2025 (11:30 AM)", 
+    read: false,
+    type: "user_management"
+  },
+  { 
+    id: 7, 
+    category: "IoT Device", 
+    title: "Sensor calibration needed", 
+    description: "Temperature sensor in Brooder #3 needs calibration",
+    time: "December 2, 2025 (09:00 AM)", 
+    read: true,
+    type: "device"
+  },
+  { 
+    id: 8, 
+    category: "Analytics", 
+    title: "Weekly report ready", 
+    description: "System performance report for Nov 25 - Dec 1 is ready",
+    time: "December 1, 2025 (08:00 AM)", 
+    read: false,
+    type: "report"
+  },
 ];
 
 export function AdminNotificationProvider({ children }) {
@@ -28,6 +97,40 @@ export function AdminNotificationProvider({ children }) {
       saveNotifications();
     }
   }, [notifications]);
+
+  // Optional: Listen to Firebase for real-time admin notifications
+  useEffect(() => {
+    // You can implement Firebase listener here for real-time notifications
+    // Example: Listen to activity logs, user registrations, etc.
+    /*
+    const logsQuery = query(
+      collection(db, "admin_notifications"),
+      orderBy("timestamp", "desc"),
+      limit(50)
+    );
+    
+    const unsubscribe = onSnapshot(logsQuery, (snapshot) => {
+      const newNotifications = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        read: false,
+      }));
+      
+      // Merge with existing notifications
+      setNotifications(prev => {
+        const merged = [...newNotifications];
+        prev.forEach(n => {
+          if (!merged.find(m => m.id === n.id)) {
+            merged.push(n);
+          }
+        });
+        return merged;
+      });
+    });
+
+    return () => unsubscribe();
+    */
+  }, []);
 
   const loadNotifications = async () => {
     try {
@@ -86,6 +189,7 @@ export function AdminNotificationProvider({ children }) {
       id: Date.now(),
       read: false,
       time: new Date().toLocaleString(),
+      description: "",
       ...notification,
     };
     setNotifications(prev => [newNotification, ...prev]);
@@ -102,6 +206,16 @@ export function AdminNotificationProvider({ children }) {
     await AsyncStorage.removeItem(STORAGE_KEY);
   };
 
+  // Filter notifications by type
+  const getNotificationsByType = (type) => {
+    return notifications.filter(n => n.type === type);
+  };
+
+  // Filter notifications by category
+  const getNotificationsByCategory = (category) => {
+    return notifications.filter(n => n.category === category);
+  };
+
   return (
     <AdminNotificationContext.Provider
       value={{
@@ -115,6 +229,8 @@ export function AdminNotificationProvider({ children }) {
         addNotification,
         deleteNotification,
         clearAllNotifications,
+        getNotificationsByType,
+        getNotificationsByCategory,
       }}
     >
       {children}

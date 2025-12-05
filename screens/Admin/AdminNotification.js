@@ -77,15 +77,15 @@ function SmallCalendar({ onClose }) {
 function NotificationItem({ item, onPress }) {
   return (
     <TouchableOpacity 
-      style={[styles.notificationItem, { backgroundColor: item.read ? "#f7f7f7" : "#fff" }]}
+      style={[styles.notificationItem, { backgroundColor: item.read ? "#e5e7eb" : "#fff" }]}
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <Text style={{ fontWeight: '700' }}>{item.category}: {item.title}</Text>
-      <Text style={styles.notificationText}>
-        {item.description || "No description available."}
+      <Text style={{ fontWeight: '700', color: item.read ? "#6b7280" : "#000" }}>{item.category}: {item.title}</Text>
+      <Text style={[styles.notificationText, { color: item.read ? "#9ca3af" : "#666" }]}>
+        {item.description || "Lorem ipsum dolor sit amet, consectetur adipiscing elit."}
       </Text>
-      <Text style={styles.notificationTime}>{item.time}</Text>
+      <Text style={[styles.notificationTime, { color: item.read ? "#9ca3af" : "#999" }]}>{item.time}</Text>
     </TouchableOpacity>
   );
 }
@@ -93,14 +93,11 @@ function NotificationItem({ item, onPress }) {
 export default function AdminNotification() {
   const [activeTab, setActiveTab] = useState("Daily");
   const [calendarVisible, setCalendarVisible] = useState(false);
-  const [drawerVisible, setDrawerVisible] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const navigation = useNavigation();
   const { notifications, toggleAllRead, markAsRead } = useAdminNotifications();
 
-  const openDrawer = () => setDrawerVisible(true);
-  const closeDrawer = () => setDrawerVisible(false);
   const allRead = useMemo(() => notifications.every(n => n.read), [notifications]);
 
   const toggleMarkAll = () => {
@@ -120,7 +117,7 @@ export default function AdminNotification() {
 
   return (
     <SafeAreaView style={{ flex: 1 }}>
-      <Header2 showBackButton={true} />
+      <Header2 />
       <ScrollView style={styles.wrapper} contentContainerStyle={{ paddingBottom: 20 }}>
         <View style={styles.topRow}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
@@ -198,7 +195,7 @@ export default function AdminNotification() {
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Description</Text>
                     <Text style={styles.detailDescription}>
-                      {selectedNotification.description || "No description available."}
+                      {selectedNotification.description || "Lorem ipsum dolor sit amet, consectetur adipiscing elit."}
                     </Text>
                   </View>
                   

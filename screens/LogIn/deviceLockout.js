@@ -1,18 +1,28 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// --- Lockout Configuration ---
-// Maximum cumulative number of failed attempts before the FIRST device lock.
-// The attempt counter is ONLY reset when the user successfully logs in.
-export const MAX_ATTEMPTS = 5;
+// Environment detection - set to true for production
+const IS_PRODUCTION = false; // Change to true for production builds
 
-// Lockout Duration in milliseconds (1 minute, 5 minutes, 1 day)
-const MINUTE = 60 * 1000;
-const DAY = 24 * 60 * 60 * 1000;
+// Lockout durations
+export const LOGIN_LOCKOUT_DURATION = IS_PRODUCTION
+  ? 60 * 60 * 1000 // 1 hour in production
+  : 10 * 1000; // 10 seconds in development
 
-export const LOCKOUT_DURATIONS = {
-  FIRST: MINUTE * 1, // 1 minute (After 5 cumulative failed attempts)
-  SECOND: MINUTE * 5, // 5 minutes (After 10 cumulative failed attempts)
-  THIRD_PLUS: DAY * 1, // 1 day (After 15+ cumulative failed attempts)
+export const OTP_LOCKOUT_DURATION = IS_PRODUCTION
+  ? 60 * 60 * 1000 // 1 hour in production
+  : 10 * 1000; // 10 seconds in development
+// Attempt limits
+const LOGIN_ATTEMPT_LIMIT = 5;
+const OTP_ATTEMPT_LIMIT = 5;
+
+// Legacy export for backward compatibility
+export const LOCKOUT_DURATION = LOGIN_LOCKOUT_DURATION;
+
+const LOCKOUT_KEYS = {
+  LOGIN: "device_login_lockout",
+  OTP: "device_otp_lockout",
+  LOGIN_ATTEMPTS: "device_login_attempts",
+  OTP_ATTEMPTS: "device_otp_attempts",
 };
 
 // --- Storage Keys ---
@@ -147,6 +157,24 @@ export const incrementLoginAttempts = async (email) => {
       message: "Attempt recorded, not locked." 
     };
 
+/**
+ * Lock out login on device
+ * @returns {Promise<void>}
+ */
+export const lockoutLoginOnDevice = async () => {
+  try {
+    const lockoutTime = Date.now() + LOGIN_LOCKOUT_DURATION;
+    await AsyncStorage.setItem(
+      LOCKOUT_KEYS.LOGIN,
+      JSON.stringify({
+        lockoutTime,
+        reason: "login_attempts",
+        timestamp: Date.now(),
+      })
+    );
+    console.log(
+      `🔒 Login locked for ${IS_PRODUCTION ? "1 hour" : "10 seconds"}`
+    );
   } catch (error) {
     console.error("AsyncStorage error in incrementLoginAttempts:", error);
     return { attempts: 0, shouldLock: false };
@@ -157,8 +185,22 @@ export const incrementLoginAttempts = async (email) => {
  * Clears the failed login attempt count and lockout status.
  * @param {string} email - The email address to reset.
  */
-export const resetLoginAttempts = async (email) => {
-  if (!email) return;
+export const lockoutOTPOnDevice = async () => {
+  try {
+    const lockoutTime = Date.now() + OTP_LOCKOUT_DURATION;
+    await AsyncStorage.setItem(
+      LOCKOUT_KEYS.OTP,
+      JSON.stringify({
+        lockoutTime,
+        reason: "otp_attempts",
+        timestamp: Date.now(),
+      })
+    );
+    console.log(`🔒 OTP locked for ${IS_PRODUCTION ? "1 hour" : "10 seconds"}`);
+  } catch (error) {
+    console.error("Error locking out OTP:", error);
+  }
+};
 
   const attemptsKey = getAttemptsKey(email);
   const lockoutKey = getLockoutKey(email);

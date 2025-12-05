@@ -7,16 +7,61 @@ import {
   StyleSheet,
   TouchableWithoutFeedback,
   Keyboard,
-  Alert,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation } from "@react-navigation/native";
 import { auth, db } from "../../config/firebaseconfig.js";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 
 // Initialize Firebase Functions
 const functions = getFunctions(undefined, "us-central1");
+
+// Reusable Branded Alert Modal Component
+const BrandedAlertModal = ({ visible, type, title, message, onClose }) => {
+  const getIconConfig = () => {
+    switch (type) {
+      case "success":
+        return { name: "check-circle", color: "#4CAF50" };
+      case "error":
+        return { name: "alert-circle", color: "#c41e3a" };
+      case "info":
+        return { name: "information", color: "#2196F3" };
+      default:
+        return { name: "information", color: "#2196F3" };
+    }
+  };
+
+  const iconConfig = getIconConfig();
+
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View style={styles.alertOverlay}>
+        <View style={styles.alertModal}>
+          <View
+            style={[
+              styles.alertIconContainer,
+              { backgroundColor: `${iconConfig.color}20` },
+            ]}
+          >
+            <MaterialCommunityIcons
+              name={iconConfig.name}
+              size={48}
+              color={iconConfig.color}
+            />
+          </View>
+          <Text style={styles.alertTitle}>{title}</Text>
+          <Text style={styles.alertMessage}>{message}</Text>
+          <TouchableOpacity style={styles.alertButton} onPress={onClose}>
+            <Text style={styles.alertButtonText}>OK</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
 
 export default function VerifyIdentityScreen() {
   const [selectedOption, setSelectedOption] = useState("mobile");
@@ -25,14 +70,37 @@ export default function VerifyIdentityScreen() {
   const [showOtpScreen, setShowOtpScreen] = useState(false);
   const [confirmationResult, setConfirmationResult] = useState(null);
   const [verificationId, setVerificationId] = useState(null);
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
+
+  // Alert Modal State
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertType, setAlertType] = useState("info");
+  const [alertTitle, setAlertTitle] = useState("");
+  const [alertMessage, setAlertMessage] = useState("");
+
   const inputs = useRef([]);
   const navigation = useNavigation();
+
+  const showAlert = (type, title, message) => {
+    setAlertType(type);
+    setAlertTitle(title);
+    setAlertMessage(message);
+    setAlertVisible(true);
+  };
+
+  const closeAlert = () => {
+    setAlertVisible(false);
+  };
 
   // Send OTP using Firebase Functions (working version)
   const handleSendOTP = async () => {
     if (selectedOption === "mobile") {
       if (inputValue.length < 10) {
-        Alert.alert("Error", "Enter the 10-digit mobile number");
+        showAlert(
+          "error",
+          "Incomplete Mobile Number",
+          "Enter the 10-digit mobile number"
+        );
         return;
       }
       try {
@@ -43,7 +111,7 @@ export default function VerifyIdentityScreen() {
 
         // Call our deployed Firebase Function to send SMS
         const sendSMSOTP = httpsCallable(functions, "sendSMSOTP");
-        const requestData = { mobileNumber: phoneNumber };
+        const requestData = { phone: phoneNumber };
         console.log("🔄 Request data being sent:", requestData);
         console.log("🔄 Request data type:", typeof requestData);
         console.log("🔄 Request data keys:", Object.keys(requestData));
@@ -52,16 +120,16 @@ export default function VerifyIdentityScreen() {
 
         if (response.data && response.data.success) {
           setConfirmationResult({
-            mobileNumber: response.data.mobileNumber,
+            phone: response.data.phone || phoneNumber,
             testOTP: response.data.testOTP,
           });
-          setVerificationId(response.data.mobileNumber);
+          setVerificationId(response.data.phone || phoneNumber);
         } else {
           throw new Error("Failed to send SMS");
         }
 
         console.log("==========================================");
-        console.log(`📱 SMS sent to: ${response.data.mobileNumber}`);
+        console.log(`📱 SMS sent to: ${response.data.phone || phoneNumber}`);
         console.log("SMS sent successfully");
         if (response.data.testOTP) {
           console.log(`🔐 OTP CODE: ${response.data.testOTP}`);
@@ -69,14 +137,12 @@ export default function VerifyIdentityScreen() {
         console.log("==========================================");
 
         setShowOtpScreen(true);
-        Alert.alert(
-          "SMS Sent",
-          `SMS verification code sent to ${response.data.mobileNumber}${
-            response.data.testOTP
-              ? `\\n\\n🔐 TEST OTP: ${response.data.testOTP}\\n\\nUse this code to continue (SMS delivery in progress...)`
-              : "\\n\\nCheck your messages for the code."
-          }`
-        );
+        setSuccessModalVisible(true);
+
+        // Auto-hide modal after 2 seconds
+        setTimeout(() => {
+          setSuccessModalVisible(false);
+        }, 2000);
       } catch (error) {
         console.error("🚨 OTP Generation Error:", error);
         console.error("Error details:", {
@@ -86,18 +152,12 @@ export default function VerifyIdentityScreen() {
           stack: error.stack,
         });
 
-        let errorMessage = "Failed to send OTP";
-        if (error.code) {
-          errorMessage += ` (${error.code})`;
-        }
-        if (error.message) {
-          errorMessage += `: ${error.message}`;
-        }
+        let errorMessage = "Mobile number does not match user records";
 
-        Alert.alert("Error", errorMessage);
+        showAlert("error", "Invalid Mobile Number", errorMessage);
       }
     } else {
-      Alert.alert("Error", "Only mobile OTP is supported.");
+      showAlert("error", "Error", "Only mobile OTP is supported.");
     }
   };
 
@@ -123,7 +183,7 @@ export default function VerifyIdentityScreen() {
   const handleVerifyLogin = async () => {
     const enteredOtp = otp.join("");
     if (!confirmationResult) {
-      Alert.alert("Error", "No OTP request found.");
+      showAlert("error", "Error", "No OTP request found.");
       return;
     }
 
@@ -139,29 +199,61 @@ export default function VerifyIdentityScreen() {
         console.log("✅ Phone number verified successfully!");
         console.log("Phone:", response.data.phone);
 
-        // Update Firestore verification status
+        // Update Firestore verification status and fetch user data
         const user = auth.currentUser;
         if (user) {
-          await updateDoc(doc(db, "users", user.uid), {
+          const userRef = doc(db, "users", user.uid);
+          await updateDoc(userRef, {
             verified: true,
             lastVerified: new Date(),
             phone: response.data.phone,
             phoneVerified: true,
           });
           console.log("✅ User verification status updated");
-        }
 
-        Alert.alert(
-          "Success",
-          "Phone number verified successfully!\\n\\n🎉 SMS verification completed via Firebase Functions."
-        );
-        navigation.navigate("LoginSuccess");
+          // Fetch updated user document to check role
+          const userDoc = await getDoc(userRef);
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            console.log("👤 User role:", userData.role || "Regular user");
+
+            showAlert(
+              "success",
+              "Success",
+              "Phone number verified successfully!\n\n🎉 SMS verification completed via Firebase Functions."
+            );
+
+            // Navigate based on user role after a short delay
+            setTimeout(() => {
+              if (userData.role === "Admin") {
+                console.log(
+                  "🔀 Navigating to AdminDashboard (OTP verified admin)"
+                );
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: "AdminDashboard" }],
+                });
+              } else {
+                console.log(
+                  "🔀 Navigating to Home (OTP verified regular user)"
+                );
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: "Home" }],
+                });
+              }
+            }, 2000);
+          } else {
+            throw new Error("User document not found after verification");
+          }
+        }
       } else {
-        Alert.alert("Error", "Invalid OTP code. Please try again.");
+        showAlert("error", "Error", "Invalid OTP code. Please try again.");
       }
     } catch (error) {
       console.error("OTP Verification Error:", error);
-      Alert.alert(
+      showAlert(
+        "error",
         "Error",
         error.message || "Failed to verify OTP. Please try again."
       );
@@ -182,6 +274,14 @@ export default function VerifyIdentityScreen() {
     <TouchableWithoutFeedback onPress={handleOutsideTap}>
       <View style={styles.container}>
         <View style={styles.formContainer}>
+          {/* Back Arrow Button */}
+          <TouchableOpacity
+            style={styles.backArrow}
+            onPress={() => navigation.goBack()}
+          >
+            <Ionicons name="arrow-back" size={24} color="#3b4cca" />
+          </TouchableOpacity>
+
           {showOtpScreen ? (
             <>
               <Text style={styles.title}>Enter OTP CODE</Text>
@@ -276,6 +376,37 @@ export default function VerifyIdentityScreen() {
             </>
           )}
         </View>
+
+        {/* Success Modal for OTP Sent */}
+        <Modal transparent visible={successModalVisible} animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.successIconContainer}>
+                <MaterialCommunityIcons
+                  name="check-circle"
+                  size={60}
+                  color="#4CAF50"
+                />
+              </View>
+              <Text style={styles.modalTitle}>OTP Sent Successfully!</Text>
+              <Text style={styles.modalMessage}>
+                A 6-digit verification code has been sent to your mobile number.
+              </Text>
+              <Text style={styles.modalSubMessage}>
+                Please check your messages.
+              </Text>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Branded Alert Modal */}
+        <BrandedAlertModal
+          visible={alertVisible}
+          type={alertType}
+          title={alertTitle}
+          message={alertMessage}
+          onClose={closeAlert}
+        />
       </View>
     </TouchableWithoutFeedback>
   );
@@ -355,9 +486,9 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    paddingHorizontal: 16,
+    paddingHorizontal: 10,
     paddingVertical: 16,
-    fontSize: 16,
+    fontSize: 15,
     color: "#333",
   },
   sendButton: {
@@ -428,5 +559,103 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#000",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 30,
+    width: "85%",
+    maxWidth: 350,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  successIconContainer: {
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  modalMessage: {
+    fontSize: 15,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 8,
+    lineHeight: 22,
+  },
+  modalSubMessage: {
+    fontSize: 14,
+    color: "#999",
+    textAlign: "center",
+  },
+  backArrow: {
+    alignSelf: "flex-start",
+    marginBottom: 16,
+    padding: 8,
+    marginLeft: -8,
+  },
+  // Alert Modal Styles
+  alertOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  alertModal: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 40,
+    width: "90%",
+    maxWidth: 400,
+    alignItems: "center",
+  },
+  alertIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  alertTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#133E87",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  alertMessage: {
+    fontSize: 16,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  alertButton: {
+    backgroundColor: "#133E87",
+    paddingVertical: 12,
+    paddingHorizontal: 48,
+    borderRadius: 8,
+    minWidth: 120,
+  },
+  alertButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+    textAlign: "center",
   },
 });
