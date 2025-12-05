@@ -136,21 +136,34 @@ export default function Login() {
     // Admin bypass login
     if (email === "admin@example.com" && password === "admin1234") {
       console.log("✅ Admin login successful!");
-      await AsyncStorage.setItem("isAdminBypass", "true");
-      await AsyncStorage.setItem("adminEmail", "admin@example.com");
-      navigation.navigate("AdminDashboard");
+      setLoading(true);
+      try {
+        // Save admin bypass flag
+        await AsyncStorage.setItem("isAdminBypass", "true");
+        await AsyncStorage.setItem("adminEmail", "admin@example.com");
+        
+        // Reset login attempts on successful admin login
+        await resetLoginAttempts();
+        
+        console.log("Navigating to AdminDashboard...");
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "AdminDashboard" }],
+        });
+      } catch (error) {
+        console.error("Admin login error:", error);
+        setErrors({ auth: "Failed to login as admin. Please try again." });
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 
-    // Check if account is already locked FIRST
-    const lockoutStatus = await checkLoginLockout(email.trim());
-    if (lockoutStatus.isLockedOut) {
-      console.log("🔒 Account is locked - showing locked screen");
-      setDeviceLocked(true);
-      setLockoutTime(lockoutStatus.remainingTime);
-      setLockoutMessage(getLockoutMessage(lockoutStatus.totalAttempts));
-      return;
-    }
+    // Clear admin bypass flag for regular users
+    await AsyncStorage.removeItem("isAdminBypass");
+    await AsyncStorage.removeItem("adminEmail");
+
+    console.log("Validation passed!");
 
     // Check if account is locked in Firestore
     try {

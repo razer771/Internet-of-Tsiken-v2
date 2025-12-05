@@ -1,41 +1,118 @@
-import React, { useState } from "react";
-import { SafeAreaView, ScrollView, View, Text, StyleSheet, TouchableOpacity, Modal } from "react-native";
 import Header2 from "./adminHeader";
+import React, { useState, useEffect } from "react";
+import { SafeAreaView, ScrollView, View, Text, StyleSheet, TouchableOpacity, Modal, ActivityIndicator } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { db } from "../../config/firebaseconfig";
 
 const COLUMN_WIDTHS = {
-  date: 100,
+  date: 120,
   time: 110,
-  role: 110,
+  user: 150,
   action: 150,
-  description: 320,
+  description: 300,
 };
 const TABLE_WIDTH =
   COLUMN_WIDTHS.date +
   COLUMN_WIDTHS.time +
-  COLUMN_WIDTHS.role +
+  COLUMN_WIDTHS.user +
   COLUMN_WIDTHS.action +
   COLUMN_WIDTHS.description;
 
-const logs = Array.from({ length: 12 }).map((_, i) => ({
-  id: i + 1,
-  date: "10 18 25",
-  time: "10:23 AM",
-  role: "Owner",
-  action: "Activated\nSprinkler",
-  description:
-    "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-}));
-
-export default function ActivityLogs({ navigation }) { // Make sure navigation prop is here
+export default function ActivityLogs({ navigation }) {
   const [pressedBtn, setPressedBtn] = useState(null);
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [activityLogs, setActivityLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   const monthNames = ["January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"];
   const dayNames = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+  // Fetch all users' activity logs
+  useEffect(() => {
+    fetchActivityLogs();
+  }, []);
+
+  const fetchActivityLogs = async () => {
+    try {
+      setLoading(true);
+      const collections = [
+        "addFeedSchedule_logs",
+        "deleteFeedSchedule_logs",
+        "editFeedSchedule_logs",
+        "nightTime_logs",
+        "wateringActivity_Logs",
+        "predatorDetection_logs",
+        "userManagement_logs",
+      ];
+
+      // Fetch logs from all collections (all users for admin)
+      const allLogsPromises = collections.map(async (collectionName) => {
+        const q = query(collection(db, collectionName), orderBy("timestamp", "desc"));
+        const querySnapshot = await getDocs(q);
+
+        return querySnapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+          source: collectionName,
+        }));
+      });
+
+      const logsArrays = await Promise.all(allLogsPromises);
+      const mergedLogs = logsArrays.flat();
+
+      // Sort by timestamp (descending)
+      const sortedLogs = mergedLogs.sort((a, b) => {
+        let dateA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp || 0);
+        let dateB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp || 0);
+        return dateB - dateA;
+      });
+
+      setActivityLogs(sortedLogs);
+    } catch (error) {
+      console.error("Error fetching activity logs:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Format date to MM/DD/YYYY
+  const formatToGMT8Date = (timestamp) => {
+    if (!timestamp) return "N/A";
+    let date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+    const gmt8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+    const month = String(gmt8Date.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(gmt8Date.getUTCDate()).padStart(2, "0");
+    const year = gmt8Date.getUTCFullYear();
+    return `${month}/${day}/${year}`;
+  };
+
+  // Format time to HH:MM AM/PM
+  const formatToGMT8Time = (timestamp) => {
+    if (!timestamp) return "N/A";
+    let date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+    const gmt8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+    const hours = gmt8Date.getUTCHours();
+    const minutes = gmt8Date.getUTCMinutes();
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const hour12 = hours % 12 || 12;
+    return `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}`;
+  };
+
+  // Filter logs by selected date
+  const filteredLogs = selectedDate
+    ? activityLogs.filter((log) => {
+        const logDate = log.timestamp?.toDate ? log.timestamp.toDate() : new Date(log.timestamp);
+        return (
+          logDate.getFullYear() === selectedDate.getFullYear() &&
+          logDate.getMonth() === selectedDate.getMonth() &&
+          logDate.getDate() === selectedDate.getDate()
+        );
+      })
+    : activityLogs;
 
   const getDaysInMonth = (date) => {
     const year = date.getFullYear();
@@ -57,6 +134,10 @@ export default function ActivityLogs({ navigation }) { // Make sure navigation p
     const selected = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
     setSelectedDate(selected);
     setCalendarVisible(false);
+  };
+
+  const handleClearDateFilter = () => {
+    setSelectedDate(null);
   };
 
   const handleQuickSelect = (type) => {
@@ -123,6 +204,12 @@ export default function ActivityLogs({ navigation }) { // Make sure navigation p
   return (
     <SafeAreaView style={styles.safe}>
       <Header2 />
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#234187" />
+          <Text style={styles.loadingText}>Loading activity logs...</Text>
+        </View>
+      ) : (
       <ScrollView contentContainerStyle={styles.pageContent}>
         {/* Buttons Row */}
         <View style={styles.buttonsRow}>
@@ -135,7 +222,7 @@ export default function ActivityLogs({ navigation }) { // Make sure navigation p
             onPressIn={() => setPressedBtn("generate")}
             onPressOut={() => setPressedBtn(null)}
             onPress={() => {
-              console.log("Navigating to GenerateLogReport"); // Debug log
+              console.log("Navigating to GenerateLogReport");
               navigation.navigate("GenerateLogReport");
             }}
           >
@@ -159,13 +246,29 @@ export default function ActivityLogs({ navigation }) { // Make sure navigation p
             <MaterialCommunityIcons
               name="calendar-blank"
               size={20}
-              color={pressedBtn === "calendar" ? "#fff" : "#000"} // changed from "#234187" to "#000"
+              color={pressedBtn === "calendar" ? "#fff" : "#000"}
             />
           </TouchableOpacity>
         </View>
 
         {/* Title */}
         <Text style={styles.title}>Activity Logs</Text>
+
+        {/* Selected Date Display & Clear Button */}
+        {selectedDate && (
+          <View style={styles.dateFilterBanner}>
+            <View style={styles.dateFilterContent}>
+              <MaterialCommunityIcons name="calendar" size={16} color="#234187" />
+              <Text style={styles.dateFilterText}>
+                Showing logs for {selectedDate.toLocaleDateString()}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={handleClearDateFilter} style={styles.clearDateButton}>
+              <MaterialCommunityIcons name="close" size={16} color="#64748b" />
+              <Text style={styles.clearDateText}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Table */}
         <View style={styles.tableCard}>
@@ -184,8 +287,8 @@ export default function ActivityLogs({ navigation }) { // Make sure navigation p
                 <View style={[styles.cell, { width: COLUMN_WIDTHS.time }]}>
                   <Text style={styles.headerText}>Time</Text>
                 </View>
-                <View style={[styles.cell, { width: COLUMN_WIDTHS.role }]}>
-                  <Text style={styles.headerText}>Role</Text>
+                <View style={[styles.cell, { width: COLUMN_WIDTHS.user }]}>
+                  <Text style={styles.headerText}>User</Text>
                 </View>
                 <View style={[styles.cell, { width: COLUMN_WIDTHS.action }]}>
                   <Text style={styles.headerText}>Action</Text>
@@ -196,29 +299,40 @@ export default function ActivityLogs({ navigation }) { // Make sure navigation p
               </View>
 
               {/* Body */}
-              {logs.map((log, idx) => (
-                <View key={log.id} style={[styles.row, idx % 2 === 1 && styles.altRow]}>
-                  <View style={[styles.cell, styles.leftCell, { width: COLUMN_WIDTHS.date }]}>
-                    <Text style={[styles.cellText, styles.center]}>{log.date}</Text>
+              {filteredLogs.length > 0 ? (
+                filteredLogs.map((log, idx) => (
+                  <View key={log.id} style={[styles.row, idx % 2 === 1 && styles.altRow]}>
+                    <View style={[styles.cell, styles.leftCell, { width: COLUMN_WIDTHS.date }]}>
+                      <Text style={[styles.cellText, styles.center]}>{formatToGMT8Date(log.timestamp)}</Text>
+                    </View>
+                    <View style={[styles.cell, { width: COLUMN_WIDTHS.time }]}>
+                      <Text style={[styles.cellText, styles.center]}>{formatToGMT8Time(log.timestamp)}</Text>
+                    </View>
+                    <View style={[styles.cell, { width: COLUMN_WIDTHS.user }]}>
+                      <Text style={[styles.cellText, styles.center]}>
+                        {log.firstName && log.lastName
+                          ? `${log.firstName} ${log.lastName}`
+                          : log.userName || log.userEmail || "N/A"}
+                      </Text>
+                    </View>
+                    <View style={[styles.cell, { width: COLUMN_WIDTHS.action }]}>
+                      <Text style={[styles.cellText, styles.center]}>{log.action || "N/A"}</Text>
+                    </View>
+                    <View style={[styles.cell, styles.rightCell, { width: COLUMN_WIDTHS.description }]}>
+                      <Text style={[styles.cellText, styles.center]}>{log.description || "N/A"}</Text>
+                    </View>
                   </View>
-                  <View style={[styles.cell, { width: COLUMN_WIDTHS.time }]}>
-                    <Text style={[styles.cellText, styles.center]}>{log.time}</Text>
-                  </View>
-                  <View style={[styles.cell, { width: COLUMN_WIDTHS.role }]}>
-                    <Text style={[styles.cellText, styles.center]}>{log.role}</Text>
-                  </View>
-                  <View style={[styles.cell, { width: COLUMN_WIDTHS.action }]}>
-                    <Text style={[styles.cellText, styles.center]}>{log.action}</Text>
-                  </View>
-                  <View style={[styles.cell, styles.rightCell, { width: COLUMN_WIDTHS.description }]}>
-                    <Text style={[styles.cellText, styles.center]}>{log.description}</Text>
-                  </View>
+                ))
+              ) : (
+                <View style={styles.emptyRow}>
+                  <Text style={styles.emptyText}>No activity logs found</Text>
                 </View>
-              ))}
+              )}
             </View>
           </ScrollView>
         </View>
       </ScrollView>
+      )}
 
       {/* Calendar Modal */}
       <Modal
@@ -281,20 +395,61 @@ const BORDER = "#E5E7EB";
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#ffffff" },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: "#666",
+  },
   pageContent: { paddingVertical: 16, paddingHorizontal: 12 },
   buttonsRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
     gap: 8,
-    marginBottom: 16, // increased spacing
+    marginBottom: 16,
   },
   title: {
     fontSize: 24,
     fontWeight: "700",
     color: "#000",
     textAlign: "center",
-    marginBottom: 16, // increased spacing below title
+    marginBottom: 16,
+  },
+  dateFilterBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#EBF5FF",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  dateFilterContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  dateFilterText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#234187",
+  },
+  clearDateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  clearDateText: {
+    fontSize: 13,
+    color: "#64748b",
   },
   actionButton: {
     backgroundColor: "#fff",
@@ -371,6 +526,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   center: { textAlign: "center" },
+  emptyRow: {
+    paddingVertical: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyText: {
+    fontSize: 15,
+    color: "#666",
+    fontStyle: "italic",
+  },
 
   calendarOverlay: {
     flex: 1,

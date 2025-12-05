@@ -71,23 +71,28 @@ export default function Header2() {
     navigation.navigate("Notification");
   };
 
+  const handleLogoPress = () => {
+    navigation.navigate("Home");
+  };
+
   return (
     <>
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
         <View style={styles.header}>
           <View style={styles.leftSection}>
-            <View style={styles.logoContainer}>
+            <TouchableOpacity 
+              style={styles.logoContainer}
+              activeOpacity={0.7}
+              onPress={handleLogoPress}
+            >
               <Image
                 source={require("../../assets/logo.png")}
                 style={styles.logo}
                 resizeMode="contain"
               />
-            </View>
-          </View>
-
-          <View style={styles.centerSection}>
-            <Text style={styles.headerText}>My Brooder</Text> 
+            </TouchableOpacity>
+            <Text style={styles.headerText}>Internet of Tsiken</Text>
           </View>
 
           <View style={styles.rightSection}>
@@ -138,15 +143,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 4,
   },
   leftSection: {
     flex: 1,
-    alignItems: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   logoContainer: {
     width: 48,
@@ -175,10 +177,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerText: {
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: "700",
     color: "#1a1a1a",
-    textAlign: "center",
   },
   iconButton: {
     width: 40,

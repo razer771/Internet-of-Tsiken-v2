@@ -1,70 +1,28 @@
-import React, { useState } from "react";
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Modal } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Modal, ActivityIndicator } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import Icon from "react-native-vector-icons/Feather";
-import Header2 from "./adminHeader";
-
-
-const users = [
-    {
-        id: "1",
-        firstName: "Juan",
-        lastName: "Santos Dela Cruz",
-        email: "juan@farm.com",
-        phone: "+63 917 123 4567",
-        role: "owner",
-        status: "active",
-        created: "2025-01-15",
-    },
-    {
-        id: "2",
-        firstName: "Maria",
-        lastName: "Lopez Santos",
-        email: "maria@farm.com",
-        phone: "+63 917 123 4567",
-        role: "manager",
-        status: "active",
-        created: "2025-01-15",
-    },
-    {
-        id: "3",
-        firstName: "Pedro",
-        lastName: "Garcia Lopez",
-        email: "pedro@farm.com",
-        phone: "+63 917 123 4567",
-        role: "worker",
-        status: "active",
-        created: "2025-01-15",
-    },
-    {
-        id: "4",
-        firstName: "Ana",
-        lastName: "Cruz Garcia",
-        email: "juan@farm.com",
-        phone: "+63 917 123 4567",
-        role: "worker",
-        status: "inactive",
-        created: "2025-01-15",
-    },
-];
+import Header2 from "../navigation/adminHeader";
+import { db, auth } from "../../config/firebaseconfig";
+import { collection, getDocs, doc, updateDoc, deleteDoc, query, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
 
 const roleColors = {
-    owner: "#E3EAFD",
-    manager: "#E3EAFD",
-    worker: "#E3EAFD",
+    admin: "#E3EAFD",
+    user: "#E3EAFD",
 };
 const roleTextColors = {
-    owner: "#234187",
-    manager: "#234187",
-    worker: "#234187",
+    admin: "#234187",
+    user: "#234187",
 };
 
 export default function UserManagement({ navigation }) {
+    const [users, setUsers] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
     const [selectedRole, setSelectedRole] = useState("All Roles");
     const [selectedStatus, setSelectedStatus] = useState("All Status");
     const [roleFilterOpen, setRoleFilterOpen] = useState(false);
-    const roleFilterOptions = ["All Roles", "Manager", "Owner", "Worker"];
+    const roleFilterOptions = ["All Roles", "Admin", "User"];
 
     // NEW: status filter dropdown state and options
     const [statusFilterOpen, setStatusFilterOpen] = useState(false);
@@ -72,14 +30,15 @@ export default function UserManagement({ navigation }) {
 
     const [pressedRow, setPressedRow] = useState(null);
     const [editUser, setEditUser] = useState({
-        firstName: "Maria",
-        middleName: "Lopez",
-        lastName: "Santos",
-        email: "maria@farm.com",
-        phone: "+63 917 234 5678",
-        role: "Manager", // use display format
+        id: "",
+        firstName: "",
+        middleName: "",
+        lastName: "",
+        email: "",
+        phone: "",
+        role: "User",
     });
-    const roles = ["Owner", "Manager", "Worker"];
+    const roles = ["Admin", "User"];
     const [roleOpen, setRoleOpen] = useState(false);
     const [savedVisible, setSavedVisible] = useState(false);
     const [saveBtnPressed, setSaveBtnPressed] = useState(false);
@@ -97,6 +56,41 @@ export default function UserManagement({ navigation }) {
     const [deleteConfirmBtnPressed, setDeleteConfirmBtnPressed] = useState(false);
     const [deleteCancelBtnPressed, setDeleteCancelBtnPressed] = useState(false);
     const [deleteSuccessVisible, setDeleteSuccessVisible] = useState(false);
+
+    // Fetch users from Firestore
+    useEffect(() => {
+        fetchUsers();
+    }, []);
+
+    const fetchUsers = async () => {
+        try {
+            setLoading(true);
+            const usersRef = collection(db, "users");
+            const q = query(usersRef, orderBy("createdAt", "desc"));
+            const querySnapshot = await getDocs(q);
+            
+            const usersData = querySnapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    id: doc.id,
+                    firstName: data.firstName || "",
+                    middleName: data.middleName || "",
+                    lastName: data.lastName || "",
+                    email: data.email || "",
+                    phone: data.phone || data.phoneNumber || "",
+                    role: data.role || "user",
+                    status: data.status || "active",
+                    created: data.createdAt ? new Date(data.createdAt.seconds * 1000).toISOString().split('T')[0] : "N/A",
+                };
+            });
+            
+            setUsers(usersData);
+        } catch (error) {
+            console.error("Error fetching users:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     // Apply filters: role + status + search
     const filteredUsers = users.filter(u => {
@@ -116,8 +110,60 @@ export default function UserManagement({ navigation }) {
     });
 
     const handleEditUser = (user) => {
-        // Navigate to ManageAccount screen with user data
-        navigation.navigate("ManageAccount", { userData: user });
+        // Populate edit form with user data
+        setEditUser({
+            id: user.id,
+            firstName: user.firstName,
+            middleName: user.middleName || "",
+            lastName: user.lastName,
+            email: user.email,
+            phone: user.phone,
+            role: user.role.charAt(0).toUpperCase() + user.role.slice(1), // Capitalize first letter
+        });
+    };
+
+    const handleSaveUser = async () => {
+        try {
+            if (!editUser.id) {
+                console.error("No user selected for editing");
+                return;
+            }
+
+            const userRef = doc(db, "users", editUser.id);
+            await updateDoc(userRef, {
+                firstName: editUser.firstName,
+                middleName: editUser.middleName,
+                lastName: editUser.lastName,
+                email: editUser.email,
+                phone: editUser.phone,
+                role: editUser.role.toLowerCase(),
+                updatedAt: new Date(),
+            });
+
+            // Log the user management action
+            const currentUser = auth.currentUser;
+            if (currentUser) {
+                await addDoc(collection(db, "userManagement_logs"), {
+                    userId: currentUser.uid,
+                    userEmail: currentUser.email,
+                    firstName: "Admin",
+                    lastName: "User",
+                    action: "Updated User",
+                    description: `Updated user ${editUser.firstName} ${editUser.lastName} (${editUser.email})`,
+                    timestamp: serverTimestamp(),
+                });
+            }
+
+            // Refresh users list
+            await fetchUsers();
+
+            // Show success modal
+            setSavedVisible(true);
+            setTimeout(() => setSavedVisible(false), 1500);
+        } catch (error) {
+            console.error("Error updating user:", error);
+            alert("Failed to update user. Please try again.");
+        }
     };
 
     const handleForcePasswordChange = (user) => {
@@ -125,18 +171,46 @@ export default function UserManagement({ navigation }) {
         setForcePasswordVisible(true);
     };
 
-    const handleConfirmPasswordChange = () => {
-        console.log("Force password change for:", selectedUser);
-        setForcePasswordVisible(false);
-        
-        // Show success modal
-        setPasswordResetSuccessVisible(true);
-        
-        // Redirect after 2.5 seconds
-        setTimeout(() => {
-            setPasswordResetSuccessVisible(false);
-            setSelectedUser(null);
-        }, 2500);
+    const handleConfirmPasswordChange = async () => {
+        try {
+            if (!selectedUser) return;
+
+            const userRef = doc(db, "users", selectedUser.id);
+            await updateDoc(userRef, {
+                requirePasswordChange: true,
+                updatedAt: new Date(),
+            });
+
+            // Log the password reset action
+            const currentUser = auth.currentUser;
+            if (currentUser) {
+                await addDoc(collection(db, "userManagement_logs"), {
+                    userId: currentUser.uid,
+                    userEmail: currentUser.email,
+                    firstName: "Admin",
+                    lastName: "User",
+                    action: "Force Password Reset",
+                    description: `Forced password reset for ${selectedUser.firstName} ${selectedUser.lastName} (${selectedUser.email})`,
+                    timestamp: serverTimestamp(),
+                });
+            }
+
+            console.log("Force password change for:", selectedUser);
+            setForcePasswordVisible(false);
+            
+            // Show success modal
+            setPasswordResetSuccessVisible(true);
+            
+            // Redirect after 2.5 seconds
+            setTimeout(() => {
+                setPasswordResetSuccessVisible(false);
+                setSelectedUser(null);
+            }, 2500);
+        } catch (error) {
+            console.error("Error forcing password change:", error);
+            alert("Failed to force password change. Please try again.");
+            setForcePasswordVisible(false);
+        }
     };
 
     const handleDeleteUser = (user) => {
@@ -144,23 +218,63 @@ export default function UserManagement({ navigation }) {
         setDeleteUserVisible(true);
     };
 
-    const handleConfirmDelete = () => {
-        console.log("Delete user:", selectedUser);
-        setDeleteUserVisible(false);
-        
-        // Show success modal
-        setDeleteSuccessVisible(true);
-        
-        // Redirect after 2.5 seconds
-        setTimeout(() => {
-            setDeleteSuccessVisible(false);
-            setSelectedUser(null);
-        }, 2500);
+    const handleConfirmDelete = async () => {
+        try {
+            if (!selectedUser) return;
+
+            const userRef = doc(db, "users", selectedUser.id);
+            
+            // Mark as inactive instead of deleting
+            await updateDoc(userRef, {
+                status: "inactive",
+                updatedAt: new Date(),
+            });
+
+            // Log the deactivation action
+            const currentUser = auth.currentUser;
+            if (currentUser) {
+                await addDoc(collection(db, "userManagement_logs"), {
+                    userId: currentUser.uid,
+                    userEmail: currentUser.email,
+                    firstName: "Admin",
+                    lastName: "User",
+                    action: "Deactivated User",
+                    description: `Deactivated user ${selectedUser.firstName} ${selectedUser.lastName} (${selectedUser.email})`,
+                    timestamp: serverTimestamp(),
+                });
+            }
+
+            console.log("User marked as inactive:", selectedUser);
+            setDeleteUserVisible(false);
+            
+            // Refresh users list
+            await fetchUsers();
+            
+            // Show success modal
+            setDeleteSuccessVisible(true);
+            
+            // Redirect after 2.5 seconds
+            setTimeout(() => {
+                setDeleteSuccessVisible(false);
+                setSelectedUser(null);
+            }, 2500);
+        } catch (error) {
+            console.error("Error deleting user:", error);
+            alert("Failed to deactivate user. Please try again.");
+            setDeleteUserVisible(false);
+        }
     };
 
     return (
         <SafeAreaView style={styles.safe}>
             <Header2 />
+            {loading ? (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#234187" />
+                    <Text style={styles.loadingText}>Loading users...</Text>
+                </View>
+            ) : (
+                <>
             <View style={styles.topBarWrapper}>
                 {/* Search Bar */}
                 <View style={styles.searchBar}>
@@ -261,7 +375,7 @@ export default function UserManagement({ navigation }) {
                             <View style={styles.nameColHeader}>
                                 <Text style={styles.userListHeaderText}>Name</Text>
                             </View>
-                            <View style={{ flex: 2, alignItems: "flex-start", justifyContent: "center" }}>
+                            <View style={styles.contactColHeader}>
                                 <Text style={styles.userListHeaderText}>Contact</Text>
                             </View>
                             <View style={styles.roleColHeader}>
@@ -453,10 +567,7 @@ export default function UserManagement({ navigation }) {
                             activeOpacity={0.8}
                             onPressIn={() => setSaveBtnPressed(true)}
                             onPressOut={() => setSaveBtnPressed(false)}
-                            onPress={() => {
-                                setSavedVisible(true);
-                                setTimeout(() => setSavedVisible(false), 1500);
-                            }}
+                            onPress={handleSaveUser}
                         >
                             <MaterialCommunityIcons
                                 name="check"
@@ -674,6 +785,8 @@ export default function UserManagement({ navigation }) {
                     </View>
                 </View>
             </Modal>
+            </>
+            )}
         </SafeAreaView>
     );
 }
@@ -684,6 +797,17 @@ const styles = StyleSheet.create({
     safe: {
         flex: 1,
         backgroundColor: "#fff",
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+        backgroundColor: "#fff",
+    },
+    loadingText: {
+        marginTop: 12,
+        fontSize: 16,
+        color: "#666",
     },
     topBarWrapper: {
         backgroundColor: "#fff",

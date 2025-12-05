@@ -43,6 +43,8 @@ import {
   getServoConnectionStatus,
 } from "../../../modules/ServoMotorService";
 import CameraStream from "../../../modules/CameraStream";
+import { useAdminNotifications } from "../../Admin/AdminNotificationContext";
+import { useNotifications } from "./NotificationContext";
 
 const PRIMARY = "#133E87";
 const GREEN = "#249D1D";
@@ -51,6 +53,12 @@ const YELLOW = "#DFB118";
 const BORDER_OVERLAY = "#0D609C73";
 
 export default function ControlScreen({ navigation }) {
+  // Admin notifications
+  const { addNotification: addAdminNotification } = useAdminNotifications();
+  
+  // User notifications
+  const { addNotification: addUserNotification } = useNotifications();
+  
   // side menu
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -195,8 +203,8 @@ export default function ControlScreen({ navigation }) {
         const data = doc.data();
         if (data.userId === user.uid) {
           // Load the most recent schedule
-          const loadedDate = new Date(data.date);
-          const loadedTime = new Date(data.time);
+          const loadedDate = data.date ? new Date(data.date) : new Date();
+          const loadedTime = data.time ? new Date(data.time) : new Date();
           setWaterDate(loadedDate);
           setWaterTime(loadedTime);
           setLiters(data.liters);
@@ -805,8 +813,8 @@ export default function ControlScreen({ navigation }) {
         });
 
         // Update confirmed display values after successful save
-        setConfirmedWaterDate(new Date(pendingWaterSchedule.date));
-        setConfirmedWaterTime(new Date(pendingWaterSchedule.time));
+        setConfirmedWaterDate(pendingWaterSchedule.date ? new Date(pendingWaterSchedule.date) : new Date());
+        setConfirmedWaterTime(pendingWaterSchedule.time ? new Date(pendingWaterSchedule.time) : new Date());
       }
     } catch (err) {
       Alert.alert("Error", "Failed to save watering schedule: " + err.message);

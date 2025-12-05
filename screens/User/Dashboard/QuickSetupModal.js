@@ -14,26 +14,78 @@ export default function QuickSetupModal({
   visible,
   initialChicksCount = "",
   initialDaysCount = "",
+  initialHarvestDays = "",
   onSaveChicksCount,
   onSaveDaysCount,
+  onSaveHarvestDays,
   onClose,
 }) {
   const [chicksCount, setChicksCount] = useState(
     String(initialChicksCount ?? "")
   );
   const [daysCount, setDaysCount] = useState(String(initialDaysCount ?? ""));
+  const [harvestDays, setHarvestDays] = useState(String(initialHarvestDays ?? ""));
   const [showToast, setShowToast] = useState(false);
+  const [errorModal, setErrorModal] = useState({ visible: false, message: "" });
 
   useEffect(() => {
     setChicksCount(String(initialChicksCount ?? ""));
     setDaysCount(String(initialDaysCount ?? ""));
+    setHarvestDays(String(initialHarvestDays ?? ""));
     // Reset toast when modal opens/closes
     setShowToast(false);
-  }, [initialChicksCount, initialDaysCount, visible]);
+  }, [initialChicksCount, initialDaysCount, initialHarvestDays, visible]);
+
+  const handleChicksChange = (text) => {
+    // Only allow numeric input
+    const numericText = text.replace(/[^0-9]/g, '');
+    setChicksCount(numericText);
+  };
+
+  const handleDaysChange = (text) => {
+    // Only allow numeric input
+    const numericText = text.replace(/[^0-9]/g, '');
+    setDaysCount(numericText);
+  };
+
+  const handleHarvestChange = (text) => {
+    // Only allow numeric input
+    const numericText = text.replace(/[^0-9]/g, '');
+    setHarvestDays(numericText);
+  };
 
   const handleSave = () => {
+    // Validate all fields are filled
+    if (!chicksCount.trim()) {
+      setErrorModal({ visible: true, message: "Please enter the number of chicks" });
+      return;
+    }
+    if (!daysCount.trim()) {
+      setErrorModal({ visible: true, message: "Please enter the number of days" });
+      return;
+    }
+    if (!harvestDays.trim()) {
+      setErrorModal({ visible: true, message: "Please enter the expected harvest days" });
+      return;
+    }
+
+    // Validate numeric values
+    if (parseInt(chicksCount) <= 0) {
+      setErrorModal({ visible: true, message: "Number of chicks must be greater than 0" });
+      return;
+    }
+    if (parseInt(daysCount) <= 0) {
+      setErrorModal({ visible: true, message: "Number of days must be greater than 0" });
+      return;
+    }
+    if (parseInt(harvestDays) <= 0) {
+      setErrorModal({ visible: true, message: "Expected harvest days must be greater than 0" });
+      return;
+    }
+
     onSaveChicksCount?.(chicksCount.trim());
     onSaveDaysCount?.(daysCount.trim());
+    onSaveHarvestDays?.(harvestDays.trim());
     setShowToast(true);
     setTimeout(() => {
       setShowToast(false);
@@ -53,8 +105,18 @@ export default function QuickSetupModal({
       transparent
       onRequestClose={handleClose}
     >
-      <View style={styles.backdrop}>
-        <View style={styles.card}>
+      <Pressable 
+        style={styles.backdrop} 
+        onPress={handleClose}
+        activeOpacity={1}
+      >
+        <Toast
+          visible={showToast}
+          message="Chicks count & Days count saved!"
+          onHide={() => setShowToast(false)}
+        />
+        
+        <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
           {/* Close Button X */}
           <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
             <Text style={styles.closeButtonText}>✕</Text>
@@ -63,25 +125,37 @@ export default function QuickSetupModal({
           <Text style={styles.sectionTitle}>Quick Overview Setup</Text>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Number of Chicks per Batch</Text>
+            <Text style={styles.inputLabel}>Number of Chicks </Text>
             <TextInput
               style={styles.input}
               placeholder="Enter number of chicks"
               placeholderTextColor="#9ca3af"
               value={chicksCount}
-              onChangeText={setChicksCount}
+              onChangeText={handleChicksChange}
               keyboardType="numeric"
             />
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Number of Days per Batch</Text>
+            <Text style={styles.inputLabel}>Number of Days</Text>
             <TextInput
               style={styles.input}
               placeholder="Enter number of days (-45)"
               placeholderTextColor="#9ca3af"
               value={daysCount}
-              onChangeText={setDaysCount}
+              onChangeText={handleDaysChange}
+              keyboardType="numeric"
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Expected Harvest (days)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter harvest days"
+              placeholderTextColor="#9ca3af"
+              value={harvestDays}
+              onChangeText={handleHarvestChange}
               keyboardType="numeric"
             />
           </View>
@@ -95,14 +169,32 @@ export default function QuickSetupModal({
               </View>
             )}
           </Pressable>
-        </View>
+        </Pressable>
 
-        <Toast
-          visible={showToast}
-          message="Chicks count & Days count saved!"
-          onHide={() => setShowToast(false)}
-        />
-      </View>
+        {/* Error Modal */}
+        <Modal
+          visible={errorModal.visible}
+          animationType="fade"
+          transparent
+          onRequestClose={() => setErrorModal({ visible: false, message: "" })}
+        >
+          <View style={styles.errorModalBackdrop}>
+            <View style={styles.errorModalCard}>
+              <Text style={styles.errorModalTitle}>Validation Error</Text>
+              <Text style={styles.errorModalMessage}>{errorModal.message}</Text>
+              <Pressable
+                onPress={() => setErrorModal({ visible: false, message: "" })}
+                style={({ pressed }) => [
+                  styles.errorModalButton,
+                  pressed && styles.errorModalButtonPressed
+                ]}
+              >
+                <Text style={styles.errorModalButtonText}>OK</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+      </Pressable>
     </Modal>
   );
 }
@@ -174,12 +266,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: "center",
-    borderColor: "#3b82f6",
+    borderColor: "#2563eb",
     borderWidth: 1,
   },
   saveButtonPressed: {
-    backgroundColor: "#3b82f6",
-    borderColor: "#3b82f6",
+    backgroundColor: "#2563eb",
+    borderColor: "#2563eb",
   },
   saveButtonText: {
     color: "#000000",
@@ -187,5 +279,51 @@ const styles = StyleSheet.create({
   },
   saveButtonTextPressed: {
     color: "#ffffff",
+  },
+  errorModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  errorModalCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    width: "80%",
+    maxWidth: 320,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+  errorModalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#ef4444",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  errorModalMessage: {
+    fontSize: 15,
+    color: "#334155",
+    marginBottom: 20,
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  errorModalButton: {
+    backgroundColor: "#2563eb",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  errorModalButtonPressed: {
+    backgroundColor: "#2563eb",
+  },
+  errorModalButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 15,
   },
 });
