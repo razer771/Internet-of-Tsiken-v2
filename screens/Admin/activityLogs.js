@@ -1,3 +1,4 @@
+import Header2 from "../navigation/adminHeader";
 import React, { useState, useEffect } from "react";
 import {
   SafeAreaView,
@@ -860,7 +861,7 @@ export default function ActivityLogs({ navigation }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Header2 />
+      <Header2 showBackButton={true} />
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#234187" />

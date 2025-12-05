@@ -58,7 +58,7 @@ const MenuIcon = ({ size = 22, color = "#1a1a1a", style, ...props }) => (
   </View>
 );
 
-export default function Header2() {
+export default function Header() {
   const [menuVisible, setMenuVisible] = useState(false);
   const navigation = useNavigation();
   const { unreadCount } = useNotifications();
