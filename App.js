@@ -50,6 +50,7 @@ import CreateAccount from "./screens/Admin/createAccount";
 import AdminAnalytics from "./screens/Admin/adminAnalytics";
 import Header from "./screens/navigation/Header";
 import BottomNavigation from "./screens/navigation/BottomNavigation";
+import ActivityLogs from "./screens/Admin/activityLogs";
 
 const Stack = createNativeStackNavigator();
 

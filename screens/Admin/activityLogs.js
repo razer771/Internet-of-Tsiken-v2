@@ -1,6 +1,6 @@
+import Header2 from "./adminHeader";
 import React, { useState, useEffect } from "react";
 import { SafeAreaView, ScrollView, View, Text, StyleSheet, TouchableOpacity, Modal, ActivityIndicator } from "react-native";
-import Header2 from "../navigation/adminHeader";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { collection, getDocs, query, orderBy } from "firebase/firestore";
 import { db } from "../../config/firebaseconfig";
