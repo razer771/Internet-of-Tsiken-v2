@@ -43,6 +43,8 @@ import {
   getServoConnectionStatus,
 } from "../../../modules/ServoMotorService";
 import CameraStream from "../../../modules/CameraStream";
+import { useAdminNotifications } from "../../Admin/AdminNotificationContext";
+import { useNotifications } from "./NotificationContext";
 
 const PRIMARY = "#133E87";
 const GREEN = "#249D1D";
@@ -51,6 +53,12 @@ const YELLOW = "#DFB118";
 const BORDER_OVERLAY = "#0D609C73";
 
 export default function ControlScreen({ navigation }) {
+  // Admin notifications
+  const { addNotification: addAdminNotification } = useAdminNotifications();
+  
+  // User notifications
+  const { addNotification: addUserNotification } = useNotifications();
+  
   // side menu
   const [menuOpen, setMenuOpen] = useState(false);
 

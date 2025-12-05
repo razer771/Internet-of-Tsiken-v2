@@ -16,6 +16,7 @@ import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityI
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { auth } from "../../config/firebaseconfig";
 import { signOut } from "firebase/auth";
+import { useAdminNotifications } from "../Admin/AdminNotificationContext";
 
 const MenuIcon = ({ size = 22, color = "#1a1a1a", style, ...props }) => (
   <View
@@ -61,12 +62,13 @@ const MenuIcon = ({ size = 22, color = "#1a1a1a", style, ...props }) => (
 
 export default function Header2() {
   const navigation = useNavigation();
+  const { unreadCount } = useAdminNotifications();
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [confirmBtnPressed, setConfirmBtnPressed] = useState(false);
   const [cancelBtnPressed, setCancelBtnPressed] = useState(false);
 
   const handleNotificationPress = () => {
-    navigation.navigate("Notification");
+    navigation.navigate("AdminNotification");
   };
 
   const handleLogoutPress = () => {
@@ -125,9 +127,13 @@ export default function Header2() {
             onPress={handleNotificationPress}
           >
             <Icon name="bell" size={22} color="#1a1a1a" />
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationBadgeText}>2</Text>
-            </View>
+            {unreadCount > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity

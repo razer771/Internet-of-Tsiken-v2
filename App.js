@@ -6,6 +6,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { navigationRef } from "./services/NavigationService";
 import * as SplashScreen from "expo-splash-screen";
 import { NotificationProvider } from "./screens/User/controls/NotificationContext";
+import { AdminNotificationProvider } from "./screens/Admin/AdminNotificationContext";
 import { auth } from "./config/firebaseconfig";
 import { onAuthStateChanged } from "firebase/auth";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -30,6 +31,7 @@ import ConfirmPassword from "./screens/LogIn/ConfirmPassword";
 
 import Home from "./screens/User/Dashboard/Home";
 import Notification from "./screens/User/controls/Notification";
+import AdminNotification from "./screens/Admin/AdminNotification";
 import ControlScreen from "./screens/User/controls/ControlScreen";
 import AppInfo from "./screens/User/controls/appInfo";
 import TermsAndConditions from "./screens/User/controls/TermsAndConditions";
@@ -67,6 +69,7 @@ const AUTH_SCREENS = [
   "CreateAccount",
   "AdminAnalytics",
   "AdminActivityLogs",
+  "AdminNotification"
 ];
 
 // Screen wrapper that reports its route name to parent
@@ -103,7 +106,25 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [initialRoute, setInitialRoute] = useState("JsonSplash");
+  const [showSplash, setShowSplash] = useState(true);
+  const [appReady, setAppReady] = useState(false);
   const isAuthScreen = AUTH_SCREENS.includes(currentRoute);
+
+  // Prepare app and hide Expo splash screen
+  useEffect(() => {
+    async function prepare() {
+      try {
+        // Keep Expo splash visible briefly
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } catch (e) {
+        console.warn(e);
+      } finally {
+        setAppReady(true);
+        await SplashScreen.hideAsync();
+      }
+    }
+    prepare();
+  }, []);
 
   // Listen to authentication state changes
   useEffect(() => {
@@ -129,18 +150,16 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Hide custom splash screen after animation completes
   useEffect(() => {
-    async function prepare() {
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-      } catch (e) {
-        console.warn(e);
-      } finally {
-        await SplashScreen.hideAsync();
-      }
-    }
-    prepare();
-  }, []);
+    if (!appReady) return;
+    
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+    }, 3500); // Match animation duration
+    
+    return () => clearTimeout(timer);
+  }, [appReady]);
 
   // Prevent hardware back button from navigating to auth screens when authenticated
   useEffect(() => {
@@ -202,21 +221,27 @@ export default function App() {
     }
   };
 
-  // Show loading screen while checking auth state
-  if (authLoading) {
+  // Don't render anything until app is ready
+  if (!appReady) {
+    return null;
+  }
+
+  // Show custom splash screen while checking auth state
+  if (authLoading || showSplash) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" color="#4CAF50" />
+      <View style={styles.splashContainer}>
+        <JsonSplashScreen />
       </View>
     );
   }
 
   return (
     <NotificationProvider>
-      <View style={styles.container}>
-        <NavigationContainer ref={navigationRef}>
-        {!isAuthScreen && <Header />}
-        <View style={[styles.content, !isAuthScreen && styles.contentWithNav]}>
+      <AdminNotificationProvider>
+        <View style={styles.container}>
+          <NavigationContainer ref={navigationRef}>
+          {!isAuthScreen && <Header />}
+          <View style={[styles.content, !isAuthScreen && styles.contentWithNav]}>
           <Stack.Navigator
             initialRouteName={initialRoute}
             screenOptions={{
@@ -307,6 +332,14 @@ export default function App() {
               component={createTrackedScreen(
                 Notification,
                 "Notification",
+                setCurrentRoute
+              )}
+            />
+            <Stack.Screen
+              name="AdminNotification"
+              component={createTrackedScreen(
+                AdminNotification,
+                "AdminNotification",
                 setCurrentRoute
               )}
             />
@@ -450,6 +483,7 @@ export default function App() {
         )}
       </NavigationContainer>
     </View>
+    </AdminNotificationProvider>
     </NotificationProvider>
   );
 }
@@ -462,5 +496,9 @@ const styles = StyleSheet.create({
   centerContent: { 
     justifyContent: "center", 
     alignItems: "center" 
+  },
+  splashContainer: {
+    flex: 1,
+    backgroundColor: "#24208fff",
   },
 });
