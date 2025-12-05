@@ -10,9 +10,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Modal,
+  ActivityIndicator,
 } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import Header2 from "../navigation/adminHeader";
+import { auth, db } from "../../config/firebaseconfig";
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { doc, setDoc, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
 
 export default function CreateAccount({ navigation }) {
   const [firstName, setFirstName] = useState("");
@@ -35,8 +39,11 @@ export default function CreateAccount({ navigation }) {
   
   // Success modal
   const [successVisible, setSuccessVisible] = useState(false);
+  
+  // Loading state
+  const [loading, setLoading] = useState(false);
 
-  const roles = ["Owner", "Manager", "Worker"];
+  const roles = ["Admin", "User"];
 
   const validateEmail = (email) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -44,26 +51,70 @@ export default function CreateAccount({ navigation }) {
   };
 
   const validateMobileNumber = (number) => {
-    // Check if mobile number already exists (mock validation)
-    const existingNumbers = ["09123456789", "09987654321"]; // Mock existing numbers
-    return !existingNumbers.includes(number);
+    // Philippine mobile number format: 09XXXXXXXXX (11 digits)
+    const mobileRegex = /^09\d{9}$/;
+    return mobileRegex.test(number);
   };
 
   const validatePassword = (password) => {
-    return password.length >= 6;
+    // At least 8 characters, one uppercase, one lowercase, one number
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    return passwordRegex.test(password);
   };
 
-  const handleSaveChanges = () => {
+  const validateName = (name) => {
+    // Only letters, spaces, hyphens, and apostrophes
+    const nameRegex = /^[a-zA-Z\s'-]+$/;
+    return nameRegex.test(name) && name.trim().length >= 2;
+  };
+
+  // Check if email already exists in Firestore
+  const checkEmailExists = async (email) => {
+    try {
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("email", "==", email.toLowerCase().trim()));
+      const querySnapshot = await getDocs(q);
+      return !querySnapshot.empty;
+    } catch (error) {
+      console.error("Error checking email:", error);
+      return false;
+    }
+  };
+
+  // Check if mobile number already exists in Firestore
+  const checkMobileExists = async (mobile) => {
+    try {
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("mobileNumber", "==", mobile.trim()));
+      const querySnapshot = await getDocs(q);
+      return !querySnapshot.empty;
+    } catch (error) {
+      console.error("Error checking mobile:", error);
+      return false;
+    }
+  };
+
+  const handleSaveChanges = async () => {
+    console.log("🔍 Create Account button clicked");
     const newErrors = {};
 
     // First Name validation
     if (!firstName.trim()) {
       newErrors.firstName = "First name is required.";
+    } else if (!validateName(firstName)) {
+      newErrors.firstName = "Please enter a valid name (letters only, min 2 characters).";
     }
 
     // Last Name validation
     if (!lastName.trim()) {
       newErrors.lastName = "Last name is required.";
+    } else if (!validateName(lastName)) {
+      newErrors.lastName = "Please enter a valid name (letters only, min 2 characters).";
+    }
+
+    // Middle Name validation (optional but if provided must be valid)
+    if (middleName.trim() && !validateName(middleName)) {
+      newErrors.middleName = "Please enter a valid middle name (letters only).";
     }
 
     // Email validation
@@ -77,42 +128,124 @@ export default function CreateAccount({ navigation }) {
     if (!mobileNumber.trim()) {
       newErrors.mobileNumber = "Mobile number is required.";
     } else if (!validateMobileNumber(mobileNumber)) {
-      newErrors.mobileNumber = "Mobile Number already exist.";
+      newErrors.mobileNumber = "Invalid format. Use: 09XXXXXXXXX (11 digits).";
     }
 
     // Password validation
     if (!password) {
       newErrors.password = "Password is required.";
     } else if (!validatePassword(password)) {
-      newErrors.password = "Password must be six or more characters.";
+      newErrors.password = "Password must be 8+ characters with uppercase, lowercase, and number.";
     }
 
     // Confirm Password validation
     if (!confirmPassword) {
       newErrors.confirmPassword = "Please confirm your password.";
     } else if (password !== confirmPassword) {
-      newErrors.confirmPassword = "Password don't match.";
+      newErrors.confirmPassword = "Passwords don't match.";
     }
 
     // Role validation
     if (!role) {
       newErrors.role = "Role is required.";
+    } else if (!roles.includes(role)) {
+      newErrors.role = "Please select a valid role (Admin or User).";
     }
 
     setErrors(newErrors);
 
-    // If no errors, proceed with save
-    if (Object.keys(newErrors).length === 0) {
-      console.log("Save Changes - Form is valid");
-      
+    // If validation errors exist, stop here
+    if (Object.keys(newErrors).length > 0) {
+      console.log("❌ Validation failed:", newErrors);
+      return;
+    }
+
+    console.log("✅ Validation passed, creating account...");
+
+    // Start loading
+    setLoading(true);
+
+    try {
+      // Check if email already exists
+      const emailExists = await checkEmailExists(email);
+      if (emailExists) {
+        setErrors({ email: "This email is already registered." });
+        setLoading(false);
+        return;
+      }
+
+      // Check if mobile number already exists
+      const mobileExists = await checkMobileExists(mobileNumber);
+      if (mobileExists) {
+        setErrors({ mobileNumber: "This mobile number is already registered." });
+        setLoading(false);
+        return;
+      }
+
+      // Create user account in Firebase Authentication
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        email.toLowerCase().trim(),
+        password
+      );
+      const user = userCredential.user;
+
+      // Create user document in Firestore
+      await setDoc(doc(db, "users", user.uid), {
+        firstName: firstName.trim(),
+        middleName: middleName.trim() || "",
+        lastName: lastName.trim(),
+        email: email.toLowerCase().trim(),
+        mobileNumber: mobileNumber.trim(),
+        role: role,
+        createdAt: serverTimestamp(),
+        createdBy: auth.currentUser?.email || "admin",
+        verified: false,
+        isVerified: false,
+        accountLocked: false,
+        totalAttempts: 0,
+        lastLogin: null,
+      });
+
+      console.log("✅ Account created successfully:", user.uid);
+
+      // Reset form
+      setFirstName("");
+      setMiddleName("");
+      setLastName("");
+      setEmail("");
+      setMobileNumber("");
+      setPassword("");
+      setConfirmPassword("");
+      setRole("");
+
       // Show success modal
+      console.log("📢 Showing success modal...");
+      setLoading(false);
       setSuccessVisible(true);
-      
+
       // Redirect after 2.5 seconds
       setTimeout(() => {
+        console.log("🔄 Redirecting to UserManagement...");
         setSuccessVisible(false);
-        navigation.navigate("AdminDashboard");
+        navigation.navigate("UserManagement");
       }, 2500);
+    } catch (error) {
+      console.error("Error creating account:", error);
+      setLoading(false);
+
+      // Handle specific Firebase errors
+      if (error.code === "auth/email-already-in-use") {
+        setErrors({ email: "This email is already registered." });
+      } else if (error.code === "auth/invalid-email") {
+        setErrors({ email: "Invalid email address." });
+      } else if (error.code === "auth/weak-password") {
+        setErrors({ password: "Password is too weak." });
+      } else if (error.code === "auth/network-request-failed") {
+        setErrors({ auth: "Network error. Please check your connection." });
+      } else {
+        setErrors({ auth: "Failed to create account. Please try again." });
+      }
     }
   };
 
@@ -122,7 +255,7 @@ export default function CreateAccount({ navigation }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Header2 />
+      <Header2 showBackButton={true} />
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -147,13 +280,16 @@ export default function CreateAccount({ navigation }) {
               ]}
               value={firstName}
               onChangeText={(text) => {
-                setFirstName(text);
+                // Only allow letters, spaces, hyphens, and apostrophes
+                const filteredText = text.replace(/[^a-zA-Z\s'-]/g, '');
+                setFirstName(filteredText);
                 if (errors.firstName) {
                   setErrors({ ...errors, firstName: null });
                 }
               }}
               onFocus={() => setFocusedField("firstName")}
               onBlur={() => setFocusedField(null)}
+              maxLength={50}
             />
             {errors.firstName && <Text style={styles.errorText}>{errors.firstName}</Text>}
 
@@ -165,9 +301,14 @@ export default function CreateAccount({ navigation }) {
                 (focusedField === "middleName" || middleName) && styles.inputFocused
               ]}
               value={middleName}
-              onChangeText={setMiddleName}
+              onChangeText={(text) => {
+                // Only allow letters, spaces, hyphens, and apostrophes
+                const filteredText = text.replace(/[^a-zA-Z\s'-]/g, '');
+                setMiddleName(filteredText);
+              }}
               onFocus={() => setFocusedField("middleName")}
               onBlur={() => setFocusedField(null)}
+              maxLength={50}
             />
 
             {/* Last Name */}
@@ -180,13 +321,16 @@ export default function CreateAccount({ navigation }) {
               ]}
               value={lastName}
               onChangeText={(text) => {
-                setLastName(text);
+                // Only allow letters, spaces, hyphens, and apostrophes
+                const filteredText = text.replace(/[^a-zA-Z\s'-]/g, '');
+                setLastName(filteredText);
                 if (errors.lastName) {
                   setErrors({ ...errors, lastName: null });
                 }
               }}
               onFocus={() => setFocusedField("lastName")}
               onBlur={() => setFocusedField(null)}
+              maxLength={50}
             />
             {errors.lastName && <Text style={styles.errorText}>{errors.lastName}</Text>}
 
@@ -222,7 +366,9 @@ export default function CreateAccount({ navigation }) {
               ]}
               value={mobileNumber}
               onChangeText={(text) => {
-                setMobileNumber(text);
+                // Only allow numbers and limit to 11 digits
+                const filteredText = text.replace(/[^0-9]/g, '').slice(0, 11);
+                setMobileNumber(filteredText);
                 if (errors.mobileNumber) {
                   setErrors({ ...errors, mobileNumber: null });
                 }
@@ -230,6 +376,8 @@ export default function CreateAccount({ navigation }) {
               keyboardType="phone-pad"
               onFocus={() => setFocusedField("mobileNumber")}
               onBlur={() => setFocusedField(null)}
+              maxLength={11}
+              placeholder="09XXXXXXXXX"
             />
             {errors.mobileNumber && <Text style={styles.errorText}>{errors.mobileNumber}</Text>}
 
@@ -349,35 +497,51 @@ export default function CreateAccount({ navigation }) {
             </View>
             {errors.role && <Text style={styles.errorText}>{errors.role}</Text>}
 
+            {/* General Error Message */}
+            {errors.auth && (
+              <View style={styles.generalErrorContainer}>
+                <MaterialCommunityIcons name="alert-circle" size={20} color="#DC2626" />
+                <Text style={styles.generalErrorText}>{errors.auth}</Text>
+              </View>
+            )}
+
             {/* Save Changes Button */}
             <TouchableOpacity
               style={[
                 styles.saveButton,
-                pressedBtn === "save" && styles.saveButtonPressed
+                pressedBtn === "save" && styles.saveButtonPressed,
+                loading && styles.saveButtonDisabled
               ]}
               activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("save")}
+              onPressIn={() => !loading && setPressedBtn("save")}
               onPressOut={() => setPressedBtn(null)}
               onPress={handleSaveChanges}
+              disabled={loading}
             >
-              <Text style={[
-                styles.saveButtonText,
-                pressedBtn === "save" && styles.saveButtonTextPressed
-              ]}>
-                Save Changes
-              </Text>
+              {loading ? (
+                <ActivityIndicator size="small" color="#133E87" />
+              ) : (
+                <Text style={[
+                  styles.saveButtonText,
+                  pressedBtn === "save" && styles.saveButtonTextPressed
+                ]}>
+                  Create Account
+                </Text>
+              )}
             </TouchableOpacity>
 
             {/* Cancel Button */}
             <TouchableOpacity
               style={[
                 styles.cancelButton,
-                pressedBtn === "cancel" && styles.cancelButtonPressed
+                pressedBtn === "cancel" && styles.cancelButtonPressed,
+                loading && styles.cancelButtonDisabled
               ]}
               activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("cancel")}
+              onPressIn={() => !loading && setPressedBtn("cancel")}
               onPressOut={() => setPressedBtn(null)}
               onPress={handleCancel}
+              disabled={loading}
             >
               <Text style={[
                 styles.cancelButtonText,
@@ -401,9 +565,9 @@ export default function CreateAccount({ navigation }) {
             <View style={styles.successIconContainer}>
               <MaterialCommunityIcons name="check" size={48} color="#4CAF50" />
             </View>
-            <Text style={styles.successTitle}>Account successfully created</Text>
-            <Text style={styles.successSubtitle}>Confirmation email sent</Text>
-            <Text style={styles.successLoading}>Loading your dashboard...</Text>
+            <Text style={styles.successTitle}>Account Successfully Created!</Text>
+            <Text style={styles.successSubtitle}>User credentials sent via email</Text>
+            <Text style={styles.successLoading}>Redirecting to user management...</Text>
           </View>
         </View>
       </Modal>
@@ -561,6 +725,26 @@ const styles = StyleSheet.create({
   },
   cancelButtonTextPressed: {
     color: "#fff",
+  },
+  saveButtonDisabled: {
+    opacity: 0.6,
+  },
+  cancelButtonDisabled: {
+    opacity: 0.6,
+  },
+  generalErrorContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEE2E2",
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 16,
+    gap: 8,
+  },
+  generalErrorText: {
+    fontSize: 14,
+    color: "#DC2626",
+    flex: 1,
   },
   successOverlay: {
     flex: 1,

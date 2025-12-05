@@ -10,6 +10,7 @@ import { AdminNotificationProvider } from "./screens/Admin/AdminNotificationCont
 import { auth } from "./config/firebaseconfig";
 import { onAuthStateChanged } from "firebase/auth";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { validateAdminSession, clearAdminSession } from "./services/AdminSessionService.js";
 
 // Keep the splash screen visible while we fetch resources
 try {
@@ -84,6 +85,7 @@ const ADMIN_SCREENS = [
   "AdminAnalytics",
   "AdminActivityLogs",
   "AdminNotification"
+  
 ];
 
 // Screen wrapper that reports its route name to parent
@@ -118,11 +120,13 @@ function createTrackedScreen(Component, routeName, onRouteChange) {
 export default function App() {
   const [currentRoute, setCurrentRoute] = useState("JsonSplash");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [initialRoute, setInitialRoute] = useState("JsonSplash");
   const [showSplash, setShowSplash] = useState(true);
   const [appReady, setAppReady] = useState(false);
   const isAuthScreen = AUTH_SCREENS.includes(currentRoute);
+  const isAdminScreen = ADMIN_SCREENS.includes(currentRoute);
 
   // Prepare app and hide Expo splash screen
   useEffect(() => {
@@ -143,22 +147,40 @@ export default function App() {
   // Listen to authentication state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        // User is signed in
-        setIsAuthenticated(true);
-        // Check if user is admin
-        const isAdmin = await AsyncStorage.getItem("isAdminBypass");
-        if (isAdmin === "true") {
-          setInitialRoute("AdminDashboard");
+      try {
+        if (user) {
+          // User is signed in
+          setIsAuthenticated(true);
+          
+          // Validate admin session using the session service
+          const { isValid, email, role } = await validateAdminSession();
+          
+          if (isValid) {
+            setIsAdmin(true);
+            setInitialRoute("AdminDashboard");
+            console.log(`✓ Admin session active for: ${email} (${role})`);
+          } else {
+            setIsAdmin(false);
+            setInitialRoute("Home");
+          }
         } else {
-          setInitialRoute("Home");
+          // User is signed out - clear all session data
+          setIsAuthenticated(false);
+          setIsAdmin(false);
+          setInitialRoute("LogIn");
+          
+          // Clear admin session using the session service
+          await clearAdminSession();
         }
-      } else {
-        // User is signed out
+      } catch (error) {
+        console.error("Error in auth state change:", error);
+        // Fallback to safe defaults
         setIsAuthenticated(false);
+        setIsAdmin(false);
         setInitialRoute("LogIn");
+      } finally {
+        setAuthLoading(false);
       }
-      setAuthLoading(false);
     });
 
     return () => unsubscribe();

@@ -71,16 +71,34 @@ export default function UserManagement({ navigation }) {
             
             const usersData = querySnapshot.docs.map(doc => {
                 const data = doc.data();
+                
+                // Safe date parsing - handles both Firestore Timestamp and ISO string
+                let createdDate = "N/A";
+                if (data.createdAt) {
+                    try {
+                        if (data.createdAt.seconds) {
+                            // Firestore Timestamp
+                            createdDate = new Date(data.createdAt.seconds * 1000).toISOString().split('T')[0];
+                        } else if (typeof data.createdAt === 'string') {
+                            // ISO string
+                            createdDate = new Date(data.createdAt).toISOString().split('T')[0];
+                        }
+                    } catch (dateError) {
+                        console.warn("Error parsing date for user:", doc.id, dateError);
+                        createdDate = "N/A";
+                    }
+                }
+                
                 return {
                     id: doc.id,
                     firstName: data.firstName || "",
                     middleName: data.middleName || "",
                     lastName: data.lastName || "",
                     email: data.email || "",
-                    phone: data.phone || data.phoneNumber || "",
+                    phone: data.phone || data.phoneNumber || data.mobileNumber || "",
                     role: data.role || "user",
                     status: data.status || "active",
-                    created: data.createdAt ? new Date(data.createdAt.seconds * 1000).toISOString().split('T')[0] : "N/A",
+                    created: createdDate,
                 };
             });
             
@@ -267,7 +285,7 @@ export default function UserManagement({ navigation }) {
 
     return (
         <SafeAreaView style={styles.safe}>
-            <Header2 />
+            <Header2 showBackButton={true} />
             {loading ? (
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color="#234187" />

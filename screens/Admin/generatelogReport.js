@@ -144,7 +144,7 @@ export default function GenerateLogReport({ navigation }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Header2 />
+      <Header2 showBackButton={true} />
       
       {/* Back Button */}
       <View style={styles.backButtonContainer}>

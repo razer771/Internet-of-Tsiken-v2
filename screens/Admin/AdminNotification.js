@@ -120,7 +120,7 @@ export default function AdminNotification() {
 
   return (
     <SafeAreaView style={{ flex: 1 }}>
-      <Header2 />
+      <Header2 showBackButton={true} />
       <ScrollView style={styles.wrapper} contentContainerStyle={{ paddingBottom: 20 }}>
         <View style={styles.topRow}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>

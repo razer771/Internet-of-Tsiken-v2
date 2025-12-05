@@ -742,7 +742,7 @@ export default function AdminDashboard() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Header2 />
+      <Header2 showBackButton={false} />
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         {/* Welcome Card - No background */}
         <View style={styles.welcomeCard}>

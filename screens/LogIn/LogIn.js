@@ -21,6 +21,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig.js";
+import { createAdminSession, clearAdminSession } from "../../services/AdminSessionService.js";
 import {
   checkLoginLockout,
   incrementLoginAttempts,
@@ -133,36 +134,6 @@ export default function Login() {
       return;
     }
 
-    // Admin bypass login
-    if (email === "admin@example.com" && password === "admin1234") {
-      console.log("✅ Admin login successful!");
-      setLoading(true);
-      try {
-        // Save admin bypass flag
-        await AsyncStorage.setItem("isAdminBypass", "true");
-        await AsyncStorage.setItem("adminEmail", "admin@example.com");
-        
-        // Reset login attempts on successful admin login
-        await resetLoginAttempts();
-        
-        console.log("Navigating to AdminDashboard...");
-        navigation.reset({
-          index: 0,
-          routes: [{ name: "AdminDashboard" }],
-        });
-      } catch (error) {
-        console.error("Admin login error:", error);
-        setErrors({ auth: "Failed to login as admin. Please try again." });
-      } finally {
-        setLoading(false);
-      }
-      return;
-    }
-
-    // Clear admin bypass flag for regular users
-    await AsyncStorage.removeItem("isAdminBypass");
-    await AsyncStorage.removeItem("adminEmail");
-
     console.log("Validation passed!");
 
     // Check if account is locked in Firestore
@@ -201,10 +172,6 @@ export default function Login() {
       console.error("Error checking account lock:", checkError);
     }
 
-    // Clear admin bypass flag for regular users
-    await AsyncStorage.removeItem("isAdminBypass");
-    await AsyncStorage.removeItem("adminEmail");
-
     console.log("Starting Firebase authentication...");
     setLoading(true);
 
@@ -228,30 +195,52 @@ export default function Login() {
         if (userDoc.exists()) {
           console.log("✅ User data loaded:", userDoc.data());
           const userData = userDoc.data();
+          
+          // Check user role and create appropriate session (case-insensitive check)
+          const userRole = userData.role ? userData.role.toLowerCase() : "";
+          
+          if (userRole === "admin") {
+            console.log("🔐 Admin user detected, creating admin session");
+            await createAdminSession(user.email, userData.role);
+            console.log("✅ Redirecting to AdminDashboard");
+            setLoading(false);
+            navigation.reset({
+              index: 0,
+              routes: [{ name: "AdminDashboard" }],
+            });
+            return;
+          } else {
+            // Clear any existing admin session for regular users (user/User)
+            await clearAdminSession();
+          }
+          
           // Check if user is already verified
           if (
             userData.verified === true ||
             userData.isVerified === true ||
             user.emailVerified
           ) {
-            console.log("✅ User is verified, skipping OTP");
-            navigation.navigate("Home");
+            console.log("✅ User is verified, navigating to Home");
+            setLoading(false);
+            navigation.reset({
+              index: 0,
+              routes: [{ name: "Home" }],
+            });
             return;
           }
 
-          console.log("✅ User data loaded:", userData);
+          console.log("⏳ User not verified, redirecting to OTP");
+          setLoading(false);
+          navigation.navigate("VerifyIdentity");
         } else {
           console.log("❌ User document does not exist in Firestore");
           setLoading(false);
           setErrors({ auth: "User data not found. Please contact support." });
           return;
         }
-
-        // Navigate to VerifyIdentity for OTP verification
-        console.log("⏳ User not verified, redirecting to OTP");
-        navigation.navigate("VerifyIdentity");
       } catch (firestoreError) {
         console.error("Firestore Error:", firestoreError);
+        setLoading(false);
         setErrors({ auth: "Error loading user data. Please try again." });
       }
     } catch (error) {

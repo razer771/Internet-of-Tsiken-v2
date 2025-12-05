@@ -60,7 +60,7 @@ const MenuIcon = ({ size = 22, color = "#1a1a1a", style, ...props }) => (
   </View>
 );
 
-export default function AdminHeader() {
+export default function AdminHeader({ showBackButton = true }) {
   const navigation = useNavigation();
   const { unreadCount } = useAdminNotifications();
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
@@ -73,6 +73,14 @@ export default function AdminHeader() {
 
   const handleLogoutPress = () => {
     setLogoutModalVisible(true);
+  };
+
+  const handleLogoPress = () => {
+    navigation.navigate("AdminDashboard");
+  };
+
+  const handleBackPress = () => {
+    navigation.goBack();
   };
 
   const handleConfirmLogout = async () => {
@@ -107,13 +115,27 @@ export default function AdminHeader() {
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
       <View style={styles.header}>
         <View style={styles.leftSection}>
-          <View style={styles.logoContainer}>
-            <Image
-              source={require("../../assets/logo.png")}
-              style={styles.logo}
-              resizeMode="contain"
-            />
-          </View>
+          {showBackButton ? (
+            <TouchableOpacity
+              style={styles.backButton}
+              activeOpacity={0.7}
+              onPress={handleBackPress}
+            >
+              <Icon name="arrow-left" size={24} color="#1a1a1a" />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.logoContainer}
+              activeOpacity={0.7}
+              onPress={handleLogoPress}
+            >
+              <Image
+                source={require("../../assets/logo.png")}
+                style={styles.logo}
+                resizeMode="contain"
+              />
+            </TouchableOpacity>
+          )}
         </View>
 
         <View style={styles.centerSection}>
@@ -226,6 +248,13 @@ const styles = StyleSheet.create({
   leftSection: {
     flex: 1,
     alignItems: "flex-start",
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
   },
   logoContainer: {
     width: 48,
