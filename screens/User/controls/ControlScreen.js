@@ -1,5 +1,10 @@
 // screensample/ControlScreen.js
-import React, { useState, useEffect, useCallback } from "react";
+/**
+ * USER ACTIVITY LOGGING SYSTEM
+ * All user actions are logged to Firestore "activity_logs" collection
+ * with sub-collections for different action types.
+ */
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -58,6 +63,98 @@ export default function ControlScreen({ navigation }) {
 
   // User notifications
   const { addNotification: addUserNotification } = useNotifications();
+
+  // ============================================================================
+  // ACTIVITY LOGGING SYSTEM
+  // Logs all user actions to Firestore activity_logs collection
+  // ============================================================================
+
+  /**
+   * Universal activity logger for ControlScreen actions
+   * @param {string} actionType - Sub-collection name (e.g., "addFeedSchedule_logs")
+   * @param {object} payload - Action-specific data
+   * @returns {Promise<void>}
+   */
+  const logActivity = async (actionType, payload) => {
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        console.warn("⚠️ [LOGGING] No authenticated user, skipping log");
+        return;
+      }
+
+      // Fetch user profile from users collection
+      let firstName = "N/A";
+      let lastName = "N/A";
+
+      try {
+        const userDocRef = doc(db, "users", user.uid);
+        const userDocSnap = await getDoc(userDocRef);
+
+        if (userDocSnap.exists()) {
+          const userData = userDocSnap.data();
+          firstName = userData.firstName || "N/A";
+          lastName = userData.lastName || "N/A";
+        }
+      } catch (fetchErr) {
+        console.error("⚠️ [LOGGING] Failed to fetch user data:", fetchErr);
+      }
+
+      // Format time in GMT+8
+      const formatTimeGMT8 = (isoString) => {
+        if (!isoString) return "N/A";
+        const date = new Date(isoString);
+        // GMT+8 offset (8 hours * 60 minutes * 60 seconds * 1000 milliseconds)
+        const gmt8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+        return gmt8Date.toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+          timeZone: "UTC", // Already adjusted to GMT+8
+        });
+      };
+
+      // Build log record with all required fields
+      const logRecord = {
+        action: payload.action || "Unknown action",
+        description: payload.description || "",
+        userId: user.uid,
+        userName: user.email || user.displayName || "Unknown",
+        firstName,
+        lastName,
+        timestamp: new Date().toISOString(),
+
+        // Optional fields (include if provided)
+        ...(payload.feedId !== undefined && { feedId: payload.feedId }),
+        ...(payload.waterId !== undefined && { waterId: payload.waterId }),
+        ...(payload.newTime && { newTime: payload.newTime }),
+        ...(payload.oldTime && { oldTime: payload.oldTime }),
+        ...(payload.selectedTime && {
+          selectedTime: payload.selectedTime,
+          selectedTimeGMT8: formatTimeGMT8(payload.selectedTime),
+        }),
+        ...(payload.duration && { duration: payload.duration }),
+        ...(payload.status && { status: payload.status }),
+        ...(payload.nightModeEnabled !== undefined && {
+          nightModeEnabled: payload.nightModeEnabled,
+        }),
+      };
+
+      // Save to Firestore: activity_logs/{actionType}/{auto-generated-id}
+      await addDoc(
+        collection(db, "activity_logs", actionType, "logs"),
+        logRecord
+      );
+
+      console.log(`✅ [LOGGING] Logged to ${actionType}:`, logRecord);
+    } catch (error) {
+      console.error(`❌ [LOGGING] Failed to log ${actionType}:`, error);
+      // Don't throw - logging failures shouldn't break the app
+    }
+  };
+
+  // Prevent duplicate submissions
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // side menu
   const [menuOpen, setMenuOpen] = useState(false);
@@ -171,9 +268,18 @@ export default function ControlScreen({ navigation }) {
 
       const feedsSnapshot = await getDocs(collection(db, "feeds"));
       const loadedFeeds = [];
+      const seenIds = new Set();
+
       feedsSnapshot.forEach((doc) => {
         const data = doc.data();
         if (data.userId === user.uid) {
+          // Skip duplicates based on feedId
+          if (seenIds.has(data.feedId)) {
+            console.warn(`Duplicate feedId ${data.feedId} found, skipping`);
+            return;
+          }
+          seenIds.add(data.feedId);
+
           loadedFeeds.push({
             id: data.feedId,
             label: data.label,
@@ -185,6 +291,12 @@ export default function ControlScreen({ navigation }) {
       // Sort by time
       loadedFeeds.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
       setFeeds(loadedFeeds);
+      console.log("📋 [SORT] Feeds loaded and sorted:");
+      loadedFeeds.forEach((f) => {
+        console.log(
+          `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`
+        );
+      });
     } catch (err) {
       console.error("Failed to load feeds:", err);
     }
@@ -202,15 +314,58 @@ export default function ControlScreen({ navigation }) {
         const data = doc.data();
         if (data.userId === user.uid) {
           // Load the most recent schedule
-          const loadedDate = data.date ? new Date(data.date) : new Date();
-          const loadedTime = data.time ? new Date(data.time) : new Date();
-          setWaterDate(loadedDate);
-          setWaterTime(loadedTime);
-          setLiters(data.liters);
-          setDuration(data.duration);
-          // Set confirmed values for display
-          setConfirmedWaterDate(loadedDate);
-          setConfirmedWaterTime(loadedTime);
+          let loadedDate = new Date();
+          let loadedTime = new Date();
+
+          // Handle date
+          if (data.date) {
+            loadedDate = new Date(data.date);
+          }
+
+          // Handle time - could be ISO string or formatted string like "1:56 AM"
+          if (data.time) {
+            // Try parsing as ISO first
+            const parsedTime = new Date(data.time);
+
+            if (!isNaN(parsedTime.getTime())) {
+              // Valid ISO timestamp - convert to GMT+8 for display
+              loadedTime = new Date(parsedTime.getTime() + 8 * 60 * 60 * 1000);
+            } else {
+              // Legacy format like "1:56 AM" - parse and set to today's date
+              const timeMatch = data.time.match(/(\d+):(\d+)\s*(AM|PM)/i);
+              if (timeMatch) {
+                let hours = parseInt(timeMatch[1]);
+                const minutes = parseInt(timeMatch[2]);
+                const period = timeMatch[3].toUpperCase();
+
+                // Convert to 24-hour format
+                if (period === "PM" && hours !== 12) hours += 12;
+                if (period === "AM" && hours === 12) hours = 0;
+
+                loadedTime = new Date();
+                loadedTime.setHours(hours, minutes, 0, 0);
+              }
+            }
+          }
+
+          // Validate dates are valid
+          if (!isNaN(loadedDate.getTime()) && !isNaN(loadedTime.getTime())) {
+            setWaterDate(loadedDate);
+            setWaterTime(loadedTime);
+            setLiters(data.liters || 0);
+            setDuration(data.duration || 0);
+            // Set confirmed values for display
+            setConfirmedWaterDate(loadedDate);
+            setConfirmedWaterTime(loadedTime);
+          } else {
+            console.warn(
+              "Invalid date data in watering schedule, using defaults. " +
+                `Received: date=${data.date}, time=${data.time}`
+            );
+            // Still set numeric values even if dates are invalid
+            setLiters(data.liters || 0);
+            setDuration(data.duration || 0);
+          }
         }
       });
     } catch (err) {
@@ -309,28 +464,54 @@ export default function ControlScreen({ navigation }) {
 
   // Handlers
   const addFeedSchedule = () => {
+    console.log("📄 [ACTION] User clicked Add Feed Schedule button");
     // Open time picker for user to select feeding time
     setShowFeedAddPicker(true);
   };
 
-  // Convert time string "hh:mm AM/PM" to minutes since midnight for sorting
+  // Convert time string "hh:mm AM/PM" or "hh:mmAM/PM" to minutes since midnight for sorting
   const timeToMinutes = (timeStr) => {
-    const parts = timeStr.split(/[: ]/);
-    if (parts.length < 3) return 0;
-    let hour = parseInt(parts[0], 10);
-    const minute = parseInt(parts[1], 10);
-    const ampm = parts[2].toUpperCase();
+    if (!timeStr) return 0;
+
+    // Handle both "10:00 AM" and "10:00AM" formats
+    // Remove any spaces and extract components
+    const trimmed = timeStr.trim();
+    const match = trimmed.match(/(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)/i);
+
+    if (!match) {
+      console.warn("⚠️ Invalid time format:", timeStr);
+      return 0;
+    }
+
+    let hour = parseInt(match[1], 10);
+    const minute = parseInt(match[2], 10);
+    const ampm = match[3].toUpperCase();
+
+    // Convert to 24-hour format
     if (ampm === "PM" && hour !== 12) hour += 12;
     if (ampm === "AM" && hour === 12) hour = 0;
+
     return hour * 60 + minute;
   };
 
   const confirmAddFeed = async () => {
+    console.log("📄 [ACTION] Confirming feed schedule add");
+
+    // Prevent duplicate submissions
+    if (isSubmitting) {
+      console.warn("Submit already in progress, ignoring duplicate click");
+      return;
+    }
+
     if (!pendingFeedTime) {
+      console.log("⚠️  [DEBUG] No pendingFeedTime, aborting");
       setConfirmFeedSaveVisible(false);
       setShowFeedAddPicker(false);
       return;
     }
+
+    setIsSubmitting(true);
+    console.log("✅ [DEBUG] Proceeding with feed add...");
     const formattedTime = pendingFeedTime.toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
@@ -380,19 +561,20 @@ export default function ControlScreen({ navigation }) {
           timestamp: new Date().toISOString(),
         });
 
-        // Log to addFeedSchedule collection
-        await addDoc(collection(db, "addFeedSchedule_logs"), {
+        // LOGGING REMOVED - Log to addFeedSchedule_logs collection
+        console.log("📋 [LOGGING DISABLED] Would log feed schedule add:", {
           feedId: nextId,
-          userId: user.uid,
-          userName: user.displayName || user.email || "Unknown User",
-          firstName: firstName,
-          lastName: lastName,
-          selectedTime: pendingFeedTime.toISOString(),
-          selectedTimeFormatted: formattedTime,
-          newTime: formattedTime,
-          timestamp: new Date().toISOString(),
+          time: formattedTime,
+          action: "Add new feeding schedule",
+        });
+
+        // Log activity to Firestore
+        await logActivity("addFeedSchedule_logs", {
           action: "Add new feeding schedule",
           description: `Added ${formattedTime}`,
+          feedId: nextId,
+          newTime: formattedTime,
+          selectedTime: pendingFeedTime.toISOString(),
         });
 
         // Add user notification
@@ -415,21 +597,30 @@ export default function ControlScreen({ navigation }) {
       setConfirmFeedSaveVisible(false);
       setShowFeedAddPicker(false);
       setPendingFeedTime(null);
+      setIsSubmitting(false);
       return;
     }
 
     // Add and sort by time
     setFeeds((s) => {
       const updated = [...s, newFeed];
-      return updated.sort(
+      const sorted = updated.sort(
         (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
       );
+      console.log("📋 [SORT] Feeds after adding new schedule:");
+      sorted.forEach((f) => {
+        console.log(
+          `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`
+        );
+      });
+      return sorted;
     });
 
     // Close all related modals
     setConfirmFeedSaveVisible(false);
     setShowFeedAddPicker(false);
     setPendingFeedTime(null);
+    setIsSubmitting(false);
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
@@ -458,12 +649,60 @@ export default function ControlScreen({ navigation }) {
     );
   };
 
-  const confirmDeleteAll = () => {
+  const confirmDeleteAll = async () => {
+    console.log("📄 [ACTION] Confirming delete all feeds");
+
+    // Prevent duplicate submissions
+    if (isSubmitting) {
+      console.warn("Submit already in progress, ignoring duplicate click");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        // Delete all feed documents from Firestore for this user
+        const deletePromises = feeds.map((feed) =>
+          deleteDoc(doc(db, "feeds", `${user.uid}_${feed.id}`))
+        );
+        await Promise.all(deletePromises);
+
+        console.log(
+          `✅ Deleted ${feeds.length} feeding schedules from Firestore`
+        );
+
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "All feeding schedules deleted",
+          description: `Removed all ${feeds.length} feeding schedules`,
+        });
+
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "All feeding schedules deleted",
+          description: `${user.displayName || user.email} deleted all ${feeds.length} feeding schedules`,
+          type: "schedule",
+        });
+      }
+    } catch (err) {
+      console.error("Failed to delete all feeds:", err);
+      Alert.alert("Error", "Failed to delete all schedules: " + err.message);
+      setIsSubmitting(false);
+      return;
+    }
+
+    // Update local state
     setFeeds([]);
     setDeleteMode(false);
     setSelectedToDelete([]);
     setConfirmDeleteVisible(false);
-    // show brief popup
+    setIsSubmitting(false);
+
+    // Show success popup
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1200);
   };
@@ -492,10 +731,73 @@ export default function ControlScreen({ navigation }) {
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => {
+          onPress: async () => {
+            console.log(
+              "📄 [ACTION] Deleting selected feeds:",
+              selectedToDelete
+            );
+
+            // Prevent duplicate submissions
+            if (isSubmitting) {
+              console.warn(
+                "Submit already in progress, ignoring duplicate click"
+              );
+              return;
+            }
+
+            setIsSubmitting(true);
+
+            try {
+              const user = auth.currentUser;
+              if (user) {
+                // Delete selected feed documents from Firestore
+                const deletePromises = selectedToDelete.map((feedId) =>
+                  deleteDoc(doc(db, "feeds", `${user.uid}_${feedId}`))
+                );
+                await Promise.all(deletePromises);
+
+                console.log(
+                  `✅ Deleted ${selectedToDelete.length} selected feeding schedules`
+                );
+
+                // Get deleted feed times for notification
+                const deletedFeeds = feeds.filter((f) =>
+                  selectedToDelete.includes(f.id)
+                );
+                const deletedTimes = deletedFeeds.map((f) => f.time).join(", ");
+
+                // Add user notification
+                addUserNotification({
+                  category: "IoT: Internet of Tsiken",
+                  title: "Feeding schedules deleted",
+                  description: `Removed ${selectedToDelete.length} feeding schedule(s)`,
+                });
+
+                // Add admin notification
+                addNotification({
+                  category: "Schedule Management",
+                  title: "Feeding schedules deleted",
+                  description: `${user.displayName || user.email} deleted ${selectedToDelete.length} feeding schedule(s): ${deletedTimes}`,
+                  type: "schedule",
+                });
+              }
+            } catch (err) {
+              console.error("Failed to delete selected feeds:", err);
+              Alert.alert(
+                "Error",
+                "Failed to delete selected schedules: " + err.message
+              );
+              setIsSubmitting(false);
+              return;
+            }
+
+            // Update local state
             setFeeds((s) => s.filter((f) => !selectedToDelete.includes(f.id)));
             setDeleteMode(false);
             setSelectedToDelete([]);
+            setIsSubmitting(false);
+
+            // Show success popup
             setShowSavedPopup(true);
             setTimeout(() => setShowSavedPopup(false), 1200);
           },
@@ -518,6 +820,7 @@ export default function ControlScreen({ navigation }) {
   };
 
   const openEditFeed = (idx) => {
+    console.log("📄 [ACTION] User clicked edit feed button for index:", idx);
     // open edit modal with Date object based on existing time string if possible
     const f = feeds[idx];
     // try parse time string "hh:mm AM/PM" into Date
@@ -539,11 +842,21 @@ export default function ControlScreen({ navigation }) {
   };
 
   const saveFeedEdit = async () => {
+    console.log("📄 [ACTION] Saving feed edit");
+
+    // Prevent duplicate submissions
+    if (isSubmitting) {
+      console.warn("Submit already in progress, ignoring duplicate click");
+      return;
+    }
+
     if (feedEdit.idx === null) {
       setConfirmEditVisible(false);
       setFeedEdit({ open: false, idx: null, timeDate: new Date() });
       return;
     }
+
+    setIsSubmitting(true);
     const newTime = feedEdit.timeDate.toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
@@ -582,26 +895,44 @@ export default function ControlScreen({ navigation }) {
           timestamp: new Date().toISOString(),
         });
 
-        // Log to editFeedSchedule collection
-        await addDoc(collection(db, "editFeedSchedule_logs"), {
+        // LOGGING REMOVED - Log to editFeedSchedule_logs collection
+        console.log("📋 [LOGGING DISABLED] Would log feed schedule edit:", {
           feedId: feedId,
-          userId: user.uid,
-          userName: user.displayName || user.email || "Unknown User",
-          firstName: firstName,
-          lastName: lastName,
           oldTime,
           newTime,
-          selectedTime: feedEdit.timeDate.toISOString(),
-          selectedTimeFormatted: newTime,
-          timestamp: new Date().toISOString(),
           action: "Updated feeding time",
-          description: `From ${oldTime} to ${newTime}`,
+        });
+
+        // Log activity to Firestore
+        await logActivity("editFeedSchedule_logs", {
+          action: "Updated feeding time",
+          description: `Changed from ${oldTime} to ${newTime}`,
+          feedId: feedId,
+          oldTime: oldTime,
+          newTime: newTime,
+          selectedTime: feedEdit.timeDate.toISOString(),
+        });
+
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "Feeding schedule updated",
+          description: `Schedule changed from ${oldTime} to ${newTime}`,
+        });
+
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "Feeding schedule updated",
+          description: `${user.displayName || user.email} changed feeding schedule from ${oldTime} to ${newTime}`,
+          type: "schedule",
         });
       }
     } catch (err) {
       Alert.alert("Error", "Failed to update feed: " + err.message);
       setConfirmEditVisible(false);
       setFeedEdit({ open: false, idx: null, timeDate: new Date() });
+      setIsSubmitting(false);
       return;
     }
 
@@ -609,22 +940,42 @@ export default function ControlScreen({ navigation }) {
     setFeeds((s) => {
       const copy = [...s];
       copy[feedEdit.idx].time = newTime;
-      return copy.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+      const sorted = copy.sort(
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+      );
+      console.log("📋 [SORT] Feeds after editing schedule:");
+      sorted.forEach((f) => {
+        console.log(
+          `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`
+        );
+      });
+      return sorted;
     });
 
     // Close all related modals
     setConfirmEditVisible(false);
     setFeedEdit({ open: false, idx: null, timeDate: new Date() });
+    setIsSubmitting(false);
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
 
   const confirmDeleteFeed = async () => {
+    console.log("📄 [ACTION] Confirming feed delete");
+
+    // Prevent duplicate submissions
+    if (isSubmitting) {
+      console.warn("Submit already in progress, ignoring duplicate click");
+      return;
+    }
+
     if (!pendingDeleteFeedId) {
       setConfirmDeleteFeedVisible(false);
       setPendingDeleteFeedId(null);
       return;
     }
+
+    setIsSubmitting(true);
 
     const feedToDelete = feeds.find((f) => f.id === pendingDeleteFeedId);
     if (!feedToDelete) {
@@ -657,17 +1008,19 @@ export default function ControlScreen({ navigation }) {
         // Delete from Firestore feeds collection
         await deleteDoc(doc(db, "feeds", `${user.uid}_${pendingDeleteFeedId}`));
 
-        // Log delete activity in deleteFeedSchedule collection
-        await addDoc(collection(db, "deleteFeedSchedule_logs"), {
+        // LOGGING REMOVED - Log delete activity to deleteFeedSchedule_logs collection
+        console.log("📋 [LOGGING DISABLED] Would log feed schedule delete:", {
           feedId: pendingDeleteFeedId,
-          userId: user.uid,
-          userName: user.displayName || user.email || "Unknown User",
-          firstName: firstName,
-          lastName: lastName,
-          oldTime: feedToDelete.time,
-          timestamp: new Date().toISOString(),
+          time: feedToDelete.time,
           action: "Deleted a feeding schedule",
-          description: `Deleted ${feedToDelete.time}`,
+        });
+
+        // Log activity to Firestore
+        await logActivity("deleteFeedSchedule_logs", {
+          action: "Deleted a feeding schedule",
+          description: `Deleted schedule at ${feedToDelete.time}`,
+          feedId: pendingDeleteFeedId,
+          oldTime: feedToDelete.time,
         });
 
         // Add user notification
@@ -690,6 +1043,7 @@ export default function ControlScreen({ navigation }) {
       // Close modal even on error
       setConfirmDeleteFeedVisible(false);
       setPendingDeleteFeedId(null);
+      setIsSubmitting(false);
       return;
     }
 
@@ -699,6 +1053,7 @@ export default function ControlScreen({ navigation }) {
     // Close modal and cleanup
     setConfirmDeleteFeedVisible(false);
     setPendingDeleteFeedId(null);
+    setIsSubmitting(false);
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1200);
   };
@@ -739,6 +1094,13 @@ export default function ControlScreen({ navigation }) {
           title: "Feeding completed",
           description: `${userName} manually dispensed feed at ${new Date().toLocaleString()}`,
           type: "feeding",
+        });
+
+        // Log manual feeding activity
+        await logActivity("wateringActivity_logs", {
+          action: "Manual feed dispensed",
+          description: "User manually dispensed feed",
+          status: result.isSimulated ? "Simulated" : "Completed",
         });
 
         // Show warning modal if simulated
@@ -783,6 +1145,13 @@ export default function ControlScreen({ navigation }) {
           type: "watering",
         });
 
+        // Log manual watering activity
+        await logActivity("wateringActivity_logs", {
+          action: "Manual sprinkler activated",
+          description: "User manually activated sprinkler",
+          status: result.isSimulated ? "Simulated" : "Completed",
+        });
+
         // Show warning modal if simulated
         if (result.isSimulated && result.warning) {
           showMotorWarning(
@@ -808,6 +1177,17 @@ export default function ControlScreen({ navigation }) {
   };
 
   const saveWaterSchedule = () => {
+    // Validate dates are valid Date objects
+    if (
+      !waterDate ||
+      !waterTime ||
+      isNaN(waterDate.getTime()) ||
+      isNaN(waterTime.getTime())
+    ) {
+      Alert.alert("Invalid Date", "Please select valid date and time.");
+      return;
+    }
+
     // Validate past time
     const scheduledDateTime = new Date(waterDate);
     scheduledDateTime.setHours(
@@ -833,10 +1213,20 @@ export default function ControlScreen({ navigation }) {
   };
 
   const confirmSaveWaterSchedule = async () => {
+    console.log("📄 [ACTION] Confirming water schedule save");
+
+    // Prevent duplicate submissions
+    if (isSubmitting) {
+      console.warn("Submit already in progress, ignoring duplicate click");
+      return;
+    }
+
     if (!pendingWaterSchedule) {
       setConfirmWaterSaveVisible(false);
       return;
     }
+
+    setIsSubmitting(true);
 
     try {
       const user = auth.currentUser;
@@ -851,7 +1241,7 @@ export default function ControlScreen({ navigation }) {
           timestamp: new Date().toISOString(),
         });
 
-        // Log to wateringActivityLogs collection
+        // LOGGING REMOVED - Log to wateringActivity_logs collection
         // Convert scheduledTime to GMT+8 and format
         const scheduledTimeDate = new Date(pendingWaterSchedule.time);
         const gmt8Time = new Date(
@@ -863,16 +1253,24 @@ export default function ControlScreen({ navigation }) {
         const hour12 = hours % 12 || 12;
         const timeFormatted = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}`;
 
-        await addDoc(collection(db, "wateringActivity_logs"), {
-          userId: user.uid,
-          userName: user.displayName || user.email || "Unknown User",
-          scheduledDate: pendingWaterSchedule.date,
-          scheduledTime: pendingWaterSchedule.time,
-          liters: pendingWaterSchedule.liters,
-          duration: pendingWaterSchedule.duration,
-          timestamp: new Date().toISOString(),
+        console.log(
+          "📋 [LOGGING DISABLED] Would log watering schedule change:",
+          {
+            scheduledTime: timeFormatted,
+            liters: pendingWaterSchedule.liters,
+            duration: pendingWaterSchedule.duration,
+            action: "New watering schedule",
+          }
+        );
+
+        // Log activity to Firestore
+        await logActivity("wateringActivity_logs", {
           action: "New watering schedule",
-          description: `Watering schedule : Duration: ${pendingWaterSchedule.duration}, Liters: ${pendingWaterSchedule.liters}, Time : ${timeFormatted}`,
+          description: `Scheduled ${pendingWaterSchedule.liters}L for ${pendingWaterSchedule.duration} seconds at ${timeFormatted}`,
+          newTime: timeFormatted,
+          selectedTime: pendingWaterSchedule.time,
+          duration: pendingWaterSchedule.duration,
+          status: "Scheduled",
         });
 
         // Add user notification
@@ -906,11 +1304,13 @@ export default function ControlScreen({ navigation }) {
       Alert.alert("Error", "Failed to save watering schedule: " + err.message);
       setConfirmWaterSaveVisible(false);
       setPendingWaterSchedule(null);
+      setIsSubmitting(false);
       return;
     }
 
     setConfirmWaterSaveVisible(false);
     setPendingWaterSchedule(null);
+    setIsSubmitting(false);
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
@@ -920,9 +1320,22 @@ export default function ControlScreen({ navigation }) {
     d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   const saveNightTimeLog = async (time) => {
+    console.log("📄 [ACTION] Saving night schedule");
+
+    // Prevent duplicate submissions
+    if (isSubmitting) {
+      console.warn("Submit already in progress, ignoring duplicate click");
+      return;
+    }
+
+    setIsSubmitting(true);
+
     try {
       const user = auth.currentUser;
-      if (!user) return;
+      if (!user) {
+        setIsSubmitting(false);
+        return;
+      }
 
       // Fetch firstName and lastName from users collection
       let firstName = "N/A";
@@ -962,21 +1375,26 @@ export default function ControlScreen({ navigation }) {
       const selectedTimeGMT8Formatted = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}, ${monthNames[gmt8Time.getUTCMonth()]} ${gmt8Time.getUTCDate()}, ${gmt8Time.getUTCFullYear()}`;
       const timeOnly = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}`;
 
-      await addDoc(collection(db, "nightTime_logs"), {
-        userId: user.uid,
-        userName: user.displayName || user.email || "Unknown User",
-        firstName: firstName,
-        lastName: lastName,
-        selectedTime: time.toISOString(),
-        selectedTimeGMT8Formatted: selectedTimeGMT8Formatted,
-        timestamp: new Date().toISOString(),
+      // LOGGING REMOVED - Log to nightTime_logs collection
+      console.log("📋 [LOGGING DISABLED] Would log night schedule change:", {
+        time: timeOnly,
         action: "Set the night time",
-        description: `Night time starts at ${timeOnly}`,
       });
 
+      // Log activity to Firestore
+      await logActivity("nightTime_logs", {
+        action: "Set the night time",
+        description: `Night mode scheduled at ${timeOnly}`,
+        newTime: timeOnly,
+        selectedTime: time.toISOString(),
+        nightModeEnabled: true,
+      });
+
+      setIsSubmitting(false);
       setShowSavedPopup(true);
       setTimeout(() => setShowSavedPopup(false), 1400);
     } catch (err) {
+      setIsSubmitting(false);
       Alert.alert("Error", err.message);
     }
   };
@@ -1051,7 +1469,10 @@ export default function ControlScreen({ navigation }) {
               <Text style={styles.smallLabel}>Night Time Start</Text>
               <TouchableOpacity
                 style={styles.timeInput}
-                onPress={() => setShowNightPicker(true)}
+                onPress={() => {
+                  console.log("📄 [ACTION] User clicked night time picker");
+                  setShowNightPicker(true);
+                }}
               >
                 <Text style={styles.timeText}>{fmtTime(nightStart)}</Text>
                 <Ionicons name="time-outline" size={18} color={PRIMARY} />
@@ -1089,7 +1510,7 @@ export default function ControlScreen({ navigation }) {
             </Text>
           ) : (
             feeds.map((f, idx) => (
-              <View key={f.id} style={styles.feedRow}>
+              <View key={`feed-${f.id}-${idx}`} style={styles.feedRow}>
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
                   {deleteMode ? (
                     <TouchableOpacity
@@ -1129,6 +1550,10 @@ export default function ControlScreen({ navigation }) {
                       { backgroundColor: RED, marginLeft: 6 },
                     ]}
                     onPress={() => {
+                      console.log(
+                        "📄 [ACTION] User clicked delete feed button for id:",
+                        f.id
+                      );
                       setPendingDeleteFeedId(f.id);
                       setConfirmDeleteFeedVisible(true);
                     }}
@@ -1238,6 +1663,9 @@ export default function ControlScreen({ navigation }) {
             <TouchableOpacity
               style={[styles.primaryBtn, { marginTop: 10 }]}
               onPress={() => {
+                console.log(
+                  "📄 [ACTION] User clicked save water schedule button"
+                );
                 saveWaterSchedule();
               }}
             >

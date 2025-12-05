@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -31,7 +31,17 @@ export default function AdminDashboard() {
   const [reportsThisWeek, setReportsThisWeek] = useState(0);
   const [recentLogs, setRecentLogs] = useState([]);
 
+  // Prevent duplicate fetches (React StrictMode protection)
+  const hasFetchedRef = useRef(false);
+
   useEffect(() => {
+    // Prevent duplicate fetches in React StrictMode (development)
+    if (hasFetchedRef.current) {
+      console.log("⏭️  Skipping duplicate dashboard fetch (already loaded)");
+      return;
+    }
+
+    hasFetchedRef.current = true;
     console.log("Create Account card removed from dashboard");
     fetchUserMetrics();
     fetchReportMetrics();

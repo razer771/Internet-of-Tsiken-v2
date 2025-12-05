@@ -109,7 +109,7 @@ export default function UserManagement({ navigation }) {
     email: "",
     phone: "",
   });
-  const roles = ["Owner", "Manager", "Worker"];
+  const roles = ["Admin", "User"];
   const [roleOpen, setRoleOpen] = useState(false);
   const [savedVisible, setSavedVisible] = useState(false);
   const [saveBtnPressed, setSaveBtnPressed] = useState(false);
@@ -882,7 +882,7 @@ export default function UserManagement({ navigation }) {
               <Text style={styles.editUserTitle}>Edit User Account</Text>
 
               <Text style={styles.editUserLabel}>
-                Firstname<Text style={styles.requiredAsterisk}> *</Text>
+                First Name<Text style={styles.requiredAsterisk}> *</Text>
               </Text>
               <TextInput
                 style={[
@@ -897,7 +897,7 @@ export default function UserManagement({ navigation }) {
                     firstName: validateName(text, "First name"),
                   });
                 }}
-                placeholder="Firstname"
+                placeholder="Enter first name"
               />
               {validationErrors.firstName ? (
                 <Text style={styles.errorText}>
@@ -905,7 +905,7 @@ export default function UserManagement({ navigation }) {
                 </Text>
               ) : null}
 
-              <Text style={styles.editUserLabel}>Middlename</Text>
+              <Text style={styles.editUserLabel}>Middle Name</Text>
               <TextInput
                 style={[
                   styles.editUserInput,
@@ -919,7 +919,7 @@ export default function UserManagement({ navigation }) {
                     middleName: text ? validateName(text, "Middle name") : "",
                   });
                 }}
-                placeholder="Middlename"
+                placeholder="Enter middle name"
               />
               {validationErrors.middleName ? (
                 <Text style={styles.errorText}>
@@ -928,7 +928,7 @@ export default function UserManagement({ navigation }) {
               ) : null}
 
               <Text style={styles.editUserLabel}>
-                Lastname<Text style={styles.requiredAsterisk}> *</Text>
+                Last Name<Text style={styles.requiredAsterisk}> *</Text>
               </Text>
               <TextInput
                 style={[
@@ -943,7 +943,7 @@ export default function UserManagement({ navigation }) {
                     lastName: validateName(text, "Last name"),
                   });
                 }}
-                placeholder="Lastname"
+                placeholder="Enter last name"
               />
               {validationErrors.lastName ? (
                 <Text style={styles.errorText}>
