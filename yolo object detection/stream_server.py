@@ -91,8 +91,7 @@ def process_frame():
                 results = last_detections
             else:
                 # Run YOLO detection with optimizations
-                # Lower conf threshold for predator detection (trained model)
-                results = model(frame, verbose=False, conf=0.25, iou=0.45, imgsz=416)
+                results = model(frame, verbose=False, conf=0.5, iou=0.45, imgsz=416)
                 last_detections = results
             
             # Annotate frame with detection boxes

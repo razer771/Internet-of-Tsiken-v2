@@ -107,7 +107,7 @@ if __name__ == '__main__':
     print("✅ Rat dataset copied and labels adjusted")
 
     # Create combined data.yaml
-    combined_classes = snake_classes + ['rodents']
+    combined_classes = snake_classes + ['rats']
 
     data_yaml_content = f"""# Combined Predator Detection Dataset
 # Snakes + Rats

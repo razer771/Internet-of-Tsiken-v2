@@ -7,4 +7,4 @@ val: valid/images
 
 # Classes
 nc: 2
-names: ['snake', 'rodents']
+names: ['snake', 'rats']
