@@ -14,12 +14,7 @@
       "expo-font"
     ],
     "version": "1.0.0",
-    "runtimeVersion": {
-      "policy": "nativeVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/0f74e60b-9e1c-4f77-b863-a1c9a46b25ba"
-    },
+    "runtimeVersion": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
@@ -29,8 +24,7 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.ailynmay.capstone"
+      "supportsTablet": true
     },
     "android": {
       "googleServicesFile": "./google-services.json",
@@ -52,11 +46,12 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "scheme": "internet-of-tsiken",
     "extra": {
       "eas": {
-        "projectId": "0f74e60b-9e1c-4f77-b863-a1c9a46b25ba"
+        "projectId": "84f969ee-7b4d-47d6-8494-5d9a87e161fb"
       }
     },
-    "scheme": "internet-of-tsiken"
+    "owner": "ailynmay"
   }
 }

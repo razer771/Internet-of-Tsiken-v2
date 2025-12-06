@@ -2,15 +2,10 @@
 import { initializeApp } from "firebase/app";
 // Import the functions for persistence
 import { initializeAuth, getReactNativePersistence } from "firebase/auth";
-import {
-  initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
-} from "firebase/firestore";
+import { initializeFirestore } from "firebase/firestore";
 import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 import { getAnalytics, isSupported } from "firebase/analytics"; // For the analytics warning
 
-// ⚠️ PLEASE REPLACE THIS WITH YOUR NEW, REGENERATED KEYS
 const firebaseConfig = {
   apiKey: "AIzaSyAOC8S6aOGvfnUzp0Twb-7O727Un9FoUGE",
   authDomain: "internet-of-tsiken-690dd.firebaseapp.com",
@@ -28,11 +23,10 @@ export const auth = initializeAuth(app, {
   persistence: getReactNativePersistence(ReactNativeAsyncStorage),
 });
 
-// Initialize Firestore with offline persistence
+// Initialize Firestore WITHOUT persistence (React Native doesn't support IndexedDB)
+// This prevents the "IndexedDB persistence is only available on platforms that support LocalStorage" error
 export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager(),
-  }),
+  // No localCache configuration for React Native - uses in-memory cache by default
 });
 
 // Conditionally initialize Analytics to fix the other warning

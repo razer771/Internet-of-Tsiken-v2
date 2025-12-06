@@ -30,15 +30,12 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig.js";
-import { createAdminSession, clearAdminSession } from "../../services/AdminSessionService.js";
 import {
   checkLoginLockout,
   incrementLoginAttempts,
   resetLoginAttempts,
   formatLockoutTime,
-  getLockoutMessage,
-  getRemainingAttemptsMessage,
-  LOCKOUT_DURATIONS, // ADD THIS
+  LOCKOUT_DURATION,
 } from "./deviceLockout";
 
 const Logo = require("../../assets/logo.png");
@@ -88,21 +85,22 @@ const BrandedAlertModal = ({ visible, type, title, message, onClose }) => {
 };
 
 export default function Login() {
-  const navigation = useNavigation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [deviceLocked, setDeviceLocked] = useState(false);
   const [lockoutTime, setLockoutTime] = useState(null);
-  const [lockoutMessage, setLockoutMessage] = useState("");
 
   // Alert Modal State
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertType, setAlertType] = useState("info");
   const [alertTitle, setAlertTitle] = useState("");
   const [alertMessage, setAlertMessage] = useState("");
+
+  const navigation = useNavigation();
 
   const showAlert = (type, title, message) => {
     setAlertType(type);
@@ -116,61 +114,52 @@ export default function Login() {
   };
 
   useEffect(() => {
-    let timer;
+    checkDeviceLockoutStatus();
+    // Temporary: Clear old lockout data for testing
+    clearOldLockoutData();
+  }, []);
+
+  const clearOldLockoutData = async () => {
+    try {
+      await AsyncStorage.removeItem("device_login_lockout");
+      await AsyncStorage.removeItem("device_login_attempts");
+      console.log("Cleared old lockout data");
+    } catch (error) {
+      console.error("Error clearing lockout data:", error);
+    }
+  };
+
+  // Always clear email, password, and errors whenever Login regains focus
+  useFocusEffect(
+    React.useCallback(() => {
+      setEmail("");
+      setPassword("");
+      setErrors({});
+    }, [])
+  );
+
+  useEffect(() => {
+    let interval;
     if (deviceLocked && lockoutTime > 0) {
-      timer = setInterval(() => {
-        setLockoutTime((prevTime) => {
-          const newTime = prevTime - 1000; // Decrease by 1 second
-          
+      interval = setInterval(() => {
+        setLockoutTime((prev) => {
+          const newTime = prev - 1000;
           if (newTime <= 0) {
-            // Lockout expired
-            console.log("✅ Lockout timer expired, unlocking...");
             setDeviceLocked(false);
-            setLockoutTime(null);
-            setLockoutMessage("");
-            
-            // Clear lockout from AsyncStorage
-            if (email && email.trim()) {
-              resetLoginAttempts(email.trim());
-            }
-            
-            return 0;
+            return null;
           }
-          
           return newTime;
         });
-      }, 1000); // Update every second
+      }, 1000);
     }
-
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [deviceLocked, lockoutTime, email]);
-
-  // Check lockout status when email changes
-  useEffect(() => {
-    if (email && email.trim() !== "") {
-      checkDeviceLockoutStatus();
-    }
-  }, [email]);
+    return () => clearInterval(interval);
+  }, [deviceLocked, lockoutTime]);
 
   const checkDeviceLockoutStatus = async () => {
-    if (!email || email.trim() === "") return;
-    
-    console.log("🔍 Checking lockout status for account:", email);
-    const lockoutStatus = await checkLoginLockout(email.trim());
-    console.log("Lockout status:", lockoutStatus);
-    
+    const lockoutStatus = await checkLoginLockout();
     if (lockoutStatus.isLockedOut) {
-      console.log("🔒 Account was already locked");
       setDeviceLocked(true);
       setLockoutTime(lockoutStatus.remainingTime);
-      setLockoutMessage(getLockoutMessage(lockoutStatus.totalAttempts));
-    } else {
-      console.log("✅ Account is not locked");
-      setDeviceLocked(false);
-      setLockoutTime(null);
-      setLockoutMessage("");
     }
   };
 
@@ -204,46 +193,45 @@ export default function Login() {
     }
 
     // Admin bypass login
-    if (email === "admin@example.com" && password === "admin1234") {
-      console.log("✅ Admin bypass login successful! (admin@example.com)");
-      console.log("🔀 Navigating to AdminDashboard (bypass route)");
+    //  if (email === "admin@example.com" && password === "admin1234") {
+    //   console.log("✅ Admin bypass login successful! (admin@example.com)");
+    //   console.log("🔀 Navigating to AdminDashboard (bypass route)");
 
-      // Log admin bypass login event to session_logs collection (non-blocking)
-      try {
-        await addDoc(collection(db, "session_logs"), {
-          userId: "admin_bypass",
-          action: "login",
-          description: "Logged in",
-          timestamp: serverTimestamp(),
-          deviceInfo: Platform.OS,
-          email: "admin@example.com",
-          loginType: "admin_bypass",
-        });
-        console.log("📝 Admin bypass login event logged to session_logs");
-      } catch (logError) {
-        console.log(
-          "⚠️ Failed to log admin bypass login (non-critical):",
-          logError.message
-        );
-      }
+    // Log admin bypass login event to session_logs collection (non-blocking)
+    //   try {
+    //      await addDoc(collection(db, "session_logs"), {
+    //       userId: "admin_bypass",
+    //      action: "login",
+    //        description: "Logged in",
+    //        timestamp: serverTimestamp(),
+    //       deviceInfo: Platform.OS,
+    //       email: "admin@example.com",
+    //      loginType: "Admin Bypass",
+    //    });
+    //    console.log("📝 Admin bypass login event logged to session_logs");
+    //   } catch (logError) {
+    //     console.log(
+    //       "⚠️ Failed to log admin bypass login (non-critical):",
+    //       logError.message
+    //     );
+    //   }
 
-      // Save admin bypass flag
-      await AsyncStorage.setItem("isAdminBypass", "true");
-      await AsyncStorage.setItem("adminEmail", "admin@example.com");
-      navigation.reset({
-        index: 0,
-        routes: [{ name: "AdminDashboard" }],
-      });
-      return;
-    }
+    // Save admin bypass flag
+    //  await AsyncStorage.setItem("isAdminBypass", "true");
+    //  await AsyncStorage.setItem("adminEmail", "admin@example.com");
+    //   navigation.reset({
+    //     index: 0,
+    //    routes: [{ name: "AdminDashboard" }],
+    //  });
+    //  return;
+    // }
 
     // Clear admin bypass flag for regular users
-    await AsyncStorage.removeItem("isAdminBypass");
+    // await AsyncStorage.removeItem("isAdminBypass");
     await AsyncStorage.removeItem("adminEmail");
 
-    console.log("Validation passed!");
+    // console.log("Validation passed!");
 
-    // Check if account is locked in Firestore
     try {
       console.log("Checking lockout status...");
       const lockoutStatus = await checkLoginLockout();
@@ -262,8 +250,8 @@ export default function Login() {
         );
         return;
       }
-    } catch (checkError) {
-      console.error("Error checking account lock:", checkError);
+    } catch (lockoutError) {
+      console.log("Lockout check error (continuing anyway):", lockoutError);
     }
 
     console.log("Starting Firebase authentication...");
@@ -271,10 +259,10 @@ export default function Login() {
 
     try {
       console.log("Calling signInWithEmailAndPassword...");
-      
-      // Set user session flag BEFORE authentication to prevent logout loop
-      await AsyncStorage.setItem("@user_active_session", "true");
-      
+
+      // Set flag to prevent App.js from interfering during login
+      await AsyncStorage.setItem("loginInProgress", "true");
+
       const userCredential = await signInWithEmailAndPassword(
         auth,
         email.trim(),
@@ -283,16 +271,24 @@ export default function Login() {
       const user = userCredential.user;
       console.log("✅ Login successful! User ID:", user.uid);
 
-      // Log login event to session_logs collection (non-blocking)
+      console.log("📝 Attempting to log session...");
+      // Log login event to session_logs collection (non-blocking with timeout)
       try {
-        await addDoc(collection(db, "session_logs"), {
+        const logPromise = addDoc(collection(db, "session_logs"), {
           userId: user.uid,
-          action: "login",
+          action: "Login",
           description: "Logged in",
           timestamp: serverTimestamp(),
           deviceInfo: Platform.OS,
           email: email.trim(),
         });
+
+        await Promise.race([
+          logPromise,
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Timeout")), 3000)
+          ),
+        ]);
         console.log("📝 Login event logged to session_logs");
       } catch (logError) {
         console.log(
@@ -301,98 +297,280 @@ export default function Login() {
         );
       }
 
+      console.log("🔍 Fetching user document from Firestore...");
       try {
         const userRef = doc(db, "users", user.uid);
+        console.log("📄 Getting user document...");
         const userDoc = await getDoc(userRef);
+        console.log("📄 User document fetched successfully");
 
         if (userDoc.exists()) {
-          console.log("✅ User data loaded:", userDoc.data());
           const userData = userDoc.data();
 
-          // Check if account is inactive
-          if (
-            userData.accountStatus === "inactive" ||
-            userData.accountStatus === "Inactive"
-          ) {
-            console.log("❌ Account is inactive, blocking login");
+          console.log("🔍 Raw user data from Firestore:", userData);
+
+          const accountStatus = (userData.accountStatus || "").toLowerCase();
+          const userRole = (userData.role || "").toLowerCase();
+          const isVerified = userData.verified === true;
+
+          console.log(
+            `📊 Account Status: ${accountStatus}, Role: ${userRole}, Verified: ${isVerified}`
+          );
+
+          // PRIORITY 1: Check if password change is required (highest priority)
+          if (userData.requirePasswordChange === true) {
+            console.log("⚠️ Password change required → CreateNewPassword");
             setLoading(false);
+
+            // Clear login flag before navigation
+            await AsyncStorage.removeItem("loginInProgress");
+
+            navigation.navigate("CreateNewPassword", { userId: user.uid });
+            return;
+          }
+
+          // REQUIREMENT 2 & 3: Verified + Active (Admin or User)
+          if (isVerified && accountStatus === "active") {
+            if (userRole === "admin") {
+              console.log("✅ Verified + Active + Admin → AdminDashboard");
+
+              // Log successful admin login (with timeout)
+              const logPromise = addDoc(collection(db, "session_logs"), {
+                userId: user.uid,
+                action: "login",
+                description: "Logged in",
+                timestamp: serverTimestamp(),
+                deviceInfo: Platform.OS,
+                email: email.trim(),
+                loginType: "admin",
+              });
+
+              // Don't wait more than 2 seconds for logging
+              Promise.race([
+                logPromise,
+                new Promise((resolve) => setTimeout(resolve, 2000)),
+              ]).catch((e) => console.log("⚠️ Session log error:", e.message));
+
+              await resetLoginAttempts().catch((e) =>
+                console.log("⚠️ Reset error:", e.message)
+              );
+
+              console.log("🔀 Navigating to AdminDashboard NOW");
+              setLoading(false);
+
+              navigation.reset({
+                index: 0,
+                routes: [{ name: "AdminDashboard" }],
+              });
+
+              // Clear login flag after navigation so App.js can handle future auth changes
+              setTimeout(async () => {
+                await AsyncStorage.removeItem("loginInProgress");
+              }, 500);
+              return;
+            }
+
+            if (userRole === "user") {
+              console.log("✅ Verified + Active + User → Home");
+
+              // Log successful user login (with timeout)
+              const logPromise = addDoc(collection(db, "session_logs"), {
+                userId: user.uid,
+                action: "login",
+                description: "Logged in",
+                timestamp: serverTimestamp(),
+                deviceInfo: Platform.OS,
+                email: email.trim(),
+                loginType: "user",
+              });
+
+              // Don't wait more than 2 seconds for logging
+              Promise.race([
+                logPromise,
+                new Promise((resolve) => setTimeout(resolve, 2000)),
+              ]).catch((e) => console.log("⚠️ Session log error:", e.message));
+
+              await resetLoginAttempts().catch((e) =>
+                console.log("⚠️ Reset error:", e.message)
+              );
+
+              console.log("🔀 Navigating to Home NOW");
+              setLoading(false);
+
+              navigation.reset({ index: 0, routes: [{ name: "Home" }] });
+
+              // Clear login flag after navigation so App.js can handle future auth changes
+              setTimeout(async () => {
+                await AsyncStorage.removeItem("loginInProgress");
+              }, 500);
+              return;
+            }
+
+            // If role is not recognized but status is active and verified
+            console.log(
+              `⚠️ Unknown role "${userRole}" but verified + active → defaulting to Home`
+            );
+            await resetLoginAttempts().catch((e) =>
+              console.log("⚠️ Reset error:", e.message)
+            );
+            console.log("🔀 Navigating to Home (fallback) NOW");
+            setLoading(false);
+
+            navigation.reset({ index: 0, routes: [{ name: "Home" }] });
+
+            // Clear login flag after navigation so App.js can handle future auth changes
+            setTimeout(async () => {
+              await AsyncStorage.removeItem("loginInProgress");
+            }, 500);
+            return;
+          }
+
+          // REQUIREMENT 4: Unverified + Active (Admin or User) → VerifyIdentity
+          if (!isVerified && accountStatus === "active") {
+            console.log("⚠️ Unverified + Active → VerifyIdentity");
+
+            // Log verification process
+            await addDoc(collection(db, "session_logs"), {
+              userId: user.uid,
+              action: "Processing verification",
+              description: "Processing verification",
+              timestamp: serverTimestamp(),
+              deviceInfo: Platform.OS,
+              email: email.trim(),
+              loginType: userRole || "user",
+            }).catch((e) => console.log("⚠️ Session log error:", e.message));
+
+            setLoading(false);
+
+            // Clear login flag so App.js can handle future auth changes
+            await AsyncStorage.removeItem("loginInProgress");
+
+            navigation.reset({
+              index: 0,
+              routes: [{ name: "VerifyIdentity" }],
+            });
+            return;
+          }
+
+          // REQUIREMENT 5: Unverified + Inactive → Show modal, block login
+          if (!isVerified && accountStatus === "inactive") {
+            console.log("❌ Unverified + Inactive → Blocked");
+
+            // Log blocked login attempt
+            await addDoc(collection(db, "session_logs"), {
+              userId: user.uid,
+              action: "Blocked login",
+              description: "Inactive account attempted",
+              timestamp: serverTimestamp(),
+              deviceInfo: Platform.OS,
+              email: email.trim(),
+              loginType: userRole || "user",
+            }).catch((e) => console.log("⚠️ Session log error:", e.message));
+
+            await auth.signOut();
+            setLoading(false);
+
+            // Clear login flag
+            await AsyncStorage.removeItem("loginInProgress");
+
             showAlert(
               "error",
               "Account Inactive",
               "Your account has been deactivated. Please contact the administrator for assistance."
             );
-            // Sign out the user
+            return;
+          }
+
+          // EDGE CASE: Verified + Inactive → Also blocked
+          if (isVerified && accountStatus === "inactive") {
+            console.log("❌ Verified + Inactive → Blocked");
+
+            // Log blocked login attempt
+            await addDoc(collection(db, "session_logs"), {
+              userId: user.uid,
+              action: "Blocked login",
+              description: "Inactive account attempted",
+              timestamp: serverTimestamp(),
+              deviceInfo: Platform.OS,
+              email: email.trim(),
+              loginType: userRole || "user",
+            }).catch((e) => console.log("⚠️ Session log error:", e.message));
+
             await auth.signOut();
-            return;
-          }
-
-          // Check if password change is required
-          if (userData.requirePasswordChange === true) {
-            console.log(
-              "⚠️ Password change required, redirecting to Create New Password screen"
-            );
             setLoading(false);
-            // Navigate to Create New Password screen
-            navigation.navigate("CreateNewPassword", { userId: user.uid });
+
+            // Clear login flag
+            await AsyncStorage.removeItem("loginInProgress");
+
+            showAlert(
+              "error",
+              "Account Inactive",
+              "Your account has been deactivated. Please contact the administrator for assistance."
+            );
             return;
           }
 
-          // Check if user is already verified in Firestore
-          if (userData.verified === true || userData.isVerified === true) {
-            console.log("✅ User is verified, skipping OTP");
+          // Fallback (unknown status or missing fields)
+          console.log("⚠️ Fallback triggered - Unknown/missing status or role");
+          console.log(
+            `   accountStatus: "${accountStatus}" (empty: ${accountStatus === ""})`
+          );
+          console.log(`   userRole: "${userRole}" (empty: ${userRole === ""})`);
+          console.log(`   isVerified: ${isVerified}`);
 
-            try {
-              await resetLoginAttempts();
-            } catch (resetError) {
-              console.log(
-                "Error resetting login attempts (non-critical):",
-                resetError
-              );
-            }
+          // If no status is set, treat as inactive
+          if (!accountStatus || accountStatus === "") {
+            console.log("❌ No account status set → Blocking login");
+            await auth.signOut();
+            setLoading(false);
 
-            // Check user role and navigate accordingly
-            if (userData.role === "Admin") {
-              console.log("👤 User role: Admin");
-              console.log(
-                "🔀 Navigating to AdminDashboard (verified admin user)"
-              );
-              // Create admin session
-              await createAdminSession(user.uid, email.trim(), "Admin");
-              navigation.reset({
-                index: 0,
-                routes: [{ name: "AdminDashboard" }],
-              });
-            } else {
-              console.log("👤 User role:", userData.role || "Regular user");
-              console.log("🔀 Navigating to Home (verified regular user)");
-              // Session flag already set before authentication
-              navigation.reset({
-                index: 0,
-                routes: [{ name: "Home" }],
-              });
-            }
+            // Clear login flag
+            await AsyncStorage.removeItem("loginInProgress");
+
+            setErrors({
+              auth: "Account not properly configured. Please contact support.",
+            });
             return;
           }
 
-          console.log("⏳ User not verified, redirecting to OTP");
+          // Final fallback - sign out and show error
+          await auth.signOut();
           setLoading(false);
-          navigation.navigate("VerifyIdentity");
+
+          // Clear login flag
+          await AsyncStorage.removeItem("loginInProgress");
+
+          setErrors({
+            auth: "Unable to determine account status. Please contact support.",
+          });
+          return;
         } else {
           console.log("❌ User document does not exist in Firestore");
+          await auth.signOut();
           setLoading(false);
+
+          // Clear login flag
+          await AsyncStorage.removeItem("loginInProgress");
+
           setErrors({ auth: "User data not found." });
           return;
         }
       } catch (firestoreError) {
         console.error("Firestore Error:", firestoreError);
+        await auth.signOut().catch((e) => console.log("Signout error:", e));
         setLoading(false);
+
+        // Clear login flag
+        await AsyncStorage.removeItem("loginInProgress");
+
         setErrors({ auth: "Error loading user data. Please try again." });
+        return;
       }
     } catch (error) {
       console.error("Firebase Login Error:", error.code, error.message);
 
-      // Clear session flag on login failure
-      await AsyncStorage.removeItem("@user_active_session");
+      // Clear login flag on error
+      await AsyncStorage.removeItem("loginInProgress");
 
       try {
         const attempts = await incrementLoginAttempts();
@@ -417,7 +595,7 @@ export default function Login() {
 
         if (remainingAttempts <= 0) {
           setDeviceLocked(true);
-          setLockoutTime(LOCKOUT_DURATIONS[0]);
+          setLockoutTime(LOCKOUT_DURATION);
         } else {
           setErrors({ auth: errorMessage });
         }
@@ -439,9 +617,9 @@ export default function Login() {
       <View style={styles.lockedContainer}>
         <View style={styles.lockedCard}>
           <Ionicons name="lock-closed" size={48} color="#c41e3a" />
-          <Text style={styles.lockedTitle}>Account Locked</Text>
+          <Text style={styles.lockedTitle}>Device Locked</Text>
           <Text style={styles.lockedSubtitle}>
-            {lockoutMessage}
+            Too many failed login attempts
           </Text>
           <Text style={styles.lockedTime}>
             {lockoutTime ? formatLockoutTime(lockoutTime) : "00:00"}
@@ -527,6 +705,16 @@ export default function Login() {
 
             {/* Options Row */}
             <View style={styles.optionsRow}>
+              <View style={styles.checkboxContainer}>
+                <Checkbox
+                  value={remember}
+                  onValueChange={setRemember}
+                  color={remember ? "#3b4cca" : undefined}
+                  style={styles.checkbox}
+                />
+                <Text style={styles.rememberText}>Remember password</Text>
+              </View>
+
               <View style={styles.forgotWrapper}>
                 <TouchableOpacity onPress={handleForgotPassword}>
                   <Text style={styles.forgotText}>Forgot password?</Text>
@@ -658,13 +846,21 @@ const styles = StyleSheet.create({
   },
   optionsRow: {
     flexDirection: "row",
-    justifyContent: "flex-start",
+    justifyContent: "space-between",
     alignItems: "center",
     width: "100%",
     marginVertical: 14,
+    gap: 12,
   },
-  forgotWrapper: {
-    // Removed extra styles, inherits from parent
+  checkboxContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  checkbox: {
+    marginRight: 2,
+  },
+  rememberText: {
+    color: "#333",
   },
   forgotText: {
     color: "#3b4cca",

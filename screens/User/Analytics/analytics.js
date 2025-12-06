@@ -494,6 +494,27 @@ export default function Analytics() {
         )}
       </View>
 
+      {/* Stats Row */}
+      <View style={styles.statsRow}>
+        <View style={styles.statsCard}>
+          <View style={styles.statsHeader}>
+            <Ionicons name="analytics-outline" size={18} color="#333" />
+            <Text style={styles.statsLabel}>Avg Temp</Text>
+          </View>
+          <Text style={styles.statsValue}>31.8°C</Text>
+          <Text style={styles.statsSub}>+0.5° from target</Text>
+        </View>
+
+        <View style={styles.statsCard}>
+          <View style={styles.statsHeader}>
+            <Ionicons name="analytics-outline" size={18} color="#333" />
+            <Text style={styles.statsLabel}>Accuracy</Text>
+          </View>
+          <Text style={styles.statsValue}>99.8%</Text>
+          <Text style={styles.statsSubGray}>Last 7 days</Text>
+        </View>
+      </View>
+
       {/* Tabs */}
       <View style={styles.tabContainer}>
         {["Feeding", "Water", "Energy"].map((tab, i) => (
@@ -804,7 +825,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(13, 96, 156, 0.21)", // #0D609C with 21% opacity
+    borderColor: "#0D609C",
     marginBottom: 16,
     alignSelf: "center",
   },
@@ -814,7 +835,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(13, 96, 156, 0.21)", // #0D609C with 21% opacity
+    borderColor: "#0D609C",
     marginBottom: 16,
     alignSelf: "center",
   },
@@ -837,7 +858,7 @@ const styles = StyleSheet.create({
   dropdown: {
     backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: "rgba(13, 96, 156, 0.21)", // #0D609C with 21% opacity
+    borderColor: "#0D609C",
     padding: 12,
     borderRadius: 10,
     marginBottom: 14,
@@ -847,6 +868,33 @@ const styles = StyleSheet.create({
   },
 
   dropdownText: { fontSize: 14, color: "#444" },
+
+  statsRow: { flexDirection: "row", justifyContent: "space-between" },
+
+  statsCard: {
+    flex: 1,
+    backgroundColor: "#F8FCFF",
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#0D609C",
+    marginRight: 8,
+    marginBottom: 18,
+  },
+
+  statsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+
+  statsLabel: { marginLeft: 6, fontSize: 14, color: "#333" },
+
+  statsValue: { fontSize: 28, fontWeight: "700", marginBottom: 4 },
+
+  statsSub: { fontSize: 13, color: "#133E87" },
+
+  statsSubGray: { fontSize: 13, color: "#133E87" },
 
   tabContainer: {
     flexDirection: "row",
@@ -873,8 +921,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-end",
-    height: 180,
-    paddingLeft: 30,
+    height: 180, // slightly reduced to fit bars nicely
+    paddingLeft: 30, // space for y-axis labels
     paddingRight: 10,
     position: "relative",
   },
@@ -913,13 +961,13 @@ const styles = StyleSheet.create({
   /* TEMP CHART */
   chartTitle: { fontSize: 17, fontWeight: "700", marginBottom: 12 },
 
-  /* WEEKLY SUMMARY */ 
+  /* WEEKLY SUMMARY (NEW) */ 
   weeklyCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#F8FCFF",
     padding: 20,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(13, 96, 156, 0.21)", // #0D609C with 21% opacity
+    borderColor: "#0D609C",
     marginBottom: 16,
     alignSelf: "center",
   },
@@ -955,7 +1003,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(13, 96, 156, 0.21)", // #0D609C with 21% opacity
+    borderColor: "#0D609C",
     marginBottom: 16,
     alignSelf: "center",
   },
@@ -1018,6 +1066,8 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#333",
     marginBottom: -12,
+    
+  
   },
 
   waterVerticalLine: {
@@ -1039,7 +1089,7 @@ const styles = StyleSheet.create({
   },
 
   tooltipText: {
-    fontSize: 16,
+    fontSize: 16,  // increased font size
     fontWeight: "700",
     color: "#333",
     textAlign: "center",
@@ -1050,7 +1100,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(13, 96, 156, 0.21)", // #0D609C with 21% opacity
+    borderColor: "#0D609C",
     marginBottom: 16,
     alignSelf: "center",
   },
@@ -1105,7 +1155,7 @@ const styles = StyleSheet.create({
   dropdownOptions: {
     backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: "rgba(13, 96, 156, 0.21)", // #0D609C with 21% opacity
+    borderColor: "#0D609C",
     borderRadius: 10,
     marginBottom: 10,
     paddingVertical: 6,

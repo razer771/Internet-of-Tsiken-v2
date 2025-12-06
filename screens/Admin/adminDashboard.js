@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -6,9 +6,9 @@ import {
   SafeAreaView,
   ScrollView,
   TouchableOpacity,
-  Dimensions,
 } from "react-native";
 import Header2 from "../navigation/adminHeader";
+import Icon from "react-native-vector-icons/Feather";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation } from "@react-navigation/native";
 import {
@@ -19,13 +19,12 @@ import {
   doc,
   getDoc,
 } from "firebase/firestore";
-import { db } from "../../config/firebaseconfig";
-
-const { width: windowWidth } = Dimensions.get("window");
+import { db, auth } from "../../config/firebaseconfig";
 
 export default function AdminDashboard() {
   const navigation = useNavigation();
   const [pressedBtn, setPressedBtn] = useState(null);
+  const [firstName, setFirstName] = useState("Administrator");
   const [totalUsers, setTotalUsers] = useState(0);
   const [usersThisMonth, setUsersThisMonth] = useState(0);
   const [activeSessions, setActiveSessions] = useState(0);
@@ -33,12 +32,39 @@ export default function AdminDashboard() {
   const [reportsThisWeek, setReportsThisWeek] = useState(0);
   const [recentLogs, setRecentLogs] = useState([]);
 
+  // Prevent duplicate fetches (React StrictMode protection)
+  const hasFetchedRef = useRef(false);
+
   useEffect(() => {
+    // Prevent duplicate fetches in React StrictMode (development)
+    if (hasFetchedRef.current) {
+      console.log("⏭️  Skipping duplicate dashboard fetch (already loaded)");
+      return;
+    }
+
+    hasFetchedRef.current = true;
     console.log("Create Account card removed from dashboard");
+    fetchAdminName();
     fetchUserMetrics();
     fetchReportMetrics();
     fetchActivityLogs();
   }, []);
+
+  const fetchAdminName = async () => {
+    try {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        const userRef = doc(db, "users", currentUser.uid);
+        const userDoc = await getDoc(userRef);
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          setFirstName(userData.firstName || "Administrator");
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching admin name:", error);
+    }
+  };
 
   const fetchUserMetrics = async () => {
     try {
@@ -324,63 +350,9 @@ export default function AdminDashboard() {
     }
   };
 
-  // Analytics state
-  const [range, setRange] = useState("Last 7 Days");
-  const [LineChartComp, setLineChartComp] = useState(null);
-  const [chartError, setChartError] = useState(null);
-  const [activePoint, setActivePoint] = useState(null);
-
-  useEffect(() => {
-    try {
-      const { LineChart } = require("react-native-chart-kit");
-      const RN_SVG = require("react-native-svg");
-
-      if (!LineChart) throw new Error("react-native-chart-kit LineChart is undefined");
-      if (!RN_SVG || !RN_SVG.Svg) throw new Error("react-native-svg seems missing or invalid");
-
-      setLineChartComp(() => LineChart);
-      setChartError(null);
-    } catch (err) {
-      console.warn("Chart init error:", err?.message ?? err);
-      setChartError(err?.message ?? String(err));
-      setLineChartComp(null);
-    }
-  }, []);
-
-  const metrics = [];
-
-  const chartData = {
-    labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-    datasets: [
-      {
-        data: [10, 12, 18, 20, 22, 25],
-        color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
-      },
-    ],
-  };
-  const chartWidth = Math.max(windowWidth - 48, 200);
-  const chartHeight = 220;
-
-  const barData = [
-    { label: "Mon", actions: 128, logins: 45 },
-    { label: "Tue", actions: 152, logins: 52 },
-    { label: "Wed", actions: 134, logins: 48 },
-    { label: "Thu", actions: 160, logins: 55 },
-    { label: "Fri", actions: 148, logins: 50 },
-    { label: "Sat", actions: 95, logins: 35 },
-    { label: "Sun", actions: 82, logins: 30 },
-  ];
-
-  const barChartHeight = 220;
-
-  const showPointTooltip = (point) => {
-    setActivePoint(point);
-    setTimeout(() => setActivePoint(null), 2000);
-  };
-
   return (
     <SafeAreaView style={styles.safe}>
-      <Header2 showBackButton={false} />
+      <Header2 />
       <ScrollView
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
@@ -405,7 +377,7 @@ export default function AdminDashboard() {
               backgroundColor: "#EBF2F8",
             }}
           />
-          <Text style={styles.welcomeTitle}>Welcome, Administrator</Text>
+          <Text style={styles.welcomeTitle}>Welcome, {firstName}!</Text>
           <Text style={styles.welcomeSubtitle}>
             Manage users, view system activity,{"\n"}
             and generate comprehensive analytics reports.
@@ -492,7 +464,7 @@ export default function AdminDashboard() {
                 activeOpacity={0.85}
                 onPressIn={() => setPressedBtn("userManagement")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() => navigation.navigate("UserManagement")}
+                onPress={() => navigation.navigate("UserManagement")} // <-- Navigate to userManagement.js
               >
                 <Text
                   style={[
@@ -619,7 +591,7 @@ export default function AdminDashboard() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#fff", // changed from #F7F9FB to white
   },
   container: {
     flexGrow: 1,
@@ -627,12 +599,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   welcomeCard: {
-    backgroundColor: "transparent",
+    backgroundColor: "#EBF2F8", // fallback color
     borderRadius: 16,
     padding: 20,
-    paddingLeft: 10,
-    marginBottom: 0,
+    marginBottom: 24,
     marginTop: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    position: "relative",
   },
   welcomeTitle: {
     fontSize: 22,
@@ -745,10 +721,10 @@ const styles = StyleSheet.create({
     elevation: 3, // for Android shadow
   },
   actionCard: {
-    backgroundColor: "#fff",
+    backgroundColor: "#Ff",
     borderRadius: 12,
     padding: 16,
-    marginBottom: 24,
+    marginBottom: 24, // increased space between action cards
     borderWidth: 1,
     borderColor: "rgba(13,96,156,0.21)",
     shadowColor: "#000",
@@ -777,17 +753,17 @@ const styles = StyleSheet.create({
   },
   fullWidthButton: {
     width: "100%",
-    backgroundColor: "#fff",
+    backgroundColor: "#fff", // White background
     borderRadius: 16,
     paddingVertical: 12,
     alignItems: "center",
     marginTop: 4,
     marginBottom: 0,
     borderWidth: 1.5,
-    borderColor: "#234187",
+    borderColor: "#234187", // Blue border
   },
   fullWidthButtonText: {
-    color: "#000",
+    color: "#000", // Black text by default
     fontSize: 17,
     fontWeight: "500",
     textAlign: "center",
@@ -812,73 +788,32 @@ const styles = StyleSheet.create({
     color: "#000000", // match actionTitle
     marginBottom: 14,
   },
-  pickerLabel: { fontSize: 16, color: "#0b2336" },
-
-  rangeButton: {
-    flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#a9c0d8",
-    paddingVertical: 8, paddingHorizontal: 14, borderRadius: 12, backgroundColor: "#fff",
+  activityItem: {
+    backgroundColor: "#F2F4F8",
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
   },
-  rangeText: { color: "#16324a", fontSize: 15, marginRight: 8 },
-
-  metricsGrid: { width: "100%", flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginBottom: 18 },
-
-  card: {
-    width: "48%", backgroundColor: "#fff", borderRadius: 12, borderWidth: 1.2, borderColor: "#e1f0fb",
-    padding: 14, marginBottom: 12, minHeight: 110, justifyContent: "space-between",
+  activityUser: {
+    fontWeight: "bold",
+    fontSize: 15,
+    color: "#000000",
+    marginBottom: 2,
   },
-  cardHeader: { flexDirection: "row", alignItems: "center", flexShrink: 1 },
-  iconCircle: { width: 36, height: 36, borderRadius: 18, backgroundColor: "#eef6ff", alignItems: "center", justifyContent: "center", marginRight: 10 },
-  cardTitle: { fontSize: 16, color: "#0b2336", fontWeight: "600", flexShrink: 1 },
-  cardValue: { fontSize: 34, color: "#000", fontWeight: "800", marginTop: 8 },
-  cardSubtitle: { color: "#2a66a6", marginTop: 6, fontSize: 14 },
-
-  chartCard: { backgroundColor: "#fff", borderRadius: 12, borderWidth: 1.2, borderColor: "#dbeffb", padding: 14, marginBottom: 18, width: "100%" },
-  chartTitle: { fontSize: 18, fontWeight: "800", color: "#0b2336" },
-
-  fallback: { paddingVertical: 18, alignItems: "center" },
-  fallbackText: { color: "#b22222", fontWeight: "700" },
-  fallbackTextSmall: { color: "#444", marginTop: 6, textAlign: "center" },
-  instructions: { marginTop: 10, color: "#333", textAlign: "center", fontSize: 12, paddingHorizontal: 12 },
-
-  tooltipWrapper: { position: "absolute", alignItems: "center", zIndex: 20, elevation: 10 },
-  tooltipVerticalLine: { width: 2, backgroundColor: "#333", position: "absolute" },
-  tooltipBox: { backgroundColor: "#fff", padding: 8, borderRadius: 6, borderWidth: 1, borderColor: "#ccc", marginBottom: 8, alignItems: "center" },
-  tooltipLabel: { fontWeight: "700" },
-  tooltipValue: { fontWeight: "700", color: "#154985" },
-
-  dropdownOptionText: { fontSize: 16, color: "#16324a" },
-  option: { padding: 12 },
-
-  reportsWrapper: { backgroundColor: "#eef6fb", borderRadius: 12, borderWidth: 1, borderColor: "#d6eaf8", padding: 16 },
-  reportsHeader: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
-  reportsTitle: { fontSize: 18, fontWeight: "800", color: "#133E87", marginLeft: -7 },
-
-  reportsList: { marginTop: 6 },
-  reportItem: { backgroundColor: "#fff", borderRadius: 10, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 10, borderWidth: 1, borderColor: "#d9eaf6" },
-  reportItemTitle: { color: "#133E87", fontWeight: "700", marginBottom: 6 },
-  reportItemDesc: { color: "#556b82", fontSize: 13 },
-
-  reportGeneratedCard: { backgroundColor: "#f3f8fc", borderRadius: 10, padding: 14, borderWidth: 1, borderColor: "#d6eaf8" },
-  reportGeneratedTitle: { color: "#0b3b6a", fontSize: 16, fontWeight: "700", marginBottom: 6 },
-  reportGeneratedTime: { color: "#556b82", marginBottom: 10 },
-
-  reportRows: { marginTop: 6 },
-  reportRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6 },
-  reportRowLabel: { color: "#334e68" },
-  reportRowValue: { color: "#000", fontWeight: "700" },
-
-  exportButtonsRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", marginTop: 12 },
-  exportPdfButton: {
-    backgroundColor: "#fff",
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: "#cbdff5",
+  activityDesc: {
+    fontSize: 12,
+    color: "#444",
   },
-  exportPdfText: {
-    color: "#000",
-    fontWeight: "700",
+  activityTime: {
+    fontSize: 12,
+    color: "#133E87",
+    fontWeight: "500",
+    marginLeft: 10,
+    minWidth: 90,
+    textAlign: "right",
   },
 });
