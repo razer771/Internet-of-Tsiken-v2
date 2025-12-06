@@ -57,6 +57,7 @@ import UserProfile from "./screens/User/Profile/userProfile";
 import EditProfile from "./screens/User/Profile/editProfile";
 import UserActivityLogs from "./screens/User/ActivityLogs/ActivityLogs";
 import AdminActivityLogs from "./screens/Admin/activityLogs";
+import GenerateLogReport from "./screens/Admin/generatelogReport";
 import Reports from "./screens/User/Reports/Reports";
 import ViewReport from "./screens/User/Reports/ViewReport";
 import Analytics from "./screens/User/Analytics/analytics";
@@ -635,6 +636,14 @@ export default function App() {
                     component={createTrackedScreen(
                       AdminActivityLogs,
                       "AdminActivityLogs",
+                      setCurrentRoute
+                    )}
+                  />
+                  <Stack.Screen
+                    name="GenerateLogReport"
+                    component={createTrackedScreen(
+                      GenerateLogReport,
+                      "GenerateLogReport",
                       setCurrentRoute
                     )}
                   />

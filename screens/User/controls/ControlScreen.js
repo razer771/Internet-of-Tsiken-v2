@@ -305,20 +305,22 @@ export default function ControlScreen({ navigation }) {
     try {
       const user = auth.currentUser;
       if (!user) return;
-      
+
       const wateringSnapshot = await getDocs(
         collection(db, "wateringSchedules")
       );
-      
+
       const loadedWaterings = [];
       const seenIds = new Set();
-      
+
       wateringSnapshot.forEach((doc) => {
         const data = doc.data();
         if (data.userId === user.uid) {
           // Skip duplicates based on wateringId
           if (seenIds.has(data.wateringId)) {
-            console.warn(`Duplicate wateringId ${data.wateringId} found, skipping`);
+            console.warn(
+              `Duplicate wateringId ${data.wateringId} found, skipping`
+            );
             return;
           }
           seenIds.add(data.wateringId);
@@ -332,7 +334,9 @@ export default function ControlScreen({ navigation }) {
       });
 
       // Sort by time
-      loadedWaterings.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+      loadedWaterings.sort(
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+      );
       setWaterings(loadedWaterings);
       console.log("💧 [SORT] Watering schedules loaded and sorted:");
       loadedWaterings.forEach((w) => {
@@ -367,12 +371,17 @@ export default function ControlScreen({ navigation }) {
 
   // watering schedule: mirror feeding schedule
   const [waterings, setWaterings] = useState([]);
-  const [waterEdit, setWaterEdit] = useState({ open: false, idx: null, timeDate: new Date() });
+  const [waterEdit, setWaterEdit] = useState({
+    open: false,
+    idx: null,
+    timeDate: new Date(),
+  });
   const [showWaterAddPicker, setShowWaterAddPicker] = useState(false);
   const [pendingWaterTime, setPendingWaterTime] = useState(null);
   const [confirmWaterAddVisible, setConfirmWaterAddVisible] = useState(false);
   const [showDuplicateWaterModal, setShowDuplicateWaterModal] = useState(false);
-  const [confirmDeleteWaterVisible, setConfirmDeleteWaterVisible] = useState(false);
+  const [confirmDeleteWaterVisible, setConfirmDeleteWaterVisible] =
+    useState(false);
   const [pendingDeleteWaterId, setPendingDeleteWaterId] = useState(null);
   const [showWaterTimePicker, setShowWaterTimePicker] = useState(false);
 
@@ -1150,33 +1159,54 @@ export default function ControlScreen({ navigation }) {
   };
 
   const confirmAddWater = async () => {
+    console.log("📄 [ACTION] Confirming water schedule add");
+
+    // Prevent duplicate submissions
+    if (isSubmitting) {
+      console.warn("Submit already in progress, ignoring duplicate click");
+      return;
+    }
+
     if (!pendingWaterTime) {
       setConfirmWaterAddVisible(false);
       setShowWaterAddPicker(false);
       return;
     }
-    const formattedTime = pendingWaterTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    setIsSubmitting(true);
+    const formattedTime = pendingWaterTime.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    // Check for duplicate time
     const isDuplicate = waterings.some((w) => w.time === formattedTime);
     if (isDuplicate) {
       setConfirmWaterAddVisible(false);
       setShowWaterAddPicker(false);
       setPendingWaterTime(null);
       setShowDuplicateWaterModal(true);
+      setIsSubmitting(false);
       return;
     }
 
-    const nextId = waterings.length ? Math.max(...waterings.map((w) => w.id)) + 1 : 1;
+    const nextId = waterings.length
+      ? Math.max(...waterings.map((w) => w.id)) + 1
+      : 1;
     const label = `Schedule ${nextId}`;
     const newWater = { id: nextId, label, time: formattedTime };
 
     try {
       const user = auth.currentUser;
       if (user) {
+        // Fetch firstName and lastName from users collection
         let firstName = "N/A";
         let lastName = "N/A";
+
         try {
           const userDocRef = doc(db, "users", user.uid);
           const userDocSnap = await getDoc(userDocRef);
+
           if (userDocSnap.exists()) {
             const userData = userDocSnap.data();
             firstName = userData.firstName || "N/A";
@@ -1184,8 +1214,10 @@ export default function ControlScreen({ navigation }) {
           }
         } catch (fetchErr) {
           console.error("Failed to fetch user data:", fetchErr);
+          // firstName and lastName will remain "N/A"
         }
 
+        // Persist to Firestore wateringSchedules collection
         await setDoc(doc(db, "wateringSchedules", `${user.uid}_${nextId}`), {
           wateringId: nextId,
           label: label,
@@ -1194,18 +1226,28 @@ export default function ControlScreen({ navigation }) {
           timestamp: new Date().toISOString(),
         });
 
-        await addDoc(collection(db, "addWaterSchedule_logs"), {
-          wateringId: nextId,
-          userId: user.uid,
-          userName: user.displayName || user.email || "Unknown User",
-          firstName,
-          lastName,
-          selectedTime: pendingWaterTime.toISOString(),
-          selectedTimeFormatted: formattedTime,
-          newTime: formattedTime,
-          timestamp: new Date().toISOString(),
+        // Log activity to Firestore
+        await logActivity("addWaterSchedule_logs", {
           action: "Add new watering schedule",
           description: `Added ${formattedTime}`,
+          waterId: nextId,
+          newTime: formattedTime,
+          selectedTime: pendingWaterTime.toISOString(),
+        });
+
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "Watering schedule added",
+          description: `New watering schedule created for ${formattedTime}`,
+        });
+
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "Watering schedule added",
+          description: `${user.displayName || user.email} added watering schedule at ${formattedTime}`,
+          type: "schedule",
         });
       }
     } catch (err) {
@@ -1213,17 +1255,30 @@ export default function ControlScreen({ navigation }) {
       setConfirmWaterAddVisible(false);
       setShowWaterAddPicker(false);
       setPendingWaterTime(null);
+      setIsSubmitting(false);
       return;
     }
 
+    // Add and sort by time
     setWaterings((s) => {
       const updated = [...s, newWater];
-      return updated.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+      const sorted = updated.sort(
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+      );
+      console.log("💧 [SORT] Watering schedules after adding new schedule:");
+      sorted.forEach((w) => {
+        console.log(
+          `  - ${w.time} (${w.label}) = ${timeToMinutes(w.time)} minutes`
+        );
+      });
+      return sorted;
     });
 
+    // Close all related modals
     setConfirmWaterAddVisible(false);
     setShowWaterAddPicker(false);
     setPendingWaterTime(null);
+    setIsSubmitting(false);
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
@@ -1248,23 +1303,40 @@ export default function ControlScreen({ navigation }) {
   };
 
   const saveWaterEdit = async () => {
+    console.log("📄 [ACTION] Saving water edit");
+
+    // Prevent duplicate submissions
+    if (isSubmitting) {
+      console.warn("Submit already in progress, ignoring duplicate click");
+      return;
+    }
+
     if (waterEdit.idx === null) {
       setConfirmEditVisible(false);
       setWaterEdit({ open: false, idx: null, timeDate: new Date() });
       return;
     }
-    const newTime = waterEdit.timeDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    setIsSubmitting(true);
+    const newTime = waterEdit.timeDate.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
     const oldTime = waterings[waterEdit.idx].time;
     const wateringId = waterings[waterEdit.idx].id;
 
     try {
       const user = auth.currentUser;
       if (user) {
+        // Fetch firstName and lastName from users collection
         let firstName = "N/A";
         let lastName = "N/A";
+
         try {
           const userDocRef = doc(db, "users", user.uid);
           const userDocSnap = await getDoc(userDocRef);
+
           if (userDocSnap.exists()) {
             const userData = userDocSnap.data();
             firstName = userData.firstName || "N/A";
@@ -1272,76 +1344,114 @@ export default function ControlScreen({ navigation }) {
           }
         } catch (fetchErr) {
           console.error("Failed to fetch user data:", fetchErr);
+          // firstName and lastName will remain "N/A"
         }
 
-        await setDoc(doc(db, "wateringSchedules", `${user.uid}_${wateringId}`), {
-          wateringId,
-          label: waterings[waterEdit.idx].label,
-          time: newTime,
-          userId: user.uid,
-          timestamp: new Date().toISOString(),
+        // Update Firestore wateringSchedules document
+        await setDoc(
+          doc(db, "wateringSchedules", `${user.uid}_${wateringId}`),
+          {
+            wateringId: wateringId,
+            label: waterings[waterEdit.idx].label,
+            time: newTime,
+            userId: user.uid,
+            timestamp: new Date().toISOString(),
+          }
+        );
+
+        // Log activity to Firestore
+        await logActivity("editWaterSchedule_logs", {
+          action: "Updated watering time",
+          description: `Changed from ${oldTime} to ${newTime}`,
+          waterId: wateringId,
+          oldTime: oldTime,
+          newTime: newTime,
+          selectedTime: waterEdit.timeDate.toISOString(),
         });
 
-        await addDoc(collection(db, "editWaterSchedule_logs"), {
-          wateringId,
-          userId: user.uid,
-          userName: user.displayName || user.email || "Unknown User",
-          firstName,
-          lastName,
-          oldTime,
-          newTime,
-          selectedTime: waterEdit.timeDate.toISOString(),
-          selectedTimeFormatted: newTime,
-          timestamp: new Date().toISOString(),
-          action: "Updated watering time",
-          description: `From ${oldTime} to ${newTime}`,
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "Watering schedule updated",
+          description: `Schedule changed from ${oldTime} to ${newTime}`,
+        });
+
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "Watering schedule updated",
+          description: `${user.displayName || user.email} changed watering schedule from ${oldTime} to ${newTime}`,
+          type: "schedule",
         });
       }
     } catch (err) {
-      console.error("Failed to save watering edit:", err);
+      Alert.alert("Error", "Failed to update watering: " + err.message);
+      setConfirmEditVisible(false);
+      setWaterEdit({ open: false, idx: null, timeDate: new Date() });
+      setIsSubmitting(false);
+      return;
     }
 
-    setWaterings((s) =>
-      s.map((w, i) =>
-        i === waterEdit.idx ? { ...w, time: newTime } : w
-      ).sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time))
-    );
+    // Update local state and sort
+    setWaterings((s) => {
+      const copy = [...s];
+      copy[waterEdit.idx].time = newTime;
+      const sorted = copy.sort(
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+      );
+      console.log("💧 [SORT] Watering schedules after editing schedule:");
+      sorted.forEach((w) => {
+        console.log(
+          `  - ${w.time} (${w.label}) = ${timeToMinutes(w.time)} minutes`
+        );
+      });
+      return sorted;
+    });
 
+    // Close all related modals
     setConfirmEditVisible(false);
     setWaterEdit({ open: false, idx: null, timeDate: new Date() });
+    setIsSubmitting(false);
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
 
   const confirmDeleteWater = async () => {
     console.log("📄 [ACTION] Confirming water schedule delete");
-    console.log("🔍 pendingDeleteWaterId value:", pendingDeleteWaterId);
-    console.log("🔍 Current waterings list:", waterings);
+
+    // Prevent duplicate submissions
+    if (isSubmitting) {
+      console.warn("Submit already in progress, ignoring duplicate click");
+      return;
+    }
 
     if (!pendingDeleteWaterId) {
-      console.warn("❌ No pending water ID to delete");
       setConfirmDeleteWaterVisible(false);
       setPendingDeleteWaterId(null);
       return;
     }
+
+    setIsSubmitting(true);
+
     const waterToDelete = waterings.find((w) => w.id === pendingDeleteWaterId);
     if (!waterToDelete) {
-      console.warn("❌ Water schedule not found in list:", pendingDeleteWaterId);
       setConfirmDeleteWaterVisible(false);
       setPendingDeleteWaterId(null);
+      setIsSubmitting(false);
       return;
     }
-    
-    console.log("🗑️ Deleting water schedule:", waterToDelete);
-    
+
     try {
       const user = auth.currentUser;
       if (user) {
+        // Fetch firstName and lastName from users collection
         let firstName = "N/A";
         let lastName = "N/A";
+
         try {
           const userDocRef = doc(db, "users", user.uid);
           const userDocSnap = await getDoc(userDocRef);
+
           if (userDocSnap.exists()) {
             const userData = userDocSnap.data();
             firstName = userData.firstName || "N/A";
@@ -1349,41 +1459,257 @@ export default function ControlScreen({ navigation }) {
           }
         } catch (fetchErr) {
           console.error("Failed to fetch user data:", fetchErr);
+          // firstName and lastName will remain "N/A"
         }
 
-        console.log("🔥 Deleting from Firestore...");
-        await deleteDoc(doc(db, "wateringSchedules", `${user.uid}_${pendingDeleteWaterId}`));
-        
-        console.log("📝 Adding delete log...");
-        await addDoc(collection(db, "deleteWaterSchedule_logs"), {
-          wateringId: pendingDeleteWaterId,
-          userId: user.uid,
-          userName: user.displayName || user.email || "Unknown User",
-          firstName,
-          lastName,
-          oldTime: waterToDelete.time,
-          timestamp: new Date().toISOString(),
+        // Delete from Firestore wateringSchedules collection
+        await deleteDoc(
+          doc(db, "wateringSchedules", `${user.uid}_${pendingDeleteWaterId}`)
+        );
+
+        // Log activity to Firestore
+        await logActivity("deleteWaterSchedule_logs", {
           action: "Deleted a watering schedule",
-          description: `Deleted ${waterToDelete.time}`,
+          description: `Deleted schedule at ${waterToDelete.time}`,
+          waterId: pendingDeleteWaterId,
+          oldTime: waterToDelete.time,
         });
-        
-        console.log("✅ Successfully deleted from Firestore");
+
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "Watering schedule deleted",
+          description: `Watering schedule at ${waterToDelete.time} has been removed`,
+        });
+
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "Watering schedule deleted",
+          description: `${user.displayName || user.email} deleted watering schedule at ${waterToDelete.time}`,
+          type: "schedule",
+        });
       }
     } catch (err) {
-      console.error("❌ Error deleting watering schedule:", err);
       Alert.alert("Error", "Failed to delete watering: " + err.message);
+      // Close modal even on error
       setConfirmDeleteWaterVisible(false);
       setPendingDeleteWaterId(null);
+      setIsSubmitting(false);
       return;
     }
 
-    console.log("🔄 Updating local state...");
-    setWaterings((s) => s.filter((w) => w.id !== pendingDeleteWaterId));
+    // Update local state
+    setWaterings((s) => s.filter((water) => water.id !== pendingDeleteWaterId));
+
+    // Close modal and cleanup
     setConfirmDeleteWaterVisible(false);
     setPendingDeleteWaterId(null);
+    setIsSubmitting(false);
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1200);
-    console.log("✅ Water schedule deleted successfully");
+  };
+
+  // Watering schedule delete all functionality
+  const beginDeleteWaterFlow = () => {
+    // Show options: Delete All or Choose
+    Alert.alert(
+      "Delete watering schedules",
+      "Choose delete option",
+      [
+        {
+          text: "Delete All",
+          style: "destructive",
+          onPress: () => setConfirmDeleteVisible(true), // Reuse the same modal
+        },
+        {
+          text: "Choose",
+          onPress: () => {
+            setDeleteMode(true);
+            setSelectedToDelete([]);
+          },
+        },
+        { text: "Cancel", style: "cancel" },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  const confirmDeleteAllWater = async () => {
+    console.log("📄 [ACTION] Confirming delete all waterings");
+
+    // Prevent duplicate submissions
+    if (isSubmitting) {
+      console.warn("Submit already in progress, ignoring duplicate click");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        // Delete all watering documents from Firestore for this user
+        const deletePromises = waterings.map((watering) =>
+          deleteDoc(doc(db, "wateringSchedules", `${user.uid}_${watering.id}`))
+        );
+        await Promise.all(deletePromises);
+
+        console.log(
+          `✅ Deleted ${waterings.length} watering schedules from Firestore`
+        );
+
+        // Log activity for each deleted schedule
+        for (const watering of waterings) {
+          await logActivity("deleteWaterSchedule_logs", {
+            action: "Deleted a watering schedule",
+            description: `Deleted schedule at ${watering.time}`,
+            waterId: watering.id,
+            oldTime: watering.time,
+          });
+        }
+
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "All watering schedules deleted",
+          description: `Removed all ${waterings.length} watering schedules`,
+        });
+
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "All watering schedules deleted",
+          description: `${user.displayName || user.email} deleted all ${waterings.length} watering schedules`,
+          type: "schedule",
+        });
+      }
+    } catch (err) {
+      console.error("Failed to delete all waterings:", err);
+      Alert.alert("Error", "Failed to delete all schedules: " + err.message);
+      setIsSubmitting(false);
+      return;
+    }
+
+    // Update local state
+    setWaterings([]);
+    setDeleteMode(false);
+    setSelectedToDelete([]);
+    setConfirmDeleteVisible(false);
+    setIsSubmitting(false);
+
+    // Show success popup
+    setShowSavedPopup(true);
+    setTimeout(() => setShowSavedPopup(false), 1200);
+  };
+
+  const deleteSelectedWater = () => {
+    if (selectedToDelete.length === 0) {
+      Alert.alert(
+        "No selection",
+        "Please select at least one schedule to delete."
+      );
+      return;
+    }
+    // confirmation
+    Alert.alert(
+      "Delete selected watering schedules",
+      "Are you sure you want to delete selected schedules?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            console.log(
+              "📄 [ACTION] Deleting selected waterings:",
+              selectedToDelete
+            );
+
+            // Prevent duplicate submissions
+            if (isSubmitting) {
+              console.warn(
+                "Submit already in progress, ignoring duplicate click"
+              );
+              return;
+            }
+
+            setIsSubmitting(true);
+
+            try {
+              const user = auth.currentUser;
+              if (user) {
+                // Delete selected watering documents from Firestore
+                const deletePromises = selectedToDelete.map((wateringId) =>
+                  deleteDoc(
+                    doc(db, "wateringSchedules", `${user.uid}_${wateringId}`)
+                  )
+                );
+                await Promise.all(deletePromises);
+
+                console.log(
+                  `✅ Deleted ${selectedToDelete.length} selected watering schedules`
+                );
+
+                // Get deleted watering times for logging and notification
+                const deletedWaterings = waterings.filter((w) =>
+                  selectedToDelete.includes(w.id)
+                );
+                const deletedTimes = deletedWaterings
+                  .map((w) => w.time)
+                  .join(", ");
+
+                // Log activity for each deleted schedule
+                for (const watering of deletedWaterings) {
+                  await logActivity("deleteWaterSchedule_logs", {
+                    action: "Deleted a watering schedule",
+                    description: `Deleted schedule at ${watering.time}`,
+                    waterId: watering.id,
+                    oldTime: watering.time,
+                  });
+                }
+
+                // Add user notification
+                addUserNotification({
+                  category: "IoT: Internet of Tsiken",
+                  title: "Watering schedules deleted",
+                  description: `Removed ${selectedToDelete.length} watering schedule(s)`,
+                });
+
+                // Add admin notification
+                addNotification({
+                  category: "Schedule Management",
+                  title: "Watering schedules deleted",
+                  description: `${user.displayName || user.email} deleted ${selectedToDelete.length} watering schedule(s): ${deletedTimes}`,
+                  type: "schedule",
+                });
+              }
+            } catch (err) {
+              console.error("Failed to delete selected waterings:", err);
+              Alert.alert(
+                "Error",
+                "Failed to delete selected schedules: " + err.message
+              );
+              setIsSubmitting(false);
+              return;
+            }
+
+            // Update local state
+            setWaterings((s) =>
+              s.filter((w) => !selectedToDelete.includes(w.id))
+            );
+            setDeleteMode(false);
+            setSelectedToDelete([]);
+            setIsSubmitting(false);
+
+            // Show success popup
+            setShowSavedPopup(true);
+            setTimeout(() => setShowSavedPopup(false), 1200);
+          },
+        },
+      ],
+      { cancelable: true }
+    );
   };
 
   const confirmSaveWaterSchedule = async () => {
@@ -1549,20 +1875,26 @@ export default function ControlScreen({ navigation }) {
       const selectedTimeGMT8Formatted = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}, ${monthNames[gmt8Time.getUTCMonth()]} ${gmt8Time.getUTCDate()}, ${gmt8Time.getUTCFullYear()}`;
       const timeOnly = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}`;
 
-      // LOGGING REMOVED - Log to nightTime_logs collection
-      console.log("📋 [LOGGING DISABLED] Would log night schedule change:", {
-        time: timeOnly,
+      // Create log document directly in activity_logs/nightTime_logs/{autoId}
+      const logRecord = {
         action: "Set the night time",
-      });
-
-      // Log activity to Firestore
-      await logActivity("nightTime_logs", {
-        action: "Set the night time",
-        description: `Night mode scheduled at ${timeOnly}`,
-        newTime: timeOnly,
+        description: `Night time starts at ${timeOnly}`,
+        firstName: firstName,
+        lastName: lastName,
         selectedTime: time.toISOString(),
-        nightModeEnabled: true,
-      });
+        selectedTimeGMT8Formatted: selectedTimeGMT8Formatted,
+        timestamp: new Date().toISOString(),
+        userId: user.uid,
+        userName: user.email || user.displayName || "Unknown",
+      };
+
+      // Save to Firestore: activity_logs/nightTime_logs/{autoId}
+      await addDoc(
+        collection(db, "activity_logs", "nightTime_logs", "logs"),
+        logRecord
+      );
+
+      console.log(`✅ [LOGGING] Logged night time schedule:`, logRecord);
 
       setIsSubmitting(false);
       setShowSavedPopup(true);
@@ -1773,7 +2105,15 @@ export default function ControlScreen({ navigation }) {
         {/* Water Scheduling (like Feeding) */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader icon="water-outline" title="Watering Schedule" />
-          <View style={{ flexDirection: "row", justifyContent: "flex-end", marginBottom: 8 }}>
+
+          {/* Action buttons: Add only */}
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "flex-end",
+              marginBottom: 8,
+            }}
+          >
             <TouchableOpacity
               style={[styles.smallActionBtn, { backgroundColor: GREEN }]}
               onPress={addWaterSchedule}
@@ -1790,30 +2130,34 @@ export default function ControlScreen({ navigation }) {
             waterings.map((w, idx) => (
               <View key={`water-${w.id}-${idx}`} style={styles.feedRow}>
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  {deleteMode ? (
-                    <TouchableOpacity
-                      onPress={() => toggleSelectToDelete(w.id)}
-                      style={[styles.checkbox, selectedToDelete.includes(w.id) && styles.checkboxChecked]}
-                    >
-                      {selectedToDelete.includes(w.id) && (
-                        <Text style={{ color: "#fff" }}>✓</Text>
-                      )}
-                    </TouchableOpacity>
-                  ) : (
-                    <Ionicons name="time-outline" size={16} color={PRIMARY} style={{ marginRight: 8 }} />
-                  )}
+                  <Ionicons
+                    name="time-outline"
+                    size={16}
+                    color={PRIMARY}
+                    style={{ marginRight: 8 }}
+                  />
 
                   <Text style={styles.feedTimeText}>{w.time}</Text>
                 </View>
 
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <TouchableOpacity style={styles.editBtn} onPress={() => openEditWater(idx)}>
+                  <TouchableOpacity
+                    style={styles.editBtn}
+                    onPress={() => openEditWater(idx)}
+                  >
                     <Text style={styles.editText}>Edit</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.editBtn, { backgroundColor: RED, marginLeft: 6 }]}
+                    style={[
+                      styles.editBtn,
+                      { backgroundColor: RED, marginLeft: 6 },
+                    ]}
                     onPress={() => {
-                      console.log("🗑️ [ACTION] Delete button clicked for water schedule:", w.id, w.time);
+                      console.log(
+                        "🗑️ [ACTION] Delete button clicked for water schedule:",
+                        w.id,
+                        w.time
+                      );
                       setPendingDeleteWaterId(w.id);
                       setConfirmDeleteWaterVisible(true);
                       console.log("✅ Set pendingDeleteWaterId to:", w.id);
@@ -1919,7 +2263,9 @@ export default function ControlScreen({ navigation }) {
           />
 
           <View style={{ marginTop: 8 }}>
-            <Text style={styles.smallLabel}>Solar power level: {solarPowerLevel}%</Text>
+            <Text style={styles.smallLabel}>
+              Solar power level: {solarPowerLevel}%
+            </Text>
 
             {/* Horizontal bar container (looks like the requested layout) */}
             <View style={styles.powerBarContainer}>
@@ -1987,12 +2333,13 @@ export default function ControlScreen({ navigation }) {
       {/* Date / Time Pickers */}
       {showWaterTimePicker && (
         <DateTimePicker
-          value={waterEdit.open ? (waterEdit.timeDate || new Date()) : new Date()}
+          value={waterEdit.open ? waterEdit.timeDate || new Date() : new Date()}
           mode="time"
           display="default"
           onChange={(_, selected) => {
             setShowWaterTimePicker(false);
-            if (selected) setWaterEdit((prev) => ({ ...prev, timeDate: selected }));
+            if (selected)
+              setWaterEdit((prev) => ({ ...prev, timeDate: selected }));
           }}
         />
       )}
@@ -2003,7 +2350,8 @@ export default function ControlScreen({ navigation }) {
           display="default"
           onChange={(event, selected) => {
             setShowWaterAddPicker(false);
-            const confirmed = (event?.type === "set" || !event?.type) && selected;
+            const confirmed =
+              (event?.type === "set" || !event?.type) && selected;
             if (confirmed) {
               setPendingWaterTime(selected);
               setConfirmWaterAddVisible(true);
@@ -2148,7 +2496,11 @@ export default function ControlScreen({ navigation }) {
                 if (feedEdit.open) {
                   setFeedEdit({ open: false, idx: null, timeDate: new Date() });
                 } else if (waterEdit.open) {
-                  setWaterEdit({ open: false, idx: null, timeDate: new Date() });
+                  setWaterEdit({
+                    open: false,
+                    idx: null,
+                    timeDate: new Date(),
+                  });
                 }
               }}
             >
@@ -2585,7 +2937,10 @@ export default function ControlScreen({ navigation }) {
                 <Text style={styles.smallActionText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: RED, marginLeft: 8 }]}
+                style={[
+                  styles.smallActionBtn,
+                  { backgroundColor: RED, marginLeft: 8 },
+                ]}
                 onPress={confirmDeleteWater}
               >
                 <Text style={styles.smallActionText}>Delete</Text>
@@ -2595,9 +2950,6 @@ export default function ControlScreen({ navigation }) {
         </View>
       </Modal>
 
-      
-
-      
       {/* Duplicate Watering Time Modal */}
       <Modal
         key="duplicateWaterTimeModal"
@@ -2641,7 +2993,9 @@ export default function ControlScreen({ navigation }) {
               Save watering time?
             </Text>
             <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
-              Are you sure you want to save {pendingWaterTime ? fmtTime(pendingWaterTime) : ""} as a watering schedule?
+              Are you sure you want to save{" "}
+              {pendingWaterTime ? fmtTime(pendingWaterTime) : ""} as a watering
+              schedule?
             </Text>
             <View style={{ flexDirection: "row", marginTop: 12 }}>
               <TouchableOpacity
@@ -2654,7 +3008,10 @@ export default function ControlScreen({ navigation }) {
                 <Text style={styles.smallActionText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: PRIMARY, marginLeft: 8 }]}
+                style={[
+                  styles.smallActionBtn,
+                  { backgroundColor: PRIMARY, marginLeft: 8 },
+                ]}
                 onPress={confirmAddWater}
               >
                 <Text style={styles.smallActionText}>Yes, Save</Text>
@@ -3103,7 +3460,7 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#e2e8f0",
+    borderColor: "#0D609C54",
     backgroundColor: "#eee",
     overflow: "hidden",
     marginTop: 8,

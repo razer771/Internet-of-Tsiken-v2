@@ -530,8 +530,22 @@ export default function GenerateLogReportModal({
       try {
         const currentUser = auth.currentUser;
         if (currentUser) {
-          // Create GMT+8 adjusted timestamp
-          const gmt8Time = new Date(Date.now() + 8 * 60 * 60 * 1000);
+          const now = new Date();
+
+          // Canonical UTC ISO string
+          const timestampUTC = now.toISOString();
+
+          // Human-readable GMT+8 string
+          const timestampGMT8 = new Intl.DateTimeFormat("en-US", {
+            timeZone: "Asia/Manila", // GMT+8
+            year: "numeric",
+            month: "short",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: true,
+          }).format(now);
 
           await addDoc(collection(db, "session_logs"), {
             action: "Generated report",
@@ -539,7 +553,8 @@ export default function GenerateLogReportModal({
             deviceInfo: {
               email: currentUser.email || "N/A",
             },
-            timestamp: gmt8Time, // GMT+8 adjusted timestamp
+            timestamp: timestampUTC, // canonical UTC
+            timestampGMT8: timestampGMT8, // display GMT+8
             userId: currentUser.uid,
           });
 

@@ -23,7 +23,7 @@ export default function ManageAccount({ navigation }) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState("");
-  
+
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [roleOpen, setRoleOpen] = useState(false);
@@ -32,7 +32,7 @@ export default function ManageAccount({ navigation }) {
 
   // Validation errors
   const [errors, setErrors] = useState({});
-  
+
   // Success modal
   const [successVisible, setSuccessVisible] = useState(false);
 
@@ -104,10 +104,10 @@ export default function ManageAccount({ navigation }) {
     // If no errors, proceed with save
     if (Object.keys(newErrors).length === 0) {
       console.log("Save Changes - Form is valid");
-      
+
       // Show success modal
       setSuccessVisible(true);
-      
+
       // Redirect after 2.5 seconds
       setTimeout(() => {
         setSuccessVisible(false);
@@ -123,6 +123,15 @@ export default function ManageAccount({ navigation }) {
   return (
     <SafeAreaView style={styles.safe}>
       <Header2 />
+      {/* Back Arrow */}
+      <TouchableOpacity
+        style={styles.backArrowContainer}
+        onPress={() => navigation.navigate("AdminDashboard")}
+        activeOpacity={0.7}
+      >
+        <MaterialCommunityIcons name="arrow-left" size={24} color="#133E87" />
+        <Text style={styles.backArrowText}>Back to Dashboard</Text>
+      </TouchableOpacity>
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -142,8 +151,9 @@ export default function ManageAccount({ navigation }) {
             <TextInput
               style={[
                 styles.input,
-                (focusedField === "firstName" || firstName) && styles.inputFocused,
-                errors.firstName && styles.inputError
+                (focusedField === "firstName" || firstName) &&
+                  styles.inputFocused,
+                errors.firstName && styles.inputError,
               ]}
               value={firstName}
               onChangeText={(text) => {
@@ -155,14 +165,17 @@ export default function ManageAccount({ navigation }) {
               onFocus={() => setFocusedField("firstName")}
               onBlur={() => setFocusedField(null)}
             />
-            {errors.firstName && <Text style={styles.errorText}>{errors.firstName}</Text>}
+            {errors.firstName && (
+              <Text style={styles.errorText}>{errors.firstName}</Text>
+            )}
 
             {/* Middle Name */}
             <Text style={styles.label}>Middle Name</Text>
             <TextInput
               style={[
                 styles.input,
-                (focusedField === "middleName" || middleName) && styles.inputFocused
+                (focusedField === "middleName" || middleName) &&
+                  styles.inputFocused,
               ]}
               value={middleName}
               onChangeText={setMiddleName}
@@ -175,8 +188,9 @@ export default function ManageAccount({ navigation }) {
             <TextInput
               style={[
                 styles.input,
-                (focusedField === "lastName" || lastName) && styles.inputFocused,
-                errors.lastName && styles.inputError
+                (focusedField === "lastName" || lastName) &&
+                  styles.inputFocused,
+                errors.lastName && styles.inputError,
               ]}
               value={lastName}
               onChangeText={(text) => {
@@ -188,7 +202,9 @@ export default function ManageAccount({ navigation }) {
               onFocus={() => setFocusedField("lastName")}
               onBlur={() => setFocusedField(null)}
             />
-            {errors.lastName && <Text style={styles.errorText}>{errors.lastName}</Text>}
+            {errors.lastName && (
+              <Text style={styles.errorText}>{errors.lastName}</Text>
+            )}
 
             {/* Email */}
             <Text style={styles.label}>Email</Text>
@@ -196,7 +212,7 @@ export default function ManageAccount({ navigation }) {
               style={[
                 styles.input,
                 (focusedField === "email" || email) && styles.inputFocused,
-                errors.email && styles.inputError
+                errors.email && styles.inputError,
               ]}
               value={email}
               onChangeText={(text) => {
@@ -210,15 +226,18 @@ export default function ManageAccount({ navigation }) {
               onFocus={() => setFocusedField("email")}
               onBlur={() => setFocusedField(null)}
             />
-            {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
+            {errors.email && (
+              <Text style={styles.errorText}>{errors.email}</Text>
+            )}
 
             {/* Mobile Number */}
             <Text style={styles.label}>Mobile Number</Text>
             <TextInput
               style={[
                 styles.input,
-                (focusedField === "mobileNumber" || mobileNumber) && styles.inputFocused,
-                errors.mobileNumber && styles.inputError
+                (focusedField === "mobileNumber" || mobileNumber) &&
+                  styles.inputFocused,
+                errors.mobileNumber && styles.inputError,
               ]}
               value={mobileNumber}
               onChangeText={(text) => {
@@ -231,7 +250,9 @@ export default function ManageAccount({ navigation }) {
               onFocus={() => setFocusedField("mobileNumber")}
               onBlur={() => setFocusedField(null)}
             />
-            {errors.mobileNumber && <Text style={styles.errorText}>{errors.mobileNumber}</Text>}
+            {errors.mobileNumber && (
+              <Text style={styles.errorText}>{errors.mobileNumber}</Text>
+            )}
 
             {/* Password */}
             <Text style={styles.label}>Password</Text>
@@ -240,8 +261,9 @@ export default function ManageAccount({ navigation }) {
                 style={[
                   styles.input,
                   styles.passwordInput,
-                  (focusedField === "password" || password) && styles.inputFocused,
-                  errors.password && styles.inputError
+                  (focusedField === "password" || password) &&
+                    styles.inputFocused,
+                  errors.password && styles.inputError,
                 ]}
                 value={password}
                 onChangeText={(text) => {
@@ -265,7 +287,9 @@ export default function ManageAccount({ navigation }) {
                 />
               </TouchableOpacity>
             </View>
-            {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
+            {errors.password && (
+              <Text style={styles.errorText}>{errors.password}</Text>
+            )}
 
             {/* Confirm Password */}
             <Text style={styles.label}>Confirm Password</Text>
@@ -274,8 +298,9 @@ export default function ManageAccount({ navigation }) {
                 style={[
                   styles.input,
                   styles.passwordInput,
-                  (focusedField === "confirmPassword" || confirmPassword) && styles.inputFocused,
-                  errors.confirmPassword && styles.inputError
+                  (focusedField === "confirmPassword" || confirmPassword) &&
+                    styles.inputFocused,
+                  errors.confirmPassword && styles.inputError,
                 ]}
                 value={confirmPassword}
                 onChangeText={(text) => {
@@ -299,7 +324,9 @@ export default function ManageAccount({ navigation }) {
                 />
               </TouchableOpacity>
             </View>
-            {errors.confirmPassword && <Text style={styles.errorText}>{errors.confirmPassword}</Text>}
+            {errors.confirmPassword && (
+              <Text style={styles.errorText}>{errors.confirmPassword}</Text>
+            )}
 
             {/* Role */}
             <Text style={styles.label}>Role</Text>
@@ -307,12 +334,13 @@ export default function ManageAccount({ navigation }) {
               <TouchableOpacity
                 style={[
                   styles.input,
-                  (roleOpen || focusedField === "role" || role) && styles.inputFocused,
-                  errors.role && styles.inputError
+                  (roleOpen || focusedField === "role" || role) &&
+                    styles.inputFocused,
+                  errors.role && styles.inputError,
                 ]}
                 onPress={() => {
                   setFocusedField("role");
-                  setRoleOpen(o => !o);
+                  setRoleOpen((o) => !o);
                 }}
                 activeOpacity={0.8}
               >
@@ -328,7 +356,7 @@ export default function ManageAccount({ navigation }) {
 
               {roleOpen && (
                 <View style={styles.dropdown}>
-                  {roles.map(r => (
+                  {roles.map((r) => (
                     <TouchableOpacity
                       key={r}
                       style={styles.dropdownItem}
@@ -353,17 +381,19 @@ export default function ManageAccount({ navigation }) {
             <TouchableOpacity
               style={[
                 styles.saveButton,
-                pressedBtn === "save" && styles.saveButtonPressed
+                pressedBtn === "save" && styles.saveButtonPressed,
               ]}
               activeOpacity={0.8}
               onPressIn={() => setPressedBtn("save")}
               onPressOut={() => setPressedBtn(null)}
               onPress={handleSaveChanges}
             >
-              <Text style={[
-                styles.saveButtonText,
-                pressedBtn === "save" && styles.saveButtonTextPressed
-              ]}>
+              <Text
+                style={[
+                  styles.saveButtonText,
+                  pressedBtn === "save" && styles.saveButtonTextPressed,
+                ]}
+              >
                 Save Changes
               </Text>
             </TouchableOpacity>
@@ -372,17 +402,19 @@ export default function ManageAccount({ navigation }) {
             <TouchableOpacity
               style={[
                 styles.cancelButton,
-                pressedBtn === "cancel" && styles.cancelButtonPressed
+                pressedBtn === "cancel" && styles.cancelButtonPressed,
               ]}
               activeOpacity={0.8}
               onPressIn={() => setPressedBtn("cancel")}
               onPressOut={() => setPressedBtn(null)}
               onPress={handleCancel}
             >
-              <Text style={[
-                styles.cancelButtonText,
-                pressedBtn === "cancel" && styles.cancelButtonTextPressed
-              ]}>
+              <Text
+                style={[
+                  styles.cancelButtonText,
+                  pressedBtn === "cancel" && styles.cancelButtonTextPressed,
+                ]}
+              >
                 Cancel
               </Text>
             </TouchableOpacity>
@@ -391,17 +423,15 @@ export default function ManageAccount({ navigation }) {
       </KeyboardAvoidingView>
 
       {/* Success Modal */}
-      <Modal
-        transparent
-        visible={successVisible}
-        animationType="fade"
-      >
+      <Modal transparent visible={successVisible} animationType="fade">
         <View style={styles.successOverlay}>
           <View style={styles.successModal}>
             <View style={styles.successIconContainer}>
               <MaterialCommunityIcons name="check" size={48} color="#4CAF50" />
             </View>
-            <Text style={styles.successTitle}>Account successfully updated</Text>
+            <Text style={styles.successTitle}>
+              Account successfully updated
+            </Text>
             <Text style={styles.successSubtitle}>Activity logged</Text>
             <Text style={styles.successLoading}>Loading your dashboard...</Text>
           </View>

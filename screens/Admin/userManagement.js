@@ -241,27 +241,34 @@ export default function UserManagement({ navigation }) {
     };
   }, []);
 
-  // Apply filters: role + status + search
-  const filteredUsers = users.filter((u) => {
-    // role filter
-    const roleOk =
-      selectedRole === "All Roles" ||
-      u.role.toLowerCase() === selectedRole.toLowerCase();
+  // Apply filters: role + status + search, then sort A-Z by name
+  const filteredUsers = users
+    .filter((u) => {
+      // role filter
+      const roleOk =
+        selectedRole === "All Roles" ||
+        u.role.toLowerCase() === selectedRole.toLowerCase();
 
-    // status filter
-    const statusOk =
-      selectedStatus === "All Status" ||
-      (u.accountStatus &&
-        u.accountStatus.toLowerCase() === selectedStatus.toLowerCase());
+      // status filter
+      const statusOk =
+        selectedStatus === "All Status" ||
+        (u.accountStatus &&
+          u.accountStatus.toLowerCase() === selectedStatus.toLowerCase());
 
-    // search filter (name or email)
-    const q = search.trim().toLowerCase();
-    const name = `${u.firstName} ${u.lastName}`.toLowerCase();
-    const searchOk =
-      q === "" || name.includes(q) || u.email.toLowerCase().includes(q);
+      // search filter (name or email)
+      const q = search.trim().toLowerCase();
+      const name = `${u.firstName} ${u.lastName}`.toLowerCase();
+      const searchOk =
+        q === "" || name.includes(q) || u.email.toLowerCase().includes(q);
 
-    return roleOk && statusOk && searchOk;
-  });
+      return roleOk && statusOk && searchOk;
+    })
+    .sort((a, b) => {
+      // Sort alphabetically by full name (first name + last name)
+      const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
+      const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
 
   const handleEditUser = (user) => {
     console.log(
@@ -521,19 +528,17 @@ export default function UserManagement({ navigation }) {
   return (
     <SafeAreaView style={styles.safe}>
       <Header2 />
-
+      {/* Back Button */}
+      <TouchableOpacity
+        style={styles.backButton}
+        onPress={() => navigation.navigate("AdminDashboard")}
+        activeOpacity={0.7}
+      >
+        <MaterialCommunityIcons name="arrow-left" size={24} color="#133E87" />
+        <Text style={styles.backButtonText}></Text>
+      </TouchableOpacity>
       {/* Create Account Action Card */}
       <View style={styles.createAccountCard}>
-        {/* Back Button */}
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.navigate("AdminDashboard")}
-          activeOpacity={0.7}
-        >
-          <MaterialCommunityIcons name="arrow-left" size={24} color="#133E87" />
-          <Text style={styles.backButtonText}>Back to Dashboard</Text>
-        </TouchableOpacity>
-
         <View style={styles.createAccountRow}>
           <MaterialCommunityIcons
             name="account-plus-outline"
@@ -587,7 +592,7 @@ export default function UserManagement({ navigation }) {
           />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search by name or email..."
+            placeholder="Search by name or email"
             placeholderTextColor="#8A99A8"
             value={search}
             onChangeText={(text) => {
@@ -1339,7 +1344,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F7F9FB",
     borderRadius: 12,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 5,
     borderWidth: 1,
     borderColor: "#E3E8EF",
     marginBottom: 10,
@@ -1348,7 +1353,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     color: "#222",
   },
   filtersRow: {
@@ -1383,7 +1388,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E3E8EF",
     marginBottom: 18,
-    marginTop: 4,
+    marginTop: 0,
     shadowColor: "#000",
     shadowOpacity: 0.03,
     shadowRadius: 6,
@@ -1980,7 +1985,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     marginHorizontal: 18,
-    marginTop: 16,
+    marginTop: -8,
     marginBottom: 16,
     borderWidth: 1,
     borderColor: "rgba(13,96,156,0.21)",
@@ -1993,7 +1998,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 12,
-    paddingVertical: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
   },
   backButtonText: {
     fontSize: 16,

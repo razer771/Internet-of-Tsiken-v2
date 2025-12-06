@@ -439,6 +439,15 @@ export default function CreateAccount({ navigation }) {
   return (
     <SafeAreaView style={styles.safe}>
       <Header2 />
+      {/* Back Arrow */}
+      <TouchableOpacity
+        style={styles.backArrowContainer}
+        onPress={() => navigation.navigate("AdminDashboard")}
+        activeOpacity={0.7}
+      >
+        <MaterialCommunityIcons name="arrow-left" size={24} color="#133E87" />
+        <Text style={styles.backArrowText}>Back to Dashboard</Text>
+      </TouchableOpacity>
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -1166,5 +1175,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     textAlign: "center",
+  },
+  backArrowContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#F8F9FA",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E9ECEF",
+  },
+  backArrowText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#133E87",
+    marginLeft: 8,
   },
 });

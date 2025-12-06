@@ -239,12 +239,17 @@ export default function AdminDashboard() {
 
       const logCollections = [
         "addFeedSchedule_logs",
+        "addWaterSchedule_logs",
         "deleteFeedSchedule_logs",
+        "deleteWaterSchedule_logs",
         "editFeedSchedule_logs",
+        "editWaterSchedule_logs",
         "nightTime_logs",
         "report_logs",
         "session_logs",
         "wateringActivity_logs",
+        "activity_logs",
+        "addBatch_logs",
       ];
 
       const allLogs = [];
