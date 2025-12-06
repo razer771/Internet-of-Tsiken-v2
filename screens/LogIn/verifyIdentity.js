@@ -193,33 +193,47 @@ export default function VerifyIdentityScreen() {
         console.log("✅ Mobile number verified against user records");
         console.log("🔄 Sending SMS to:", phoneNumber);
 
-        // TODO: Re-enable Firebase Functions for SMS OTP
-        // Temporary workaround: Generate test OTP locally
-        const testOTP = Math.floor(100000 + Math.random() * 900000).toString();
+        // Send OTP via Twilio using Firebase Functions
+        try {
+          const functions = getFunctions(undefined, "us-central1");
+          const sendSMSOTP = httpsCallable(functions, "sendSMSOTP");
 
-        setConfirmationResult({
-          phone: phoneNumber,
-          testOTP: testOTP,
-        });
-        setVerificationId(phoneNumber);
+          console.log("📱 Calling sendSMSOTP Firebase function...");
+          const response = await sendSMSOTP({
+            phone: phoneNumber,
+          });
 
-        console.log("==========================================");
-        console.log(`📱 Test SMS for: ${phoneNumber}`);
-        console.log(`🔐 OTP CODE: ${testOTP}`);
-        console.log(
-          "⚠️ Using test OTP - Firebase Functions disabled for build"
-        );
-        console.log("==========================================");
+          if (!response.data || !response.data.success) {
+            throw new Error("Failed to send SMS OTP");
+          }
 
-        setShowOtpScreen(true);
-        setSuccessModalVisible(true);
-        setCountdown(10);
-        setCanResend(false);
+          console.log("✅ SMS OTP sent successfully via Twilio");
+          console.log("Verification SID:", response.data.sid);
 
-        // Auto-hide modal after 2 seconds
-        setTimeout(() => {
-          setSuccessModalVisible(false);
-        }, 2000);
+          setConfirmationResult({
+            phone: phoneNumber,
+            verificationSid: response.data.sid,
+          });
+          setVerificationId(phoneNumber);
+
+          setShowOtpScreen(true);
+          setSuccessModalVisible(true);
+          setCountdown(10);
+          setCanResend(false);
+
+          // Auto-hide modal after 2 seconds
+          setTimeout(() => {
+            setSuccessModalVisible(false);
+          }, 2000);
+        } catch (smsError) {
+          console.error("❌ Failed to send SMS OTP:", smsError);
+          showAlert(
+            "error",
+            "SMS Error",
+            "Failed to send verification code. Please try again."
+          );
+          return;
+        }
       } catch (error) {
         console.error("🚨 OTP Generation Error:", error);
         console.error("Error details:", {
@@ -274,14 +288,20 @@ export default function VerifyIdentityScreen() {
     }
 
     try {
-      // TODO: Re-enable Firebase Functions for OTP verification
-      // Temporary workaround: Verify against locally generated OTP
-      const isValid = enteredOtp === confirmationResult.testOTP;
+      // Verify OTP using Twilio via Firebase Functions
+      const functions = getFunctions(undefined, "us-central1");
+      const verifySMSOTP = httpsCallable(functions, "verifySMSOTP");
 
-      if (isValid) {
+      console.log("🔐 Verifying OTP with Twilio...");
+      const response = await verifySMSOTP({
+        phone: confirmationResult.phone,
+        otp: enteredOtp,
+      });
+
+      if (response.data && response.data.success) {
         // Reset attempts on success
         setOtpAttempts(0);
-        console.log("✅ Phone number verified successfully (test mode)!");
+        console.log("✅ Phone number verified successfully via Twilio!");
         console.log("Phone:", confirmationResult.phone);
 
         // Update Firestore verification status and fetch user data
@@ -293,6 +313,8 @@ export default function VerifyIdentityScreen() {
             lastVerified: new Date(),
             phone: confirmationResult.phone,
             phoneVerified: true,
+            otpVerified: true,
+            lastOTPVerified: new Date(),
           });
           console.log("✅ User verification status updated");
 
@@ -335,33 +357,49 @@ export default function VerifyIdentityScreen() {
           }
         }
       } else {
-        // Increment failed attempts
-        const newAttempts = otpAttempts + 1;
-        setOtpAttempts(newAttempts);
-
-        if (newAttempts >= 5) {
-          // Lock device after 5 failed attempts
-          setIsLocked(true);
-          setLockCountdown(10);
-          setOtp(["", "", "", "", "", ""]);
-          showAlert(
-            "error",
-            "Device Locked",
-            "Too many failed attempts. Your device has been locked for 10 seconds."
-          );
-        } else {
-          // Show remaining attempts
-          const remainingAttempts = 5 - newAttempts;
-          showAlert("error", "Invalid OTP", `Check you message and try again.`);
-        }
+        throw new Error("Invalid OTP code");
       }
-    } catch (error) {
-      console.error("OTP Verification Error:", error);
-      showAlert(
-        "error",
-        "Error",
-        error.message || "Failed to verify OTP. Please try again."
-      );
+    } catch (verificationError) {
+      console.error("❌ OTP verification failed:", verificationError);
+
+      // Increment failed attempts
+      const newAttempts = otpAttempts + 1;
+      setOtpAttempts(newAttempts);
+
+      if (newAttempts >= 5) {
+        // Lock device after 5 failed attempts
+        setIsLocked(true);
+        setLockCountdown(10);
+        setOtp(["", "", "", "", "", ""]);
+        showAlert(
+          "error",
+          "Device Locked",
+          "Too many failed attempts. Your device has been locked for 10 seconds."
+        );
+      } else {
+        // Show remaining attempts
+        const remainingAttempts = 5 - newAttempts;
+        let errorMessage = "Invalid OTP code. Please try again.";
+
+        if (
+          verificationError.message &&
+          verificationError.message.includes("expired")
+        ) {
+          errorMessage = "OTP has expired. Please request a new one.";
+        } else if (
+          verificationError.message &&
+          verificationError.message.includes("too many")
+        ) {
+          errorMessage =
+            "Too many verification attempts. Please request a new OTP.";
+        }
+
+        showAlert(
+          "error",
+          "Verification Failed",
+          `${errorMessage} (${remainingAttempts} attempts remaining)`
+        );
+      }
     }
   };
 

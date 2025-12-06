@@ -24,13 +24,16 @@ const Icon = Feather;
 // Define column widths
 const COLUMN_WIDTHS = {
   date: 100,
-  time: 90,
+  time: 75,
   user: 120,
-  action: 100,
+  action: 150,
   description: 250,
 };
 
-const TABLE_WIDTH = Object.values(COLUMN_WIDTHS).reduce((sum, width) => sum + width, 0);
+const TABLE_WIDTH = Object.values(COLUMN_WIDTHS).reduce(
+  (sum, width) => sum + width,
+  0
+);
 
 export default function ActivityLogs({ navigation }) {
   const [selectedDate, setSelectedDate] = useState(null);
@@ -38,6 +41,7 @@ export default function ActivityLogs({ navigation }) {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [activityLogs, setActivityLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [currentUserName, setCurrentUserName] = useState("");
 
   // Fetch logs from Firestore
   useEffect(() => {
@@ -53,12 +57,27 @@ export default function ActivityLogs({ navigation }) {
         }
 
         const userId = currentUser.uid;
+
+        // Fetch current user profile to get name
+        const userDoc = await getDocs(
+          query(collection(db, "users"), where("uid", "==", userId))
+        );
+        let userName = "";
+        if (!userDoc.empty) {
+          const userData = userDoc.docs[0].data();
+          userName =
+            `${userData.firstName || ""} ${userData.lastName || ""}`.trim();
+        }
+        setCurrentUserName(userName);
+
         const collections = [
           "addFeedSchedule_logs",
           "deleteFeedSchedule_logs",
           "editFeedSchedule_logs",
           "nightTime_logs",
-          "wateringActivity_Logs",
+          "report_logs",
+          "session_logs",
+          "wateringActivity_logs",
         ];
 
         // Fetch logs from all collections
@@ -124,13 +143,27 @@ export default function ActivityLogs({ navigation }) {
   }, []);
 
   const formatDate = (date) => {
-    const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
-    const year = String(date.getFullYear()).slice(-2);
-    return `${month}-${day}-${year}`;
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    const month = monthNames[date.getMonth()];
+    const year = date.getFullYear();
+    return `${day}-${month}-${year}`;
   };
 
-  // Convert Firestore timestamp to GMT+8 and format as MM/DD/YYYY
+  // Convert Firestore timestamp to GMT+8 and format as DD-MMM-YYYY
   const formatToGMT8Date = (timestamp) => {
     if (!timestamp) return "N/A";
 
@@ -153,11 +186,25 @@ export default function ActivityLogs({ navigation }) {
     // Convert to GMT+8 (add 8 hours in milliseconds)
     const gmt8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
 
-    const month = String(gmt8Date.getUTCMonth() + 1).padStart(2, "0");
     const day = String(gmt8Date.getUTCDate()).padStart(2, "0");
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    const month = monthNames[gmt8Date.getUTCMonth()];
     const year = gmt8Date.getUTCFullYear();
 
-    return `${month}/${day}/${year}`;
+    return `${day}-${month}-${year}`;
   };
 
   // Convert Firestore timestamp to GMT+8 and format as HH:MM AM/PM
@@ -191,23 +238,37 @@ export default function ActivityLogs({ navigation }) {
     return `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}`;
   };
 
-  const isSameDate = (dateStr, selectedDate) => {
-    if (!selectedDate) return true;
-    const [month, day, year] = dateStr.split("-");
-    const logDate = new Date(
-      2000 + parseInt(year),
-      parseInt(month) - 1,
-      parseInt(day)
-    );
+  const isSameDate = (timestamp, selectedDate) => {
+    if (!selectedDate || !timestamp) return true;
+
+    let date;
+    // Handle Firestore Timestamp object
+    if (timestamp.toDate && typeof timestamp.toDate === "function") {
+      date = timestamp.toDate();
+    }
+    // Handle ISO string
+    else if (typeof timestamp === "string") {
+      date = new Date(timestamp);
+    }
+    // Handle Date object
+    else if (timestamp instanceof Date) {
+      date = timestamp;
+    } else {
+      return true;
+    }
+
+    // Convert to GMT+8 (add 8 hours in milliseconds)
+    const gmt8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+
     return (
-      logDate.getFullYear() === selectedDate.getFullYear() &&
-      logDate.getMonth() === selectedDate.getMonth() &&
-      logDate.getDate() === selectedDate.getDate()
+      gmt8Date.getUTCFullYear() === selectedDate.getFullYear() &&
+      gmt8Date.getUTCMonth() === selectedDate.getMonth() &&
+      gmt8Date.getUTCDate() === selectedDate.getDate()
     );
   };
 
   const filteredLogs = activityLogs.filter((log) =>
-    isSameDate(log.date, selectedDate)
+    isSameDate(log.timestamp, selectedDate)
   );
 
   const handleGenerateReport = () => {
@@ -316,7 +377,13 @@ export default function ActivityLogs({ navigation }) {
               <View style={[styles.table, { width: TABLE_WIDTH }]}>
                 {/* Header */}
                 <View style={[styles.row, styles.headerRow]}>
-                  <View style={[styles.cell, styles.leftCell, { width: COLUMN_WIDTHS.date }]}>
+                  <View
+                    style={[
+                      styles.cell,
+                      styles.leftCell,
+                      { width: COLUMN_WIDTHS.date },
+                    ]}
+                  >
                     <Text style={styles.headerText}>Date</Text>
                   </View>
                   <View style={[styles.cell, { width: COLUMN_WIDTHS.time }]}>
@@ -328,7 +395,13 @@ export default function ActivityLogs({ navigation }) {
                   <View style={[styles.cell, { width: COLUMN_WIDTHS.action }]}>
                     <Text style={styles.headerText}>Action</Text>
                   </View>
-                  <View style={[styles.cell, styles.rightCell, { width: COLUMN_WIDTHS.description }]}>
+                  <View
+                    style={[
+                      styles.cell,
+                      styles.rightCell,
+                      { width: COLUMN_WIDTHS.description },
+                    ]}
+                  >
                     <Text style={styles.headerText}>Description</Text>
                   </View>
                 </View>
@@ -336,24 +409,42 @@ export default function ActivityLogs({ navigation }) {
                 {/* Table Rows */}
                 {filteredLogs.map((log) => (
                   <View key={log.id} style={styles.row}>
-                    <View style={[styles.cell, styles.leftCell, { width: COLUMN_WIDTHS.date }]}>
-                      <Text style={styles.cellText}>{formatToGMT8Date(log.timestamp)}</Text>
+                    <View
+                      style={[
+                        styles.cell,
+                        styles.leftCell,
+                        { width: COLUMN_WIDTHS.date },
+                      ]}
+                    >
+                      <Text style={styles.cellText}>
+                        {formatToGMT8Date(log.timestamp)}
+                      </Text>
                     </View>
                     <View style={[styles.cell, { width: COLUMN_WIDTHS.time }]}>
-                      <Text style={styles.cellText}>{formatToGMT8Time(log.timestamp)}</Text>
+                      <Text style={styles.cellText}>
+                        {formatToGMT8Time(log.timestamp)}
+                      </Text>
                     </View>
                     <View style={[styles.cell, { width: COLUMN_WIDTHS.user }]}>
                       <Text style={styles.cellText}>
-                        {log.firstName && log.lastName
-                          ? `${log.firstName} ${log.lastName}`
-                          : log.firstName || log.userName || log.userEmail || "N/A"}
+                        {currentUserName || "N/A"}
                       </Text>
                     </View>
-                    <View style={[styles.cell, { width: COLUMN_WIDTHS.action }]}>
+                    <View
+                      style={[styles.cell, { width: COLUMN_WIDTHS.action }]}
+                    >
                       <Text style={styles.cellText}>{log.action || "N/A"}</Text>
                     </View>
-                    <View style={[styles.cell, styles.rightCell, { width: COLUMN_WIDTHS.description }]}>
-                      <Text style={styles.cellText}>{log.description || "N/A"}</Text>
+                    <View
+                      style={[
+                        styles.cell,
+                        styles.rightCell,
+                        { width: COLUMN_WIDTHS.description },
+                      ]}
+                    >
+                      <Text style={styles.cellText}>
+                        {log.description || "N/A"}
+                      </Text>
                     </View>
                   </View>
                 ))}
@@ -375,6 +466,8 @@ export default function ActivityLogs({ navigation }) {
         visible={showCalendar}
         onClose={() => setShowCalendar(false)}
         onSelectDate={handleDateSelect}
+        minimumDate={new Date(2025, 7, 1)}
+        maximumDate={new Date()}
       />
 
       {/* Generate Log Report Modal */}

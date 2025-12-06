@@ -84,6 +84,33 @@ export default function GenerateLogReportModal({
   };
 
   /**
+   * Format date for filename in DD-MMM-YYYY format (GMT+8)
+   * @param {Date} date - The date to format (defaults to now)
+   * @returns {string} Formatted date string
+   */
+  const formatDateForFilename = (date = new Date()) => {
+    const gmt8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+    const day = String(gmt8Date.getUTCDate()).padStart(2, "0");
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    const month = monthNames[gmt8Date.getUTCMonth()];
+    const year = gmt8Date.getUTCFullYear();
+    return `${day}-${month}-${year}`;
+  };
+
+  /**
    * Sanitize filename by removing special characters and replacing spaces with underscores
    * @param {string} name - The name to sanitize
    * @returns {string} Sanitized name safe for filenames
@@ -101,14 +128,16 @@ export default function GenerateLogReportModal({
    * @param {string} lastName - User's last name (fetched from Firestore)
    * @param {string} suffix - Optional suffix (e.g., "Detailed", "Summary", "Full")
    * @param {string} extension - File extension (default: "pdf")
-   * @returns {string} Generated filename (e.g., "LogReport_John_Doe_2025-12-04_09-27.pdf")
+   * @param {boolean} useDateFormat - If true, use DD-MMM-YYYY format instead of timestamp
+   * @returns {string} Generated filename (e.g., "LogReport_John_Doe_2025-12-04_09-27.pdf" or "ActivityLogs_John_Doe_06-Dec-2025.pdf")
    */
   const generateExportFileName = (
     prefix = "Export",
     firstName = "",
     lastName = "",
     suffix = "",
-    extension = "pdf"
+    extension = "pdf",
+    useDateFormat = false
   ) => {
     // Sanitize all components
     const sanitizedPrefix = sanitizeFileName(prefix) || "Export";
@@ -116,8 +145,10 @@ export default function GenerateLogReportModal({
     const sanitizedLastName = sanitizeFileName(lastName);
     const sanitizedSuffix = sanitizeFileName(suffix);
 
-    // Get GMT+8 timestamp
-    const timestamp = getFileNameTimestamp();
+    // Get timestamp or date based on flag
+    const timeComponent = useDateFormat
+      ? formatDateForFilename()
+      : getFileNameTimestamp();
 
     // Build filename components
     const components = [sanitizedPrefix];
@@ -130,8 +161,8 @@ export default function GenerateLogReportModal({
       components.push(sanitizedLastName);
     }
 
-    // Add timestamp (always included for uniqueness)
-    components.push(timestamp);
+    // Add time component (date or timestamp)
+    components.push(timeComponent);
 
     // Add optional suffix
     if (sanitizedSuffix) {
@@ -267,11 +298,7 @@ export default function GenerateLogReportModal({
       <tr>
         <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 11px;">${formatLogDate(log.timestamp)}</td>
         <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 11px;">${formatLogTime(log.timestamp)}</td>
-        <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 11px;">${
-          log.firstName && log.lastName
-            ? `${log.firstName} ${log.lastName}`
-            : log.firstName || log.userName || log.userEmail || "N/A"
-        }</td>
+        <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 11px;">${userName}</td>
         <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 11px;">${log.action || "N/A"}</td>
         <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 11px;">${log.description || "N/A"}</td>
       </tr>
@@ -390,8 +417,12 @@ export default function GenerateLogReportModal({
   };
 
   const handleGenerate = async () => {
-    if (endDate < startDate) {
-      Alert.alert("Invalid Date Range", "End date must be after start date");
+    // Validate date range
+    if (startDate > endDate) {
+      Alert.alert(
+        "Invalid Date Range",
+        "Start date cannot be later than end date."
+      );
       return;
     }
 
@@ -438,11 +469,12 @@ export default function GenerateLogReportModal({
       // Generate customizable filename using the new helper function
       // Options: change prefix, add suffix, or modify extension as needed
       const fileName = generateExportFileName(
-        "LogReport", // Prefix
+        "ActivityLogs", // Prefix
         firstName, // First name from Firestore
         lastName, // Last name from Firestore
         "", // Optional suffix (e.g., "Detailed", "Summary")
-        "pdf" // File extension
+        "pdf", // File extension
+        true // Use date format instead of timestamp
       );
 
       console.log("📄 [EXPORT] Using filename:", fileName);
@@ -455,6 +487,15 @@ export default function GenerateLogReportModal({
 
       console.log("✅ [PDF] Generated at:", uri);
 
+      // Copy the PDF to a custom filename for sharing
+      const customUri = `${FileSystem.documentDirectory}${fileName}`;
+      await FileSystem.copyAsync({
+        from: uri,
+        to: customUri,
+      });
+
+      console.log("📄 [PDF] Copied to custom filename:", customUri);
+
       // Check if sharing is available
       const isSharingAvailable = await Sharing.isAvailableAsync();
       if (!isSharingAvailable) {
@@ -463,14 +504,53 @@ export default function GenerateLogReportModal({
         return;
       }
 
-      // Share/save the PDF
-      await Sharing.shareAsync(uri, {
+      // Share/save the PDF with custom filename
+      await Sharing.shareAsync(customUri, {
         mimeType: "application/pdf",
         dialogTitle: "Save Log Report",
         UTI: "com.adobe.pdf",
       });
 
+      console.log("📤 [PDF] Shared successfully with custom filename");
+
+      // Clean up the original randomly-named PDF file
+      try {
+        await FileSystem.deleteAsync(uri);
+        console.log("🗑️ [PDF] Cleaned up original file:", uri);
+      } catch (cleanupError) {
+        console.warn(
+          "⚠️ [PDF] Could not clean up original file:",
+          cleanupError
+        );
+      }
+
       console.log("PDF shared successfully");
+
+      // Add session log for report generation
+      try {
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          // Create GMT+8 adjusted timestamp
+          const gmt8Time = new Date(Date.now() + 8 * 60 * 60 * 1000);
+
+          await addDoc(collection(db, "session_logs"), {
+            action: "Generated report",
+            description: "Activity log report",
+            deviceInfo: {
+              email: currentUser.email || "N/A",
+            },
+            timestamp: gmt8Time, // GMT+8 adjusted timestamp
+            userId: currentUser.uid,
+          });
+
+          console.log("✅ [Session Log] Report generation logged successfully");
+        }
+      } catch (logError) {
+        console.warn(
+          "⚠️ [Session Log] Failed to log report generation:",
+          logError
+        );
+      }
 
       // Show saved popup
       setShowSavedPopup(true);
@@ -497,6 +577,10 @@ export default function GenerateLogReportModal({
 
   const handleStartDateSelect = (date) => {
     setStartDate(date);
+    // If end date is before the new start date, update end date to match start date
+    if (endDate < date) {
+      setEndDate(date);
+    }
   };
 
   const handleEndDateSelect = (date) => {
@@ -603,6 +687,8 @@ export default function GenerateLogReportModal({
         visible={showStartCalendar}
         onClose={() => setShowStartCalendar(false)}
         onSelectDate={handleStartDateSelect}
+        minimumDate={new Date(2025, 7, 1)}
+        maximumDate={new Date()}
       />
 
       {/* End Date Calendar Modal */}
@@ -610,6 +696,8 @@ export default function GenerateLogReportModal({
         visible={showEndCalendar}
         onClose={() => setShowEndCalendar(false)}
         onSelectDate={handleEndDateSelect}
+        minimumDate={startDate}
+        maximumDate={new Date()}
       />
 
       {/* Saved Popup Modal */}

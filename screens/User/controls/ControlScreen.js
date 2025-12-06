@@ -538,7 +538,7 @@ export default function ControlScreen({ navigation }) {
 
         // Log activity to Firestore
         await logActivity("addFeedSchedule_logs", {
-          action: "Add new feeding schedule",
+          action: "Add new feed schedule",
           description: `Added ${formattedTime}`,
           feedId: nextId,
           newTime: formattedTime,
@@ -1065,7 +1065,7 @@ export default function ControlScreen({ navigation }) {
         });
 
         // Log manual feeding activity
-        await logActivity("wateringActivity_logs", {
+        await logActivity("feedingActivity_logs", {
           action: "Manual feed dispensed",
           description: "User manually dispensed feed",
           status: result.isSimulated ? "Simulated" : "Completed",

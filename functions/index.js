@@ -29,7 +29,7 @@ const nodemailer = require("nodemailer");
 
 // Initialize Twilio
 const accountSid = "ACcc5a4257b42b456747083860b3a61773";
-const authToken = "58601eea68b29fe736575805da0d5b88";
+const authToken = "8448f54ce691e603a6e074d437c90031";
 const twilioClient = require("twilio")(accountSid, authToken);
 const verifyServiceSid = "VAf81f3e93faa06bb33bd946e3a7fb1da5";
 
