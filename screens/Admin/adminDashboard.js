@@ -19,11 +19,12 @@ import {
   doc,
   getDoc,
 } from "firebase/firestore";
-import { db } from "../../config/firebaseconfig";
+import { db, auth } from "../../config/firebaseconfig";
 
 export default function AdminDashboard() {
   const navigation = useNavigation();
   const [pressedBtn, setPressedBtn] = useState(null);
+  const [firstName, setFirstName] = useState("Administrator");
   const [totalUsers, setTotalUsers] = useState(0);
   const [usersThisMonth, setUsersThisMonth] = useState(0);
   const [activeSessions, setActiveSessions] = useState(0);
@@ -43,10 +44,27 @@ export default function AdminDashboard() {
 
     hasFetchedRef.current = true;
     console.log("Create Account card removed from dashboard");
+    fetchAdminName();
     fetchUserMetrics();
     fetchReportMetrics();
     fetchActivityLogs();
   }, []);
+
+  const fetchAdminName = async () => {
+    try {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        const userRef = doc(db, "users", currentUser.uid);
+        const userDoc = await getDoc(userRef);
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          setFirstName(userData.firstName || "Administrator");
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching admin name:", error);
+    }
+  };
 
   const fetchUserMetrics = async () => {
     try {
@@ -359,7 +377,7 @@ export default function AdminDashboard() {
               backgroundColor: "#EBF2F8",
             }}
           />
-          <Text style={styles.welcomeTitle}>Welcome, Administrator</Text>
+          <Text style={styles.welcomeTitle}>Welcome, {firstName}!</Text>
           <Text style={styles.welcomeSubtitle}>
             Manage users, view system activity,{"\n"}
             and generate comprehensive analytics reports.

@@ -10,20 +10,26 @@ import {
   KeyboardAvoidingView,
   Platform,
   Modal,
+  Alert,
 } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import Header2 from "../navigation/adminHeader";
 import { getFunctions, httpsCallable } from "firebase/functions";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+} from "firebase/auth";
 import {
   doc,
   setDoc,
+  getDoc,
   collection,
   query,
   where,
   getDocs,
 } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Reusable Branded Alert Modal Component
 const BrandedAlertModal = ({ visible, type, title, message, onClose }) => {
@@ -142,7 +148,21 @@ export default function CreateAccount({ navigation }) {
   };
 
   const validatePassword = (password) => {
-    return password.length >= 6;
+    const hasMinLength = password.length >= 6;
+    const hasMaxLength = password.length <= 20;
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasLowerCase = /[a-z]/.test(password);
+    const hasNumber = /[0-9]/.test(password);
+    const hasSymbol = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+
+    return (
+      hasMinLength &&
+      hasMaxLength &&
+      hasUpperCase &&
+      hasLowerCase &&
+      hasNumber &&
+      hasSymbol
+    );
   };
 
   const handleSaveChanges = async () => {
@@ -190,13 +210,29 @@ export default function CreateAccount({ navigation }) {
     // Password validation
     if (!password) {
       newErrors.password = "Password is required.";
-    } else if (!validatePassword(password)) {
-      newErrors.password = "Password must be six or more characters.";
+    } else if (password.length < 6) {
+      newErrors.password = "Password must be at least 6 characters.";
+    } else if (password.length > 20) {
+      newErrors.password = "Password must not exceed 20 characters.";
+    } else if (!/[A-Z]/.test(password)) {
+      newErrors.password =
+        "Password must contain at least one uppercase letter.";
+    } else if (!/[a-z]/.test(password)) {
+      newErrors.password =
+        "Password must contain at least one lowercase letter.";
+    } else if (!/[0-9]/.test(password)) {
+      newErrors.password = "Password must contain at least one number.";
+    } else if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+      newErrors.password =
+        "Password must contain at least one symbol (!@#$%^&* etc).";
     }
 
     // Confirm Password validation
     if (!confirmPassword) {
       newErrors.confirmPassword = "Please confirm your password.";
+    } else if (!validatePassword(confirmPassword)) {
+      newErrors.confirmPassword =
+        "Confirm password must meet all password requirements.";
     } else if (password !== confirmPassword) {
       newErrors.confirmPassword = "Password don't match.";
     }
@@ -211,6 +247,32 @@ export default function CreateAccount({ navigation }) {
     // If no errors, proceed with save
     if (Object.keys(newErrors).length === 0) {
       console.log("Save Changes - Form is valid");
+
+      // Set flag to prevent App.js from interfering during account creation
+      await AsyncStorage.setItem("accountCreationInProgress", "true");
+
+      // Save current admin's email for re-authentication
+      const currentAdminEmail = auth.currentUser?.email;
+      const currentAdminUid = auth.currentUser?.uid;
+      console.log("Current admin email:", currentAdminEmail);
+      console.log("Current admin UID:", currentAdminUid);
+
+      // Fetch current admin's name from Firestore
+      let createdByAdminName = "Unknown Admin";
+      if (currentAdminUid) {
+        try {
+          const adminDocRef = doc(db, "users", currentAdminUid);
+          const adminDoc = await getDoc(adminDocRef);
+          if (adminDoc.exists()) {
+            const adminData = adminDoc.data();
+            createdByAdminName =
+              adminData.fullname || adminData.displayName || currentAdminEmail;
+            console.log("Admin who is creating account:", createdByAdminName);
+          }
+        } catch (error) {
+          console.log("Could not fetch admin name:", error);
+        }
+      }
 
       try {
         // Step 1: Check if email already exists in Firestore
@@ -262,11 +324,13 @@ export default function CreateAccount({ navigation }) {
           phone: formattedPhone,
           accountStatus: "active",
           accountType: "standard",
-          verified: false,
+          verified: role === "Admin" ? true : false,
           phoneVerified: false,
           otpVerified: false,
           createdAt: new Date(),
           updatedAt: new Date(),
+          createdBy: createdByAdminName,
+          createdByUid: currentAdminUid || null,
           failedLoginAttempts: 0,
           failedOtpAttempts: 0,
           mobileVerificationAttempts: 0,
@@ -287,6 +351,7 @@ export default function CreateAccount({ navigation }) {
         // Step 4: Send credentials email via Firebase Function
         console.log("Sending credentials email...");
         try {
+          // TODO: Re-enable Firebase Functions
           const functions = getFunctions();
           const sendAccountEmail = httpsCallable(functions, "sendAccountEmail");
 
@@ -299,6 +364,9 @@ export default function CreateAccount({ navigation }) {
 
           if (result.data.success) {
             console.log("Email sent successfully");
+
+            // if (result.data.success) {
+            //    console.log("Email skipped (test mode)");
           } else {
             console.error("Failed to send email:", result.data.error);
             // Don't fail the entire process if email fails
@@ -308,16 +376,30 @@ export default function CreateAccount({ navigation }) {
           // Don't fail the entire process if email fails
         }
 
-        // Step 5: Show success modal
+        // Step 5: Sign out the newly created user
+        await auth.signOut();
+        console.log("New user signed out");
+
+        // Step 6: Show success modal
         setSuccessVisible(true);
 
-        // Step 6: Redirect after 2.5 seconds
-        setTimeout(() => {
+        // Step 7: Redirect after 2.5 seconds
+        setTimeout(async () => {
           setSuccessVisible(false);
-          navigation.navigate("AdminDashboard");
+
+          // Clear the flag before navigation
+          await AsyncStorage.removeItem("accountCreationInProgress");
+
+          navigation.reset({
+            index: 0,
+            routes: [{ name: "UserManagement" }],
+          });
         }, 2500);
       } catch (error) {
         console.error("Error creating account:", error);
+
+        // Clear the flag in case of error
+        await AsyncStorage.removeItem("accountCreationInProgress");
 
         // Handle Firebase Authentication errors
         let errorMessage = "Failed to create account. Please try again.";
@@ -550,7 +632,45 @@ export default function CreateAccount({ navigation }) {
                 value={password}
                 onChangeText={(text) => {
                   setPassword(text);
-                  if (errors.password) {
+                  // Real-time validation for password requirements
+                  if (!text) {
+                    setErrors({ ...errors, password: null });
+                  } else if (text.length < 6) {
+                    setErrors({
+                      ...errors,
+                      password: "Password must be at least 6 characters.",
+                    });
+                  } else if (text.length > 20) {
+                    setErrors({
+                      ...errors,
+                      password: "Password must not exceed 20 characters.",
+                    });
+                  } else if (!/[A-Z]/.test(text)) {
+                    setErrors({
+                      ...errors,
+                      password:
+                        "Password must contain at least one uppercase letter.",
+                    });
+                  } else if (!/[a-z]/.test(text)) {
+                    setErrors({
+                      ...errors,
+                      password:
+                        "Password must contain at least one lowercase letter.",
+                    });
+                  } else if (!/[0-9]/.test(text)) {
+                    setErrors({
+                      ...errors,
+                      password: "Password must contain at least one number.",
+                    });
+                  } else if (
+                    !/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(text)
+                  ) {
+                    setErrors({
+                      ...errors,
+                      password:
+                        "Password must contain at least one symbol (!@#$%^&* etc).",
+                    });
+                  } else {
                     setErrors({ ...errors, password: null });
                   }
                 }}
@@ -590,7 +710,28 @@ export default function CreateAccount({ navigation }) {
                 value={confirmPassword}
                 onChangeText={(text) => {
                   setConfirmPassword(text);
-                  if (errors.confirmPassword) {
+                  // Real-time validation for confirm password
+                  if (!text) {
+                    setErrors({ ...errors, confirmPassword: null });
+                  } else if (
+                    text.length < 6 ||
+                    text.length > 20 ||
+                    !/[A-Z]/.test(text) ||
+                    !/[a-z]/.test(text) ||
+                    !/[0-9]/.test(text) ||
+                    !/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(text)
+                  ) {
+                    setErrors({
+                      ...errors,
+                      confirmPassword:
+                        "Confirm password must meet all password requirements.",
+                    });
+                  } else if (password && text !== password) {
+                    setErrors({
+                      ...errors,
+                      confirmPassword: "Password don't match.",
+                    });
+                  } else {
                     setErrors({ ...errors, confirmPassword: null });
                   }
                 }}
@@ -721,11 +862,10 @@ export default function CreateAccount({ navigation }) {
               Account successfully created
             </Text>
             <Text style={styles.successSubtitle}>
+              {" "}
               Credentials sent to user's email
             </Text>
-            <Text style={styles.successLoading}>
-              Redirecting to dashboard...
-            </Text>
+            <Text style={styles.successLoading}></Text>
           </View>
         </View>
       </Modal>

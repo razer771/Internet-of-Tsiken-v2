@@ -524,6 +524,16 @@ export default function UserManagement({ navigation }) {
 
       {/* Create Account Action Card */}
       <View style={styles.createAccountCard}>
+        {/* Back Button */}
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.navigate("AdminDashboard")}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="arrow-left" size={24} color="#133E87" />
+          <Text style={styles.backButtonText}>Back to Dashboard</Text>
+        </TouchableOpacity>
+
         <View style={styles.createAccountRow}>
           <MaterialCommunityIcons
             name="account-plus-outline"
@@ -534,7 +544,7 @@ export default function UserManagement({ navigation }) {
           <View style={{ flex: 1 }}>
             <Text style={styles.createAccountTitle}>Create Account</Text>
             <Text style={styles.createAccountDesc}>
-              Create a new user account with role and permissions
+              Create a new user account
             </Text>
             <TouchableOpacity
               style={[
@@ -1978,6 +1988,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
+  },
+  backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    paddingVertical: 4,
+  },
+  backButtonText: {
+    fontSize: 16,
+    color: "#133E87",
+    fontWeight: "500",
+    marginLeft: 8,
   },
   createAccountRow: {
     flexDirection: "row",
