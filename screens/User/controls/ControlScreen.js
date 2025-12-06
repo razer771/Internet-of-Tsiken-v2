@@ -305,76 +305,41 @@ export default function ControlScreen({ navigation }) {
     try {
       const user = auth.currentUser;
       if (!user) return;
-      const wateringSnapshot = await getDocs(collection(db, "wateringSchedules"));
-      const loadedWaterings = [];
-      wateringSnapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        if (data.userId === user.uid && data.wateringId !== undefined) {
-          loadedWaterings.push({ id: data.wateringId, label: data.label, time: data.time });
-
+      
       const wateringSnapshot = await getDocs(
         collection(db, "wateringSchedules")
       );
+      
+      const loadedWaterings = [];
+      const seenIds = new Set();
+      
       wateringSnapshot.forEach((doc) => {
         const data = doc.data();
         if (data.userId === user.uid) {
-          // Load the most recent schedule
-          let loadedDate = new Date();
-          let loadedTime = new Date();
-
-          // Handle date
-          if (data.date) {
-            loadedDate = new Date(data.date);
+          // Skip duplicates based on wateringId
+          if (seenIds.has(data.wateringId)) {
+            console.warn(`Duplicate wateringId ${data.wateringId} found, skipping`);
+            return;
           }
+          seenIds.add(data.wateringId);
 
-          // Handle time - could be ISO string or formatted string like "1:56 AM"
-          if (data.time) {
-            // Try parsing as ISO first
-            const parsedTime = new Date(data.time);
-
-            if (!isNaN(parsedTime.getTime())) {
-              // Valid ISO timestamp - convert to GMT+8 for display
-              loadedTime = new Date(parsedTime.getTime() + 8 * 60 * 60 * 1000);
-            } else {
-              // Legacy format like "1:56 AM" - parse and set to today's date
-              const timeMatch = data.time.match(/(\d+):(\d+)\s*(AM|PM)/i);
-              if (timeMatch) {
-                let hours = parseInt(timeMatch[1]);
-                const minutes = parseInt(timeMatch[2]);
-                const period = timeMatch[3].toUpperCase();
-
-                // Convert to 24-hour format
-                if (period === "PM" && hours !== 12) hours += 12;
-                if (period === "AM" && hours === 12) hours = 0;
-
-                loadedTime = new Date();
-                loadedTime.setHours(hours, minutes, 0, 0);
-              }
-            }
-          }
-
-          // Validate dates are valid
-          if (!isNaN(loadedDate.getTime()) && !isNaN(loadedTime.getTime())) {
-            setWaterDate(loadedDate);
-            setWaterTime(loadedTime);
-            setLiters(data.liters || 0);
-            setDuration(data.duration || 0);
-            // Set confirmed values for display
-            setConfirmedWaterDate(loadedDate);
-            setConfirmedWaterTime(loadedTime);
-          } else {
-            console.warn(
-              "Invalid date data in watering schedule, using defaults. " +
-                `Received: date=${data.date}, time=${data.time}`
-            );
-            // Still set numeric values even if dates are invalid
-            setLiters(data.liters || 0);
-            setDuration(data.duration || 0);
-          }
+          loadedWaterings.push({
+            id: data.wateringId,
+            label: data.label,
+            time: data.time,
+          });
         }
       });
+
+      // Sort by time
       loadedWaterings.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
       setWaterings(loadedWaterings);
+      console.log("💧 [SORT] Watering schedules loaded and sorted:");
+      loadedWaterings.forEach((w) => {
+        console.log(
+          `  - ${w.time} (${w.label}) = ${timeToMinutes(w.time)} minutes`
+        );
+      });
     } catch (err) {
       console.error("Failed to load watering schedules:", err);
     }
@@ -1316,26 +1281,6 @@ export default function ControlScreen({ navigation }) {
           userId: user.uid,
           timestamp: new Date().toISOString(),
         });
-  const saveWaterSchedule = () => {
-    // Validate dates are valid Date objects
-    if (
-      !waterDate ||
-      !waterTime ||
-      isNaN(waterDate.getTime()) ||
-      isNaN(waterTime.getTime())
-    ) {
-      Alert.alert("Invalid Date", "Please select valid date and time.");
-      return;
-    }
-
-    // Validate past time
-    const scheduledDateTime = new Date(waterDate);
-    scheduledDateTime.setHours(
-      waterTime.getHours(),
-      waterTime.getMinutes(),
-      0,
-      0
-    );
 
         await addDoc(collection(db, "editWaterSchedule_logs"), {
           wateringId,
@@ -1353,17 +1298,14 @@ export default function ControlScreen({ navigation }) {
         });
       }
     } catch (err) {
-      Alert.alert("Error", "Failed to update watering: " + err.message);
-      setConfirmEditVisible(false);
-      setWaterEdit({ open: false, idx: null, timeDate: new Date() });
-      return;
+      console.error("Failed to save watering edit:", err);
     }
 
-    setWaterings((s) => {
-      const copy = [...s];
-      copy[waterEdit.idx].time = newTime;
-      return copy.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
-    });
+    setWaterings((s) =>
+      s.map((w, i) =>
+        i === waterEdit.idx ? { ...w, time: newTime } : w
+      ).sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time))
+    );
 
     setConfirmEditVisible(false);
     setWaterEdit({ open: false, idx: null, timeDate: new Date() });
@@ -1372,17 +1314,26 @@ export default function ControlScreen({ navigation }) {
   };
 
   const confirmDeleteWater = async () => {
+    console.log("📄 [ACTION] Confirming water schedule delete");
+    console.log("🔍 pendingDeleteWaterId value:", pendingDeleteWaterId);
+    console.log("🔍 Current waterings list:", waterings);
+
     if (!pendingDeleteWaterId) {
+      console.warn("❌ No pending water ID to delete");
       setConfirmDeleteWaterVisible(false);
       setPendingDeleteWaterId(null);
       return;
     }
     const waterToDelete = waterings.find((w) => w.id === pendingDeleteWaterId);
     if (!waterToDelete) {
+      console.warn("❌ Water schedule not found in list:", pendingDeleteWaterId);
       setConfirmDeleteWaterVisible(false);
       setPendingDeleteWaterId(null);
       return;
     }
+    
+    console.log("🗑️ Deleting water schedule:", waterToDelete);
+    
     try {
       const user = auth.currentUser;
       if (user) {
@@ -1400,7 +1351,10 @@ export default function ControlScreen({ navigation }) {
           console.error("Failed to fetch user data:", fetchErr);
         }
 
+        console.log("🔥 Deleting from Firestore...");
         await deleteDoc(doc(db, "wateringSchedules", `${user.uid}_${pendingDeleteWaterId}`));
+        
+        console.log("📝 Adding delete log...");
         await addDoc(collection(db, "deleteWaterSchedule_logs"), {
           wateringId: pendingDeleteWaterId,
           userId: user.uid,
@@ -1412,19 +1366,24 @@ export default function ControlScreen({ navigation }) {
           action: "Deleted a watering schedule",
           description: `Deleted ${waterToDelete.time}`,
         });
+        
+        console.log("✅ Successfully deleted from Firestore");
       }
     } catch (err) {
+      console.error("❌ Error deleting watering schedule:", err);
       Alert.alert("Error", "Failed to delete watering: " + err.message);
       setConfirmDeleteWaterVisible(false);
       setPendingDeleteWaterId(null);
       return;
     }
 
+    console.log("🔄 Updating local state...");
     setWaterings((s) => s.filter((w) => w.id !== pendingDeleteWaterId));
     setConfirmDeleteWaterVisible(false);
     setPendingDeleteWaterId(null);
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1200);
+    console.log("✅ Water schedule deleted successfully");
   };
 
   const confirmSaveWaterSchedule = async () => {
@@ -1829,7 +1788,7 @@ export default function ControlScreen({ navigation }) {
             </Text>
           ) : (
             waterings.map((w, idx) => (
-              <View key={w.id} style={styles.feedRow}>
+              <View key={`water-${w.id}-${idx}`} style={styles.feedRow}>
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
                   {deleteMode ? (
                     <TouchableOpacity
@@ -1854,8 +1813,10 @@ export default function ControlScreen({ navigation }) {
                   <TouchableOpacity
                     style={[styles.editBtn, { backgroundColor: RED, marginLeft: 6 }]}
                     onPress={() => {
+                      console.log("🗑️ [ACTION] Delete button clicked for water schedule:", w.id, w.time);
                       setPendingDeleteWaterId(w.id);
                       setConfirmDeleteWaterVisible(true);
+                      console.log("✅ Set pendingDeleteWaterId to:", w.id);
                     }}
                   >
                     <Text style={styles.editText}>Delete</Text>
@@ -1864,18 +1825,6 @@ export default function ControlScreen({ navigation }) {
               </View>
             ))
           )}
-            <TouchableOpacity
-              style={[styles.primaryBtn, { marginTop: 10 }]}
-              onPress={() => {
-                console.log(
-                  "📄 [ACTION] User clicked save water schedule button"
-                );
-                saveWaterSchedule();
-              }}
-            >
-              <Text style={styles.primaryBtnText}>Save schedule</Text>
-            </TouchableOpacity>
-          </View>
         </View>
 
         {/* Test Devices */}

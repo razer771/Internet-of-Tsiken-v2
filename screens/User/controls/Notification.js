@@ -129,28 +129,13 @@ export default function Notification() {
   const [selectedNotification, setSelectedNotification] = useState(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const navigation = useNavigation();
-  const { notifications, markAllAsRead, markAllAsUnread, markAsRead } = useNotifications();
+
+  const { notifications, toggleAllRead, markAsRead } = useNotifications();
 
   const allRead = useMemo(() => notifications.every(n => n.read), [notifications]);
 
-  const handleMarkAll = () => {
-    markAllAsRead();
-    setMarkAllClicked(true);
-  };
-
-  const handleUnreadAll = () => {
-    markAllAsUnread();
-    setMarkAllClicked(false);
-  };
-
-  const handleNotificationPress = (id) => {
-    const notification = notifications.find(n => n.id === id);
-    setSelectedNotification(notification);
-    setNotificationModalVisible(true);
-  };
-
-  const handleMarkReadFromModal = (id) => {
-    markAsRead(id);
+  const handleToggleMarkAll = () => {
+    toggleAllRead();
   };
 
   const handleNotificationPress = (notification) => {
@@ -174,24 +159,12 @@ export default function Notification() {
 
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <TouchableOpacity 
-              onPress={handleMarkAll}
-              disabled={allRead}
-              style={[styles.markAllBtn, allRead ? { backgroundColor: "#fff" } : { backgroundColor: "#133E87", opacity: 1 }]
-            }
+              onPress={handleToggleMarkAll}
+              style={[styles.markAllBtn, allRead && { backgroundColor: PRIMARY }]}
             >
-              <Text style={{ marginLeft: 1, color: allRead ? '#222' : '#fff' }}>
+              <Ionicons name="mail-unread-outline" size={16} color={allRead ? '#fff' : '#222'} />
+              <Text style={{ marginLeft: 8, color: allRead ? '#fff' : '#222' }}>
                 Mark all as read
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              onPress={handleUnreadAll}
-              disabled={!allRead}
-              style={[styles.markAllBtn, !allRead ? { backgroundColor: "#fff" } : { backgroundColor: "#133E87", opacity: 1 }]
-            }
-            >
-              <Text style={{ marginLeft: 1, color: !allRead ? '#222' : '#fff' }}>
-                Unread all
               </Text>
             </TouchableOpacity>
 
@@ -199,7 +172,7 @@ export default function Notification() {
               <Ionicons name="calendar-outline" size={18} />  
             </TouchableOpacity>
           </View>
-        </View>  
+        </View>
 
         <View style={styles.tabs}>  
           {TimePeriod.map(p => (  
@@ -284,7 +257,7 @@ const styles = StyleSheet.create({
   markAllBtn: { height: 36, paddingHorizontal: 12, borderRadius: 8, flexDirection: "row", alignItems: "center", marginRight: 8, backgroundColor: "#f7fafc" },
   tabs: { flexDirection: "row", marginBottom: 12 },
   tabBtn: { flex: 1, height: 38, borderRadius: 8, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'transparent' },
-  notificationItem: { padding: 12, borderRadius: 8, borderWidth: 1, borderColor: NOTIF_BORDER, marginBottom: 0 },
+  notificationItem: { padding: 12, borderRadius: 8, borderWidth: 1, borderColor: NOTIF_BORDER, marginBottom: 10 },
   notificationText: { marginTop: 6, color: "#666", fontSize: 13 },
   notificationTime: { marginTop: 8, color: "#999", fontSize: 12 },
   calendarBox: { width: "90%", backgroundColor: "#fff", padding: 12, borderRadius: 10, borderWidth: 1, borderColor: BORDER_LIGHT, alignSelf: 'center' },
