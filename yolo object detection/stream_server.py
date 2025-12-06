@@ -59,11 +59,13 @@ def initialize_model():
     """Initialize YOLO model"""
     global model
     try:
-        # Use trained predator detection model (snakes + rats)
-        model = YOLO("yolov8n_predators.pt")
+        # Use pre-trained YOLOv8n (detects 80 classes including person, cat, dog, mouse, bird)
+        # NOTE: Does NOT detect snakes - use yolov8n_predators.pt if snake detection is critical
+        model = YOLO("yolov8n.pt")
         # Enable GPU if available (will use CPU on Pi 5)
         model.to('cpu')  # Explicitly use CPU for Pi
-        logger.info("YOLO predator detection model loaded successfully")
+        logger.info("YOLO model loaded successfully")
+        logger.info(f"Detecting: person, cat, dog, mouse, bird + 75 other objects")
         return True
     except Exception as e:
         logger.error(f"Failed to load YOLO model: {e}")
