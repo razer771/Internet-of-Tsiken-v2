@@ -351,7 +351,8 @@ export default function Login() {
             }
 
             // Check user role and navigate accordingly
-            if (userData.role === "Admin") {
+            const userRole = userData.role ? userData.role.toLowerCase() : "";
+            if (userRole === "admin") {
               console.log("👤 User role: Admin");
               console.log(
                 "🔀 Navigating to AdminDashboard (verified admin user)"
@@ -362,7 +363,7 @@ export default function Login() {
                 index: 0,
                 routes: [{ name: "AdminDashboard" }],
               });
-            } else {
+            } else if (userRole === "user" || !userRole) {
               console.log("👤 User role:", userData.role || "Regular user");
               console.log("🔀 Navigating to Home (verified regular user)");
               // Session flag already set before authentication
