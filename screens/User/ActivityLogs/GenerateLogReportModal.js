@@ -9,6 +9,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import CalendarModal from "../../navigation/CalendarModal";
@@ -17,7 +18,13 @@ import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
 import { Asset } from "expo-asset";
 import { auth, db } from "../../../config/firebaseconfig";
-import { doc, getDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  collection,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
 
 const Icon = Feather;
 
@@ -32,6 +39,7 @@ export default function GenerateLogReportModal({
   const [showStartCalendar, setShowStartCalendar] = useState(false);
   const [showEndCalendar, setShowEndCalendar] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [showSavedPopup, setShowSavedPopup] = useState(false);
 
   const formatDate = (date) => {
     const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -60,6 +68,10 @@ export default function GenerateLogReportModal({
     return `${month}/${day}/${year} ${hour12}:${String(minutes).padStart(2, "0")} ${ampm}`;
   };
 
+  /**
+   * Get GMT+8 timestamp in YYYY-MM-DD_HH-mm format for filenames
+   * @returns {string} Formatted timestamp
+   */
   const getFileNameTimestamp = () => {
     const now = new Date();
     const gmt8Date = new Date(now.getTime() + 8 * 60 * 60 * 1000);
@@ -71,9 +83,67 @@ export default function GenerateLogReportModal({
     return `${year}-${month}-${day}_${hours}-${minutes}`;
   };
 
+  /**
+   * Sanitize filename by removing special characters and replacing spaces with underscores
+   * @param {string} name - The name to sanitize
+   * @returns {string} Sanitized name safe for filenames
+   */
   const sanitizeFileName = (name) => {
-    // Remove special characters and replace spaces with underscores
-    return name.replace(/[^a-zA-Z0-9]/g, "_");
+    if (!name) return "";
+    // Remove special characters and replace spaces/non-alphanumeric with underscores
+    return name.trim().replace(/[^a-zA-Z0-9]/g, "_");
+  };
+
+  /**
+   * Generate customizable export filename with user info and timestamp
+   * @param {string} prefix - File prefix (e.g., "LogReport", "Export", "Summary")
+   * @param {string} firstName - User's first name (fetched from Firestore)
+   * @param {string} lastName - User's last name (fetched from Firestore)
+   * @param {string} suffix - Optional suffix (e.g., "Detailed", "Summary", "Full")
+   * @param {string} extension - File extension (default: "pdf")
+   * @returns {string} Generated filename (e.g., "LogReport_John_Doe_2025-12-04_09-27.pdf")
+   */
+  const generateExportFileName = (
+    prefix = "Export",
+    firstName = "",
+    lastName = "",
+    suffix = "",
+    extension = "pdf"
+  ) => {
+    // Sanitize all components
+    const sanitizedPrefix = sanitizeFileName(prefix) || "Export";
+    const sanitizedFirstName = sanitizeFileName(firstName) || "User";
+    const sanitizedLastName = sanitizeFileName(lastName);
+    const sanitizedSuffix = sanitizeFileName(suffix);
+
+    // Get GMT+8 timestamp
+    const timestamp = getFileNameTimestamp();
+
+    // Build filename components
+    const components = [sanitizedPrefix];
+
+    // Add user name components
+    if (sanitizedFirstName) {
+      components.push(sanitizedFirstName);
+    }
+    if (sanitizedLastName) {
+      components.push(sanitizedLastName);
+    }
+
+    // Add timestamp (always included for uniqueness)
+    components.push(timestamp);
+
+    // Add optional suffix
+    if (sanitizedSuffix) {
+      components.push(sanitizedSuffix);
+    }
+
+    // Join components with underscores and add extension
+    const fileName = `${components.join("_")}.${extension}`;
+
+    console.log("📄 [FILENAME] Generated export filename:", fileName);
+
+    return fileName;
   };
 
   const filterLogsByDateRange = () => {
@@ -365,14 +435,17 @@ export default function GenerateLogReportModal({
       // Generate HTML content
       const htmlContent = await generateHTMLContent(userName);
 
-      // Generate filename with user's name and GMT+8 timestamp
-      const timestamp = getFileNameTimestamp();
-      const sanitizedFirstName = sanitizeFileName(firstName || "User");
-      const sanitizedLastName = sanitizeFileName(lastName || "");
-      const namePrefix = sanitizedLastName
-        ? `${sanitizedFirstName}_${sanitizedLastName}`
-        : sanitizedFirstName;
-      const fileName = `LogReport_${namePrefix}_${timestamp}.pdf`;
+      // Generate customizable filename using the new helper function
+      // Options: change prefix, add suffix, or modify extension as needed
+      const fileName = generateExportFileName(
+        "LogReport", // Prefix
+        firstName, // First name from Firestore
+        lastName, // Last name from Firestore
+        "", // Optional suffix (e.g., "Detailed", "Summary")
+        "pdf" // File extension
+      );
+
+      console.log("📄 [EXPORT] Using filename:", fileName);
 
       // Create PDF
       const { uri } = await Print.printToFileAsync({
@@ -380,7 +453,7 @@ export default function GenerateLogReportModal({
         base64: false,
       });
 
-      console.log("PDF generated at:", uri);
+      console.log("✅ [PDF] Generated at:", uri);
 
       // Check if sharing is available
       const isSharingAvailable = await Sharing.isAvailableAsync();
@@ -398,6 +471,12 @@ export default function GenerateLogReportModal({
       });
 
       console.log("PDF shared successfully");
+
+      // Show saved popup
+      setShowSavedPopup(true);
+      setTimeout(() => {
+        setShowSavedPopup(false);
+      }, 2000);
 
       // Call the original onGenerate callback
       if (onGenerate) {
@@ -496,7 +575,7 @@ export default function GenerateLogReportModal({
                   >
                     {isGenerating ? (
                       <View style={styles.loadingContainer}>
-                        <ActivityIndicator size="small" color="#3b82f6" />
+                        <ActivityIndicator size="small" color="#ffffff" />
                         <Text style={styles.generateButtonText}>
                           Generating PDF...
                         </Text>
@@ -532,6 +611,24 @@ export default function GenerateLogReportModal({
         onClose={() => setShowEndCalendar(false)}
         onSelectDate={handleEndDateSelect}
       />
+
+      {/* Saved Popup Modal */}
+      <Modal
+        key="savePopupModal"
+        visible={showSavedPopup}
+        transparent
+        animationType="fade"
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Image
+              source={require("../../../assets/logo.png")}
+              style={{ width: 56, height: 56 }}
+            />
+            <Text style={styles.popupText}>Generated Successfully!</Text>
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -591,17 +688,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   generateButtonInner: {
-    backgroundColor: "#ffffff",
+    backgroundColor: "#154b99",
     borderRadius: 8,
     paddingVertical: 14,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: "#3b82f6",
     marginTop: 8,
   },
   generateButtonPressed: {
-    backgroundColor: "#3b82f6",
-    borderColor: "#3b82f6",
+    backgroundColor: "#2563eb",
+    borderColor: "#2563eb",
   },
   generateButtonDisabled: {
     backgroundColor: "#f1f5f9",
@@ -609,7 +706,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   generateButtonText: {
-    color: "#1a1a1a",
+    color: "#ffffff",
     fontSize: 15,
     fontWeight: "700",
   },
@@ -619,6 +716,30 @@ const styles = StyleSheet.create({
   loadingContainer: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 8,
+  },
+  popupBackground: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  popupBox: {
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    padding: 24,
+    alignItems: "center",
+    gap: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  popupText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1a1a1a",
   },
 });

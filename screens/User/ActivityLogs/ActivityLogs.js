@@ -18,16 +18,24 @@ import HeaderUpdated from "../../navigation/Header";
 import BottomNavigation from "../../navigation/BottomNavigation";
 import CalendarModal from "../../navigation/CalendarModal";
 import GenerateLogReportModal from "./GenerateLogReportModal";
-import SuccessModal from "../../navigation/SuccessModal";
 
 const Icon = Feather;
+
+// Define column widths
+const COLUMN_WIDTHS = {
+  date: 100,
+  time: 90,
+  user: 120,
+  action: 100,
+  description: 250,
+};
+
+const TABLE_WIDTH = Object.values(COLUMN_WIDTHS).reduce((sum, width) => sum + width, 0);
 
 export default function ActivityLogs({ navigation }) {
   const [selectedDate, setSelectedDate] = useState(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [successMessage, setSuccessMessage] = useState("");
   const [activityLogs, setActivityLogs] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -221,22 +229,13 @@ export default function ActivityLogs({ navigation }) {
   const handleLogGenerated = (logData) => {
     // Close the modal
     setShowGenerateModal(false);
-
-    // Show success message
-    setSuccessMessage("Report successfully generated");
-    setShowSuccessModal(true);
-  };
-
-  const handleSuccessComplete = () => {
-    setShowSuccessModal(false);
-    setSuccessMessage("");
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
-      <View style={styles.headerRow}>
+      <View style={styles.headerContainer}>
         <Text style={styles.pageTitle}>Activity Logs</Text>
         <View style={styles.headerActions}>
           <Pressable onPress={handleGenerateReport}>
@@ -258,19 +257,22 @@ export default function ActivityLogs({ navigation }) {
               </View>
             )}
           </Pressable>
-          <TouchableOpacity
-            style={[
-              styles.calendarButton,
-              selectedDate && styles.calendarButtonActive,
-            ]}
-            onPress={handleCalendarPress}
-          >
-            <Icon
-              name="calendar"
-              size={18}
-              color={selectedDate ? "#ffffff" : "#1a1a1a"}
-            />
-          </TouchableOpacity>
+          <Pressable onPress={handleCalendarPress}>
+            {({ pressed }) => (
+              <View
+                style={[
+                  styles.calendarButton,
+                  pressed && styles.calendarButtonPressed,
+                ]}
+              >
+                <Icon
+                  name="calendar"
+                  size={18}
+                  color={pressed ? "#ffffff" : "#1a1a1a"}
+                />
+              </View>
+            )}
+          </Pressable>
         </View>
       </View>
 
@@ -304,49 +306,66 @@ export default function ActivityLogs({ navigation }) {
             </View>
           )}
 
-          <View style={styles.tableContainer}>
-            {/* Table Header */}
-            <View style={styles.tableHeader}>
-              <Text style={[styles.tableHeaderText, styles.colDate]}>Date</Text>
-              <Text style={[styles.tableHeaderText, styles.colTime]}>Time</Text>
-              <Text style={[styles.tableHeaderText, styles.colUser]}>User</Text>
-              <Text style={[styles.tableHeaderText, styles.colAction]}>
-                Action
-              </Text>
-              <Text style={[styles.tableHeaderText, styles.colDescription]}>
-                Description
-              </Text>
-            </View>
+          <View style={styles.tableCard}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator
+              style={styles.horizontalScroll}
+              contentContainerStyle={{ width: TABLE_WIDTH }}
+            >
+              <View style={[styles.table, { width: TABLE_WIDTH }]}>
+                {/* Header */}
+                <View style={[styles.row, styles.headerRow]}>
+                  <View style={[styles.cell, styles.leftCell, { width: COLUMN_WIDTHS.date }]}>
+                    <Text style={styles.headerText}>Date</Text>
+                  </View>
+                  <View style={[styles.cell, { width: COLUMN_WIDTHS.time }]}>
+                    <Text style={styles.headerText}>Time</Text>
+                  </View>
+                  <View style={[styles.cell, { width: COLUMN_WIDTHS.user }]}>
+                    <Text style={styles.headerText}>User</Text>
+                  </View>
+                  <View style={[styles.cell, { width: COLUMN_WIDTHS.action }]}>
+                    <Text style={styles.headerText}>Action</Text>
+                  </View>
+                  <View style={[styles.cell, styles.rightCell, { width: COLUMN_WIDTHS.description }]}>
+                    <Text style={styles.headerText}>Description</Text>
+                  </View>
+                </View>
 
-            {/* Table Rows */}
-            {filteredLogs.map((log) => (
-              <View key={log.id} style={styles.tableRow}>
-                <Text style={[styles.tableCellText, styles.colDate]}>
-                  {formatToGMT8Date(log.timestamp)}
-                </Text>
-                <Text style={[styles.tableCellText, styles.colTime]}>
-                  {formatToGMT8Time(log.timestamp)}
-                </Text>
-                <Text style={[styles.tableCellText, styles.colUser]}>
-                  {log.firstName && log.lastName
-                    ? `${log.firstName} ${log.lastName}`
-                    : log.firstName || log.userName || log.userEmail || "N/A"}
-                </Text>
-                <Text style={[styles.tableCellText, styles.colAction]}>
-                  {log.action || "N/A"}
-                </Text>
-                <Text style={[styles.tableCellText, styles.colDescription]}>
-                  {log.description || "N/A"}
-                </Text>
-              </View>
-            ))}
+                {/* Table Rows */}
+                {filteredLogs.map((log) => (
+                  <View key={log.id} style={styles.row}>
+                    <View style={[styles.cell, styles.leftCell, { width: COLUMN_WIDTHS.date }]}>
+                      <Text style={styles.cellText}>{formatToGMT8Date(log.timestamp)}</Text>
+                    </View>
+                    <View style={[styles.cell, { width: COLUMN_WIDTHS.time }]}>
+                      <Text style={styles.cellText}>{formatToGMT8Time(log.timestamp)}</Text>
+                    </View>
+                    <View style={[styles.cell, { width: COLUMN_WIDTHS.user }]}>
+                      <Text style={styles.cellText}>
+                        {log.firstName && log.lastName
+                          ? `${log.firstName} ${log.lastName}`
+                          : log.firstName || log.userName || log.userEmail || "N/A"}
+                      </Text>
+                    </View>
+                    <View style={[styles.cell, { width: COLUMN_WIDTHS.action }]}>
+                      <Text style={styles.cellText}>{log.action || "N/A"}</Text>
+                    </View>
+                    <View style={[styles.cell, styles.rightCell, { width: COLUMN_WIDTHS.description }]}>
+                      <Text style={styles.cellText}>{log.description || "N/A"}</Text>
+                    </View>
+                  </View>
+                ))}
 
-            {/* Empty State */}
-            {filteredLogs.length === 0 && (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyStateText}>No logs found</Text>
+                {/* Empty State */}
+                {filteredLogs.length === 0 && (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyStateText}>No logs found</Text>
+                  </View>
+                )}
               </View>
-            )}
+            </ScrollView>
           </View>
         </ScrollView>
       )}
@@ -365,13 +384,6 @@ export default function ActivityLogs({ navigation }) {
         onGenerate={handleLogGenerated}
         logs={activityLogs}
       />
-
-      {/* Success Modal */}
-      <SuccessModal
-        visible={showSuccessModal}
-        message={successMessage}
-        onComplete={handleSuccessComplete}
-      />
     </SafeAreaView>
   );
 }
@@ -381,7 +393,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8fafc",
   },
-  headerRow: {
+  headerContainer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -403,10 +415,10 @@ const styles = StyleSheet.create({
   generateHeaderButton: {
     paddingVertical: 8,
     paddingHorizontal: 12,
-    backgroundColor: "#ffffff",
+    backgroundColor: "#154b99",
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: "#1a1a1a",
+    borderColor: "#e5e7eb",
   },
   generateHeaderButtonPressed: {
     backgroundColor: "#3b82f6",
@@ -415,7 +427,7 @@ const styles = StyleSheet.create({
   generateHeaderText: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#1a1a1a",
+    color: "#ffffff",
   },
   generateHeaderTextPressed: {
     color: "#ffffff",
@@ -430,7 +442,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e5e7eb",
   },
-  calendarButtonActive: {
+  calendarButtonPressed: {
     backgroundColor: "#3b82f6",
     borderColor: "#3b82f6",
   },
@@ -470,7 +482,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#64748b",
   },
-  tableContainer: {
+  tableCard: {
     marginHorizontal: 16,
     marginTop: 16,
     backgroundColor: "#ffffff",
@@ -479,43 +491,40 @@ const styles = StyleSheet.create({
     borderColor: "#e5e7eb",
     overflow: "hidden",
   },
-  tableHeader: {
+  horizontalScroll: {
+    width: "100%",
+  },
+  table: {
+    backgroundColor: "#ffffff",
+  },
+  row: {
     flexDirection: "row",
-    backgroundColor: "#f8fafc",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
-  },
-  tableHeaderText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#000000",
-  },
-  colDate: {
-    width: 70,
-  },
-  colTime: {
-    width: 70,
-  },
-  colUser: {
-    width: 60,
-  },
-  colAction: {
-    width: 80,
-  },
-  colDescription: {
-    flex: 1,
-  },
-  tableRow: {
-    flexDirection: "row",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#f1f5f9",
-    alignItems: "flex-start",
   },
-  tableCellText: {
+  headerRow: {
+    backgroundColor: "#f8fafc",
+    borderBottomColor: "#e5e7eb",
+  },
+  cell: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    justifyContent: "center",
+    borderRightWidth: 1,
+    borderRightColor: "#f1f5f9",
+  },
+  leftCell: {
+    borderLeftWidth: 0,
+  },
+  rightCell: {
+    borderRightWidth: 0,
+  },
+  headerText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#000000",
+  },
+  cellText: {
     fontSize: 11,
     fontWeight: "500",
     color: "#1a1a1a",

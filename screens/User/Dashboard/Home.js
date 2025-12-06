@@ -8,6 +8,7 @@ import {
   Alert,
   ScrollView,
   PanResponder,
+  Modal,
 } from "react-native";
 import QuickSetupModal from "./QuickSetupModal";
 import { auth, db } from "../../../config/firebaseconfig";
@@ -71,8 +72,11 @@ class ErrorBoundary extends React.Component {
 export default function QuickOverviewSetup({ navigation }) {
   const [chicksCount, setChicksCount] = useState("");
   const [daysCount, setDaysCount] = useState("");
+  const [harvestDays, setHarvestDays] = useState("");
   const [todayDate, setTodayDate] = useState("");
   const [showQuickSetup, setShowQuickSetup] = useState(false);
+  const [showConfirmReplace, setShowConfirmReplace] = useState(false);
+  const [hasBatchData, setHasBatchData] = useState(false);
   const [userName, setUserName] = useState("User");
 
   // Load saved data when component mounts
@@ -91,6 +95,13 @@ export default function QuickOverviewSetup({ navigation }) {
     setTodayDate(formattedDate);
 
     console.log("[App] Mounted");
+    
+    // Update days count every minute to keep it in sync with real-time
+    const interval = setInterval(() => {
+      loadSavedData();
+    }, 60000); // Update every 60 seconds
+    
+    return () => clearInterval(interval);
   }, []);
 
   const fetchUserName = async () => {
@@ -126,12 +137,34 @@ export default function QuickOverviewSetup({ navigation }) {
     try {
       const savedChicks = await AsyncStorage.getItem("chicksCount");
       const savedDays = await AsyncStorage.getItem("daysCount");
+      const savedHarvest = await AsyncStorage.getItem("harvestDays");
+      const savedStartDate = await AsyncStorage.getItem("batchStartDate");
+
+      // Check if there's any batch data
+      const hasData = !!(savedChicks || savedDays || savedHarvest);
+      setHasBatchData(hasData);
 
       if (savedChicks !== null) {
         setChicksCount(savedChicks);
       }
-      if (savedDays !== null) {
+      
+      if (savedDays !== null && savedStartDate !== null) {
+        // Calculate days passed since batch started
+        const startDate = new Date(savedStartDate);
+        const currentDate = new Date();
+        const daysPassed = Math.floor((currentDate - startDate) / (1000 * 60 * 60 * 24));
+        
+        // Calculate remaining days
+        const initialDays = parseInt(savedDays);
+        const remainingDays = Math.max(0, initialDays - daysPassed);
+        
+        setDaysCount(remainingDays.toString());
+      } else if (savedDays !== null) {
         setDaysCount(savedDays);
+      }
+      
+      if (savedHarvest !== null) {
+        setHarvestDays(savedHarvest);
       }
     } catch (error) {
       console.error("Error loading saved data:", error);
@@ -175,12 +208,68 @@ export default function QuickOverviewSetup({ navigation }) {
     console.log("Navigate back to dashboard");
   };
 
-  const openQuickSetup = () => setShowQuickSetup(true);
+  const openQuickSetup = async () => {
+    // Check if there's existing batch data
+    try {
+      const savedChicks = await AsyncStorage.getItem("chicksCount");
+      const savedDays = await AsyncStorage.getItem("daysCount");
+      const savedHarvest = await AsyncStorage.getItem("harvestDays");
+      
+      // If any data exists, show confirmation modal
+      if (savedChicks || savedDays || savedHarvest) {
+        setShowConfirmReplace(true);
+      } else {
+        // No existing data, open modal directly
+        setShowQuickSetup(true);
+      }
+    } catch (error) {
+      console.error("Error checking existing data:", error);
+      setShowQuickSetup(true);
+    }
+  };
+
   const closeQuickSetup = () => setShowQuickSetup(false);
 
-  const handleSaveChicksCountModal = (value) => {
+  const handleReplaceConfirm = () => {
+    setShowConfirmReplace(false);
+    setShowQuickSetup(true);
+  };
+
+  const handleReplaceCancel = () => {
+    setShowConfirmReplace(false);
+  };
+
+  const handleSaveChicksCountModal = async (value) => {
     setChicksCount(value);
-    setShowQuickSetup(false);
+    setHasBatchData(true);
+    try {
+      await AsyncStorage.setItem("chicksCount", value);
+    } catch (error) {
+      console.error("Error saving chicks count:", error);
+    }
+  };
+
+  const handleSaveDaysCountModal = async (value) => {
+    setDaysCount(value);
+    setHasBatchData(true);
+    try {
+      await AsyncStorage.setItem("daysCount", value);
+      // Save the start date when batch is created/updated
+      const startDate = new Date().toISOString();
+      await AsyncStorage.setItem("batchStartDate", startDate);
+    } catch (error) {
+      console.error("Error saving days count:", error);
+    }
+  };
+
+  const handleSaveHarvestDaysModal = async (value) => {
+    setHarvestDays(value);
+    setHasBatchData(true);
+    try {
+      await AsyncStorage.setItem("harvestDays", value);
+    } catch (error) {
+      console.error("Error saving harvest days:", error);
+    }
   };
 
   // Swipe gesture handler - swipe left to go to Control screen
@@ -228,96 +317,6 @@ export default function QuickOverviewSetup({ navigation }) {
             </View>
           </View>
 
-          {/* Sensor Monitoring Grid */}
-          <Text style={styles.sectionTitle}>Live Monitoring</Text>
-          <View style={styles.sensorGrid}>
-            {/* Temperature Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>🌡️</Text>
-              <Text style={styles.sensorLabel}>Temperature</Text>
-              <Text style={styles.sensorValue}>32°C</Text>
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>✓ Optimal</Text>
-              </View>
-            </View>
-
-            {/* Water Level Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>💧</Text>
-              <Text style={styles.sensorLabel}>Water Level</Text>
-              <Text style={styles.sensorValue}>85%</Text>
-              <View style={[styles.statusBadge, styles.statusBadgeWarning]}>
-                <Text style={styles.statusBadgeText}>Good</Text>
-              </View>
-            </View>
-
-            {/* Feed Level Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>🍴</Text>
-              <Text style={styles.sensorLabel}>Feed Level</Text>
-              <Text style={styles.sensorValue}>62%</Text>
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>✓ Optimal</Text>
-              </View>
-            </View>
-
-            {/* Solar Charge Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>☀️</Text>
-              <Text style={styles.sensorLabel}>Solar Charge</Text>
-              <Text style={styles.sensorValue}>62%</Text>
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>✓ Optimal</Text>
-              </View>
-            </View>
-
-            {/* Humidity Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>💨</Text>
-              <Text style={styles.sensorLabel}>Humidity</Text>
-              <Text style={styles.sensorValue}>78%</Text>
-              <View style={[styles.statusBadge, styles.statusBadgeWarning]}>
-                <Text style={styles.statusBadgeText}>Good</Text>
-              </View>
-            </View>
-
-            {/* Light Status Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>💡</Text>
-              <Text style={styles.sensorLabel}>Light Status</Text>
-              <Text style={styles.sensorValue}>On</Text>
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>Active</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Recent Alerts Card */}
-          <Text style={styles.sectionTitle}>Recent Alerts</Text>
-          <View style={styles.alertsCard}>
-            <View style={styles.alertItem}>
-              <View style={styles.alertIconContainer}>
-                <Text style={styles.alertItemIcon}>🔔</Text>
-              </View>
-              <View style={styles.alertContent}>
-                <Text style={styles.alertText}>Feeding completed</Text>
-                <Text style={styles.alertTime}>2 hours ago</Text>
-              </View>
-            </View>
-
-            <View style={styles.alertDivider} />
-
-            <View style={styles.alertItem}>
-              <View style={styles.alertIconContainer}>
-                <Text style={styles.alertItemIcon}>🔔</Text>
-              </View>
-              <View style={styles.alertContent}>
-                <Text style={styles.alertText}>Temperature adjusted</Text>
-                <Text style={styles.alertTime}>5 hours ago</Text>
-              </View>
-            </View>
-          </View>
-
           {/* Brooder Information Card */}
           <Text style={styles.sectionTitle}>Brooder Information</Text>
           <View style={styles.brooderCard}>
@@ -327,7 +326,9 @@ export default function QuickOverviewSetup({ navigation }) {
               </View>
               <View style={styles.brooderTextContainer}>
                 <Text style={styles.brooderLabel}>Total Chicks</Text>
-                <Text style={styles.brooderValue}>20</Text>
+                <Text style={styles.brooderValue}>
+                  {chicksCount || "0"}
+                </Text>
               </View>
             </View>
 
@@ -339,7 +340,9 @@ export default function QuickOverviewSetup({ navigation }) {
               </View>
               <View style={styles.brooderTextContainer}>
                 <Text style={styles.brooderLabel}>Age</Text>
-                <Text style={styles.brooderValue}>18 days</Text>
+                <Text style={styles.brooderValue}>
+                  {daysCount ? `${daysCount} days` : "0 days"}
+                </Text>
               </View>
             </View>
 
@@ -351,7 +354,9 @@ export default function QuickOverviewSetup({ navigation }) {
               </View>
               <View style={styles.brooderTextContainer}>
                 <Text style={styles.brooderLabel}>Expected Harvest</Text>
-                <Text style={styles.brooderValue}>27 days</Text>
+                <Text style={styles.brooderValue}>
+                  {harvestDays ? `${harvestDays} days` : "0 days"}
+                </Text>
               </View>
             </View>
           </View>
@@ -363,16 +368,83 @@ export default function QuickOverviewSetup({ navigation }) {
             onPress={openQuickSetup}
           >
             <View style={styles.ctaButton}>
-              <Text style={styles.ctaText}>Go to Quick Setup</Text>
+              <Text style={styles.ctaText}>
+                {hasBatchData ? "Edit Batch" : "Add Batch"}
+              </Text>
             </View>
           </TouchableOpacity>
+
+          {/* Sensor Monitoring Grid */}
+          <Text style={styles.sectionTitle}>Live Monitoring</Text>
+          <View style={styles.sensorGrid}>
+
+            {/* Water Level Card */}
+            <View style={styles.sensorCard}>
+              <Text style={styles.sensorIcon}>💧</Text>
+              <Text style={styles.sensorLabel}>Water Level</Text>
+              <Text style={styles.sensorValue}>85%</Text>
+            </View>
+
+            {/* Feed Level Card */}
+            <View style={styles.sensorCard}>
+              <Text style={styles.sensorIcon}>🍴</Text>
+              <Text style={styles.sensorLabel}>Feed Level</Text>
+              <Text style={styles.sensorValue}>62%</Text>
+            </View>
+
+            {/* Solar Charge Card */}
+            <View style={styles.sensorCard}>
+              <Text style={styles.sensorIcon}>☀️</Text>
+              <Text style={styles.sensorLabel}>Solar Charge</Text>
+              <Text style={styles.sensorValue}>62%</Text>
+            </View>
+
+            {/* Light Status Card */}
+            <View style={styles.sensorCard}>
+              <Text style={styles.sensorIcon}>💡</Text>
+              <Text style={styles.sensorLabel}>Light Status</Text>
+              <Text style={styles.sensorValue}>On</Text>
+            </View>
+          </View>
 
           <QuickSetupModal
             visible={showQuickSetup}
             initialChicksCount={chicksCount}
-            onSave={handleSaveChicksCountModal}
+            initialDaysCount={daysCount}
+            initialHarvestDays={harvestDays}
+            onSaveChicksCount={handleSaveChicksCountModal}
+            onSaveDaysCount={handleSaveDaysCountModal}
+            onSaveHarvestDays={handleSaveHarvestDaysModal}
             onClose={closeQuickSetup}
           />
+
+          {/* Confirmation Modal */}
+          <Modal visible={showConfirmReplace} transparent animationType="fade">
+            <View style={styles.confirmModalOverlay}>
+              <View style={styles.confirmModalCard}>
+                <Text style={styles.confirmModalTitle}>Edit Existing Batch?</Text>
+                <Text style={styles.confirmModalMessage}>
+                  You already have an active batch. Do you want to edit it with new values?
+                </Text>
+                <View style={styles.confirmModalButtons}>
+                  <TouchableOpacity
+                    style={[styles.confirmModalButton, styles.confirmModalButtonCancel]}
+                    onPress={handleReplaceCancel}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={styles.confirmModalButtonCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.confirmModalButton, styles.confirmModalButtonConfirm]}
+                    onPress={handleReplaceConfirm}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={styles.confirmModalButtonConfirmText}>Edit</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
         </View>
       </ScrollView>
       </View>
@@ -593,67 +665,78 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "#e2e8f0",
   },
-  setupCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#1e293b",
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 15,
-    color: "#1e293b",
-    marginBottom: 12,
-  },
-  saveButton: {
-    backgroundColor: "#3b82f6",
-    borderRadius: 12,
-    paddingVertical: 14,
-    shadowColor: "#3b82f6",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  saveButtonText: {
-    color: "#ffffff",
-    fontWeight: "700",
-    textAlign: "center",
-    fontSize: 15,
-  },
   ctaWrapper: {
-    backgroundColor: "#f1f5f9",
-    borderRadius: 14,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    alignSelf: "stretch",
-    marginHorizontal: 8,
-  },
-  ctaButton: {
     backgroundColor: "#154b99",
     borderRadius: 16,
     paddingVertical: 14,
     alignItems: "center",
+    alignSelf: "stretch",
+    marginHorizontal: 8,
+    marginBottom: 24,
+  },
+  ctaButton: {
+    alignItems: "center",
   },
   ctaText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  confirmModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  confirmModalCard: {
+    width: "90%",
+    maxWidth: 400,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+  confirmModalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1e293b",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  confirmModalMessage: {
+    fontSize: 15,
+    color: "#334155",
+    marginBottom: 24,
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  confirmModalButtons: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  confirmModalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  confirmModalButtonCancel: {
+    backgroundColor: "#f1f5f9",
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+  },
+  confirmModalButtonCancelText: {
+    color: "#334155",
+    fontWeight: "600",
+    fontSize: 15,
+  },
+  confirmModalButtonConfirm: {
+    backgroundColor: "#154b99",
+  },
+  confirmModalButtonConfirmText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 15,
+  },
 });
