@@ -16,7 +16,7 @@ import { navigationRef } from "./services/NavigationService";
 import * as SplashScreen from "expo-splash-screen";
 import { NotificationProvider } from "./screens/User/controls/NotificationContext";
 import { auth, db } from "./config/firebaseconfig";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import {
   doc,
   getDoc,
@@ -168,8 +168,6 @@ export default function App() {
   const [currentRoute, setCurrentRoute] = useState("JsonSplash");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
-  // Don't change initialRoute after first render - it causes Stack.Navigator remount
-  const initialRouteRef = useRef("JsonSplash");
   const [hasInitialized, setHasInitialized] = useState(false);
   const hasInitializedRef = useRef(false);
   const isAuthScreen = AUTH_SCREENS.includes(currentRoute);
@@ -190,6 +188,29 @@ export default function App() {
   const closeAlert = () => {
     setAlertVisible(false);
   };
+
+  // Sign out any existing user on app start for fresh login experience
+  useEffect(() => {
+    const signOutExistingUser = async () => {
+      try {
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          console.log(
+            "🔄 Signing out existing user for fresh app start:",
+            currentUser.uid
+          );
+          await auth.signOut();
+          console.log("✅ Successfully signed out existing user");
+        } else {
+          console.log("ℹ️ No existing user to sign out");
+        }
+      } catch (error) {
+        console.error("❌ Error signing out existing user:", error);
+      }
+    };
+
+    signOutExistingUser();
+  }, []); // Empty dependency array - runs once on app start
 
   // Listen to authentication state changes
   useEffect(() => {
@@ -228,12 +249,16 @@ export default function App() {
           if (isAdmin === "true") {
             console.log("👤 Admin bypass detected → AdminDashboard");
             setIsAuthenticated(true);
-            if (!hasInitializedRef.current) {
-              initialRouteRef.current = "AdminDashboard";
-            }
             setAuthLoading(false);
             setHasInitialized(true);
             hasInitializedRef.current = true;
+            // Navigate to AdminDashboard
+            if (navigationRef.isReady()) {
+              navigationRef.reset({
+                index: 0,
+                routes: [{ name: "AdminDashboard" }],
+              });
+            }
             return;
           }
 
@@ -257,12 +282,7 @@ export default function App() {
               );
               await auth.signOut();
               setIsAuthenticated(false);
-              if (!hasInitializedRef.current) {
-                initialRouteRef.current = "LogIn";
-              }
               setAuthLoading(false);
-              setHasInitialized(true);
-              hasInitializedRef.current = true;
               return;
             }
 
@@ -270,31 +290,39 @@ export default function App() {
             setIsAuthenticated(true);
 
             if (!hasInitializedRef.current) {
+              let targetScreen = "Home"; // default
               if (accountStatus === "active") {
                 if (userRole === "admin") {
                   console.log(
-                    "👤 [App.js] Active Admin → Setting initialRoute: AdminDashboard"
+                    "👤 [App.js] Active Admin → Navigating to AdminDashboard"
                   );
-                  initialRouteRef.current = "AdminDashboard";
+                  targetScreen = "AdminDashboard";
                 } else {
-                  console.log(
-                    "👤 [App.js] Active User → Setting initialRoute: Home"
-                  );
-                  initialRouteRef.current = "Home";
+                  console.log("👤 [App.js] Active User → Navigating to Home");
+                  targetScreen = "Home";
                 }
               } else {
                 // Unknown status - default to Home
                 console.log(
-                  "⚠️ [App.js] Unknown status → Setting initialRoute: Home (default)"
+                  "⚠️ [App.js] Unknown status → Navigating to Home (default)"
                 );
-                initialRouteRef.current = "Home";
+                targetScreen = "Home";
               }
-              // Mark as initialized immediately after setting route
+
+              // Navigate to the appropriate screen
+              if (navigationRef.isReady()) {
+                navigationRef.reset({
+                  index: 0,
+                  routes: [{ name: targetScreen }],
+                });
+              }
+
+              // Mark as initialized
               setHasInitialized(true);
               hasInitializedRef.current = true;
             } else {
               console.log(
-                "✅ [App.js] Already initialized - NOT updating initialRoute (prevents re-mount)"
+                "✅ [App.js] Already initialized - NOT navigating (prevents re-mount)"
               );
             }
             setAuthLoading(false);
@@ -302,7 +330,6 @@ export default function App() {
             console.log("❌ User document not found → LogIn");
             setIsAuthenticated(false);
             if (!hasInitializedRef.current) {
-              initialRouteRef.current = "LogIn";
               setHasInitialized(true);
               hasInitializedRef.current = true;
             }
@@ -313,7 +340,15 @@ export default function App() {
           // On error, default to Home if authenticated
           setIsAuthenticated(true);
           if (!hasInitializedRef.current) {
-            initialRouteRef.current = "Home";
+            console.log(
+              "❌ [App.js] Error fetching user data → Navigating to Home"
+            );
+            if (navigationRef.isReady()) {
+              navigationRef.reset({
+                index: 0,
+                routes: [{ name: "Home" }],
+              });
+            }
             setHasInitialized(true);
             hasInitializedRef.current = true;
           }
@@ -330,7 +365,6 @@ export default function App() {
         hasInitializedRef.current = false;
         setHasInitialized(false);
 
-        initialRouteRef.current = "LogIn";
         setAuthLoading(false);
       }
     });
@@ -367,35 +401,6 @@ export default function App() {
 
     return () => backHandler.remove();
   }, [isAuthenticated, currentRoute]);
-
-  // Redirect authenticated users away from auth screens
-  useEffect(() => {
-    if (isAuthenticated && !authLoading) {
-      // If user is authenticated but on an auth screen, redirect
-      if (
-        AUTH_SCREENS.includes(currentRoute) &&
-        currentRoute !== "AdminDashboard" &&
-        currentRoute !== "JsonSplash"
-      ) {
-        if (navigationRef.isReady()) {
-          navigationRef.reset({
-            index: 0,
-            routes: [{ name: initialRouteRef.current }],
-          });
-        }
-      }
-    } else if (!isAuthenticated && !authLoading) {
-      // If user is not authenticated but on a protected screen, redirect to login
-      if (!AUTH_SCREENS.includes(currentRoute)) {
-        if (navigationRef.isReady()) {
-          navigationRef.reset({
-            index: 0,
-            routes: [{ name: "LogIn" }],
-          });
-        }
-      }
-    }
-  }, [isAuthenticated, currentRoute, authLoading]);
 
   const getActiveTab = () => {
     if (currentRoute === "Home") return "Home";
@@ -435,7 +440,7 @@ export default function App() {
                 style={[styles.content, !isAuthScreen && styles.contentWithNav]}
               >
                 <Stack.Navigator
-                  initialRouteName={initialRouteRef.current}
+                  initialRouteName="LogIn"
                   screenOptions={{
                     headerShown: false,
                     animation: "slide_from_right",
