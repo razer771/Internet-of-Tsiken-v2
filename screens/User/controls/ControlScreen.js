@@ -55,7 +55,7 @@ const PRIMARY = "#133E87";
 const GREEN = "#249D1D";
 const RED = "#D70E11";
 const YELLOW = "#DFB118";
-const BORDER_OVERLAY = "#0D609C73";
+const BORDER_OVERLAY = "#e2e8f0";
 
 export default function ControlScreen({ navigation }) {
   // Admin notifications
@@ -166,9 +166,8 @@ export default function ControlScreen({ navigation }) {
   const [sensorError, setSensorError] = useState(null);
   const [isSimulated, setIsSimulated] = useState(true);
 
-  // Lighting and Ventilation controls
+  // Lighting control
   const [lightOn, setLightOn] = useState(false);
-  const [fanOn, setFanOn] = useState(false);
 
   // night schedule (time)
   const [nightStart, setNightStart] = useState(new Date());
@@ -306,6 +305,12 @@ export default function ControlScreen({ navigation }) {
     try {
       const user = auth.currentUser;
       if (!user) return;
+      const wateringSnapshot = await getDocs(collection(db, "wateringSchedules"));
+      const loadedWaterings = [];
+      wateringSnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.userId === user.uid && data.wateringId !== undefined) {
+          loadedWaterings.push({ id: data.wateringId, label: data.label, time: data.time });
 
       const wateringSnapshot = await getDocs(
         collection(db, "wateringSchedules")
@@ -368,8 +373,10 @@ export default function ControlScreen({ navigation }) {
           }
         }
       });
+      loadedWaterings.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+      setWaterings(loadedWaterings);
     } catch (err) {
-      console.error("Failed to load watering schedule:", err);
+      console.error("Failed to load watering schedules:", err);
     }
   };
 
@@ -393,21 +400,16 @@ export default function ControlScreen({ navigation }) {
   const [showFeedAddPicker, setShowFeedAddPicker] = useState(false);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
 
-  // water schedule
-  const [waterDate, setWaterDate] = useState(new Date());
-  const [showWaterDatePicker, setShowWaterDatePicker] = useState(false);
-  const [waterTime, setWaterTime] = useState(new Date());
+  // watering schedule: mirror feeding schedule
+  const [waterings, setWaterings] = useState([]);
+  const [waterEdit, setWaterEdit] = useState({ open: false, idx: null, timeDate: new Date() });
+  const [showWaterAddPicker, setShowWaterAddPicker] = useState(false);
+  const [pendingWaterTime, setPendingWaterTime] = useState(null);
+  const [confirmWaterAddVisible, setConfirmWaterAddVisible] = useState(false);
+  const [showDuplicateWaterModal, setShowDuplicateWaterModal] = useState(false);
+  const [confirmDeleteWaterVisible, setConfirmDeleteWaterVisible] = useState(false);
+  const [pendingDeleteWaterId, setPendingDeleteWaterId] = useState(null);
   const [showWaterTimePicker, setShowWaterTimePicker] = useState(false);
-  const [liters, setLiters] = useState(30);
-  const [duration, setDuration] = useState(30);
-  // watering schedule confirmation
-  const [confirmWaterSaveVisible, setConfirmWaterSaveVisible] = useState(false);
-  const [pendingWaterSchedule, setPendingWaterSchedule] = useState(null);
-  const [showInvalidScheduleModal, setShowInvalidScheduleModal] =
-    useState(false);
-  // confirmed schedule for display (only updates after save)
-  const [confirmedWaterDate, setConfirmedWaterDate] = useState(null);
-  const [confirmedWaterTime, setConfirmedWaterTime] = useState(null);
 
   // popups
   const [showSavedPopup, setShowSavedPopup] = useState(false);
@@ -429,6 +431,7 @@ export default function ControlScreen({ navigation }) {
   };
 
   // power schedule
+  const [solarPowerLevel, setSolarPowerLevel] = useState(62);
   const [alertThreshold, setAlertThreshold] = useState(30);
   const [autoPower, setAutoPower] = useState(false);
 
@@ -1176,6 +1179,143 @@ export default function ControlScreen({ navigation }) {
     }
   };
 
+  // Watering schedule handlers like feeding
+  const addWaterSchedule = () => {
+    setShowWaterAddPicker(true);
+  };
+
+  const confirmAddWater = async () => {
+    if (!pendingWaterTime) {
+      setConfirmWaterAddVisible(false);
+      setShowWaterAddPicker(false);
+      return;
+    }
+    const formattedTime = pendingWaterTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const isDuplicate = waterings.some((w) => w.time === formattedTime);
+    if (isDuplicate) {
+      setConfirmWaterAddVisible(false);
+      setShowWaterAddPicker(false);
+      setPendingWaterTime(null);
+      setShowDuplicateWaterModal(true);
+      return;
+    }
+
+    const nextId = waterings.length ? Math.max(...waterings.map((w) => w.id)) + 1 : 1;
+    const label = `Schedule ${nextId}`;
+    const newWater = { id: nextId, label, time: formattedTime };
+
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        let firstName = "N/A";
+        let lastName = "N/A";
+        try {
+          const userDocRef = doc(db, "users", user.uid);
+          const userDocSnap = await getDoc(userDocRef);
+          if (userDocSnap.exists()) {
+            const userData = userDocSnap.data();
+            firstName = userData.firstName || "N/A";
+            lastName = userData.lastName || "N/A";
+          }
+        } catch (fetchErr) {
+          console.error("Failed to fetch user data:", fetchErr);
+        }
+
+        await setDoc(doc(db, "wateringSchedules", `${user.uid}_${nextId}`), {
+          wateringId: nextId,
+          label: label,
+          time: formattedTime,
+          userId: user.uid,
+          timestamp: new Date().toISOString(),
+        });
+
+        await addDoc(collection(db, "addWaterSchedule_logs"), {
+          wateringId: nextId,
+          userId: user.uid,
+          userName: user.displayName || user.email || "Unknown User",
+          firstName,
+          lastName,
+          selectedTime: pendingWaterTime.toISOString(),
+          selectedTimeFormatted: formattedTime,
+          newTime: formattedTime,
+          timestamp: new Date().toISOString(),
+          action: "Add new watering schedule",
+          description: `Added ${formattedTime}`,
+        });
+      }
+    } catch (err) {
+      Alert.alert("Error", "Failed to save watering: " + err.message);
+      setConfirmWaterAddVisible(false);
+      setShowWaterAddPicker(false);
+      setPendingWaterTime(null);
+      return;
+    }
+
+    setWaterings((s) => {
+      const updated = [...s, newWater];
+      return updated.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+    });
+
+    setConfirmWaterAddVisible(false);
+    setShowWaterAddPicker(false);
+    setPendingWaterTime(null);
+    setShowSavedPopup(true);
+    setTimeout(() => setShowSavedPopup(false), 1400);
+  };
+
+  const openEditWater = (idx) => {
+    const w = waterings[idx];
+    let timeDate = new Date();
+    try {
+      const parts = w.time.split(/[: ]/);
+      if (parts.length >= 3) {
+        const hour = parseInt(parts[0], 10);
+        const minute = parseInt(parts[1], 10);
+        const ampm = parts[2];
+        let hr = hour % 12;
+        if (ampm.toUpperCase() === "PM") hr += 12;
+        timeDate.setHours(hr, minute, 0, 0);
+      }
+    } catch (e) {
+      timeDate = new Date();
+    }
+    setWaterEdit({ open: true, idx, timeDate });
+  };
+
+  const saveWaterEdit = async () => {
+    if (waterEdit.idx === null) {
+      setConfirmEditVisible(false);
+      setWaterEdit({ open: false, idx: null, timeDate: new Date() });
+      return;
+    }
+    const newTime = waterEdit.timeDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const oldTime = waterings[waterEdit.idx].time;
+    const wateringId = waterings[waterEdit.idx].id;
+
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        let firstName = "N/A";
+        let lastName = "N/A";
+        try {
+          const userDocRef = doc(db, "users", user.uid);
+          const userDocSnap = await getDoc(userDocRef);
+          if (userDocSnap.exists()) {
+            const userData = userDocSnap.data();
+            firstName = userData.firstName || "N/A";
+            lastName = userData.lastName || "N/A";
+          }
+        } catch (fetchErr) {
+          console.error("Failed to fetch user data:", fetchErr);
+        }
+
+        await setDoc(doc(db, "wateringSchedules", `${user.uid}_${wateringId}`), {
+          wateringId,
+          label: waterings[waterEdit.idx].label,
+          time: newTime,
+          userId: user.uid,
+          timestamp: new Date().toISOString(),
+        });
   const saveWaterSchedule = () => {
     // Validate dates are valid Date objects
     if (
@@ -1197,19 +1337,94 @@ export default function ControlScreen({ navigation }) {
       0
     );
 
-    if (scheduledDateTime.getTime() < Date.now()) {
-      setShowInvalidScheduleModal(true);
+        await addDoc(collection(db, "editWaterSchedule_logs"), {
+          wateringId,
+          userId: user.uid,
+          userName: user.displayName || user.email || "Unknown User",
+          firstName,
+          lastName,
+          oldTime,
+          newTime,
+          selectedTime: waterEdit.timeDate.toISOString(),
+          selectedTimeFormatted: newTime,
+          timestamp: new Date().toISOString(),
+          action: "Updated watering time",
+          description: `From ${oldTime} to ${newTime}`,
+        });
+      }
+    } catch (err) {
+      Alert.alert("Error", "Failed to update watering: " + err.message);
+      setConfirmEditVisible(false);
+      setWaterEdit({ open: false, idx: null, timeDate: new Date() });
       return;
     }
 
-    // Store pending schedule and show confirmation modal
-    setPendingWaterSchedule({
-      date: waterDate.toISOString(),
-      time: waterTime.toISOString(),
-      liters,
-      duration,
+    setWaterings((s) => {
+      const copy = [...s];
+      copy[waterEdit.idx].time = newTime;
+      return copy.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
     });
-    setConfirmWaterSaveVisible(true);
+
+    setConfirmEditVisible(false);
+    setWaterEdit({ open: false, idx: null, timeDate: new Date() });
+    setShowSavedPopup(true);
+    setTimeout(() => setShowSavedPopup(false), 1400);
+  };
+
+  const confirmDeleteWater = async () => {
+    if (!pendingDeleteWaterId) {
+      setConfirmDeleteWaterVisible(false);
+      setPendingDeleteWaterId(null);
+      return;
+    }
+    const waterToDelete = waterings.find((w) => w.id === pendingDeleteWaterId);
+    if (!waterToDelete) {
+      setConfirmDeleteWaterVisible(false);
+      setPendingDeleteWaterId(null);
+      return;
+    }
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        let firstName = "N/A";
+        let lastName = "N/A";
+        try {
+          const userDocRef = doc(db, "users", user.uid);
+          const userDocSnap = await getDoc(userDocRef);
+          if (userDocSnap.exists()) {
+            const userData = userDocSnap.data();
+            firstName = userData.firstName || "N/A";
+            lastName = userData.lastName || "N/A";
+          }
+        } catch (fetchErr) {
+          console.error("Failed to fetch user data:", fetchErr);
+        }
+
+        await deleteDoc(doc(db, "wateringSchedules", `${user.uid}_${pendingDeleteWaterId}`));
+        await addDoc(collection(db, "deleteWaterSchedule_logs"), {
+          wateringId: pendingDeleteWaterId,
+          userId: user.uid,
+          userName: user.displayName || user.email || "Unknown User",
+          firstName,
+          lastName,
+          oldTime: waterToDelete.time,
+          timestamp: new Date().toISOString(),
+          action: "Deleted a watering schedule",
+          description: `Deleted ${waterToDelete.time}`,
+        });
+      }
+    } catch (err) {
+      Alert.alert("Error", "Failed to delete watering: " + err.message);
+      setConfirmDeleteWaterVisible(false);
+      setPendingDeleteWaterId(null);
+      return;
+    }
+
+    setWaterings((s) => s.filter((w) => w.id !== pendingDeleteWaterId));
+    setConfirmDeleteWaterVisible(false);
+    setPendingDeleteWaterId(null);
+    setShowSavedPopup(true);
+    setTimeout(() => setShowSavedPopup(false), 1200);
   };
 
   const confirmSaveWaterSchedule = async () => {
@@ -1596,70 +1811,59 @@ export default function ControlScreen({ navigation }) {
           )}
         </View>
 
-        {/* Water Scheduling */}
+        {/* Water Scheduling (like Feeding) */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader icon="water-outline" title="Watering Schedule" />
-          <View style={styles.rowSpace}>
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", marginBottom: 8 }}>
             <TouchableOpacity
-              style={[styles.dateBox, { backgroundColor: "#7C8CA821" }]}
-              onPress={() => setShowWaterDatePicker(true)}
+              style={[styles.smallActionBtn, { backgroundColor: GREEN }]}
+              onPress={addWaterSchedule}
             >
-              <Text style={{ fontWeight: "600" }}>{fmtDate(waterDate)}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.smallBtn}
-              onPress={() => setShowWaterDatePicker(true)}
-            >
-              <Ionicons name="calendar-outline" size={20} color="#333" />
+              <Text style={styles.smallActionText}>Add</Text>
             </TouchableOpacity>
           </View>
 
-          <View style={{ marginTop: 12 }}>
-            <Text style={styles.smallLabel}>Watering Time</Text>
-            <TouchableOpacity
-              style={[styles.timeInput, { marginTop: 6 }]}
-              onPress={() => setShowWaterTimePicker(true)}
-            >
-              <Text>{fmtTime(waterTime)}</Text>
-            </TouchableOpacity>
-
-            <Text style={[styles.smallLabel, { marginTop: 8 }]}>
-              Liters: {liters}L
+          {waterings.length === 0 ? (
+            <Text style={{ color: "#666", paddingVertical: 8 }}>
+              No watering schedules.
             </Text>
-            <Slider
-              minimumValue={1}
-              maximumValue={60}
-              step={1}
-              value={liters}
-              onValueChange={setLiters}
-              minimumTrackTintColor={PRIMARY}
-            />
+          ) : (
+            waterings.map((w, idx) => (
+              <View key={w.id} style={styles.feedRow}>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  {deleteMode ? (
+                    <TouchableOpacity
+                      onPress={() => toggleSelectToDelete(w.id)}
+                      style={[styles.checkbox, selectedToDelete.includes(w.id) && styles.checkboxChecked]}
+                    >
+                      {selectedToDelete.includes(w.id) && (
+                        <Text style={{ color: "#fff" }}>✓</Text>
+                      )}
+                    </TouchableOpacity>
+                  ) : (
+                    <Ionicons name="time-outline" size={16} color={PRIMARY} style={{ marginRight: 8 }} />
+                  )}
 
-            <Text style={[styles.smallLabel, { marginTop: 8 }]}>
-              Duration (seconds): {duration}s
-            </Text>
-            <Slider
-              minimumValue={5}
-              maximumValue={120}
-              step={1}
-              value={duration}
-              onValueChange={setDuration}
-              minimumTrackTintColor={PRIMARY}
-            />
+                  <Text style={styles.feedTimeText}>{w.time}</Text>
+                </View>
 
-            <View
-              style={[
-                styles.upcomingBox,
-                { backgroundColor: "#BDCBE421", borderColor: "#0D609C54" },
-              ]}
-            >
-              <Text>
-                {confirmedWaterDate && confirmedWaterTime
-                  ? `Upcoming schedule : ${fmtDate(confirmedWaterDate)} at ${fmtTime(confirmedWaterTime)}`
-                  : "No upcoming schedule"}
-              </Text>
-            </View>
-
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <TouchableOpacity style={styles.editBtn} onPress={() => openEditWater(idx)}>
+                    <Text style={styles.editText}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.editBtn, { backgroundColor: RED, marginLeft: 6 }]}
+                    onPress={() => {
+                      setPendingDeleteWaterId(w.id);
+                      setConfirmDeleteWaterVisible(true);
+                    }}
+                  >
+                    <Text style={styles.editText}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))
+          )}
             <TouchableOpacity
               style={[styles.primaryBtn, { marginTop: 10 }]}
               onPress={() => {
@@ -1730,9 +1934,9 @@ export default function ControlScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* Lighting & Ventilation */}
+        {/* Lighting only (Ventilation removed) */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
-          <CardHeader icon="bulb-outline" title="Lighting & Ventilation" />
+          <CardHeader icon="bulb-outline" title="Lighting" />
           <View
             style={[
               styles.innerBox,
@@ -1756,29 +1960,6 @@ export default function ControlScreen({ navigation }) {
               thumbColor="#fff"
             />
           </View>
-          <View
-            style={[
-              styles.innerBox,
-              { marginTop: 8, borderColor: BORDER_OVERLAY },
-            ]}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Ionicons
-                name="sync-outline"
-                size={18}
-                color="#333"
-                style={{ marginRight: 8 }}
-              />
-              <Text style={{ fontWeight: "600" }}>Exhaust Fan</Text>
-            </View>
-            <Switch
-              value={fanOn}
-              onValueChange={setFanOn}
-              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
-              ios_backgroundColor="#B0B0B0"
-              thumbColor="#fff"
-            />
-          </View>
         </View>
         {/* Power Schedule */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
@@ -1789,14 +1970,14 @@ export default function ControlScreen({ navigation }) {
           />
 
           <View style={{ marginTop: 8 }}>
-            <Text style={styles.smallLabel}>Solar power level</Text>
+            <Text style={styles.smallLabel}>Solar power level: {solarPowerLevel}%</Text>
 
             {/* Horizontal bar container (looks like the requested layout) */}
             <View style={styles.powerBarContainer}>
               <View
                 style={[
                   styles.powerBarFill,
-                  { width: powerBarWidth(alertThreshold) },
+                  { width: powerBarWidth(solarPowerLevel) },
                 ]}
               />
             </View>
@@ -1855,26 +2036,29 @@ export default function ControlScreen({ navigation }) {
       </ScrollView>
 
       {/* Date / Time Pickers */}
-      {showWaterDatePicker && (
-        <DateTimePicker
-          value={waterDate}
-          mode="date"
-          display="default"
-          minimumDate={new Date()}
-          onChange={(_, selected) => {
-            setShowWaterDatePicker(false);
-            if (selected) setWaterDate(selected);
-          }}
-        />
-      )}
       {showWaterTimePicker && (
         <DateTimePicker
-          value={waterTime}
+          value={waterEdit.open ? (waterEdit.timeDate || new Date()) : new Date()}
           mode="time"
           display="default"
           onChange={(_, selected) => {
             setShowWaterTimePicker(false);
-            if (selected) setWaterTime(selected);
+            if (selected) setWaterEdit((prev) => ({ ...prev, timeDate: selected }));
+          }}
+        />
+      )}
+      {showWaterAddPicker && (
+        <DateTimePicker
+          value={new Date()}
+          mode="time"
+          display="default"
+          onChange={(event, selected) => {
+            setShowWaterAddPicker(false);
+            const confirmed = (event?.type === "set" || !event?.type) && selected;
+            if (confirmed) {
+              setPendingWaterTime(selected);
+              setConfirmWaterAddVisible(true);
+            }
           }}
         />
       )}
@@ -1891,6 +2075,13 @@ export default function ControlScreen({ navigation }) {
               (event?.type === "set" || !event?.type) && selected;
             if (confirmed) {
               const hour = selected.getHours(); // 0-23
+              // Duplicate time check: if same as current nightStart, warn like feed schedule duplicate
+              const selectedStr = fmtTime(selected);
+              const currentStr = fmtTime(nightStart);
+              if (selectedStr === currentStr) {
+                setShowDuplicateModal(true);
+                return;
+              }
               setPendingNightTime(selected);
               if (hour < 12) {
                 // Morning selection warning
@@ -1920,18 +2111,23 @@ export default function ControlScreen({ navigation }) {
         />
       )}
 
-      {/* Feed Edit Modal (time picker like night schedule) */}
+      {/* Edit Modal for Feed or Watering */}
       <Modal
         key="feedEditModal"
-        visible={feedEdit.open}
+        visible={feedEdit.open || waterEdit.open}
         transparent
         animationType="slide"
       >
         <TouchableOpacity
           style={styles.modalBackdrop}
-          onPress={() =>
-            setFeedEdit({ open: false, idx: null, timeDate: new Date() })
-          }
+          onPress={() => {
+            if (feedEdit.open) {
+              setFeedEdit({ open: false, idx: null, timeDate: new Date() });
+            }
+            if (waterEdit.open) {
+              setWaterEdit({ open: false, idx: null, timeDate: new Date() });
+            }
+          }}
         />
         <View style={styles.editModal}>
           <Text
@@ -1940,15 +2136,24 @@ export default function ControlScreen({ navigation }) {
               { textAlign: "center", fontWeight: "bold" },
             ]}
           >
-            Edit Feeding Time
+            {feedEdit.open ? "Edit Feeding Time" : "Edit Watering Time"}
           </Text>
 
           <TouchableOpacity
             style={[styles.timeInput, { marginTop: 6 }]}
-            onPress={() => setShowFeedTimePicker(true)}
+            onPress={() => {
+              if (feedEdit.open) setShowFeedTimePicker(true);
+              else setShowWaterTimePicker(true);
+            }}
           >
             <Text style={styles.timeText}>
-              {feedEdit.timeDate ? fmtTime(feedEdit.timeDate) : "Select time"}
+              {feedEdit.open
+                ? feedEdit.timeDate
+                  ? fmtTime(feedEdit.timeDate)
+                  : "Select time"
+                : waterEdit.timeDate
+                  ? fmtTime(waterEdit.timeDate)
+                  : "Select time"}
             </Text>
             <Ionicons name="time-outline" size={18} color={PRIMARY} />
           </TouchableOpacity>
@@ -1965,6 +2170,18 @@ export default function ControlScreen({ navigation }) {
               }}
             />
           )}
+          {showWaterTimePicker && (
+            <DateTimePicker
+              value={waterEdit.timeDate || new Date()}
+              mode="time"
+              display="default"
+              onChange={(_, selected) => {
+                setShowWaterTimePicker(false);
+                if (selected)
+                  setWaterEdit((s) => ({ ...s, timeDate: selected }));
+              }}
+            />
+          )}
 
           <View
             style={{
@@ -1978,9 +2195,13 @@ export default function ControlScreen({ navigation }) {
                 styles.primaryBtn,
                 { backgroundColor: "#999", flex: 1, marginRight: 6 },
               ]}
-              onPress={() =>
-                setFeedEdit({ open: false, idx: null, timeDate: new Date() })
-              }
+              onPress={() => {
+                if (feedEdit.open) {
+                  setFeedEdit({ open: false, idx: null, timeDate: new Date() });
+                } else if (waterEdit.open) {
+                  setWaterEdit({ open: false, idx: null, timeDate: new Date() });
+                }
+              }}
             >
               <Text style={styles.primaryBtnText}>Cancel</Text>
             </TouchableOpacity>
@@ -1988,7 +2209,7 @@ export default function ControlScreen({ navigation }) {
               style={[styles.primaryBtn, { flex: 1 }]}
               onPress={() => {
                 // Check for duplicate before showing confirm modal
-                if (feedEdit.idx !== null) {
+                if (feedEdit.open && feedEdit.idx !== null) {
                   const newTime = feedEdit.timeDate.toLocaleTimeString([], {
                     hour: "2-digit",
                     minute: "2-digit",
@@ -1997,8 +2218,20 @@ export default function ControlScreen({ navigation }) {
                     (f, i) => i !== feedEdit.idx && f.time === newTime
                   );
                   if (isDuplicate) {
-                    // Keep edit modal open, just show duplicate error
                     setShowDuplicateModal(true);
+                    return;
+                  }
+                }
+                if (waterEdit.open && waterEdit.idx !== null) {
+                  const newTime = waterEdit.timeDate.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  });
+                  const isDuplicate = waterings.some(
+                    (w, i) => i !== waterEdit.idx && w.time === newTime
+                  );
+                  if (isDuplicate) {
+                    setShowDuplicateWaterModal(true);
                     return;
                   }
                 }
@@ -2325,7 +2558,13 @@ export default function ControlScreen({ navigation }) {
                   styles.smallActionBtn,
                   { backgroundColor: PRIMARY, marginLeft: 8 },
                 ]}
-                onPress={saveFeedEdit}
+                onPress={() => {
+                  if (feedEdit.open) {
+                    saveFeedEdit();
+                  } else if (waterEdit.open) {
+                    saveWaterEdit();
+                  }
+                }}
               >
                 <Text style={styles.smallActionText}>Confirm</Text>
               </TouchableOpacity>
@@ -2374,69 +2613,102 @@ export default function ControlScreen({ navigation }) {
         </View>
       </Modal>
 
-      {/* Invalid Schedule Modal */}
       <Modal
-        key="invalidScheduleModal"
-        visible={showInvalidScheduleModal}
+        key="confirmDeleteWaterModal"
+        visible={confirmDeleteWaterVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowInvalidScheduleModal(false)}
+        onRequestClose={() => setConfirmDeleteWaterVisible(false)}
       >
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
             <Text style={{ fontWeight: "700", fontSize: 16 }}>
-              Invalid Schedule
+              Confirm Delete
             </Text>
             <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
-              You cannot choose a past date or time.
+              Are you sure you want to delete this watering schedule?
+            </Text>
+            <View style={{ flexDirection: "row", marginTop: 12 }}>
+              <TouchableOpacity
+                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                onPress={() => setConfirmDeleteWaterVisible(false)}
+              >
+                <Text style={styles.smallActionText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.smallActionBtn, { backgroundColor: RED, marginLeft: 8 }]}
+                onPress={confirmDeleteWater}
+              >
+                <Text style={styles.smallActionText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      
+
+      
+      {/* Duplicate Watering Time Modal */}
+      <Modal
+        key="duplicateWaterTimeModal"
+        visible={showDuplicateWaterModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDuplicateWaterModal(false)}
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Text style={{ fontWeight: "700", fontSize: 16 }}>
+              Duplicate time
+            </Text>
+            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+              That watering time already exists. Please choose a different time.
             </Text>
             <TouchableOpacity
               style={[
                 styles.smallActionBtn,
                 { backgroundColor: PRIMARY, marginTop: 12 },
               ]}
-              onPress={() => setShowInvalidScheduleModal(false)}
+              onPress={() => setShowDuplicateWaterModal(false)}
             >
-              <Text style={styles.smallActionText}>OK</Text>
+              <Text style={styles.smallActionText}>Close</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Confirm Watering Schedule Modal */}
+      {/* Confirm Watering Add Modal */}
       <Modal
-        key="confirmWaterSaveModal"
-        visible={confirmWaterSaveVisible}
+        key="confirmWaterAddModal"
+        visible={confirmWaterAddVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setConfirmWaterSaveVisible(false)}
+        onRequestClose={() => setConfirmWaterAddVisible(false)}
       >
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
             <Text style={{ fontWeight: "700", fontSize: 16 }}>
-              Confirm Watering Schedule
+              Save watering time?
             </Text>
             <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
-              Do you want to save this watering schedule?
+              Are you sure you want to save {pendingWaterTime ? fmtTime(pendingWaterTime) : ""} as a watering schedule?
             </Text>
             <View style={{ flexDirection: "row", marginTop: 12 }}>
               <TouchableOpacity
                 style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
                 onPress={() => {
-                  setConfirmWaterSaveVisible(false);
-                  setPendingWaterSchedule(null);
+                  setConfirmWaterAddVisible(false);
+                  setPendingWaterTime(null);
                 }}
               >
                 <Text style={styles.smallActionText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.smallActionBtn,
-                  { backgroundColor: PRIMARY, marginLeft: 8 },
-                ]}
-                onPress={confirmSaveWaterSchedule}
+                style={[styles.smallActionBtn, { backgroundColor: PRIMARY, marginLeft: 8 }]}
+                onPress={confirmAddWater}
               >
-                <Text style={styles.smallActionText}>Confirm</Text>
+                <Text style={styles.smallActionText}>Yes, Save</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2554,11 +2826,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF3CD",
     borderColor: "#FFEEBA",
     borderWidth: 1,
-    borderRadius: 6,
+    borderRadius: 16,
     paddingVertical: 8,
     paddingHorizontal: 12,
     marginTop: 8,
     marginBottom: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
   },
   sensorBannerText: {
     color: "#856404",
@@ -2571,14 +2848,20 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 340,
     height: 55,
-    borderRadius: 8,
+    borderRadius: 16,
     borderWidth: 1,
+    borderColor: "#ffff",
     marginVertical: 6,
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#fff",
+    backgroundColor: "#ffffff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
   },
   statLeft: { flexDirection: "row", alignItems: "center" },
   dot: { width: 10, height: 10, borderRadius: 6, marginRight: 10 },
@@ -2598,10 +2881,16 @@ const styles = StyleSheet.create({
 
   card: {
     marginTop: 12,
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    padding: 12,
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    padding: 16,
     borderWidth: 1,
+    borderColor: "#ffffff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
   },
 
   cardHeader: {
@@ -2628,7 +2917,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#e2e8f0",
   },
 
   rowSpace: {
@@ -2641,7 +2930,7 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: PRIMARY,
+    borderColor: "#e2e8f0",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -2673,7 +2962,7 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: "#999",
+    borderColor: "#e2e8f0",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 8,
@@ -2684,7 +2973,7 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#e2e8f0",
     width: "72%",
     alignItems: "center",
   },
@@ -2692,7 +2981,7 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#e2e8f0",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2702,7 +2991,7 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#0D609C54",
+    borderColor: "#e2e8f0",
     alignItems: "center",
   },
   primaryBtn: {
@@ -2741,7 +3030,7 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#0D609C54",
+    borderColor: "#e2e8f0",
   },
 
   actionBtn: {
@@ -2760,14 +3049,14 @@ const styles = StyleSheet.create({
   testBtn: {
     backgroundColor: "transparent",
     borderWidth: 1.5,
-    borderColor: PRIMARY,
+    borderColor: "#e2e8f0",
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
     alignItems: "center",
   },
   testBtnDisabled: {
-    borderColor: "#999",
+    borderColor: "#e2e8f0",
     opacity: 0.7,
   },
   testBtnText: {
@@ -2838,7 +3127,7 @@ const styles = StyleSheet.create({
   modalTitle: { fontWeight: "700", fontSize: 16, marginBottom: 8 },
   formInput: {
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#e2e8f0",
     borderRadius: 8,
     padding: 10,
     marginTop: 6,
@@ -2865,7 +3154,7 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#0D609C54",
+    borderColor: "#e2e8f0",
     backgroundColor: "#eee",
     overflow: "hidden",
     marginTop: 8,
