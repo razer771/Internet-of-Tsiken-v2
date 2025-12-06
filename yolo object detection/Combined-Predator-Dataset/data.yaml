@@ -1,10 +1,10 @@
 # Combined Predator Detection Dataset
 # Snakes + Rats
 
-path: /home/g1rpi2025/Internet-of-Tsiken-v2/yolo object detection/Combined-Predator-Dataset
+path: C:\Users\Lloyd\Internet-of-Tsiken-v2\yolo object detection\Combined-Predator-Dataset
 train: train/images
 val: valid/images
 
 # Classes
-nc: 7
-names: ['Burmese Python', 'Cobra', 'Red-necked Keelback Snake', 'Reticulated Python', 'White-lipped pitviper', 'king cobra', 'rodents']
+nc: 2
+names: ['snake', 'rodents']

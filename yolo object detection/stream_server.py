@@ -59,11 +59,11 @@ def initialize_model():
     """Initialize YOLO model"""
     global model
     try:
-        # Use PyTorch .pt model with optimizations
-        model = YOLO("yolov8n.pt")
+        # Use trained predator detection model (snakes + rats)
+        model = YOLO("yolov8n_predators.pt")
         # Enable GPU if available (will use CPU on Pi 5)
         model.to('cpu')  # Explicitly use CPU for Pi
-        logger.info("YOLO model loaded successfully")
+        logger.info("YOLO predator detection model loaded successfully")
         return True
     except Exception as e:
         logger.error(f"Failed to load YOLO model: {e}")
