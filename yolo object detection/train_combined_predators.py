@@ -153,8 +153,8 @@ names: {combined_classes}
     print("\n🔥 Training configuration:")
     print("   • Base model: YOLOv8n (pre-trained on COCO)")
     print("   • Epochs: 50 (with early stopping)")
-    print("   • Image size: 320x320 (reduced for memory)")
-    print("   • Batch size: 4 (optimized for 6GB VRAM)")
+    print("   • Image size: 416x416 (matches camera resolution)")
+    print("   • Batch size: 2 (optimized for memory)")
     print("   • Device: GPU (NVIDIA RTX 4050)")
     print("   • Optimizer: SGD with learning rate 0.01")
     print("   • Workers: 2 (reduced for memory)")
@@ -176,8 +176,8 @@ names: {combined_classes}
     results = model.train(
         data=f"{combined_dataset}/data.yaml",
         epochs=50,
-        imgsz=320,  # Reduced image size for memory
-        batch=4,  # Reduced for 6GB VRAM
+        imgsz=416,  # Match camera resolution
+        batch=2,  # Further reduced for memory with larger images
         device=0,  # Use GPU 0 (NVIDIA RTX 4050)
         patience=10,
         project='runs/predator_detection',
