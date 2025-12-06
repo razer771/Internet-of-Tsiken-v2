@@ -1502,44 +1502,6 @@ export default function ControlScreen({ navigation }) {
         </View>
       </Modal>
 
-<<<<<<< Updated upstream
-      {/* Camera Modal */}
-      <Modal
-        key="cameraModal"
-        visible={cameraModal}
-        transparent
-        animationType="slide"
-      >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          onPress={() => setCameraModal(false)}
-        />
-        <View style={styles.editModal}>
-          <Text style={styles.modalTitle}>Live Camera</Text>
-          <Image
-            source={require("../../../assets/proposal meeting.png")}
-            style={{ width: "100%", height: 220, borderRadius: 8 }}
-          />
-          <TouchableOpacity
-            style={[styles.primaryBtn, { marginTop: 12 }]}
-            onPress={() => setCameraModal(false)}
-          >
-            <Ionicons name="close-circle" size={40} color="#fff" />
-          </TouchableOpacity>
-          
-          <View style={styles.fullScreenCameraContainer}>
-            <CameraStream 
-              serverUrl={cameraServerUrl}
-              onServerDiscovered={handleServerDiscovered}
-              autoConnect={true}
-              fullscreen={true}
-            />
-          </View>
-        </View>
-      </Modal>
-
-=======
->>>>>>> Stashed changes
       {/* Confirm delete all */}
       <Modal
         key="confirmDeleteAllModal"

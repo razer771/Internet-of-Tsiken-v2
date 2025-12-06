@@ -6,14 +6,10 @@ import {
   StyleSheet,
   ActivityIndicator,
   TouchableOpacity,
-  Modal,
-  Animated,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { discoverCameraServer, saveLastWorkingUrl, getLastWorkingUrl } from './CameraServerDiscovery';
-import { capturePredatorDetection, checkForPredators } from './PredatorDetectionService';
-import { useNotifications } from '../screens/User/controls/NotificationContext';
 
 const PRIMARY = '#133E87';
 
@@ -22,20 +18,9 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
   const [detections, setDetections] = useState({ objects: [], fps: 0, count: 0 });
   const [detectionHistory, setDetectionHistory] = useState([]); // Track last 5 detections
   const [actualServerUrl, setActualServerUrl] = useState(serverUrl);
-<<<<<<< Updated upstream
-  const [discoveryState, setDiscoveryState] = useState('idle'); // idle, discovering, success, failed
-  const [capturing, setCapturing] = useState(false);
-  const [autoCapture, setAutoCapture] = useState(true); // Enable auto-capture by default
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [showErrorModal, setShowErrorModal] = useState(false);
-  const [modalMessage, setModalMessage] = useState({ title: '', description: '', isAuto: false });
-  const lastCaptureRef = useRef(null);
-=======
   const [discoveryState, setDiscoveryState] = useState(persistConnection ? 'success' : 'idle');
->>>>>>> Stashed changes
   const webViewRef = useRef(null);
   const discoveryTimeoutRef = useRef(null);
-  const { addNotification } = useNotifications();
 
   // Construct stream URL
   const streamUrl = `${actualServerUrl}/video_feed`;
@@ -64,25 +49,6 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
       if (discoveryTimeoutRef.current) clearTimeout(discoveryTimeoutRef.current);
     };
   }, [isConnected]);
-
-  // Auto-capture predators when detected (high confidence)
-  useEffect(() => {
-    if (!isConnected || !autoCapture) return;
-
-    const predator = checkForPredators(detections, 80); // 80% confidence threshold
-    
-    if (predator) {
-      // Prevent duplicate captures within 10 seconds
-      const now = Date.now();
-      if (lastCaptureRef.current && (now - lastCaptureRef.current) < 10000) {
-        return;
-      }
-
-      // Auto-capture
-      lastCaptureRef.current = now;
-      handleCapturePredator(predator, true);
-    }
-  }, [detections, isConnected, autoCapture]);
 
   const startDiscovery = async () => {
     setDiscoveryState('discovering');
@@ -169,27 +135,16 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
       // Add new detections to history
       if (data.objects && data.objects.length > 0) {
         const timestamp = new Date();
-        const newDetections = data.objects.map(obj => ({
+        const newDetections = data.objects.map((obj, idx) => ({
           ...obj,
           timestamp: timestamp.toISOString(),
+          uniqueId: `${obj.class}-${timestamp.getTime()}-${idx}`, // Unique ID per object
         }));
         
-        // Add to history and keep only last 5 unique detections
+        // Add to history and keep only last 5 detections
         setDetectionHistory(prev => {
           const combined = [...newDetections, ...prev];
-          // Remove duplicates based on class name and keep most recent
-          const unique = [];
-          const seen = new Set();
-          
-          for (const det of combined) {
-            const key = `${det.class}-${det.timestamp}`;
-            if (!seen.has(key) && unique.length < 5) {
-              seen.add(key);
-              unique.push(det);
-            }
-          }
-          
-          return unique;
+          return combined.slice(0, 5); // Keep only the 5 most recent
         });
       }
     } catch (err) {
@@ -201,48 +156,16 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
     setDiscoveryState('idle');
   };
 
-  const handleCapturePredator = async (detection = null, isAuto = false) => {
-    if (capturing) return;
-
-    setCapturing(true);
-    try {
-      const result = await capturePredatorDetection(actualServerUrl, detection);
-      
-      if (result.success) {
-        // Trigger notification
-        addNotification({
-          category: "IoT: Internet of Tsiken",
-          title: `⚠️ Predator Detected!`,
-          message: `${result.detectionData.detectedClass} detected with ${result.detectionData.confidence.toFixed(1)}% confidence`,
-          time: new Date().toLocaleString(),
-        });
-
-        setModalMessage({
-          title: result.detectionData.detectedClass.toUpperCase(),
-          description: `${result.detectionData.confidence.toFixed(1)}% confidence\n${isAuto ? 'Auto-captured' : 'Manually captured'} and saved to your detections.`,
-          isAuto: isAuto
-        });
-        setShowSuccessModal(true);
-      } else {
-        setModalMessage({
-          title: 'Capture Failed',
-          description: result.error || 'Could not capture detection',
-          isAuto: false
-        });
-        setShowErrorModal(true);
-      }
-    } catch (error) {
-      console.error("Capture error:", error);
-      setModalMessage({
-        title: 'Error',
-        description: 'Failed to capture predator detection',
-        isAuto: false
-      });
-      setShowErrorModal(true);
-    } finally {
-      setCapturing(false);
-    }
+  const handleRefresh = () => {
+    // Reset and reconnect
+    setIsConnected(false);
+    setDiscoveryState('discovering');
+    setTimeout(() => {
+      startDiscovery();
+    }, 100);
   };
+
+
 
   // HTML to display MJPEG stream in WebView
   const streamHTML = `
@@ -341,11 +264,11 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
         {/* Show badges only when NOT in fullscreen */}
         {!fullscreen && (
           <>
-            {/* Live Badge */}
-            <View style={styles.liveBadge}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>LIVE</Text>
-            </View>
+            {/* Refresh Button */}
+            <TouchableOpacity style={styles.refreshButton} onPress={handleRefresh}>
+              <Ionicons name="refresh" size={18} color="#fff" />
+              <Text style={styles.refreshText}>REFRESH</Text>
+            </TouchableOpacity>
 
             {/* FPS Counter */}
             <View style={styles.fpsBadge}>
@@ -371,7 +294,7 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
               <Text style={styles.emptyText}>No objects detected yet</Text>
             </View>
           ) : (
-            detectionHistory.map((obj, idx) => {
+            detectionHistory.map((obj) => {
               const detectionTime = new Date(obj.timestamp);
               const timeString = detectionTime.toLocaleTimeString('en-US', { 
                 hour: '2-digit', 
@@ -384,7 +307,7 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
               });
               
               return (
-                <View key={idx} style={styles.tableRow}>
+                <View key={obj.uniqueId} style={styles.tableRow}>
                   <Text style={styles.tableCell}>{obj.class}</Text>
                   <Text style={[styles.tableCell, styles.accuracyText]}>{obj.confidence}%</Text>
                   <Text style={[styles.tableCell, styles.dateTimeText]}>
@@ -395,302 +318,12 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
             })
           )}
 
-          {/* Predator Capture Controls */}
-          <View style={styles.captureControls}>
-            <TouchableOpacity
-              style={styles.autoCaptureToggle}
-              onPress={() => setAutoCapture(!autoCapture)}
-            >
-              <Ionicons
-                name={autoCapture ? "checkmark-circle" : "ellipse-outline"}
-                size={20}
-                color={autoCapture ? "#4CAF50" : "#999"}
-              />
-              <Text style={styles.autoCaptureText}>Auto-capture predators</Text>
-            </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.captureButton, capturing && styles.captureButtonDisabled]}
-              onPress={() => handleCapturePredator(null, false)}
-              disabled={capturing}
-            >
-              {capturing ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="camera" size={18} color="#fff" />
-                  <Text style={styles.captureButtonText}>Capture Now</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
         </View>
       )}
-
-      {/* Success Modal */}
-      <SuccessModal
-        visible={showSuccessModal}
-        title={modalMessage.title}
-        description={modalMessage.description}
-        isAuto={modalMessage.isAuto}
-        onClose={() => setShowSuccessModal(false)}
-      />
-
-      {/* Error Modal */}
-      <ErrorModal
-        visible={showErrorModal}
-        title={modalMessage.title}
-        description={modalMessage.description}
-        onClose={() => setShowErrorModal(false)}
-      />
     </View>
   );
 }
-
-// Success Modal Component
-function SuccessModal({ visible, title, description, isAuto, onClose }) {
-  const scaleAnim = useRef(new Animated.Value(0)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (visible) {
-      Animated.parallel([
-        Animated.spring(scaleAnim, {
-          toValue: 1,
-          tension: 50,
-          friction: 7,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-
-      // Auto close after 3 seconds
-      const timeout = setTimeout(() => {
-        onClose();
-      }, 3000);
-
-      return () => clearTimeout(timeout);
-    } else {
-      scaleAnim.setValue(0);
-      fadeAnim.setValue(0);
-    }
-  }, [visible]);
-
-  return (
-    <Modal transparent visible={visible} animationType="fade">
-      <View style={modalStyles.overlay}>
-        <Animated.View
-          style={[
-            modalStyles.successContainer,
-            {
-              opacity: fadeAnim,
-              transform: [{ scale: scaleAnim }],
-            },
-          ]}
-        >
-          <Animated.View
-            style={[
-              modalStyles.iconCircle,
-              modalStyles.successCircle,
-              { transform: [{ scale: scaleAnim }] },
-            ]}
-          >
-            <Ionicons name="shield-checkmark" size={48} color="#4CAF50" />
-          </Animated.View>
-
-          <Text style={modalStyles.successTitle}>Predator Captured!</Text>
-          <Text style={modalStyles.predatorName}>{title}</Text>
-          <Text style={modalStyles.successDescription}>{description}</Text>
-
-          {isAuto && (
-            <View style={modalStyles.autoBadge}>
-              <Ionicons name="flash" size={14} color="#FF9800" />
-              <Text style={modalStyles.autoBadgeText}>Auto-captured</Text>
-            </View>
-          )}
-
-          <TouchableOpacity style={modalStyles.okButton} onPress={onClose}>
-            <Text style={modalStyles.okButtonText}>OK</Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
-    </Modal>
-  );
-}
-
-// Error Modal Component
-function ErrorModal({ visible, title, description, onClose }) {
-  const scaleAnim = useRef(new Animated.Value(0)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (visible) {
-      Animated.parallel([
-        Animated.spring(scaleAnim, {
-          toValue: 1,
-          tension: 50,
-          friction: 7,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      scaleAnim.setValue(0);
-      fadeAnim.setValue(0);
-    }
-  }, [visible]);
-
-  return (
-    <Modal transparent visible={visible} animationType="fade">
-      <View style={modalStyles.overlay}>
-        <Animated.View
-          style={[
-            modalStyles.errorContainer,
-            {
-              opacity: fadeAnim,
-              transform: [{ scale: scaleAnim }],
-            },
-          ]}
-        >
-          <Animated.View
-            style={[
-              modalStyles.iconCircle,
-              modalStyles.errorCircle,
-              { transform: [{ scale: scaleAnim }] },
-            ]}
-          >
-            <Ionicons name="alert-circle" size={48} color="#FF6B6B" />
-          </Animated.View>
-
-          <Text style={modalStyles.errorTitle}>{title}</Text>
-          <Text style={modalStyles.errorDescription}>{description}</Text>
-
-          <TouchableOpacity style={modalStyles.okButton} onPress={onClose}>
-            <Text style={modalStyles.okButtonText}>OK</Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
-    </Modal>
-  );
-}
-
-const modalStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  successContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 30,
-    alignItems: 'center',
-    width: '90%',
-    maxWidth: 400,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  errorContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 30,
-    alignItems: 'center',
-    width: '90%',
-    maxWidth: 400,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  iconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  successCircle: {
-    backgroundColor: '#E8F5E9',
-  },
-  errorCircle: {
-    backgroundColor: '#FFEBEE',
-  },
-  successTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#4CAF50',
-    marginBottom: 8,
-  },
-  errorTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#FF6B6B',
-    marginBottom: 8,
-  },
-  predatorName: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#000',
-    marginBottom: 12,
-  },
-  successDescription: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 24,
-  },
-  errorDescription: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 24,
-  },
-  autoBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF3E0',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    marginBottom: 20,
-  },
-  autoBadgeText: {
-    fontSize: 12,
-    color: '#FF9800',
-    fontWeight: '600',
-    marginLeft: 4,
-  },
-  okButton: {
-    backgroundColor: PRIMARY,
-    paddingHorizontal: 40,
-    paddingVertical: 12,
-    borderRadius: 10,
-    minWidth: 120,
-  },
-  okButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-});
 
 const styles = StyleSheet.create({
   container: {
@@ -768,28 +401,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
-  liveBadge: {
+  refreshButton: {
     position: 'absolute',
     top: 10,
     right: 10,
-    backgroundColor: '#D70E11',
+    backgroundColor: 'rgba(19, 62, 135, 0.9)',
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 4,
+    paddingVertical: 6,
+    borderRadius: 6,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
   },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#fff',
-    marginRight: 6,
-  },
-  liveText: {
+  refreshText: {
     color: '#fff',
     fontWeight: '700',
-    fontSize: 12,
+    fontSize: 11,
   },
   fpsBadge: {
     position: 'absolute',
@@ -857,38 +484,5 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 12,
     color: '#999',
-  },
-  captureControls: {
-    marginTop: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  autoCaptureToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  autoCaptureText: {
-    marginLeft: 6,
-    fontSize: 13,
-    color: '#333',
-  },
-  captureButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FF6B6B',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    gap: 6,
-  },
-  captureButtonDisabled: {
-    backgroundColor: '#CCC',
-  },
-  captureButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
   },
 });
