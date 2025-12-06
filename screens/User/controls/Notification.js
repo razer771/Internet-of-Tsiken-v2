@@ -73,7 +73,7 @@ function SmallCalendar({ onClose }) {
   );
 }
 
-function NotificationItem({ item, onPress }) {
+function NotificationItem({ item, onPress, markAllClicked }) {
   return (
     <TouchableOpacity 
       style={[styles.notificationItem, { backgroundColor: item.read ? "#e5e7eb" : "#fff" }]}
@@ -89,17 +89,52 @@ function NotificationItem({ item, onPress }) {
   );
 }
 
+function NotificationModal({ visible, item, onClose, onMarkRead }) {
+  if (!item) return null;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <Pressable style={styles.modalOverlay} onPress={() => {
+        onMarkRead(item.id);
+        onClose();
+      }}>
+        <Pressable style={styles.notificationModalContent} onPress={(e) => e.stopPropagation()}>
+          <TouchableOpacity 
+            onPress={() => {
+              onMarkRead(item.id);
+              onClose();
+            }} 
+            style={styles.modalCloseBtn}
+          >
+            <Ionicons name="close" size={24} color="#222" />
+          </TouchableOpacity>
+
+          <Text style={styles.modalTitle}>{item.category}</Text>
+          <Text style={styles.modalHeading}>{item.title}</Text>
+
+          <Text style={styles.modalBody}>
+            Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+          </Text>
+
+          <Text style={styles.modalTime}>{item.time}</Text>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 export default function Notification() {
   const [activeTab, setActiveTab] = useState("Daily");
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const navigation = useNavigation();
+
   const { notifications, toggleAllRead, markAsRead } = useNotifications();
 
   const allRead = useMemo(() => notifications.every(n => n.read), [notifications]);
 
-  const toggleMarkAll = () => {
+  const handleToggleMarkAll = () => {
     toggleAllRead();
   };
 
@@ -124,7 +159,7 @@ export default function Notification() {
 
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <TouchableOpacity 
-              onPress={toggleMarkAll} 
+              onPress={handleToggleMarkAll}
               style={[styles.markAllBtn, allRead && { backgroundColor: PRIMARY }]}
             >
               <Ionicons name="mail-unread-outline" size={16} color={allRead ? '#fff' : '#222'} />
@@ -137,7 +172,7 @@ export default function Notification() {
               <Ionicons name="calendar-outline" size={18} />  
             </TouchableOpacity>
           </View>
-        </View>  
+        </View>
 
         <View style={styles.tabs}>  
           {TimePeriod.map(p => (  
@@ -219,7 +254,7 @@ const styles = StyleSheet.create({
   wrapper: { flex: 1, backgroundColor: "#f7fafc", padding: 16 },
   topRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12, flexWrap: 'wrap' },
   iconBtn: { height: 36, width: 36, borderRadius: 8, backgroundColor: "#fff", justifyContent: "center", alignItems: "center", marginRight: 8 },
-  markAllBtn: { height: 36, paddingHorizontal: 12, borderRadius: 8, flexDirection: "row", alignItems: "center", marginRight: 8, backgroundColor: "#fff" },
+  markAllBtn: { height: 36, paddingHorizontal: 12, borderRadius: 8, flexDirection: "row", alignItems: "center", marginRight: 8, backgroundColor: "#f7fafc" },
   tabs: { flexDirection: "row", marginBottom: 12 },
   tabBtn: { flex: 1, height: 38, borderRadius: 8, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'transparent' },
   notificationItem: { padding: 12, borderRadius: 8, borderWidth: 1, borderColor: NOTIF_BORDER, marginBottom: 10 },
