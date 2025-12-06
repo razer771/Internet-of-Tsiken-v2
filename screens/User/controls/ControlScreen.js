@@ -261,17 +261,16 @@ export default function ControlScreen({ navigation }) {
   // popups
   const [showSavedPopup, setShowSavedPopup] = useState(false);
 
-  // camera placeholder modal
-  const [cameraModal, setCameraModal] = useState(false);
-  
   // Camera server auto-discovery - no user input needed!
   const [cameraServerUrl, setCameraServerUrl] = useState("http://rpi5desktop.local:5000");
   const [showServerInput, setShowServerInput] = useState(false);
+  const [isCameraConnected, setIsCameraConnected] = useState(false); // Track if camera is connected
   
   // Callback when camera server is auto-discovered
   const handleServerDiscovered = (discoveredUrl) => {
     console.log('📡 Auto-discovered camera server:', discoveredUrl);
     setCameraServerUrl(discoveredUrl);
+    setIsCameraConnected(true); // Mark camera as connected
     // Don't show settings - it worked automatically!
   };
 
@@ -964,16 +963,14 @@ export default function ControlScreen({ navigation }) {
             icon="videocam-outline"
             title="Live Camera Surveillance"
           />
-          <TouchableOpacity
-            style={styles.cameraBox}
-            onPress={() => setCameraModal(true)}
-            activeOpacity={0.8}
-          >
+          <View style={styles.cameraBox}>
             <CameraStream 
               serverUrl={cameraServerUrl}
               onServerDiscovered={handleServerDiscovered}
+              persistConnection={isCameraConnected}
+              autoConnect={true}
             />
-          </TouchableOpacity>
+          </View>
         </View>
 
         {/* Night Schedule */}
@@ -1501,41 +1498,6 @@ export default function ControlScreen({ navigation }) {
             >
               <Text style={styles.primaryBtnText}>Save</Text>
             </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Camera Modal */}
-      <Modal
-        key="cameraModal"
-        visible={cameraModal}
-        transparent
-        animationType="slide"
-      >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          onPress={() => setCameraModal(false)}
-        />
-        <View style={styles.editModal}>
-          <Text style={styles.modalTitle}>Live Camera</Text>
-          <Image
-            source={require("../../../assets/proposal meeting.png")}
-            style={{ width: "100%", height: 220, borderRadius: 8 }}
-          />
-          <TouchableOpacity
-            style={[styles.primaryBtn, { marginTop: 12 }]}
-            onPress={() => setCameraModal(false)}
-          >
-            <Ionicons name="close-circle" size={40} color="#fff" />
-          </TouchableOpacity>
-          
-          <View style={styles.fullScreenCameraContainer}>
-            <CameraStream 
-              serverUrl={cameraServerUrl}
-              onServerDiscovered={handleServerDiscovered}
-              autoConnect={true}
-              fullscreen={true}
-            />
           </View>
         </View>
       </Modal>
@@ -2205,9 +2167,26 @@ const styles = StyleSheet.create({
 
   cameraBox: {
     marginTop: 10,
-    height: 200,
+    minHeight: 200,
     borderRadius: 8,
     overflow: 'hidden',
+  },
+  cameraPreviewBox: {
+    marginTop: 10,
+    height: 150,
+    borderRadius: 8,
+    backgroundColor: '#f0f4f8',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: PRIMARY,
+    borderStyle: 'dashed',
+  },
+  cameraPreviewText: {
+    marginTop: 12,
+    fontSize: 14,
+    fontWeight: '600',
+    color: PRIMARY,
   },
 
   smallNote: { color: "#666", marginTop: 6 },
@@ -2383,8 +2362,127 @@ const styles = StyleSheet.create({
   fullScreenCameraModal: {
     flex: 1,
     backgroundColor: "#000",
-    justifyContent: 'center',
+  },
+  cameraModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 50 : 20,
+    paddingBottom: 12,
+    backgroundColor: PRIMARY,
+  },
+  cameraModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  closeIconButton: {
+    padding: 4,
+  },
+  cameraStreamHalf: {
+    height: '50%',
+    width: '100%',
+    backgroundColor: '#000',
+  },
+  detectionTableContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    marginTop: -20,
+    paddingTop: 16,
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#f5f5f5',
+    borderBottomWidth: 2,
+    borderBottomColor: PRIMARY,
+  },
+  tableHeaderText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    color: PRIMARY,
+    textAlign: 'center',
+  },
+  tableScrollView: {
+    flex: 1,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    alignItems: 'center',
+  },
+  tableCell: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  objectBadge: {
+    backgroundColor: PRIMARY,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  objectBadgeText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  confidenceText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: GREEN,
+  },
+  timestampText: {
+    fontSize: 12,
+    color: '#666',
+  },
+  emptyTableState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  emptyTableText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+    marginTop: 12,
+  },
+  emptyTableSubtext: {
+    fontSize: 13,
+    color: '#999',
+    marginTop: 4,
+    textAlign: 'center',
+    paddingHorizontal: 32,
+  },
+  detectionStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#f9f9f9',
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statLabel: {
+    fontSize: 11,
+    color: '#666',
+    marginBottom: 4,
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: PRIMARY,
   },
   closeButton: {
     position: 'absolute',

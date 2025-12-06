@@ -1,0 +1,12 @@
+names:
+- rodents
+nc: 1
+roboflow:
+  license: CC BY 4.0
+  project: rodent-6oqr3
+  url: https://universe.roboflow.com/viswajyothi-college-of-engineering-and-technology/rodent-6oqr3/dataset/2
+  version: 2
+  workspace: viswajyothi-college-of-engineering-and-technology
+test: ../test/images
+train: ../train/images
+val: ../valid/images
