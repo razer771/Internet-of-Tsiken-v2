@@ -60,7 +60,7 @@ const MenuIcon = ({ size = 22, color = "#1a1a1a", style, ...props }) => (
   </View>
 );
 
-export default function AdminHeader({ showBackButton = true }) {
+export default function Header2() {
   const navigation = useNavigation();
   const { unreadCount } = useAdminNotifications();
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
@@ -75,18 +75,6 @@ export default function AdminHeader({ showBackButton = true }) {
     setLogoutModalVisible(true);
   };
 
-  const handleLogoPress = () => {
-    navigation.navigate("AdminDashboard");
-  };
-
-  const handleBackPress = () => {
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      navigation.navigate("AdminDashboard");
-    }
-  };
-
   const handleConfirmLogout = async () => {
     try {
       // Sign out from Firebase
@@ -95,7 +83,6 @@ export default function AdminHeader({ showBackButton = true }) {
       // Clear stored admin data
       await AsyncStorage.removeItem("isAdminBypass");
       await AsyncStorage.removeItem("adminEmail");
-      await AsyncStorage.removeItem("@user_active_session");
       
       console.log("Admin logged out successfully");
       setLogoutModalVisible(false);
@@ -120,27 +107,13 @@ export default function AdminHeader({ showBackButton = true }) {
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
       <View style={styles.header}>
         <View style={styles.leftSection}>
-          {showBackButton ? (
-            <TouchableOpacity
-              style={styles.backButton}
-              activeOpacity={0.7}
-              onPress={handleBackPress}
-            >
-              <Icon name="arrow-left" size={24} color="#1a1a1a" />
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={styles.logoContainer}
-              activeOpacity={0.7}
-              onPress={handleLogoPress}
-            >
-              <Image
-                source={require("../../assets/logo.png")}
-                style={styles.logo}
-                resizeMode="contain"
-              />
-            </TouchableOpacity>
-          )}
+          <View style={styles.logoContainer}>
+            <Image
+              source={require("../../assets/logo.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+          </View>
         </View>
 
         <View style={styles.centerSection}>
@@ -248,13 +221,6 @@ const styles = StyleSheet.create({
   leftSection: {
     width: 48,
     alignItems: "flex-start",
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    justifyContent: "center",
-    alignItems: "center",
   },
   logoContainer: {
     width: 48,

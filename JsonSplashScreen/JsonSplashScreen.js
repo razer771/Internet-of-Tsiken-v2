@@ -1,25 +1,31 @@
 import React, { useEffect } from "react";
-import { View, StyleSheet, Text } from "react-native";
+import { View, StyleSheet } from "react-native";
 import LottieView from "lottie-react-native";
 
 export default function JsonSplashScreen({ navigation }) {
   useEffect(() => {
-    console.log("JsonSplashScreen mounted");
-  }, []);
+    const timer = setTimeout(() => {
+      try {
+        navigation.replace("LogIn"); // Go to screens/LogIn/LogIn.js
+      } catch (error) {
+        console.error("Navigation failed:", error);
+      }
+    }, 3000); // Adjust to match your animation length
+
+    return () => clearTimeout(timer);
+  }, [navigation]);
 
   return (
     <View style={styles.container}>
       <LottieView
-        source={require("../assets/Jsplash.json")}
+        source={require("../assets/Jsplash.json")} // 👈 your animation file
         autoPlay
         loop={false}
         style={styles.animation}
-        resizeMode="cover"
         onAnimationFinish={() => {
           console.log("Animation finished");
-        }}
-        onLoad={() => {
-          console.log("Animation loaded");
+          // Optional: Navigate immediately when animation finishes
+          // navigation.replace("LogIn");
         }}
       />
     </View>

@@ -891,7 +891,7 @@ export default function ActivityLogs({ navigation }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Header2 showBackButton={true} />
+      <Header2 />
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#234187" />

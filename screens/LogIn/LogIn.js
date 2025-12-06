@@ -30,15 +30,12 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig.js";
-import { createAdminSession, clearAdminSession } from "../../services/AdminSessionService.js";
 import {
   checkLoginLockout,
   incrementLoginAttempts,
   resetLoginAttempts,
   formatLockoutTime,
-  getLockoutMessage,
-  getRemainingAttemptsMessage,
-  LOCKOUT_DURATIONS, // ADD THIS
+  LOCKOUT_DURATION,
 } from "./deviceLockout";
 
 const Logo = require("../../assets/logo.png");
@@ -88,21 +85,22 @@ const BrandedAlertModal = ({ visible, type, title, message, onClose }) => {
 };
 
 export default function Login() {
-  const navigation = useNavigation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [deviceLocked, setDeviceLocked] = useState(false);
   const [lockoutTime, setLockoutTime] = useState(null);
-  const [lockoutMessage, setLockoutMessage] = useState("");
 
   // Alert Modal State
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertType, setAlertType] = useState("info");
   const [alertTitle, setAlertTitle] = useState("");
   const [alertMessage, setAlertMessage] = useState("");
+
+  const navigation = useNavigation();
 
   const showAlert = (type, title, message) => {
     setAlertType(type);
@@ -116,61 +114,52 @@ export default function Login() {
   };
 
   useEffect(() => {
-    let timer;
+    checkDeviceLockoutStatus();
+    // Temporary: Clear old lockout data for testing
+    clearOldLockoutData();
+  }, []);
+
+  const clearOldLockoutData = async () => {
+    try {
+      await AsyncStorage.removeItem("device_login_lockout");
+      await AsyncStorage.removeItem("device_login_attempts");
+      console.log("Cleared old lockout data");
+    } catch (error) {
+      console.error("Error clearing lockout data:", error);
+    }
+  };
+
+  // Always clear email, password, and errors whenever Login regains focus
+  useFocusEffect(
+    React.useCallback(() => {
+      setEmail("");
+      setPassword("");
+      setErrors({});
+    }, [])
+  );
+
+  useEffect(() => {
+    let interval;
     if (deviceLocked && lockoutTime > 0) {
-      timer = setInterval(() => {
-        setLockoutTime((prevTime) => {
-          const newTime = prevTime - 1000; // Decrease by 1 second
-          
+      interval = setInterval(() => {
+        setLockoutTime((prev) => {
+          const newTime = prev - 1000;
           if (newTime <= 0) {
-            // Lockout expired
-            console.log("✅ Lockout timer expired, unlocking...");
             setDeviceLocked(false);
-            setLockoutTime(null);
-            setLockoutMessage("");
-            
-            // Clear lockout from AsyncStorage
-            if (email && email.trim()) {
-              resetLoginAttempts(email.trim());
-            }
-            
-            return 0;
+            return null;
           }
-          
           return newTime;
         });
-      }, 1000); // Update every second
+      }, 1000);
     }
-
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [deviceLocked, lockoutTime, email]);
-
-  // Check lockout status when email changes
-  useEffect(() => {
-    if (email && email.trim() !== "") {
-      checkDeviceLockoutStatus();
-    }
-  }, [email]);
+    return () => clearInterval(interval);
+  }, [deviceLocked, lockoutTime]);
 
   const checkDeviceLockoutStatus = async () => {
-    if (!email || email.trim() === "") return;
-    
-    console.log("🔍 Checking lockout status for account:", email);
-    const lockoutStatus = await checkLoginLockout(email.trim());
-    console.log("Lockout status:", lockoutStatus);
-    
+    const lockoutStatus = await checkLoginLockout();
     if (lockoutStatus.isLockedOut) {
-      console.log("🔒 Account was already locked");
       setDeviceLocked(true);
       setLockoutTime(lockoutStatus.remainingTime);
-      setLockoutMessage(getLockoutMessage(lockoutStatus.totalAttempts));
-    } else {
-      console.log("✅ Account is not locked");
-      setDeviceLocked(false);
-      setLockoutTime(null);
-      setLockoutMessage("");
     }
   };
 
@@ -243,7 +232,6 @@ export default function Login() {
 
     console.log("Validation passed!");
 
-    // Check if account is locked in Firestore
     try {
       console.log("Checking lockout status...");
       const lockoutStatus = await checkLoginLockout();
@@ -262,8 +250,8 @@ export default function Login() {
         );
         return;
       }
-    } catch (checkError) {
-      console.error("Error checking account lock:", checkError);
+    } catch (lockoutError) {
+      console.log("Lockout check error (continuing anyway):", lockoutError);
     }
 
     console.log("Starting Firebase authentication...");
@@ -271,10 +259,6 @@ export default function Login() {
 
     try {
       console.log("Calling signInWithEmailAndPassword...");
-      
-      // Set user session flag BEFORE authentication to prevent logout loop
-      await AsyncStorage.setItem("@user_active_session", "true");
-      
       const userCredential = await signInWithEmailAndPassword(
         auth,
         email.trim(),
@@ -356,8 +340,6 @@ export default function Login() {
               console.log(
                 "🔀 Navigating to AdminDashboard (verified admin user)"
               );
-              // Create admin session
-              await createAdminSession(user.uid, email.trim(), "Admin");
               navigation.reset({
                 index: 0,
                 routes: [{ name: "AdminDashboard" }],
@@ -365,7 +347,6 @@ export default function Login() {
             } else {
               console.log("👤 User role:", userData.role || "Regular user");
               console.log("🔀 Navigating to Home (verified regular user)");
-              // Session flag already set before authentication
               navigation.reset({
                 index: 0,
                 routes: [{ name: "Home" }],
@@ -374,25 +355,24 @@ export default function Login() {
             return;
           }
 
-          console.log("⏳ User not verified, redirecting to OTP");
-          setLoading(false);
-          navigation.navigate("VerifyIdentity");
+          console.log("✅ User data loaded:", userData);
+          // You can store userData in global state (Context/Redux) if needed
         } else {
           console.log("❌ User document does not exist in Firestore");
           setLoading(false);
           setErrors({ auth: "User data not found." });
           return;
         }
+
+        // Navigate to VerifyIdentity for OTP verification (only if not verified)
+        console.log("⏳ User not verified, redirecting to OTP");
+        navigation.navigate("VerifyIdentity");
       } catch (firestoreError) {
         console.error("Firestore Error:", firestoreError);
-        setLoading(false);
         setErrors({ auth: "Error loading user data. Please try again." });
       }
     } catch (error) {
       console.error("Firebase Login Error:", error.code, error.message);
-
-      // Clear session flag on login failure
-      await AsyncStorage.removeItem("@user_active_session");
 
       try {
         const attempts = await incrementLoginAttempts();
@@ -417,7 +397,7 @@ export default function Login() {
 
         if (remainingAttempts <= 0) {
           setDeviceLocked(true);
-          setLockoutTime(LOCKOUT_DURATIONS[0]);
+          setLockoutTime(LOCKOUT_DURATION);
         } else {
           setErrors({ auth: errorMessage });
         }
@@ -441,7 +421,7 @@ export default function Login() {
           <Ionicons name="lock-closed" size={48} color="#c41e3a" />
           <Text style={styles.lockedTitle}>Account Locked</Text>
           <Text style={styles.lockedSubtitle}>
-            {lockoutMessage}
+            Too many failed login attempts
           </Text>
           <Text style={styles.lockedTime}>
             {lockoutTime ? formatLockoutTime(lockoutTime) : "00:00"}
@@ -527,6 +507,16 @@ export default function Login() {
 
             {/* Options Row */}
             <View style={styles.optionsRow}>
+              <View style={styles.checkboxContainer}>
+                <Checkbox
+                  value={remember}
+                  onValueChange={setRemember}
+                  color={remember ? "#3b4cca" : undefined}
+                  style={styles.checkbox}
+                />
+                <Text style={styles.rememberText}>Remember password</Text>
+              </View>
+
               <View style={styles.forgotWrapper}>
                 <TouchableOpacity onPress={handleForgotPassword}>
                   <Text style={styles.forgotText}>Forgot password?</Text>
@@ -658,13 +648,21 @@ const styles = StyleSheet.create({
   },
   optionsRow: {
     flexDirection: "row",
-    justifyContent: "flex-start",
+    justifyContent: "space-between",
     alignItems: "center",
     width: "100%",
     marginVertical: 14,
+    gap: 12,
   },
-  forgotWrapper: {
-    // Removed extra styles, inherits from parent
+  checkboxContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  checkbox: {
+    marginRight: 2,
+  },
+  rememberText: {
+    color: "#333",
   },
   forgotText: {
     color: "#3b4cca",

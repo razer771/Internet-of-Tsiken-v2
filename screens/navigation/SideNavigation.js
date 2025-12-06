@@ -141,7 +141,6 @@ export default function SideNavigation({ visible, onClose, navigation }) {
       await AsyncStorage.removeItem("adminEmail");
       await AsyncStorage.removeItem("chicksCount");
       await AsyncStorage.removeItem("daysCount");
-      await AsyncStorage.removeItem("@user_active_session");
 
       console.log("Logged out successfully");
       setShowLogoutModal(false);

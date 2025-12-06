@@ -24,8 +24,7 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.ailynmay.capstone"
+      "supportsTablet": true
     },
     "android": {
       "googleServicesFile": "./google-services.json",
