@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Modal,
+  ActivityIndicator,
 } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import Header2 from "../navigation/adminHeader";
@@ -22,6 +23,7 @@ import {
   query,
   where,
   getDocs,
+  serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig";
 
@@ -90,6 +92,9 @@ export default function CreateAccount({ navigation }) {
 
   // Success modal
   const [successVisible, setSuccessVisible] = useState(false);
+  
+  // Loading state
+  const [loading, setLoading] = useState(false);
 
   // Alert Modal State
   const [alertVisible, setAlertVisible] = useState(false);
@@ -142,7 +147,35 @@ export default function CreateAccount({ navigation }) {
   };
 
   const validatePassword = (password) => {
-    return password.length >= 6;
+    // At least 8 characters, one uppercase, one lowercase, one number
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    return passwordRegex.test(password);
+  };
+
+  // Check if email already exists in Firestore
+  const checkEmailExists = async (email) => {
+    try {
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("email", "==", email.toLowerCase().trim()));
+      const querySnapshot = await getDocs(q);
+      return !querySnapshot.empty;
+    } catch (error) {
+      console.error("Error checking email:", error);
+      return false;
+    }
+  };
+
+  // Check if mobile number already exists in Firestore
+  const checkMobileExists = async (mobile) => {
+    try {
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("mobileNumber", "==", mobile.trim()));
+      const querySnapshot = await getDocs(q);
+      return !querySnapshot.empty;
+    } catch (error) {
+      console.error("Error checking mobile:", error);
+      return false;
+    }
   };
 
   const handleSaveChanges = async () => {
@@ -184,26 +217,28 @@ export default function CreateAccount({ navigation }) {
       newErrors.mobileNumber =
         "Mobile number must be 10 digits with no spaces or special characters.";
     } else if (!validateMobileNumber(mobileNumber)) {
-      newErrors.mobileNumber = "Mobile Number already exist.";
+      newErrors.mobileNumber = "Invalid format. Use: 09XXXXXXXXX (11 digits).";
     }
 
     // Password validation
     if (!password) {
       newErrors.password = "Password is required.";
     } else if (!validatePassword(password)) {
-      newErrors.password = "Password must be six or more characters.";
+      newErrors.password = "Password must be 8+ characters with uppercase, lowercase, and number.";
     }
 
     // Confirm Password validation
     if (!confirmPassword) {
       newErrors.confirmPassword = "Please confirm your password.";
     } else if (password !== confirmPassword) {
-      newErrors.confirmPassword = "Password don't match.";
+      newErrors.confirmPassword = "Passwords don't match.";
     }
 
     // Role validation
     if (!role) {
       newErrors.role = "Role is required.";
+    } else if (!roles.includes(role)) {
+      newErrors.role = "Please select a valid role (Admin or User).";
     }
 
     setErrors(newErrors);
@@ -265,8 +300,8 @@ export default function CreateAccount({ navigation }) {
           verified: false,
           phoneVerified: false,
           otpVerified: false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
           failedLoginAttempts: 0,
           failedOtpAttempts: 0,
           mobileVerificationAttempts: 0,
@@ -356,7 +391,7 @@ export default function CreateAccount({ navigation }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Header2 />
+      <Header2 showBackButton={true} />
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -398,6 +433,7 @@ export default function CreateAccount({ navigation }) {
               }}
               onFocus={() => setFocusedField("firstName")}
               onBlur={() => setFocusedField(null)}
+              maxLength={50}
             />
             {errors.firstName && (
               <Text style={styles.errorText}>{errors.firstName}</Text>
@@ -427,6 +463,7 @@ export default function CreateAccount({ navigation }) {
               }}
               onFocus={() => setFocusedField("middleName")}
               onBlur={() => setFocusedField(null)}
+              maxLength={50}
             />
             {errors.middleName && (
               <Text style={styles.errorText}>{errors.middleName}</Text>
@@ -459,6 +496,7 @@ export default function CreateAccount({ navigation }) {
               }}
               onFocus={() => setFocusedField("lastName")}
               onBlur={() => setFocusedField(null)}
+              maxLength={50}
             />
             {errors.lastName && (
               <Text style={styles.errorText}>{errors.lastName}</Text>
@@ -665,6 +703,14 @@ export default function CreateAccount({ navigation }) {
             </View>
             {errors.role && <Text style={styles.errorText}>{errors.role}</Text>}
 
+            {/* General Error Message */}
+            {errors.auth && (
+              <View style={styles.generalErrorContainer}>
+                <MaterialCommunityIcons name="alert-circle" size={20} color="#DC2626" />
+                <Text style={styles.generalErrorText}>{errors.auth}</Text>
+              </View>
+            )}
+
             {/* Save Changes Button */}
             <TouchableOpacity
               style={[
@@ -672,9 +718,10 @@ export default function CreateAccount({ navigation }) {
                 pressedBtn === "save" && styles.saveButtonPressed,
               ]}
               activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("save")}
+              onPressIn={() => !loading && setPressedBtn("save")}
               onPressOut={() => setPressedBtn(null)}
               onPress={handleSaveChanges}
+              disabled={loading}
             >
               <Text
                 style={[
@@ -693,9 +740,10 @@ export default function CreateAccount({ navigation }) {
                 pressedBtn === "cancel" && styles.cancelButtonPressed,
               ]}
               activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("cancel")}
+              onPressIn={() => !loading && setPressedBtn("cancel")}
               onPressOut={() => setPressedBtn(null)}
               onPress={handleCancel}
+              disabled={loading}
             >
               <Text
                 style={[
@@ -932,6 +980,26 @@ const styles = StyleSheet.create({
   },
   cancelButtonTextPressed: {
     color: "#fff",
+  },
+  saveButtonDisabled: {
+    opacity: 0.6,
+  },
+  cancelButtonDisabled: {
+    opacity: 0.6,
+  },
+  generalErrorContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEE2E2",
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 16,
+    gap: 8,
+  },
+  generalErrorText: {
+    fontSize: 14,
+    color: "#DC2626",
+    flex: 1,
   },
   successOverlay: {
     flex: 1,

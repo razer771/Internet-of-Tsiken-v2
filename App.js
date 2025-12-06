@@ -6,9 +6,11 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { navigationRef } from "./services/NavigationService";
 import * as SplashScreen from "expo-splash-screen";
 import { NotificationProvider } from "./screens/User/controls/NotificationContext";
+import { AdminNotificationProvider } from "./screens/Admin/AdminNotificationContext";
 import { auth } from "./config/firebaseconfig";
 import { onAuthStateChanged } from "firebase/auth";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { validateAdminSession, clearAdminSession } from "./services/AdminSessionService.js";
 
 // Keep the splash screen visible while we fetch resources
 try {
@@ -48,9 +50,10 @@ import UserManagement from "./screens/Admin/userManagement";
 import CreateAccount from "./screens/Admin/createAccount";
 import AdminAnalytics from "./screens/Admin/adminAnalytics";
 import AdminNotification from "./screens/Admin/AdminNotification";
-import { AdminNotificationProvider } from "./screens/Admin/AdminNotificationContext";
 import Header from "./screens/navigation/Header";
+import AdminHeader from "./screens/navigation/adminHeader";
 import BottomNavigation from "./screens/navigation/BottomNavigation";
+import ActivityLogs from "./screens/Admin/activityLogs";
 
 const Stack = createNativeStackNavigator();
 
@@ -66,6 +69,10 @@ const AUTH_SCREENS = [
   "OTPVerification",
   "ConfirmPassword",
   "CreateNewPassword",
+];
+
+// Admin screens (no header/bottom nav, but should not trigger redirects)
+const ADMIN_SCREENS = [
   "AdminDashboard",
   "UserManagement",
   "CreateAccount",
@@ -73,6 +80,9 @@ const AUTH_SCREENS = [
   "AdminActivityLogs",
   "AdminNotification",
 ];
+
+// Combined list for UI rendering (screens without header/bottom nav)
+const NO_NAV_SCREENS = [...AUTH_SCREENS, ...ADMIN_SCREENS];
 
 // Screen wrapper that reports its route name to parent
 function ScreenWithRouteTracker({
@@ -106,46 +116,100 @@ function createTrackedScreen(Component, routeName, onRouteChange) {
 export default function App() {
   const [currentRoute, setCurrentRoute] = useState("JsonSplash");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [initialRoute, setInitialRoute] = useState("JsonSplash");
+  const [showSplash, setShowSplash] = useState(true);
+  const [appReady, setAppReady] = useState(false);
   const isAuthScreen = AUTH_SCREENS.includes(currentRoute);
+  const isAdminScreen = ADMIN_SCREENS.includes(currentRoute);
 
-  // Listen to authentication state changes
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        // User is signed in
-        setIsAuthenticated(true);
-        // Check if user is admin
-        const isAdmin = await AsyncStorage.getItem("isAdminBypass");
-        if (isAdmin === "true") {
-          setInitialRoute("AdminDashboard");
-        } else {
-          setInitialRoute("Home");
-        }
-      } else {
-        // User is signed out
-        setIsAuthenticated(false);
-        setInitialRoute("LogIn");
-      }
-      setAuthLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
+  // Prepare app and hide Expo splash screen
   useEffect(() => {
     async function prepare() {
       try {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        // Keep Expo splash visible briefly
+        await new Promise((resolve) => setTimeout(resolve, 100));
       } catch (e) {
         console.warn(e);
       } finally {
+        setAppReady(true);
         await SplashScreen.hideAsync();
       }
     }
     prepare();
   }, []);
+
+  // Listen to authentication state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      try {
+        if (user) {
+          // User is signed in
+          
+          // Validate admin session using the session service
+          const { isValid, email, role } = await validateAdminSession();
+          
+          if (isValid) {
+            setIsAuthenticated(true);
+            setIsAdmin(true);
+            setInitialRoute("AdminDashboard");
+            console.log(`✓ Admin session active for: ${email} (${role})`);
+          } else {
+            // Regular user - require fresh login after app restart
+            // Check if this is a fresh app start by checking AsyncStorage flag
+            const hasActiveSession = await AsyncStorage.getItem("@user_active_session");
+            
+            if (hasActiveSession === "true") {
+              // User had an active session
+              setIsAuthenticated(true);
+              setIsAdmin(false);
+              setInitialRoute("Home");
+            } else {
+              // No active session flag - require login
+              setIsAuthenticated(false);
+              setIsAdmin(false);
+              setInitialRoute("LogIn");
+              // Sign out from Firebase
+              await auth.signOut();
+              console.log("No active user session - redirecting to login");
+            }
+          }
+        } else {
+          // User is signed out - clear all session data
+          setIsAuthenticated(false);
+          setIsAdmin(false);
+          setInitialRoute("LogIn");
+          
+          // Clear admin session using the session service
+          await clearAdminSession();
+          // Clear user session flag
+          await AsyncStorage.removeItem("@user_active_session");
+        }
+      } catch (error) {
+        console.error("Error in auth state change:", error);
+        // Fallback to safe defaults
+        setIsAuthenticated(false);
+        setIsAdmin(false);
+        setInitialRoute("LogIn");
+      } finally {
+        setAuthLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Hide custom splash screen after animation completes
+  useEffect(() => {
+    if (!appReady) return;
+    
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+    }, 3500); // Match animation duration
+    
+    return () => clearTimeout(timer);
+  }, [appReady]);
 
   // Prevent hardware back button from navigating to auth screens when authenticated
   useEffect(() => {
@@ -153,7 +217,7 @@ export default function App() {
       "hardwareBackPress",
       () => {
         if (isAuthenticated && AUTH_SCREENS.includes(currentRoute)) {
-          // Prevent going back to auth screens when authenticated
+          // Prevent going back to auth screens when authenticated (not admin screens)
           return true;
         }
         // Allow default back behavior
@@ -167,10 +231,9 @@ export default function App() {
   // Redirect authenticated users away from auth screens
   useEffect(() => {
     if (isAuthenticated && !authLoading) {
-      // If user is authenticated but on an auth screen, redirect
+      // If user is authenticated but on an actual auth screen (not admin screens), redirect
       if (
         AUTH_SCREENS.includes(currentRoute) &&
-        currentRoute !== "AdminDashboard" &&
         currentRoute !== "JsonSplash"
       ) {
         if (navigationRef.isReady()) {
@@ -211,11 +274,16 @@ export default function App() {
     }
   };
 
-  // Show loading screen while checking auth state
-  if (authLoading) {
+  // Don't render anything until app is ready
+  if (!appReady) {
+    return null;
+  }
+
+  // Show custom splash screen while checking auth state
+  if (authLoading || showSplash) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" color="#4CAF50" />
+      <View style={styles.splashContainer}>
+        <JsonSplashScreen />
       </View>
     );
   }
@@ -225,9 +293,9 @@ export default function App() {
       <AdminNotificationProvider>
         <View style={styles.container}>
           <NavigationContainer ref={navigationRef}>
-            {!isAuthScreen && <Header />}
+            {!isAuthScreen && !isAdminScreen && <Header />}
             <View
-              style={[styles.content, !isAuthScreen && styles.contentWithNav]}
+              style={[styles.content, !isAuthScreen && !isAdminScreen && styles.contentWithNav]}
             >
               <Stack.Navigator
                 initialRouteName={initialRoute}
@@ -309,6 +377,14 @@ export default function App() {
                   component={createTrackedScreen(
                     ConfirmPassword,
                     "ConfirmPassword",
+                    setCurrentRoute
+                  )}
+                />
+                <Stack.Screen
+                  name="CreateNewPassword"
+                  component={createTrackedScreen(
+                    CreateNewPassword,
+                    "CreateNewPassword",
                     setCurrentRoute
                   )}
                 />
@@ -464,7 +540,7 @@ export default function App() {
                 />
               </Stack.Navigator>
             </View>
-            {!isAuthScreen && (
+            {!isAuthScreen && !isAdminScreen && (
               <View style={styles.bottomNavContainer}>
                 <BottomNavigation
                   active={getActiveTab()}
@@ -487,5 +563,9 @@ const styles = StyleSheet.create({
   centerContent: {
     justifyContent: "center",
     alignItems: "center",
+  },
+  splashContainer: {
+    flex: 1,
+    backgroundColor: "#24208fff",
   },
 });
