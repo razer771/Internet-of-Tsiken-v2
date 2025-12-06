@@ -189,29 +189,6 @@ export default function App() {
     setAlertVisible(false);
   };
 
-  // Sign out any existing user on app start for fresh login experience
-  useEffect(() => {
-    const signOutExistingUser = async () => {
-      try {
-        const currentUser = auth.currentUser;
-        if (currentUser) {
-          console.log(
-            "🔄 Signing out existing user for fresh app start:",
-            currentUser.uid
-          );
-          await auth.signOut();
-          console.log("✅ Successfully signed out existing user");
-        } else {
-          console.log("ℹ️ No existing user to sign out");
-        }
-      } catch (error) {
-        console.error("❌ Error signing out existing user:", error);
-      }
-    };
-
-    signOutExistingUser();
-  }, []); // Empty dependency array - runs once on app start
-
   // Listen to authentication state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
