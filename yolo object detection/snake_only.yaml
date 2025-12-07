@@ -1,6 +1,0 @@
-names:
-- snake
-nc: 1
-path: C:\Users\Lloyd\Internet-of-Tsiken-v2\yolo object detection\Snake-detect-8
-train: train/images
-val: valid/images
