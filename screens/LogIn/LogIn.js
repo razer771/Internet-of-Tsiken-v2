@@ -335,7 +335,7 @@ export default function Login() {
               console.log("✅ Verified + Active + Admin → AdminDashboard");
 
               // Log successful admin login (with timeout)
-              const logPromise = addDoc(collection(db, "session_logs"), {
+              const logPromise = addDoc(collection(db, "session_log"), {
                 userId: user.uid,
                 action: "login",
                 description: "Logged in",
@@ -374,7 +374,7 @@ export default function Login() {
               console.log("✅ Verified + Active + User → Home");
 
               // Log successful user login (with timeout)
-              const logPromise = addDoc(collection(db, "session_logs"), {
+              const logPromise = addDoc(collection(db, "session_log"), {
                 userId: user.uid,
                 action: "login",
                 description: "Logged in",

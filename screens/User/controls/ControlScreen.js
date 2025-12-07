@@ -34,6 +34,8 @@ import {
   query,
   where,
   getDoc,
+  orderBy,
+  limit,
 } from "firebase/firestore";
 import {
   initializeSensors,
@@ -100,18 +102,26 @@ export default function ControlScreen({ navigation }) {
         console.error("⚠️ [LOGGING] Failed to fetch user data:", fetchErr);
       }
 
-      // Format time in GMT+8
+      // Format time in GMT+8 using proper timezone handling
       const formatTimeGMT8 = (isoString) => {
         if (!isoString) return "N/A";
         const date = new Date(isoString);
-        // GMT+8 offset (8 hours * 60 minutes * 60 seconds * 1000 milliseconds)
-        const gmt8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
-        return gmt8Date.toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: true,
-          timeZone: "UTC", // Already adjusted to GMT+8
-        });
+        // Input is UTC ISO string corresponding to GMT+8 time, so format directly as GMT+8
+        return (
+          date.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+            timeZone: "Asia/Manila",
+          }) +
+          ", " +
+          date.toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+            timeZone: "Asia/Manila",
+          })
+        );
       };
 
       // Build log record with all required fields
@@ -140,11 +150,8 @@ export default function ControlScreen({ navigation }) {
         }),
       };
 
-      // Save to Firestore: activity_logs/{actionType}/{auto-generated-id}
-      await addDoc(
-        collection(db, "activity_logs", actionType, "logs"),
-        logRecord
-      );
+      // Save to Firestore: direct collection (separate collections instead of subfolders)
+      await addDoc(collection(db, actionType), logRecord);
 
       console.log(`✅ [LOGGING] Logged to ${actionType}:`, logRecord);
     } catch (error) {
@@ -258,6 +265,7 @@ export default function ControlScreen({ navigation }) {
   useEffect(() => {
     loadFeedsFromFirestore();
     loadWateringScheduleFromFirestore();
+    loadNightTimeFromFirestore();
   }, []);
 
   const loadFeedsFromFirestore = async () => {
@@ -326,8 +334,8 @@ export default function ControlScreen({ navigation }) {
           seenIds.add(data.wateringId);
 
           loadedWaterings.push({
-            id: data.wateringId,
-            label: data.label,
+            id: parseInt(data.wateringId) || 0,
+            label: data.label || `Watering ${data.wateringId || "Unknown"}`,
             time: data.time,
           });
         }
@@ -349,6 +357,36 @@ export default function ControlScreen({ navigation }) {
     }
   };
 
+  const loadNightTimeFromFirestore = async () => {
+    try {
+      // Fetch the night time document with fixed ID "1"
+      const nightTimeDoc = await getDoc(doc(db, "nightTime", "1"));
+      if (nightTimeDoc.exists()) {
+        const data = nightTimeDoc.data();
+        // Use the stored UTC selectedTime directly (DateTimePicker handles display)
+        if (data.selectedTime) {
+          const selectedTime = new Date(data.selectedTime);
+          setNightStart(selectedTime);
+          console.log(
+            "🌙 [LOAD] Night time loaded:",
+            data.selectedTimeGMT8Formatted || "N/A"
+          );
+        } else {
+          console.log("🌙 [LOAD] No time set in document");
+          setNightStart(new Date()); // Default to current time
+        }
+        console.log(
+          "🌙 [LOAD] Night time loaded from Firestore:",
+          data.selectedTimeGMT8Formatted
+        );
+      } else {
+        console.log("🌙 [LOAD] No night time schedule found, using default");
+      }
+    } catch (err) {
+      console.error("Failed to load night time schedule:", err);
+    }
+  };
+
   // confirm modals
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
   const [confirmSaveVisible, setConfirmSaveVisible] = useState(false);
@@ -362,6 +400,8 @@ export default function ControlScreen({ navigation }) {
   const [pendingNightTime, setPendingNightTime] = useState(null);
   // morning warning before confirmation
   const [warnMorningVisible, setWarnMorningVisible] = useState(false);
+  // same time warning modal
+  const [showSameTimeModal, setShowSameTimeModal] = useState(false);
 
   // feed add time picker flow
   const [pendingFeedTime, setPendingFeedTime] = useState(null);
@@ -387,6 +427,7 @@ export default function ControlScreen({ navigation }) {
 
   // popups
   const [showSavedPopup, setShowSavedPopup] = useState(false);
+  const [showDeletedPopup, setShowDeletedPopup] = useState(false);
 
   // camera placeholder modal
   const [cameraModal, setCameraModal] = useState(false);
@@ -547,7 +588,7 @@ export default function ControlScreen({ navigation }) {
 
         // Log activity to Firestore
         await logActivity("addFeedSchedule_logs", {
-          action: "Add new feed schedule",
+          action: "New feed schedule",
           description: `Added ${formattedTime}`,
           feedId: nextId,
           newTime: formattedTime,
@@ -680,8 +721,8 @@ export default function ControlScreen({ navigation }) {
     setIsSubmitting(false);
 
     // Show success popup
-    setShowSavedPopup(true);
-    setTimeout(() => setShowSavedPopup(false), 1200);
+    setShowDeletedPopup(true);
+    setTimeout(() => setShowDeletedPopup(false), 1200);
   };
 
   const toggleSelectToDelete = (id) => {
@@ -775,8 +816,8 @@ export default function ControlScreen({ navigation }) {
             setIsSubmitting(false);
 
             // Show success popup
-            setShowSavedPopup(true);
-            setTimeout(() => setShowSavedPopup(false), 1200);
+            setShowDeletedPopup(true);
+            setTimeout(() => setShowDeletedPopup(false), 1200);
           },
         },
       ],
@@ -995,7 +1036,7 @@ export default function ControlScreen({ navigation }) {
         // Log activity to Firestore
         await logActivity("deleteFeedSchedule_logs", {
           action: "Deleted a feeding schedule",
-          description: `Deleted schedule at ${feedToDelete.time}`,
+          description: `Deleted the ${feedToDelete.time} schedule`,
           feedId: pendingDeleteFeedId,
           oldTime: feedToDelete.time,
         });
@@ -1011,7 +1052,7 @@ export default function ControlScreen({ navigation }) {
         addNotification({
           category: "Schedule Management",
           title: "Feeding schedule deleted",
-          description: `${user.displayName || user.email} deleted feeding schedule at ${feedToDelete.time}`,
+          description: `${user.displayName || user.email} deleted feeding schedule : ${feedToDelete.time}`,
           type: "schedule",
         });
       }
@@ -1031,8 +1072,8 @@ export default function ControlScreen({ navigation }) {
     setConfirmDeleteFeedVisible(false);
     setPendingDeleteFeedId(null);
     setIsSubmitting(false);
-    setShowSavedPopup(true);
-    setTimeout(() => setShowSavedPopup(false), 1200);
+    setShowDeletedPopup(true);
+    setTimeout(() => setShowDeletedPopup(false), 1200);
   };
 
   // State for manual action operations
@@ -1125,7 +1166,7 @@ export default function ControlScreen({ navigation }) {
         // Log manual watering activity
         await logActivity("wateringActivity_logs", {
           action: "Manual sprinkler activated",
-          description: "User manually activated sprinkler",
+          description: "Manually activated sprinkler",
           status: result.isSimulated ? "Simulated" : "Completed",
         });
 
@@ -1191,9 +1232,9 @@ export default function ControlScreen({ navigation }) {
     }
 
     const nextId = waterings.length
-      ? Math.max(...waterings.map((w) => w.id)) + 1
+      ? Math.max(...waterings.map((w) => parseInt(w.id) || 0)) + 1 || 1
       : 1;
-    const label = `Schedule ${nextId}`;
+    const label = `Watering ${nextId}`;
     const newWater = { id: nextId, label, time: formattedTime };
 
     try {
@@ -1226,13 +1267,16 @@ export default function ControlScreen({ navigation }) {
           timestamp: new Date().toISOString(),
         });
 
-        // Log activity to Firestore
-        await logActivity("addWaterSchedule_logs", {
-          action: "Add new watering schedule",
-          description: `Added ${formattedTime}`,
-          waterId: nextId,
+        // Log to session_logs collection
+        await addDoc(collection(db, "wateringActivity_logs"), {
+          action: "Watering schedule added",
+          description: `Added watering schedule : ${formattedTime}`,
+          oldTime: null,
           newTime: formattedTime,
-          selectedTime: pendingWaterTime.toISOString(),
+          wateringId: nextId,
+          userId: user.uid,
+          timestamp: new Date().toISOString(),
+          status: "saved",
         });
 
         // Add user notification
@@ -1246,7 +1290,7 @@ export default function ControlScreen({ navigation }) {
         addNotification({
           category: "Schedule Management",
           title: "Watering schedule added",
-          description: `${user.displayName || user.email} added watering schedule at ${formattedTime}`,
+          description: `Added watering schedule : ${formattedTime}`,
           type: "schedule",
         });
       }
@@ -1273,6 +1317,9 @@ export default function ControlScreen({ navigation }) {
       });
       return sorted;
     });
+
+    // Reload from Firestore to ensure consistency
+    loadWateringScheduleFromFirestore();
 
     // Close all related modals
     setConfirmWaterAddVisible(false);
@@ -1359,14 +1406,16 @@ export default function ControlScreen({ navigation }) {
           }
         );
 
-        // Log activity to Firestore
-        await logActivity("editWaterSchedule_logs", {
-          action: "Updated watering time",
+        // Log to session_logs collection
+        await addDoc(collection(db, "editWaterSchedule_logs"), {
+          action: "Watering schedule updated",
           description: `Changed from ${oldTime} to ${newTime}`,
-          waterId: wateringId,
           oldTime: oldTime,
           newTime: newTime,
-          selectedTime: waterEdit.timeDate.toISOString(),
+          wateringId: wateringId,
+          userId: user.uid,
+          timestamp: new Date().toISOString(),
+          status: "saved",
         });
 
         // Add user notification
@@ -1467,12 +1516,16 @@ export default function ControlScreen({ navigation }) {
           doc(db, "wateringSchedules", `${user.uid}_${pendingDeleteWaterId}`)
         );
 
-        // Log activity to Firestore
-        await logActivity("deleteWaterSchedule_logs", {
-          action: "Deleted a watering schedule",
-          description: `Deleted schedule at ${waterToDelete.time}`,
-          waterId: pendingDeleteWaterId,
+        // Log to session_logs collection
+        await addDoc(collection(db, "wateringActivity_logs"), {
+          action: "Watering schedule deleted",
+          description: `Deleted the ${waterToDelete.time} watering schedule`,
           oldTime: waterToDelete.time,
+          newTime: null,
+          wateringId: pendingDeleteWaterId,
+          userId: user.uid,
+          timestamp: new Date().toISOString(),
+          status: "saved",
         });
 
         // Add user notification
@@ -1506,8 +1559,8 @@ export default function ControlScreen({ navigation }) {
     setConfirmDeleteWaterVisible(false);
     setPendingDeleteWaterId(null);
     setIsSubmitting(false);
-    setShowSavedPopup(true);
-    setTimeout(() => setShowSavedPopup(false), 1200);
+    setShowDeletedPopup(true);
+    setTimeout(() => setShowDeletedPopup(false), 1200);
   };
 
   // Watering schedule delete all functionality
@@ -1561,11 +1614,15 @@ export default function ControlScreen({ navigation }) {
 
         // Log activity for each deleted schedule
         for (const watering of waterings) {
-          await logActivity("deleteWaterSchedule_logs", {
-            action: "Deleted a watering schedule",
-            description: `Deleted schedule at ${watering.time}`,
-            waterId: watering.id,
+          await addDoc(collection(db, "deleteWaterSchedule_logs"), {
+            action: "Watering schedule deleted",
+            description: `Deleted the watering schedule ${watering.time}`,
             oldTime: watering.time,
+            newTime: null,
+            wateringId: watering.id,
+            userId: user.uid,
+            timestamp: new Date().toISOString(),
+            status: "saved",
           });
         }
 
@@ -1599,8 +1656,8 @@ export default function ControlScreen({ navigation }) {
     setIsSubmitting(false);
 
     // Show success popup
-    setShowSavedPopup(true);
-    setTimeout(() => setShowSavedPopup(false), 1200);
+    setShowDeletedPopup(true);
+    setTimeout(() => setShowDeletedPopup(false), 1200);
   };
 
   const deleteSelectedWater = () => {
@@ -1661,11 +1718,14 @@ export default function ControlScreen({ navigation }) {
 
                 // Log activity for each deleted schedule
                 for (const watering of deletedWaterings) {
-                  await logActivity("deleteWaterSchedule_logs", {
-                    action: "Deleted a watering schedule",
-                    description: `Deleted schedule at ${watering.time}`,
-                    waterId: watering.id,
+                  await addDoc(collection(db, "session_logs"), {
+                    action: "Watering schedule deleted",
                     oldTime: watering.time,
+                    newTime: null,
+                    wateringId: watering.id,
+                    userId: user.uid,
+                    timestamp: new Date().toISOString(),
+                    status: "saved",
                   });
                 }
 
@@ -1703,8 +1763,8 @@ export default function ControlScreen({ navigation }) {
             setIsSubmitting(false);
 
             // Show success popup
-            setShowSavedPopup(true);
-            setTimeout(() => setShowSavedPopup(false), 1200);
+            setShowDeletedPopup(true);
+            setTimeout(() => setShowDeletedPopup(false), 1200);
           },
         },
       ],
@@ -1818,6 +1878,26 @@ export default function ControlScreen({ navigation }) {
   const fmtDate = (d) => d.toISOString().split("T")[0];
   const fmtTime = (d) =>
     d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const formatTimeGMT8 = (isoString) => {
+    if (!isoString) return "N/A";
+    const date = new Date(isoString);
+    // Input is UTC ISO string corresponding to GMT+8 time, so format directly as GMT+8
+    return (
+      date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "Asia/Manila",
+      }) +
+      ", " +
+      date.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: "Asia/Manila",
+      })
+    );
+  };
 
   const saveNightTimeLog = async (time) => {
     console.log("📄 [ACTION] Saving night schedule");
@@ -1837,71 +1917,94 @@ export default function ControlScreen({ navigation }) {
         return;
       }
 
-      // Fetch firstName and lastName from users collection
+      // Fetch user profile
+      const userDocRef = doc(db, "users", user.uid);
+      const userDocSnap = await getDoc(userDocRef);
       let firstName = "N/A";
       let lastName = "N/A";
-      try {
-        const userDocRef = doc(db, "users", user.uid);
-        const userDocSnap = await getDoc(userDocRef);
-        if (userDocSnap.exists()) {
-          const userData = userDocSnap.data();
-          firstName = userData.firstName || "N/A";
-          lastName = userData.lastName || "N/A";
-        }
-      } catch (userFetchError) {
-        console.error("Error fetching user data:", userFetchError);
+
+      if (userDocSnap.exists()) {
+        const userData = userDocSnap.data();
+        firstName = userData.firstName || "N/A";
+        lastName = userData.lastName || "N/A";
       }
 
-      // Convert to GMT+8 and format as human-readable string
-      const gmt8Time = new Date(time.getTime() + 8 * 60 * 60 * 1000);
-      const hours = gmt8Time.getUTCHours();
-      const minutes = gmt8Time.getUTCMinutes();
-      const ampm = hours >= 12 ? "PM" : "AM";
-      const hour12 = hours % 12 || 12;
-      const monthNames = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-      ];
-      const selectedTimeGMT8Formatted = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}, ${monthNames[gmt8Time.getUTCMonth()]} ${gmt8Time.getUTCDate()}, ${gmt8Time.getUTCFullYear()}`;
-      const timeOnly = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}`;
+      // Format GMT+8 string with date using Intl.DateTimeFormat
+      const formattedGMT8 = formatTimeGMT8(time.toISOString());
 
-      // Create log document directly in activity_logs/nightTime_logs/{autoId}
-      const logRecord = {
-        action: "Set the night time",
-        description: `Night time starts at ${timeOnly}`,
-        firstName: firstName,
-        lastName: lastName,
+      // Fetch previous time from document ID "1"
+      let previousTimeGMT8String = "N/A";
+      const prevDoc = await getDoc(doc(db, "nightTime", "1"));
+      if (prevDoc.exists()) {
+        previousTimeGMT8String =
+          prevDoc.data().selectedTimeGMT8Formatted || "N/A";
+      }
+
+      // Save/update record with fixed ID "1"
+      await setDoc(doc(db, "nightTime", "1"), {
+        nightTimeId: 1,
         selectedTime: time.toISOString(),
-        selectedTimeGMT8Formatted: selectedTimeGMT8Formatted,
+        selectedTimeGMT8Formatted: formattedGMT8,
         timestamp: new Date().toISOString(),
+        status: "saved",
+      });
+
+      // Log activity
+      await logActivity("nightTime_logs", {
+        action: "Set the night time",
+        description: `Night time starts : ${formattedGMT8}`,
+        oldTime: previousTimeGMT8String,
+        newTime: formattedGMT8,
+        selectedTime: time.toISOString(),
+        status: "saved",
         userId: user.uid,
-        userName: user.email || user.displayName || "Unknown",
-      };
+        firstName,
+        lastName,
+      });
 
-      // Save to Firestore: activity_logs/nightTime_logs/{autoId}
-      await addDoc(
-        collection(db, "activity_logs", "nightTime_logs", "logs"),
-        logRecord
-      );
-
-      console.log(`✅ [LOGGING] Logged night time schedule:`, logRecord);
-
-      setIsSubmitting(false);
+      // Show popup
       setShowSavedPopup(true);
       setTimeout(() => setShowSavedPopup(false), 1400);
+
+      // Update local state directly with the selected time
+      setNightStart(time);
+
+      setIsSubmitting(false);
     } catch (err) {
       setIsSubmitting(false);
-      Alert.alert("Error", err.message);
+      Alert.alert("Error", "Failed to save night time: " + err.message);
+    }
+  };
+
+  // Migration function to fix existing nightTime records with incorrect GMT+8 formatting
+  const migrateNightTimeRecords = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, "nightTime"));
+      const migrationPromises = [];
+
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        const correctedGMT8 = formatTimeGMT8(data.selectedTime);
+        if (correctedGMT8 !== (data.selectedTimeGMT8Formatted || "N/A")) {
+          migrationPromises.push(
+            setDoc(doc(db, "nightTime", docSnap.id), {
+              ...data,
+              selectedTimeGMT8Formatted: correctedGMT8,
+            }).then(() => {
+              console.log(
+                `✅ Migrated record ${docSnap.id} to GMT+8: ${correctedGMT8}`
+              );
+            })
+          );
+        }
+      });
+
+      await Promise.all(migrationPromises);
+      console.log(
+        `✅ Migration completed for ${migrationPromises.length} records`
+      );
+    } catch (err) {
+      console.error("❌ Migration failed:", err);
     }
   };
 
@@ -2336,10 +2439,11 @@ export default function ControlScreen({ navigation }) {
           value={waterEdit.open ? waterEdit.timeDate || new Date() : new Date()}
           mode="time"
           display="default"
-          onChange={(_, selected) => {
+          onChange={(event, selected) => {
             setShowWaterTimePicker(false);
-            if (selected)
+            if (event.type === "set" && selected) {
               setWaterEdit((prev) => ({ ...prev, timeDate: selected }));
+            }
           }}
         />
       )}
@@ -2371,15 +2475,18 @@ export default function ControlScreen({ navigation }) {
             const confirmed =
               (event?.type === "set" || !event?.type) && selected;
             if (confirmed) {
-              const hour = selected.getHours(); // 0-23
-              // Duplicate time check: if same as current nightStart, warn like feed schedule duplicate
-              const selectedStr = fmtTime(selected);
-              const currentStr = fmtTime(nightStart);
-              if (selectedStr === currentStr) {
-                setShowDuplicateModal(true);
+              // Compare GMT+8 formatted times
+              const selectedGMT8 = formatTimeGMT8(selected.toISOString());
+              const currentGMT8 = formatTimeGMT8(nightStart.toISOString());
+
+              if (selectedGMT8 === currentGMT8) {
+                // Show same time modal
+                setShowSameTimeModal(true);
                 return;
               }
+
               setPendingNightTime(selected);
+              const hour = selected.getHours(); // 0-23
               if (hour < 12) {
                 // Morning selection warning
                 setWarnMorningVisible(true);
@@ -2460,10 +2567,11 @@ export default function ControlScreen({ navigation }) {
               value={feedEdit.timeDate || new Date()}
               mode="time"
               display="default"
-              onChange={(_, selected) => {
-                setShowFeedTimePicker(false);
-                if (selected)
+              onChange={(event, selected) => {
+                if (event.type === "set" && selected) {
                   setFeedEdit((s) => ({ ...s, timeDate: selected }));
+                }
+                setShowFeedTimePicker(false);
               }}
             />
           )}
@@ -2472,10 +2580,11 @@ export default function ControlScreen({ navigation }) {
               value={waterEdit.timeDate || new Date()}
               mode="time"
               display="default"
-              onChange={(_, selected) => {
-                setShowWaterTimePicker(false);
-                if (selected)
+              onChange={(event, selected) => {
+                if (event.type === "set" && selected) {
                   setWaterEdit((s) => ({ ...s, timeDate: selected }));
+                }
+                setShowWaterTimePicker(false);
               }}
             />
           )}
@@ -2698,6 +2807,37 @@ export default function ControlScreen({ navigation }) {
         </View>
       </Modal>
 
+      {/* Same Time Warning Modal */}
+      <Modal
+        key="sameTimeModal"
+        visible={showSameTimeModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSameTimeModal(false)}
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Text style={{ fontWeight: "700", fontSize: 16 }}>
+              Same Time Selected
+            </Text>
+            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+              You picked the same time as the current night schedule.
+            </Text>
+            <View style={{ flexDirection: "row", marginTop: 12 }}>
+              <TouchableOpacity
+                style={[
+                  styles.smallActionBtn,
+                  { backgroundColor: PRIMARY, flex: 1 },
+                ]}
+                onPress={() => setShowSameTimeModal(false)}
+              >
+                <Text style={styles.smallActionText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Confirm Night Time Save */}
       <Modal
         key="confirmNightSaveModal"
@@ -2737,7 +2877,6 @@ export default function ControlScreen({ navigation }) {
                     return;
                   }
                   await saveNightTimeLog(pendingNightTime);
-                  setNightStart(pendingNightTime);
                   setConfirmNightSaveVisible(false);
                   setPendingNightTime(null);
                 }}
@@ -3035,6 +3174,24 @@ export default function ControlScreen({ navigation }) {
               style={{ width: 56, height: 56 }}
             />
             <Text style={styles.popupText}>Saved Successfully!</Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete popup */}
+      <Modal
+        key="deletePopupModal"
+        visible={showDeletedPopup}
+        transparent
+        animationType="fade"
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Image
+              source={require("../../../assets/logo.png")}
+              style={{ width: 56, height: 56 }}
+            />
+            <Text style={styles.popupText}>Deleted Successfully!</Text>
           </View>
         </View>
       </Modal>

@@ -83,6 +83,10 @@ export default function ActivityLogs({ navigation }) {
           "wateringActivity_logs",
           "activity_logs",
           "addBatch_logs",
+          "manualActivity_logs",
+          "feedingActivity_logs",
+          "verification_logs",
+          "feedingActivity_logs",
         ];
 
         // Fetch logs from all collections
