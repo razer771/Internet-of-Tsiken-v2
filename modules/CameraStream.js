@@ -135,30 +135,16 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
       // Add new detections to history
       if (data.objects && data.objects.length > 0) {
         const timestamp = new Date();
-<<<<<<< Updated upstream
-        const newDetections = data.objects.map((obj, idx) => ({
-          ...obj,
-          timestamp: timestamp.toISOString(),
-          uniqueId: `${obj.class}-${timestamp.getTime()}-${idx}`, // Unique ID per object
-        }));
-        
-        // Add to history and keep only last 5 detections
-        setDetectionHistory(prev => {
-          const combined = [...newDetections, ...prev];
-          return combined.slice(0, 5); // Keep only the 5 most recent
-=======
         const newDetections = data.objects.map(obj => ({
           ...obj,
           timestamp: timestamp.toISOString(),
         }));
-        
         // Add to history and keep only last 5 unique detections
         setDetectionHistory(prev => {
           const combined = [...newDetections, ...prev];
           // Remove duplicates based on class name and keep most recent
           const unique = [];
           const seen = new Set();
-          
           for (const det of combined) {
             const key = `${det.class}-${det.timestamp}`;
             if (!seen.has(key) && unique.length < 5) {
@@ -166,9 +152,7 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
               unique.push(det);
             }
           }
-          
           return unique;
->>>>>>> Stashed changes
         });
       }
     } catch (err) {
@@ -318,11 +302,7 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
               <Text style={styles.emptyText}>No objects detected yet</Text>
             </View>
           ) : (
-<<<<<<< Updated upstream
-            detectionHistory.map((obj) => {
-=======
             detectionHistory.map((obj, idx) => {
->>>>>>> Stashed changes
               const detectionTime = new Date(obj.timestamp);
               const timeString = detectionTime.toLocaleTimeString('en-US', { 
                 hour: '2-digit', 
@@ -333,13 +313,8 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
                 month: 'short', 
                 day: 'numeric' 
               });
-              
               return (
-<<<<<<< Updated upstream
-                <View key={obj.uniqueId} style={styles.tableRow}>
-=======
                 <View key={idx} style={styles.tableRow}>
->>>>>>> Stashed changes
                   <Text style={styles.tableCell}>{obj.class}</Text>
                   <Text style={[styles.tableCell, styles.accuracyText]}>{obj.confidence}%</Text>
                   <Text style={[styles.tableCell, styles.dateTimeText]}>

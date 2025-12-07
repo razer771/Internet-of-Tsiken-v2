@@ -59,11 +59,11 @@ def initialize_model():
     """Initialize YOLO model"""
     global model
     try:
-        # Use combined model with 82 classes (80 COCO + snake + rodent)
-        model = YOLO("runs/predator_detection/yolov8n_coco_plus_predators/weights/best.pt")
+        # Use base COCO model with 80 classes (person, car, dog, cat, etc.)
+        model = YOLO("yolov8n_coco.pt")
         # Enable GPU if available (will use CPU on Pi 5)
         model.to('cpu')  # Explicitly use CPU for Pi
-        logger.info("YOLO combined model loaded successfully (COCO + predators)")
+        logger.info("YOLO base COCO model loaded successfully")
         logger.info(f"Detecting: {model.names}")
         return True
     except Exception as e:
