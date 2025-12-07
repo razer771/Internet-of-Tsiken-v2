@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 # Global variables
 camera = None
-model = None
+model_general = None  # For 80 COCO classes (person, cat, dog, etc.)
+model_predators = None  # For snake + rats
 current_frame = None
 detection_data = {
     'objects': [],
@@ -56,31 +57,38 @@ def initialize_camera():
         return False
 
 def initialize_model():
-    """Initialize YOLO model"""
-    global model
+    """Initialize DUAL YOLO models for comprehensive detection"""
+    global model_general, model_predators
     try:
-        # Use pre-trained YOLOv8n (detects 80 classes including person, cat, dog, mouse, bird)
-        # NOTE: Does NOT detect snakes - use yolov8n_predators.pt if snake detection is critical
-        model = YOLO("yolov8n.pt")
-        # Enable GPU if available (will use CPU on Pi 5)
-        model.to('cpu')  # Explicitly use CPU for Pi
-        logger.info("YOLO model loaded successfully")
-        logger.info(f"Detecting: person, cat, dog, mouse, bird + 75 other objects")
+        # Model 1: General objects (80 COCO classes)
+        logger.info("Loading general detection model (yolov8n.pt)...")
+        model_general = YOLO("yolov8n.pt")
+        model_general.to('cpu')
+        logger.info(f"✅ General model: person, cat, dog, mouse, bird + 75 others")
+        
+        # Model 2: Predators (snakes + rats)
+        logger.info("Loading predator detection model (yolov8n_predators.pt)...")
+        model_predators = YOLO("yolov8n_predators.pt")
+        model_predators.to('cpu')
+        logger.info(f"✅ Predator model: snake, rats")
+        
+        logger.info("🎯 DUAL MODEL SYSTEM ACTIVE - Detecting ALL predators + general objects")
         return True
     except Exception as e:
-        logger.error(f"Failed to load YOLO model: {e}")
+        logger.error(f"Failed to load YOLO models: {e}")
         return False
 
 def process_frame():
-    """Capture and process frames with YOLO detection"""
+    """Capture and process frames with DUAL YOLO detection"""
     global current_frame, detection_data
     
     frame_count = 0
-    last_detections = None
+    last_results_general = None
+    last_results_predators = None
     
     while True:
         try:
-            if camera is None or model is None:
+            if camera is None or model_general is None or model_predators is None:
                 continue
             
             # Capture frame
@@ -88,25 +96,41 @@ def process_frame():
             
             # Skip YOLO detection on some frames for speed (detect every 2nd frame)
             frame_count += 1
-            if frame_count % 2 == 0 and last_detections is not None:
+            if frame_count % 2 == 0 and last_results_general is not None:
                 # Reuse previous detection results
-                results = last_detections
+                results_general = last_results_general
+                results_predators = last_results_predators
             else:
-                # Run YOLO detection with optimizations
-                results = model(frame, verbose=False, conf=0.5, iou=0.45, imgsz=416)
-                last_detections = results
+                # Run BOTH models
+                results_general = model_general(frame, verbose=False, conf=0.4, iou=0.45, imgsz=416)
+                results_predators = model_predators(frame, verbose=False, conf=0.5, iou=0.45, imgsz=416)
+                last_results_general = results_general
+                last_results_predators = results_predators
             
-            # Annotate frame with detection boxes
-            annotated_frame = results[0].plot()
+            # Start with general model annotations
+            annotated_frame = results_general[0].plot()
             
-            # Calculate FPS
-            inference_time = results[0].speed['inference']
+            # Draw predator detections on top (RED boxes)
+            for box in results_predators[0].boxes:
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                cls = int(box.cls[0])
+                conf = float(box.conf[0])
+                name = model_predators.names[cls]
+                
+                # Draw red box for predators
+                cv2.rectangle(annotated_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+                label = f'{name} {conf:.2f}'
+                cv2.putText(annotated_frame, label, (int(x1), int(y1)-10), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+            
+            # Calculate FPS (average of both models)
+            inference_time = (results_general[0].speed['inference'] + results_predators[0].speed['inference']) / 2
             fps = 1000 / inference_time if inference_time > 0 else 0
             
             # Add FPS text to frame
             cv2.putText(
                 annotated_frame, 
-                f'FPS: {fps:.1f}', 
+                f'FPS: {fps:.1f} (Dual)', 
                 (10, 30), 
                 cv2.FONT_HERSHEY_SIMPLEX, 
                 0.7, 
@@ -114,16 +138,31 @@ def process_frame():
                 2
             )
             
-            # Extract detection information
+            # Combine detections from BOTH models
             detections = []
-            for box in results[0].boxes:
+            
+            # Add general detections
+            for box in results_general[0].boxes:
                 cls = int(box.cls[0])
                 conf = float(box.conf[0])
-                name = model.names[cls]
+                name = model_general.names[cls]
                 detections.append({
                     'class': name,
                     'confidence': round(conf * 100, 2),
-                    'bbox': box.xyxy[0].tolist()
+                    'bbox': box.xyxy[0].tolist(),
+                    'model': 'general'
+                })
+            
+            # Add predator detections
+            for box in results_predators[0].boxes:
+                cls = int(box.cls[0])
+                conf = float(box.conf[0])
+                name = model_predators.names[cls]
+                detections.append({
+                    'class': name,
+                    'confidence': round(conf * 100, 2),
+                    'bbox': box.xyxy[0].tolist(),
+                    'model': 'predator'
                 })
             
             # Log detections to console (only when objects are detected and detection changed)
@@ -188,7 +227,9 @@ def status():
     return jsonify({
         'status': 'online',
         'camera': camera is not None,
-        'model': model is not None,
+        'model_general': model_general is not None,
+        'model_predators': model_predators is not None,
+        'dual_model_system': True,
         'timestamp': datetime.now().isoformat()
     })
 
