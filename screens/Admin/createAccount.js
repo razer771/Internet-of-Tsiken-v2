@@ -114,6 +114,19 @@ export default function CreateAccount({ navigation }) {
 
   const closeAlert = () => {
     setAlertVisible(false);
+
+    // If this was a success alert for account creation, navigate back
+    if (alertType === "success" && alertTitle === "Account Created") {
+      console.log(
+        "✅ Navigating back to UserManagement after successful account creation"
+      );
+      setTimeout(() => {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "UserManagement" }],
+        });
+      }, 300); // Small delay to allow modal to close smoothly
+    }
   };
 
   const validateName = (name, fieldName = "Name") => {
@@ -377,24 +390,22 @@ export default function CreateAccount({ navigation }) {
         }
 
         // Step 5: Sign out the newly created user
+        console.log("Signing out newly created user...");
         await auth.signOut();
         console.log("New user signed out");
 
-        // Step 6: Show success modal
-        setSuccessVisible(true);
+        // Step 6: Clear the flag immediately after sign out
+        await AsyncStorage.removeItem("accountCreationInProgress");
 
-        // Step 7: Redirect after 2.5 seconds
-        setTimeout(async () => {
-          setSuccessVisible(false);
+        // Step 7: Show success modal via showAlert
+        console.log("📢 Showing account creation success modal...");
+        showAlert(
+          "success",
+          "Account Created",
+          "The account was successfully created."
+        );
 
-          // Clear the flag before navigation
-          await AsyncStorage.removeItem("accountCreationInProgress");
-
-          navigation.reset({
-            index: 0,
-            routes: [{ name: "UserManagement" }],
-          });
-        }, 2500);
+        // Note: Navigation will happen when user closes the modal via closeAlert
       } catch (error) {
         console.error("Error creating account:", error);
 

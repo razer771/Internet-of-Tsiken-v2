@@ -133,6 +133,9 @@ export default function SideNavigation({ visible, onClose, navigation }) {
         }
       }
 
+      // Set explicit logout flag before signing out
+      await AsyncStorage.setItem("userLoggedOut", "true");
+
       // Sign out from Firebase
       await signOut(auth);
 

@@ -102,6 +102,9 @@ export default function Header2() {
         }
       }
 
+      // Set explicit logout flag before signing out
+      await AsyncStorage.setItem("userLoggedOut", "true");
+
       // Sign out from Firebase
       await signOut(auth);
 

@@ -16,6 +16,7 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view
 import { Ionicons } from "@expo/vector-icons";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation, useRoute } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { updatePassword, signInWithEmailAndPassword } from "firebase/auth";
 import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig.js";
@@ -224,6 +225,7 @@ export default function CreateNewPassword() {
 
       // Navigate to login after 2 seconds
       setTimeout(async () => {
+        await AsyncStorage.setItem("userLoggedOut", "true");
         await auth.signOut();
         navigation.reset({
           index: 0,

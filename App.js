@@ -207,14 +207,39 @@ export default function App() {
       );
 
       if (user) {
+        // Check if user explicitly logged out
+        const logoutFlag = await AsyncStorage.getItem("userLoggedOut");
+        if (logoutFlag === "true") {
+          console.log("🚫 User logged out explicitly - redirecting to login");
+          await signOut(auth);
+          setIsAuthenticated(false);
+          setAuthLoading(false);
+          if (navigationRef.isReady()) {
+            navigationRef.reset({
+              index: 0,
+              routes: [{ name: "LogIn" }],
+            });
+          }
+          return;
+        }
+        console.log("✅ Persistent login - user is authenticated");
+
         try {
           const userRef = doc(db, "users", user.uid);
           const userDoc = await getDoc(userRef);
+
+          console.log("📄 User document fetched, exists:", userDoc.exists());
 
           if (userDoc.exists()) {
             const userData = userDoc.data();
             const accountStatus = (userData.accountStatus || "").toLowerCase();
             const isVerified = userData.verified || false;
+
+            console.log("📊 User data:", {
+              accountStatus,
+              isVerified,
+              role: userData.role,
+            });
 
             // 🚨 Inactive account handling
             if (accountStatus === "inactive") {
@@ -258,15 +283,24 @@ export default function App() {
                 );
               }
 
+              // Set loading to false and authenticated to false BEFORE showing modal
               setAuthLoading(false);
+              setIsAuthenticated(false);
+              setHasInitialized(true);
+              hasInitializedRef.current = true;
+
+              console.log("📢 Showing inactive account modal...");
               showAlert(
                 "error",
                 "Inactive Account",
                 "Your account is inactive. Please contact support.",
                 async () => {
+                  console.log(
+                    "🔄 Modal closed - signing out and navigating to login"
+                  );
                   // 🔄 Sign out only after modal is closed
+                  await AsyncStorage.setItem("userLoggedOut", "true");
                   await signOut(auth);
-                  setIsAuthenticated(false);
                   if (navigationRef.isReady()) {
                     navigationRef.reset({
                       index: 0,
@@ -299,7 +333,9 @@ export default function App() {
             const targetScreen =
               userRole === "admin" ? "AdminDashboard" : "Home";
 
+            console.log(`🔀 Auto-login navigating to: ${targetScreen}`);
             setIsAuthenticated(true);
+            setAuthLoading(false);
             if (navigationRef.isReady()) {
               navigationRef.reset({
                 index: 0,
@@ -314,6 +350,7 @@ export default function App() {
               "Account Error",
               "Unable to load your account information. Please try logging in again.",
               async () => {
+                await AsyncStorage.setItem("userLoggedOut", "true");
                 await signOut(auth);
                 setIsAuthenticated(false);
                 if (navigationRef.isReady()) {
@@ -333,6 +370,7 @@ export default function App() {
             "Connection Error",
             "Unable to verify your account status. Please check your internet connection and try again.",
             async () => {
+              await AsyncStorage.setItem("userLoggedOut", "true");
               await signOut(auth);
               setIsAuthenticated(false);
               if (navigationRef.isReady()) {

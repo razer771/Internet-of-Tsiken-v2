@@ -271,6 +271,9 @@ export default function Login() {
       const user = userCredential.user;
       console.log("✅ Login successful! User ID:", user.uid);
 
+      // Clear logout flag on successful login to enable persistent login
+      await AsyncStorage.setItem("userLoggedOut", "false");
+
       console.log("📝 Attempting to log session...");
       // Log login event to session_logs collection (non-blocking with timeout)
       try {
@@ -467,6 +470,7 @@ export default function Login() {
               loginType: userRole || "user",
             }).catch((e) => console.log("⚠️ Session log error:", e.message));
 
+            await AsyncStorage.setItem("userLoggedOut", "true");
             await auth.signOut();
             setLoading(false);
 
@@ -496,6 +500,7 @@ export default function Login() {
               loginType: userRole || "user",
             }).catch((e) => console.log("⚠️ Session log error:", e.message));
 
+            await AsyncStorage.setItem("userLoggedOut", "true");
             await auth.signOut();
             setLoading(false);
 
@@ -521,6 +526,7 @@ export default function Login() {
           // If no status is set, treat as inactive
           if (!accountStatus || accountStatus === "") {
             console.log("❌ No account status set → Blocking login");
+            await AsyncStorage.setItem("userLoggedOut", "true");
             await auth.signOut();
             setLoading(false);
 
@@ -534,6 +540,7 @@ export default function Login() {
           }
 
           // Final fallback - sign out and show error
+          await AsyncStorage.setItem("userLoggedOut", "true");
           await auth.signOut();
           setLoading(false);
 
@@ -546,6 +553,7 @@ export default function Login() {
           return;
         } else {
           console.log("❌ User document does not exist in Firestore");
+          await AsyncStorage.setItem("userLoggedOut", "true");
           await auth.signOut();
           setLoading(false);
 
@@ -557,6 +565,7 @@ export default function Login() {
         }
       } catch (firestoreError) {
         console.error("Firestore Error:", firestoreError);
+        await AsyncStorage.setItem("userLoggedOut", "true");
         await auth.signOut().catch((e) => console.log("Signout error:", e));
         setLoading(false);
 

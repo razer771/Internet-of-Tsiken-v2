@@ -86,7 +86,6 @@ export default function ActivityLogs({ navigation }) {
           "manualActivity_logs",
           "feedingActivity_logs",
           "verification_logs",
-          "feedingActivity_logs",
         ];
 
         // Fetch logs from all collections
@@ -417,7 +416,7 @@ export default function ActivityLogs({ navigation }) {
 
                 {/* Table Rows */}
                 {filteredLogs.map((log) => (
-                  <View key={log.id} style={styles.row}>
+                  <View key={`${log.source}-${log.id}`} style={styles.row}>
                     <View
                       style={[
                         styles.cell,

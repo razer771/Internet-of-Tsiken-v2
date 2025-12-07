@@ -1166,7 +1166,7 @@ export default function ControlScreen({ navigation }) {
         // Log manual watering activity
         await logActivity("wateringActivity_logs", {
           action: "Manual sprinkler activated",
-          description: "Manually activated sprinkler",
+          description: "User manually activated sprinkler",
           status: result.isSimulated ? "Simulated" : "Completed",
         });
 

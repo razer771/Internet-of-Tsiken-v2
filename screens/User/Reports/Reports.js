@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -19,6 +19,9 @@ import {
   collection,
   addDoc,
   serverTimestamp,
+  query,
+  where,
+  getDocs,
 } from "firebase/firestore";
 import { db, auth } from "../../../config/firebaseconfig";
 import * as Print from "expo-print";
@@ -47,7 +50,8 @@ export default function Reports({ navigation }) {
   const [reportDate, setReportDate] = useState(new Date()); // for generating new reports
   const [isExporting, setIsExporting] = useState(false);
 
-  const [allReports, setAllReports] = useState([
+  // Hardcoded demo reports
+  const demoReports = [
     {
       id: 1,
       type: "Batch",
@@ -90,14 +94,67 @@ export default function Reports({ navigation }) {
       date: new Date("2025-10-15"),
       displayName: "Weekly Report",
     },
-  ]);
+  ];
+
+  const [allReports, setAllReports] = useState(demoReports);
+
+  // Load reports from Firestore and combine with demo reports
+  useEffect(() => {
+    const loadReportsFromFirestore = async () => {
+      try {
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.log("No user authenticated, showing demo reports only");
+          return;
+        }
+
+        const q = query(
+          collection(db, "reports"),
+          where("userId", "==", currentUser.uid)
+        );
+        const querySnapshot = await getDocs(q);
+
+        const firestoreReports = querySnapshot.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            type: data.reportType,
+            date: data.timestamp ? data.timestamp.toDate() : new Date(),
+            displayName: data.displayName,
+            batchNumber: data.batchNumber,
+            source: "firestore",
+          };
+        });
+
+        if (firestoreReports.length > 0) {
+          console.log(
+            `✅ Loaded ${firestoreReports.length} reports from Firestore`
+          );
+        }
+
+        // Combine demo reports with Firestore reports
+        // Sort by date (newest first)
+        const combined = [...firestoreReports, ...demoReports].sort(
+          (a, b) => b.date - a.date
+        );
+
+        setAllReports(combined);
+      } catch (error) {
+        console.error("Error loading reports from Firestore:", error);
+        // Keep demo reports if Firestore fails
+        setAllReports(demoReports);
+      }
+    };
+
+    loadReportsFromFirestore();
+  }, []);
 
   // Extract ALL unique batch numbers from reports for duplicate checking
   const existingBatchNumbers = allReports
     .filter((report) => report.type === "Batch")
     .map((report) => report.displayName);
 
-  const typeOptions = ["All", "Report", "Summary"];
+  const typeOptions = ["All", "Daily Report", "Weekly Report", "Batch Summary"];
 
   const formatDate = (date) => {
     return date.toLocaleDateString("en-US", {
@@ -649,9 +706,11 @@ export default function Reports({ navigation }) {
           await addDoc(collection(db, "report_logs"), {
             userId: currentUser.uid,
             type: "pdf",
-            timestamp: serverTimestamp(),
-            reportName: selectedReportForExport?.displayName || "Sensor Report",
+            action: "Generated a report",
+            description: "Generated Sensor Report (PDF)",
             fileName: fileName,
+            reportName: selectedReportForExport?.displayName || "Sensor Report",
+            timestamp: serverTimestamp(),
           });
           console.log("📝 Report export logged (PDF)");
         }
@@ -821,9 +880,11 @@ export default function Reports({ navigation }) {
           await addDoc(collection(db, "report_logs"), {
             userId: currentUser.uid,
             type: "excel",
-            timestamp: serverTimestamp(),
-            reportName: selectedReportForExport?.displayName || "Sensor Report",
+            action: "Generated a report",
+            description: "Generated Sensor Report (Excel)",
             fileName: fileName,
+            reportName: selectedReportForExport?.displayName || "Sensor Report",
+            timestamp: serverTimestamp(),
           });
           console.log("📝 Report export logged (Excel)");
         }
@@ -860,38 +921,62 @@ export default function Reports({ navigation }) {
     setShowGenerateModal(true);
   };
 
-  const handleReportGenerated = (reportData) => {
-    console.log("New report generated:", reportData);
+  const handleReportGenerated = async (reportData) => {
+    try {
+      console.log("New report generated:", reportData);
 
-    // Format batch number
-    let formattedBatchNumber = reportData.batchNumber.trim();
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        Alert.alert("Error", "User not authenticated");
+        return;
+      }
 
-    if (/^\d+$/.test(formattedBatchNumber)) {
-      formattedBatchNumber = `Batch #${formattedBatchNumber}`;
-    } else if (/^batch\s+\d+$/i.test(formattedBatchNumber)) {
-      const num = formattedBatchNumber.match(/\d+/)[0];
-      formattedBatchNumber = `Batch #${num}`;
-    } else if (/^batch#\d+$/i.test(formattedBatchNumber)) {
-      const num = formattedBatchNumber.match(/\d+/)[0];
-      formattedBatchNumber = `Batch #${num}`;
+      // Format batch number
+      let formattedBatchNumber = reportData.batchNumber.trim();
+
+      if (/^\d+$/.test(formattedBatchNumber)) {
+        formattedBatchNumber = `Batch #${formattedBatchNumber}`;
+      } else if (/^batch\s+\d+$/i.test(formattedBatchNumber)) {
+        const num = formattedBatchNumber.match(/\d+/)[0];
+        formattedBatchNumber = `Batch #${num}`;
+      } else if (/^batch#\d+$/i.test(formattedBatchNumber)) {
+        const num = formattedBatchNumber.match(/\d+/)[0];
+        formattedBatchNumber = `Batch #${num}`;
+      }
+
+      const newReport = {
+        id: Date.now().toString(),
+        type: reportData.reportType,
+        date: new Date(),
+        displayName: `${formattedBatchNumber} - ${reportData.reportType}`,
+        source: "firestore",
+      };
+
+      // Save to Firestore
+      try {
+        const docRef = await addDoc(collection(db, "reports"), {
+          userId: currentUser.uid,
+          batchNumber: reportData.batchNumber,
+          displayName: newReport.displayName,
+          reportType: reportData.reportType,
+          timestamp: serverTimestamp(),
+        });
+        console.log("✅ Report saved to Firestore:", docRef.id);
+      } catch (firestoreError) {
+        console.warn("⚠️ Failed to save to Firestore:", firestoreError.message);
+        // Still add to local state even if Firestore fails
+      }
+
+      setAllReports([newReport, ...allReports]);
+      console.log("Report added to table:", newReport);
+
+      // Show success modal
+      setSuccessMessage("Report successfully generated");
+      setShowSuccessModal(true);
+    } catch (error) {
+      console.error("Error generating report:", error);
+      Alert.alert("Error", "Failed to generate report");
     }
-
-    const newReport = {
-      id: allReports.length + 1,
-      type: "Batch",
-      date: reportData.batchStartDate,
-      displayName: formattedBatchNumber,
-      numberOfChicks: reportData.numberOfChicks,
-      expectedHarvestDays: reportData.expectedHarvestDays,
-      expectedDate: reportData.expectedDate,
-    };
-
-    setAllReports([newReport, ...allReports]);
-    console.log("Report added to table:", newReport);
-
-    // Show success modal
-    setSuccessMessage("Report successfully generated");
-    setShowSuccessModal(true);
   };
 
   const handleSuccessComplete = () => {
@@ -1053,13 +1138,28 @@ export default function Reports({ navigation }) {
         <View style={styles.tableContainer}>
           {/* Table Header */}
           <View style={styles.tableHeader}>
-            <Text style={[styles.tableHeaderText, styles.col1]}>
+            <Text
+              style={[
+                styles.tableHeaderText,
+                styles.col1,
+                { textAlign: "center" },
+              ]}
+            >
               Report Type
             </Text>
             <Text style={[styles.tableHeaderText, styles.col2]}>
               Date Generated
             </Text>
-            <Text style={[styles.tableHeaderText, styles.col3]}>Actions</Text>
+            <Text
+              style={[
+                styles.tableHeaderText,
+                styles.col3,
+                { textAlign: "center" },
+              ]}
+            >
+              {" "}
+              Actions
+            </Text>
           </View>
 
           {/* Table Rows */}
@@ -1317,7 +1417,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     backgroundColor: "#f8fafc",
     paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingHorizontal: 5,
     borderBottomWidth: 1,
     borderBottomColor: "#e5e7eb",
   },
@@ -1351,6 +1451,7 @@ const styles = StyleSheet.create({
   actionsCell: {
     flexDirection: "column",
     gap: 8,
+    alignItems: "center",
   },
   viewButton: {
     paddingVertical: 6,
@@ -1368,7 +1469,7 @@ const styles = StyleSheet.create({
   },
   exportButton: {
     paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: 28,
     backgroundColor: "#ffffff",
     borderRadius: 6,
     borderWidth: 1,
