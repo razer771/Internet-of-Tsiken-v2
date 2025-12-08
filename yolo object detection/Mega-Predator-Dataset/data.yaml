@@ -1,0 +1,7 @@
+names:
+- snake
+- rats
+nc: 2
+path: C:\Users\Lloyd\Internet-of-Tsiken-v2\yolo object detection\Mega-Predator-Dataset
+train: train/images
+val: valid/images

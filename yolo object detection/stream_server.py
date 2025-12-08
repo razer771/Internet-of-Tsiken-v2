@@ -66,11 +66,11 @@ def initialize_model():
         model_general.to('cpu')
         logger.info(f"✅ General model: person, cat, dog, mouse, bird + 75 others")
         
-        # Model 2: Predators (snakes + rats)
-        logger.info("Loading predator detection model (yolov8n_predators.pt)...")
-        model_predators = YOLO("yolov8n_predators.pt")
+        # Model 2: Predators (snakes + rats) - IMPROVED with 58% more training data
+        logger.info("Loading predator detection model (yolov8n_ultimate_predators.pt)...")
+        model_predators = YOLO("yolov8n_ultimate_predators.pt")
         model_predators.to('cpu')
-        logger.info(f"✅ Predator model: snake, rats")
+        logger.info(f"✅ Predator model: snake, rats (ULTIMATE - 3,293 images)")
         
         logger.info("🎯 DUAL MODEL SYSTEM ACTIVE - Detecting ALL predators + general objects")
         return True
