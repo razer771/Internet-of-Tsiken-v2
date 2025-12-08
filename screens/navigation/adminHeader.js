@@ -121,8 +121,7 @@ export default function Header2() {
         routes: [{ name: "LogIn" }],
       });
     } catch (error) {
-      console.error("Logout error:", error);
-      setLogoutModalVisible(false);
+      console.error("Error during logout:", error);
     }
   };
 

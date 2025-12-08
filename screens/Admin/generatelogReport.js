@@ -1,3 +1,55 @@
+// Helper: Normalize Firestore Timestamp, ISO string, or Date to Date object
+const normalizeTimestamp = (ts) => {
+  if (!ts) return null;
+  if (ts.toDate) return ts.toDate(); // Firestore Timestamp
+  if (typeof ts === "string") return new Date(ts); // ISO string
+  if (ts instanceof Date) return ts; // Already Date
+  return null;
+};
+
+// Helper: Format date to DD-MMM-YYYY in GMT+8
+const monthNamesShort = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+const formatDateGMT8 = (date) => {
+  if (!date) return "N/A";
+  const validDate = date instanceof Date ? date : new Date(date);
+  if (isNaN(validDate.getTime())) {
+    console.warn("⚠️ Invalid date in formatDateGMT8:", date);
+    return "N/A";
+  }
+  const gmt8Date = new Date(validDate.getTime() + 8 * 60 * 60 * 1000);
+  const day = String(gmt8Date.getUTCDate()).padStart(2, "0");
+  const month = monthNamesShort[gmt8Date.getUTCMonth()];
+  const year = gmt8Date.getUTCFullYear();
+  return `${day}-${month}-${year}`;
+};
+
+const formatTimeGMT8 = (date) => {
+  if (!date) return "N/A";
+  const validDate = date instanceof Date ? date : new Date(date);
+  if (isNaN(validDate.getTime())) {
+    console.warn("⚠️ Invalid date in formatTimeGMT8:", date);
+    return "N/A";
+  }
+  const gmt8Date = new Date(validDate.getTime() + 8 * 60 * 60 * 1000);
+  let hours = gmt8Date.getUTCHours();
+  const minutes = String(gmt8Date.getUTCMinutes()).padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12 || 12;
+  return `${hours}:${minutes} ${ampm}`;
+};
 import React, { useState, useEffect } from "react";
 import {
   SafeAreaView,
@@ -23,13 +75,16 @@ import {
   query,
   orderBy,
   limit,
+  doc,
+  getDoc,
 } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig";
 
 const Logo = require("../../assets/logo.png");
 
-export default function GenerateLogReport({ route, navigation }) {
+export default function GenerateLogReport({ route }) {
   const { exportData, totalLogs, filters, onExportPDF } = route.params || {};
+  const navigation = require("@react-navigation/native").useNavigation();
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -71,13 +126,39 @@ export default function GenerateLogReport({ route, navigation }) {
         )
       );
 
-      // Merge results
+      // Merge results and ensure timestamp, Date, and Time fields
       const allLogs = snapshots.flatMap((snap, idx) =>
-        snap.docs.map((doc) => ({
-          id: doc.id,
-          type: logTypes[idx],
-          ...doc.data(),
-        }))
+        snap.docs.map((doc) => {
+          const data = doc.data();
+          let timestamp;
+          // Safe timestamp conversion
+          if (data.timestamp?.toDate) {
+            timestamp = data.timestamp.toDate();
+          } else if (typeof data.timestamp === "string") {
+            timestamp = new Date(data.timestamp);
+          } else if (data.timestamp instanceof Date) {
+            timestamp = data.timestamp;
+          } else {
+            console.warn(
+              "⚠️ Unknown timestamp format:",
+              doc.id,
+              data.timestamp
+            );
+            timestamp = new Date(0);
+          }
+          if (isNaN(timestamp.getTime())) {
+            console.warn("⚠️ Invalid timestamp:", doc.id);
+            timestamp = new Date(0);
+          }
+          return {
+            id: doc.id,
+            type: logTypes[idx],
+            ...data,
+            timestamp,
+            Date: formatDateGMT8(timestamp),
+            Time: formatTimeGMT8(timestamp),
+          };
+        })
       );
 
       // Sort globally and keep only 10 latest
@@ -125,6 +206,8 @@ export default function GenerateLogReport({ route, navigation }) {
   const currentPage = exportData[currentPageIndex];
 
   const handleExportPDF = async () => {
+    // Debug: log exportData structure
+    console.log("ExportData for PDF:", JSON.stringify(exportData, null, 2));
     setExporting(true);
     try {
       // Build HTML content
@@ -225,15 +308,20 @@ export default function GenerateLogReport({ route, navigation }) {
       let entryNumber = 1;
       exportData.forEach((page) => {
         page.entries.forEach((entry) => {
+          // Normalize timestamp before formatting, or use pre-formatted fields
+          const ts = normalizeTimestamp(entry.timestamp);
+          const dateStr = ts ? formatDateGMT8(ts) : entry.Date || "N/A";
+          const timeStr = ts ? formatTimeGMT8(ts) : entry.Time || "N/A";
+
           htmlContent += `
             <tr>
               <td>${entryNumber}</td>
-              <td>${entry.Date}</td>
-              <td>${entry.Time}</td>
-              <td>${entry.Name}</td>
-              <td>${entry.Role}</td>
-              <td>${entry.Action}</td>
-              <td>${entry.Description}</td>
+              <td>${dateStr}</td>
+              <td>${timeStr}</td>
+              <td>${entry.Name || "N/A"}</td>
+              <td>${entry.Role || "N/A"}</td>
+              <td>${entry.Action || "N/A"}</td>
+              <td>${entry.Description || "N/A"}</td>
             </tr>
           `;
           entryNumber++;
@@ -284,18 +372,72 @@ export default function GenerateLogReport({ route, navigation }) {
       // Move file to permanent location
       await FileSystem.moveAsync({ from: uri, to: newUri });
 
-      // Log report to Firestore
+      // Log report to Firestore with GMT+8 timestamp
       const user = auth.currentUser;
       if (user) {
+        // Fetch user details for the log
+        let userName = "Unknown User";
+        let firstName = "";
+        let lastName = "";
+        let userRole = "N/A";
+        try {
+          const userDocRef = doc(db, "users", user.uid);
+          const userDoc = await getDoc(userDocRef);
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            firstName = userData.firstName || "";
+            lastName = userData.lastName || "";
+            userName = `${firstName} ${lastName}`.trim() || "Unknown User";
+            userRole = userData.role
+              ? userData.role.charAt(0).toUpperCase() + userData.role.slice(1)
+              : "N/A";
+          }
+        } catch (err) {
+          console.warn("⚠️ Could not fetch user details:", err);
+        }
+
+        // Create timestamp (UTC, formatting functions will handle GMT+8 conversion)
+        const now = new Date();
+        const timestamp = now.toISOString();
+
+        console.log("📝 Saving report to 'report' collection...");
+        // Save to "report" collection
+        await addDoc(collection(db, "report"), {
+          fileName: filename,
+          reportName: "Activity Logs Report",
+          timestamp: timestamp, // UTC ISO string
+          type: "pdf",
+          userId: user.uid,
+          userName: userName,
+          firstName: firstName,
+          lastName: lastName,
+          role: userRole,
+          generatedBy: userName,
+          filterApplied: {
+            name: filters?.name || "All",
+            startDate: filters?.startDate || "None",
+            endDate: filters?.endDate || "None",
+          },
+          totalLogs: totalLogs || 0,
+        });
+        console.log("✅ Report saved to 'report' collection");
+
+        console.log("📝 Saving activity log to 'report_logs' collection...");
+        // Save to "report_logs" collection (for activity logs tracking)
         await addDoc(collection(db, "report_logs"), {
           fileName: filename,
           reportName: "Activity Logs Report",
-          timestamp: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(), // GMT+8
+          timestamp: timestamp, // UTC ISO string
           type: "pdf",
           userId: user.uid,
+          userName: userName,
+          firstName: firstName,
+          lastName: lastName,
+          role: userRole,
           action: "Generated a report",
           description: `Generated Activity Logs report`,
         });
+        console.log("✅ Activity log saved to 'report_logs' collection");
       }
 
       // Share the PDF
@@ -342,6 +484,17 @@ export default function GenerateLogReport({ route, navigation }) {
           <>
             {/* Header Section with Logo and Company Info */}
             <View style={styles.headerSection}>
+              <TouchableOpacity
+                style={styles.backArrow}
+                onPress={() => navigation.goBack()}
+                accessibilityLabel="Go Back"
+              >
+                <MaterialCommunityIcons
+                  name="arrow-left"
+                  size={28}
+                  color="#133E87"
+                />
+              </TouchableOpacity>
               <Image source={Logo} style={styles.logo} resizeMode="contain" />
               <Text style={styles.companyName}>Smart Brooder Systems Inc.</Text>
               <Text style={styles.reportTitle}>Activity Logs Report</Text>
@@ -475,37 +628,51 @@ export default function GenerateLogReport({ route, navigation }) {
                   </View>
 
                   {/* Table Body */}
-                  {currentPage.entries.map((entry, index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.tableRow,
-                        index % 2 === 0 && styles.tableRowEven,
-                      ]}
-                    >
-                      <View style={[styles.tableCell, styles.cellNo]}>
-                        <Text style={styles.cellText}>{entry.No}</Text>
+                  {currentPage.entries.map((entry, index) => {
+                    // Normalize timestamp before formatting, or use pre-formatted fields
+                    const ts = normalizeTimestamp(entry.timestamp);
+                    const dateStr = ts
+                      ? formatDateGMT8(ts)
+                      : entry.Date || "N/A";
+                    const timeStr = ts
+                      ? formatTimeGMT8(ts)
+                      : entry.Time || "N/A";
+                    return (
+                      <View
+                        key={index}
+                        style={[
+                          styles.tableRow,
+                          index % 2 === 0 && styles.tableRowEven,
+                        ]}
+                      >
+                        <View style={[styles.tableCell, styles.cellNo]}>
+                          <Text style={styles.cellText}>{entry.No}</Text>
+                        </View>
+                        <View style={[styles.tableCell, styles.cellDate]}>
+                          <Text style={styles.cellText}>{dateStr}</Text>
+                        </View>
+                        <View style={[styles.tableCell, styles.cellTime]}>
+                          <Text style={styles.cellText}>{timeStr}</Text>
+                        </View>
+                        <View style={[styles.tableCell, styles.cellName]}>
+                          <Text style={styles.cellText}>{entry.Name}</Text>
+                        </View>
+                        <View style={[styles.tableCell, styles.cellRole]}>
+                          <Text style={styles.cellText}>{entry.Role}</Text>
+                        </View>
+                        <View style={[styles.tableCell, styles.cellAction]}>
+                          <Text style={styles.cellText}>{entry.Action}</Text>
+                        </View>
+                        <View
+                          style={[styles.tableCell, styles.cellDescription]}
+                        >
+                          <Text style={styles.cellText}>
+                            {entry.Description}
+                          </Text>
+                        </View>
                       </View>
-                      <View style={[styles.tableCell, styles.cellDate]}>
-                        <Text style={styles.cellText}>{entry.Date}</Text>
-                      </View>
-                      <View style={[styles.tableCell, styles.cellTime]}>
-                        <Text style={styles.cellText}>{entry.Time}</Text>
-                      </View>
-                      <View style={[styles.tableCell, styles.cellName]}>
-                        <Text style={styles.cellText}>{entry.Name}</Text>
-                      </View>
-                      <View style={[styles.tableCell, styles.cellRole]}>
-                        <Text style={styles.cellText}>{entry.Role}</Text>
-                      </View>
-                      <View style={[styles.tableCell, styles.cellAction]}>
-                        <Text style={styles.cellText}>{entry.Action}</Text>
-                      </View>
-                      <View style={[styles.tableCell, styles.cellDescription]}>
-                        <Text style={styles.cellText}>{entry.Description}</Text>
-                      </View>
-                    </View>
-                  ))}
+                    );
+                  })}
                 </View>
               </ScrollView>
             </View>
@@ -553,6 +720,20 @@ export default function GenerateLogReport({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
+  backArrow: {
+    position: "absolute",
+    left: 10,
+    top: 10,
+    zIndex: 10,
+    padding: 6,
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
   safe: {
     flex: 1,
     backgroundColor: "#fff",

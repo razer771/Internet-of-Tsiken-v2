@@ -394,11 +394,7 @@ export default function VerifyIdentityScreen() {
             "Too many verification attempts. Please request a new OTP.";
         }
 
-        showAlert(
-          "error",
-          "Verification Failed",
-          `${errorMessage} (${remainingAttempts} attempts remaining)`
-        );
+        showAlert("error", "Incorrect OTP ", `${errorMessage}`);
       }
     }
   };

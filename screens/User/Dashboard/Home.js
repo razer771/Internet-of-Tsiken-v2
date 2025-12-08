@@ -27,35 +27,6 @@ import {
 
 // Replace static import with a dynamic require + in-memory fallback.
 // This avoids a crash when @react-native-async-storage/async-storage is not installed.
-let AsyncStorage;
-try {
-  // try to require the community package (works in metro bundler environment)
-  const mod = require("@react-native-async-storage/async-storage");
-  AsyncStorage = mod && mod.default ? mod.default : mod;
-} catch (e) {
-  console.warn(
-    "[AsyncStorage] @react-native-async-storage/async-storage not found — using in-memory fallback. Install the package to persist data between app restarts."
-  );
-  // Simple in-memory shim that mimics AsyncStorage API (not persistent across reloads)
-  const _store = {};
-  AsyncStorage = {
-    getItem: async (key) => {
-      return Object.prototype.hasOwnProperty.call(_store, key)
-        ? _store[key]
-        : null;
-    },
-    setItem: async (key, value) => {
-      _store[key] = String(value);
-    },
-    removeItem: async (key) => {
-      delete _store[key];
-    },
-    // optional helpers
-    clear: async () => {
-      Object.keys(_store).forEach((k) => delete _store[k]);
-    },
-  };
-}
 
 class ErrorBoundary extends React.Component {
   state = { hasError: false, err: null };
@@ -81,6 +52,7 @@ class ErrorBoundary extends React.Component {
 }
 
 export default function QuickOverviewSetup({ navigation }) {
+  const [showChangesSaved, setShowChangesSaved] = useState(false);
   const [chicksCount, setChicksCount] = useState("");
   const [daysCount, setDaysCount] = useState("");
   const [harvestDays, setHarvestDays] = useState("");
@@ -91,6 +63,7 @@ export default function QuickOverviewSetup({ navigation }) {
   const [userName, setUserName] = useState("User");
   const [currentBatchId, setCurrentBatchId] = useState(null);
   const [addBatchDisabled, setAddBatchDisabled] = useState(false);
+  const [lastAgeEdit, setLastAgeEdit] = useState(null);
 
   // Load saved data when component mounts
   useEffect(() => {
@@ -154,20 +127,9 @@ export default function QuickOverviewSetup({ navigation }) {
 
   const fetchUserName = async () => {
     try {
-      // Check if admin bypass
-      const isAdminBypass = await AsyncStorage.getItem("isAdminBypass");
-      const adminEmail = await AsyncStorage.getItem("adminEmail");
-
-      if (isAdminBypass === "true" && adminEmail === "admin@example.com") {
-        setUserName("Admin");
-        return;
-      }
-
       const currentUser = auth.currentUser;
-
       if (currentUser) {
         const userDoc = await getDoc(doc(db, "users", currentUser.uid));
-
         if (userDoc.exists()) {
           const data = userDoc.data();
           // Get first name only for greeting
@@ -269,15 +231,6 @@ export default function QuickOverviewSetup({ navigation }) {
       Alert.alert("Invalid Input", "Please enter a valid number of chicks");
       return;
     }
-
-    try {
-      await AsyncStorage.setItem("chicksCount", chicksCount);
-      Alert.alert("Success", "Chicks count saved successfully");
-      console.log("Saving chicks count:", chicksCount);
-    } catch (error) {
-      console.error("Error saving chicks count:", error);
-      Alert.alert("Error", "Failed to save chicks count");
-    }
   };
 
   const handleSaveDaysCount = async () => {
@@ -285,15 +238,6 @@ export default function QuickOverviewSetup({ navigation }) {
     if (!daysCount || days < 1 || days > 45) {
       Alert.alert("Invalid Input", "Please enter a number between 1 and 45");
       return;
-    }
-
-    try {
-      await AsyncStorage.setItem("daysCount", daysCount);
-      Alert.alert("Success", "Days count saved successfully");
-      console.log("Saving days count:", daysCount);
-    } catch (error) {
-      console.error("Error saving days count:", error);
-      Alert.alert("Error", "Failed to save days count");
     }
   };
 
@@ -337,6 +281,16 @@ export default function QuickOverviewSetup({ navigation }) {
           updatedAt: serverTimestamp(),
         });
         console.log("Chicks count updated in batch:", currentBatchId);
+        // Log to session_logs
+        await addDoc(collection(db, "session_logs"), {
+          userId: currentUser.uid,
+          action: "Edit Brooder Info",
+          description: `Chicks count updated to ${value} in ${currentBatchId}`,
+          timestamp: serverTimestamp(),
+          email: currentUser.email,
+        });
+        setShowChangesSaved(true);
+        setTimeout(() => setShowChangesSaved(false), 1500);
       } else {
         // Create new batch
         const newBatchRef = await addDoc(collection(db, "brooderInfo"), {
@@ -347,6 +301,14 @@ export default function QuickOverviewSetup({ navigation }) {
         });
         setCurrentBatchId(newBatchRef.id);
         console.log("New batch created with chicks count:", newBatchRef.id);
+        // Log to session_logs
+        await addDoc(collection(db, "session_logs"), {
+          userId: currentUser.uid,
+          action: "Created new batch",
+          description: `Created new batch (default age set to 1, chicks count ${value}) (ID: ${newBatchRef.id})`,
+          timestamp: serverTimestamp(),
+          email: currentUser.email,
+        });
       }
     } catch (error) {
       console.error("Error saving chicks count to Firestore:", error);
@@ -356,6 +318,9 @@ export default function QuickOverviewSetup({ navigation }) {
   const handleSaveDaysCountModal = async (value) => {
     setDaysCount(value);
     setHasBatchData(true);
+    setLastAgeEdit(new Date());
+    // Reload brooder data to update UI immediately
+    await loadSavedData();
     try {
       const currentUser = auth.currentUser;
       if (!currentUser) return;
@@ -370,6 +335,16 @@ export default function QuickOverviewSetup({ navigation }) {
           updatedAt: serverTimestamp(),
         });
         console.log("Days count updated in batch:", currentBatchId);
+        // Log to session_logs
+        await addDoc(collection(db, "session_logs"), {
+          userId: currentUser.uid,
+          action: "Edit Brooder Info",
+          description: `Days count updated to ${value} in ${currentBatchId}`,
+          timestamp: serverTimestamp(),
+          email: currentUser.email,
+        });
+        setShowChangesSaved(true);
+        setTimeout(() => setShowChangesSaved(false), 1500);
       } else {
         // Create new batch
         const newBatchRef = await addDoc(collection(db, "brooderInfo"), {
@@ -381,6 +356,14 @@ export default function QuickOverviewSetup({ navigation }) {
         });
         setCurrentBatchId(newBatchRef.id);
         console.log("New batch created with days count:", newBatchRef.id);
+        // Log to session_logs
+        await addDoc(collection(db, "session_logs"), {
+          userId: currentUser.uid,
+          action: "Created new batch",
+          description: `Created new batch (default age set to 1, days count ${value}) (ID: ${newBatchRef.id})`,
+          timestamp: serverTimestamp(),
+          email: currentUser.email,
+        });
       }
     } catch (error) {
       console.error("Error saving days count to Firestore:", error);
@@ -401,6 +384,16 @@ export default function QuickOverviewSetup({ navigation }) {
           updatedAt: serverTimestamp(),
         });
         console.log("Harvest days updated in batch:", currentBatchId);
+        // Log to session_logs
+        await addDoc(collection(db, "session_logs"), {
+          userId: currentUser.uid,
+          action: "Edit Brooder Info",
+          description: `Harvest days updated to ${value} in ${currentBatchId}`,
+          timestamp: serverTimestamp(),
+          email: currentUser.email,
+        });
+        setShowChangesSaved(true);
+        setTimeout(() => setShowChangesSaved(false), 1500);
       } else {
         // Create new batch
         const newBatchRef = await addDoc(collection(db, "brooderInfo"), {
@@ -411,10 +404,58 @@ export default function QuickOverviewSetup({ navigation }) {
         });
         setCurrentBatchId(newBatchRef.id);
         console.log("New batch created with harvest days:", newBatchRef.id);
+        // Log to session_logs
+        await addDoc(collection(db, "session_logs"), {
+          userId: currentUser.uid,
+          action: "Created new batch",
+          description: `Created new batch (default age set to 1, harvest days ${value}) (ID: ${newBatchRef.id})`,
+          timestamp: serverTimestamp(),
+          email: currentUser.email,
+        });
       }
     } catch (error) {
       console.error("Error saving harvest days to Firestore:", error);
     }
+    {
+      /* Branded Changes Saved Modal */
+    }
+    <Modal visible={showChangesSaved} transparent animationType="fade">
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: "rgba(0,0,0,0.25)",
+        }}
+      >
+        <View
+          style={{
+            backgroundColor: "#154b99",
+            borderRadius: 20,
+            padding: 32,
+            alignItems: "center",
+            shadowColor: "#000",
+            shadowOpacity: 0.2,
+            shadowRadius: 8,
+            elevation: 8,
+          }}
+        >
+          <Text
+            style={{
+              color: "#fff",
+              fontSize: 22,
+              fontWeight: "bold",
+              marginBottom: 8,
+            }}
+          >
+            ✔️ Changes Saved
+          </Text>
+          <Text style={{ color: "#fff", fontSize: 16, fontWeight: "600" }}>
+            Your brooder info has been updated.
+          </Text>
+        </View>
+      </View>
+    </Modal>;
   };
 
   // Swipe gesture handler - swipe left to go to Control screen
@@ -522,96 +563,121 @@ export default function QuickOverviewSetup({ navigation }) {
               </View>
             </TouchableOpacity>
 
-            {/* Add Batch button when age is 35 days or more */}
-            {daysCount !== "" && parseInt(daysCount) >= 35 && (
-              <TouchableOpacity
-                style={[
-                  styles.ctaWrapper,
-                  addBatchDisabled && { opacity: 0.5 },
-                ]}
-                activeOpacity={0.9}
-                onPress={async () => {
-                  if (addBatchDisabled) return;
-                  setAddBatchDisabled(true);
-                  try {
-                    const currentUser = auth.currentUser;
-                    if (!currentUser) return;
-                    // Get all batches for this user to determine next batchId
-                    const brooderQuery = query(
-                      collection(db, "brooderInfo"),
-                      where("userId", "==", currentUser.uid)
-                    );
-                    const querySnapshot = await getDocs(brooderQuery);
-                    let maxBatchId = 0;
-                    let lastBatch = null;
-                    querySnapshot.forEach((docSnap) => {
-                      const data = docSnap.data();
-                      if (data.batchId && data.batchId > maxBatchId)
-                        maxBatchId = data.batchId;
-                      if (
-                        !lastBatch ||
-                        (data.createdAt &&
-                          data.createdAt.toDate() >
-                            lastBatch.createdAt?.toDate?.())
-                      )
-                        lastBatch = data;
-                    });
-                    const nextBatchId = maxBatchId + 1;
-                    // Custom batch name: Batch{nextBatchId}
-                    const customBatchName = `Batch${nextBatchId}`;
-                    // Carry over chicksCount from last batch if available
-                    const carryChicks = lastBatch?.chicksCount || 0;
-                    // Prompt for harvestDays if needed (for now, reuse previous or default to 30)
-                    const newHarvestDays = lastBatch?.harvestDays || 30;
-                    // Calculate GMT+8 timestamps
-                    const now = new Date();
-                    const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-                    const gmt8 = new Date(utc + 8 * 60 * 60000);
-                    const gmt8ISOString = gmt8.toISOString();
-                    // Create new batch with custom document ID
-                    const batchDocId = `batch${nextBatchId}`;
-                    await setDoc(doc(db, "brooderInfo", batchDocId), {
-                      batchId: nextBatchId,
-                      batchNumber: customBatchName,
-                      chicksCount: carryChicks,
-                      createdAt: serverTimestamp(),
-                      createdAtGMT8: gmt8ISOString,
-                      daysCount: 1,
-                      harvestDays: newHarvestDays,
-                      startDate: serverTimestamp(),
-                      startDateGMT8: gmt8ISOString,
-                      updatedAt: serverTimestamp(),
-                      updatedAtGMT8: gmt8ISOString,
-                      userId: currentUser.uid,
-                    });
-                    setCurrentBatchId(batchDocId);
-                    setDaysCount("1");
-                    setHarvestDays(newHarvestDays.toString());
-                    setChicksCount(carryChicks.toString());
-                    setHasBatchData(true);
-                    // Log to session_logs
-                    await addDoc(collection(db, "session_logs"), {
-                      userId: currentUser.uid,
-                      action: "Add Batch",
-                      description: `Created new batch ${customBatchName}`,
-                      timestamp: serverTimestamp(),
-                      timestampGMT8: gmt8ISOString,
-                      deviceInfo: Platform.OS,
-                      email: currentUser.email,
-                    });
-                  } catch (err) {
-                    console.error("Failed to add new batch:", err);
-                  }
-                  // Prevent duplicate batch creation
-                  setTimeout(() => setAddBatchDisabled(false), 3000);
-                }}
-                disabled={addBatchDisabled}
-              >
-                <View style={styles.ctaButton}>
-                  <Text style={styles.ctaText}>Add Batch</Text>
-                </View>
-              </TouchableOpacity>
-            )}
+            {/* Add Batch button if age is 35 or more and after midnight GMT+8 if age was edited */}
+            {(() => {
+              if (daysCount !== "" && parseInt(daysCount) >= 35) {
+                // Only show Add Batch if lastAgeEdit is null or before last midnight GMT+8
+                let showAddBatch = true;
+                if (lastAgeEdit) {
+                  // Get current time in GMT+8
+                  const now = new Date();
+                  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+                  const gmt8 = new Date(utc + 8 * 60 * 60000);
+                  // Get last midnight GMT+8
+                  const midnightGmt8 = new Date(gmt8);
+                  midnightGmt8.setHours(0, 0, 0, 0);
+                  // Only show if lastAgeEdit is before last midnight GMT+8
+                  showAddBatch = lastAgeEdit < midnightGmt8;
+                }
+                if (showAddBatch) {
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        styles.ctaWrapper,
+                        addBatchDisabled && { opacity: 0.5 },
+                      ]}
+                      activeOpacity={0.9}
+                      onPress={async () => {
+                        if (addBatchDisabled) return;
+                        setAddBatchDisabled(true);
+                        try {
+                          const currentUser = auth.currentUser;
+                          if (!currentUser) return;
+                          // Get all batches for this user to determine next batchId
+                          const brooderQuery = query(
+                            collection(db, "brooderInfo"),
+                            where("userId", "==", currentUser.uid)
+                          );
+                          const querySnapshot = await getDocs(brooderQuery);
+                          let maxBatchId = 0;
+                          let lastBatch = null;
+                          querySnapshot.forEach((docSnap) => {
+                            const data = docSnap.data();
+                            if (data.batchId && data.batchId > maxBatchId)
+                              maxBatchId = data.batchId;
+                            if (
+                              !lastBatch ||
+                              (data.createdAt &&
+                                data.createdAt.toDate() >
+                                  lastBatch.createdAt?.toDate?.())
+                            )
+                              lastBatch = data;
+                          });
+                          const nextBatchId = maxBatchId + 1;
+                          // Custom batch name: Batch{nextBatchId}
+                          const customBatchName = `Batch${nextBatchId}`;
+                          // Carry over chicksCount from last batch if available
+                          const carryChicks = lastBatch?.chicksCount || 0;
+                          // Prompt for harvestDays if needed (for now, reuse previous or default to 30)
+                          const newHarvestDays = lastBatch?.harvestDays || 30;
+                          // Calculate GMT+8 timestamps
+                          const now = new Date();
+                          const utc =
+                            now.getTime() + now.getTimezoneOffset() * 60000;
+                          const gmt8 = new Date(utc + 8 * 60 * 60000);
+                          const gmt8ISOString = gmt8.toISOString();
+                          // Create new batch with custom document ID
+                          const batchDocId = `batch${nextBatchId}`;
+                          await setDoc(doc(db, "brooderInfo", batchDocId), {
+                            batchId: nextBatchId,
+                            batchNumber: customBatchName,
+                            chicksCount: carryChicks,
+                            createdAt: serverTimestamp(),
+                            createdAtGMT8: gmt8ISOString,
+                            daysCount: 1, // Set default age to 1
+                            harvestDays: newHarvestDays,
+                            startDate: serverTimestamp(),
+                            startDateGMT8: gmt8ISOString,
+                            updatedAt: serverTimestamp(),
+                            updatedAtGMT8: gmt8ISOString,
+                            userId: currentUser.uid,
+                          });
+                          setCurrentBatchId(batchDocId);
+                          setDaysCount("1"); // Set UI age to 1
+                          setHarvestDays(newHarvestDays.toString());
+                          setChicksCount(carryChicks.toString());
+                          setHasBatchData(true);
+                          // Log to session_logs
+                          await addDoc(collection(db, "session_logs"), {
+                            userId: currentUser.uid,
+                            action: "Created new batch",
+                            description: `Created new batch ${customBatchName} (default age set to 1)`,
+                            timestamp: serverTimestamp(),
+                            timestampGMT8: gmt8ISOString,
+                            deviceInfo: Platform.OS,
+                            email: currentUser.email,
+                          });
+                          // Delay reload to allow Firestore timestamps to update
+                          setTimeout(() => {
+                            loadSavedData();
+                          }, 700);
+                        } catch (err) {
+                          console.error("Failed to add new batch:", err);
+                        }
+                        // Prevent duplicate batch creation
+                        setTimeout(() => setAddBatchDisabled(false), 3000);
+                      }}
+                      disabled={addBatchDisabled}
+                    >
+                      <View style={styles.ctaButton}>
+                        <Text style={styles.ctaText}>Add Batch</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                }
+              }
+              return null;
+            })()}
 
             {/* Sensor Monitoring Grid */}
             <Text style={styles.sectionTitle}>Live Monitoring</Text>

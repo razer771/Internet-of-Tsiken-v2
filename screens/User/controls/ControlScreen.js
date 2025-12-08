@@ -1200,6 +1200,8 @@ export default function ControlScreen({ navigation }) {
   };
 
   const confirmAddWater = async () => {
+    // Defensive: Only allow if modal is open and user confirmed
+    if (!confirmWaterAddVisible) return;
     console.log("📄 [ACTION] Confirming water schedule add");
 
     // Prevent duplicate submissions
@@ -1350,6 +1352,8 @@ export default function ControlScreen({ navigation }) {
   };
 
   const saveWaterEdit = async () => {
+    // Defensive: Only allow if modal is open and user confirmed
+    if (!confirmEditVisible) return;
     console.log("📄 [ACTION] Saving water edit");
 
     // Prevent duplicate submissions
@@ -1929,8 +1933,13 @@ export default function ControlScreen({ navigation }) {
         lastName = userData.lastName || "N/A";
       }
 
-      // Format GMT+8 string with date using Intl.DateTimeFormat
-      const formattedGMT8 = formatTimeGMT8(time.toISOString());
+      // Format GMT+8 time string (only time, no date)
+      const formattedTimeOnly = new Date(time).toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: "Asia/Manila",
+      });
 
       // Fetch previous time from document ID "1"
       let previousTimeGMT8String = "N/A";
@@ -1944,7 +1953,7 @@ export default function ControlScreen({ navigation }) {
       await setDoc(doc(db, "nightTime", "1"), {
         nightTimeId: 1,
         selectedTime: time.toISOString(),
-        selectedTimeGMT8Formatted: formattedGMT8,
+        selectedTimeGMT8Formatted: formattedTimeOnly,
         timestamp: new Date().toISOString(),
         status: "saved",
       });
@@ -1952,9 +1961,9 @@ export default function ControlScreen({ navigation }) {
       // Log activity
       await logActivity("nightTime_logs", {
         action: "Set the night time",
-        description: `Night time starts : ${formattedGMT8}`,
+        description: `Night time starts : ${formattedTimeOnly}`,
         oldTime: previousTimeGMT8String,
-        newTime: formattedGMT8,
+        newTime: formattedTimeOnly,
         selectedTime: time.toISOString(),
         status: "saved",
         userId: user.uid,

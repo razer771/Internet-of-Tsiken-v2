@@ -134,6 +134,7 @@ const AUTH_SCREENS = [
   "AdminAnalytics",
   "AdminActivityLogs",
   "AdminNotification",
+  "GenerateLogReport",
 ];
 
 // Screen wrapper that reports its route name to parent
@@ -206,7 +207,22 @@ export default function App() {
         user ? "authenticated" : "not authenticated"
       );
 
+      // Check if account creation is in progress - skip navigation if true
+      const accountCreationInProgress = await AsyncStorage.getItem(
+        "accountCreationInProgress"
+      );
+      if (accountCreationInProgress === "true") {
+        console.log(
+          "⏸️ Account creation in progress - skipping auth navigation"
+        );
+        return;
+      }
+
       if (user) {
+        // Clear the logout flag after successful login
+        await AsyncStorage.removeItem("userLoggedOut");
+        console.log("✅ Cleared userLoggedOut flag after login");
+
         // Check if user explicitly logged out
         const logoutFlag = await AsyncStorage.getItem("userLoggedOut");
         if (logoutFlag === "true") {

@@ -51,6 +51,9 @@ const LOG_COLLECTIONS = [
   "wateringActivity_logs",
   "activity_logs",
   "addBatch_logs",
+  "manualActivity_logs",
+  "feedingActivity_logs",
+  "verification_logs",
 ];
 
 export default function ActivityLogs({ navigation }) {
@@ -388,7 +391,7 @@ export default function ActivityLogs({ navigation }) {
         `📄 Export will create ${totalPages} page(s) (${EXPORT_ENTRIES_PER_PAGE} entries per page)`
       );
 
-      // Prepare export data with pagination
+      // Prepare export data with pagination, always ensure valid timestamp
       const exportPages = [];
       for (let page = 0; page < totalPages; page++) {
         const startIdx = page * EXPORT_ENTRIES_PER_PAGE;
@@ -398,15 +401,27 @@ export default function ActivityLogs({ navigation }) {
         );
         const pageEntries = logsToExport.slice(startIdx, endIdx);
 
-        const formattedEntries = pageEntries.map((log, idx) => ({
-          No: startIdx + idx + 1,
-          Date: formatDateGMT8(log.timestamp),
-          Time: formatTimeGMT8(log.timestamp),
-          Name: log.userName,
-          Role: log.role,
-          Action: log.action,
-          Description: log.description,
-        }));
+        const formattedEntries = pageEntries.map((log, idx) => {
+          let ts = log.timestamp;
+          // If missing or invalid, use current date
+          if (!ts || isNaN(new Date(ts).getTime())) {
+            ts = new Date();
+          }
+          // If still not a Date object, convert
+          if (!(ts instanceof Date)) {
+            ts = new Date(ts);
+          }
+          return {
+            No: startIdx + idx + 1,
+            timestamp: ts, // Include raw timestamp for proper formatting
+            Date: formatDateGMT8(ts),
+            Time: formatTimeGMT8(ts),
+            Name: log.userName,
+            Role: log.role,
+            Action: log.action,
+            Description: log.description,
+          };
+        });
 
         exportPages.push({
           pageNumber: page + 1,

@@ -13,6 +13,8 @@ import {
 } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import Header2 from "./header";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { db } from "../../config/firebaseconfig";
 
 export default function ManageAccount({ navigation }) {
   const [firstName, setFirstName] = useState("");
@@ -53,7 +55,7 @@ export default function ManageAccount({ navigation }) {
     return password.length >= 6;
   };
 
-  const handleSaveChanges = () => {
+  const handleSaveChanges = async () => {
     const newErrors = {};
 
     // First Name validation
@@ -104,6 +106,22 @@ export default function ManageAccount({ navigation }) {
     // If no errors, proceed with save
     if (Object.keys(newErrors).length === 0) {
       console.log("Save Changes - Form is valid");
+
+      // Log update to session_logs
+      try {
+        await addDoc(collection(db, "session_logs"), {
+          action: "Updated an account",
+          description: `Updated ${firstName} ${lastName}'s account`,
+          timestamp: serverTimestamp(),
+          deviceInfo: Platform.OS,
+          updatedUserEmail: email,
+          updatedUserRole: role,
+          updatedUserName: `${firstName} ${lastName}`,
+        });
+        console.log("✅ Account update logged to session_logs");
+      } catch (logError) {
+        console.error("⚠️ Failed to log account update:", logError);
+      }
 
       // Show success modal
       setSuccessVisible(true);

@@ -8,6 +8,7 @@ import {
   ScrollView,
   SafeAreaView,
   Modal,
+  Platform,
 } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import Icon from "react-native-vector-icons/Feather";
@@ -22,6 +23,8 @@ import {
   orderBy,
   limit,
   updateDoc,
+  addDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig";
 
@@ -454,6 +457,23 @@ export default function UserManagement({ navigation }) {
         `User ${selectedUser.firstName} ${selectedUser.lastName} flagged for password change in Firestore`
       );
 
+      // Log to session_logs
+      try {
+        await addDoc(collection(db, "session_logs"), {
+          userId: auth.currentUser?.uid,
+          action: "Forced reset",
+          description: `Forced password reset to ${selectedUser.firstName} ${selectedUser.lastName}`,
+          timestamp: serverTimestamp(),
+          deviceInfo: Platform.OS,
+          targetUserId: selectedUser.id,
+          targetUserEmail: selectedUser.email,
+          targetUserName: `${selectedUser.firstName} ${selectedUser.lastName}`,
+        });
+        console.log("✅ Force password reset logged to session_logs");
+      } catch (logError) {
+        console.error("⚠️ Failed to log force password reset:", logError);
+      }
+
       setForcePasswordVisible(false);
 
       // Show success modal
@@ -501,6 +521,23 @@ export default function UserManagement({ navigation }) {
       console.log(
         `User ${selectedUser.firstName} ${selectedUser.lastName} marked as Inactive in Firestore`
       );
+
+      // Log to session_logs
+      try {
+        await addDoc(collection(db, "session_logs"), {
+          userId: auth.currentUser?.uid,
+          action: "Removed an access",
+          description: `Removed ${selectedUser.firstName} ${selectedUser.lastName}'s access`,
+          timestamp: serverTimestamp(),
+          deviceInfo: Platform.OS,
+          targetUserId: selectedUser.id,
+          targetUserEmail: selectedUser.email,
+          targetUserName: `${selectedUser.firstName} ${selectedUser.lastName}`,
+        });
+        console.log("✅ User access removal logged to session_logs");
+      } catch (logError) {
+        console.error("⚠️ Failed to log user access removal:", logError);
+      }
 
       setDeleteUserVisible(false);
 
@@ -1300,9 +1337,7 @@ export default function UserManagement({ navigation }) {
               Account marked as inactive
             </Text>
             <Text style={styles.deleteSuccessSubtitle}>Access disabled</Text>
-            <Text style={styles.deleteSuccessLoading}>
-              Loading your dashboard...
-            </Text>
+            <Text style={styles.deleteSuccessLoading}>Loading ...</Text>
           </View>
         </View>
       </Modal>

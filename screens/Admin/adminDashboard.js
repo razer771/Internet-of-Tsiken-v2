@@ -155,8 +155,8 @@ export default function AdminDashboard() {
     try {
       console.log("Fetching report metrics from Firestore...");
 
-      // Fetch all report logs
-      const reportsRef = collection(db, "report_logs");
+      // Fetch all reports from "report" collection
+      const reportsRef = collection(db, "report");
       const reportsSnapshot = await getDocs(reportsRef);
 
       // Calculate reports generated this week
@@ -178,10 +178,14 @@ export default function AdminDashboard() {
         const reportData = doc.data();
         if (reportData.timestamp) {
           let reportDate;
+          // Handle Firestore Timestamp
           if (reportData.timestamp.toDate) {
             reportDate = reportData.timestamp.toDate();
           } else if (reportData.timestamp.seconds) {
             reportDate = new Date(reportData.timestamp.seconds * 1000);
+          } else if (typeof reportData.timestamp === "string") {
+            // Handle ISO string
+            reportDate = new Date(reportData.timestamp);
           } else if (reportData.timestamp instanceof Date) {
             reportDate = reportData.timestamp;
           }
@@ -579,7 +583,7 @@ export default function AdminDashboard() {
                   <Text style={styles.activityUser}>
                     {log.firstName} {log.lastName}
                   </Text>
-                  <Text style={styles.activityDesc}>{log.description}</Text>
+                  <Text style={styles.activityDesc}>{log.action}</Text>
                 </View>
                 <Text style={styles.activityTime}>
                   {getRelativeTime(log.timestamp)}
