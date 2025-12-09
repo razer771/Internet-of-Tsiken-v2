@@ -110,26 +110,49 @@ export default function MortalityInputModal({
         return;
       }
 
-      // Save to mortality collection
-      await addDoc(collection(db, "mortality"), {
-        userId: currentUser.uid,
+      // Save mortality report as a new document under mortality/{batchId}/
+      const { doc, collection, addDoc, getDocs, getDoc, updateDoc } =
+        await import("firebase/firestore");
+      const batchMortalityRef = collection(db, "mortality", batchId, "reports");
+      await addDoc(batchMortalityRef, {
+        date: mortalityDate,
+        count: parseInt(mortalityCount),
         batchId: batchId,
-        mortalityDate: mortalityDate,
-        mortalityCount: parseInt(mortalityCount),
-        createdAt: serverTimestamp(),
+        loggedBy: currentUser.uid,
+        createdAt: new Date(),
       });
+
+      // Compute total mortality for this batch
+      const snapshot = await getDocs(batchMortalityRef);
+      let totalMortality = 0;
+      snapshot.forEach((docSnap) => {
+        totalMortality += docSnap.data().count || 0;
+      });
+
+      // Fetch initialCount from brooderInfo
+      const brooderRef = doc(db, "brooderInfo", batchId);
+      const brooderSnap = await getDoc(brooderRef);
+      const initialCount = brooderSnap.exists()
+        ? brooderSnap.data().initialCount
+        : 0;
+
+      // Compute updated chicksCount
+      const updatedChicksCount = initialCount - totalMortality;
+
+      // Update brooderInfo with new chicksCount
+      await updateDoc(brooderRef, { chicksCount: updatedChicksCount });
 
       // Log to session_logs collection
       await addDoc(collection(db, "session_logs"), {
         userId: currentUser.uid,
         action: "Mortality reported",
-        description: "Reported mortality " + mortalityCount + " for " + batchId,
+        description: "Mortality recorded for " + batchId,
+        batchId: batchId,
+        timestamp: new Date(),
         details: {
-          batchId: batchId,
           mortalityCount: parseInt(mortalityCount),
           mortalityDate: mortalityDate,
         },
-        timestamp: serverTimestamp(),
       });
 
       setShowSuccessModal(true);
@@ -162,11 +185,26 @@ export default function MortalityInputModal({
           onRequestClose={() => setShowSuccessModal(false)}
         >
           <View style={styles.backdrop}>
-            <View style={[styles.container, { maxWidth: 350, padding: 32 }]}> 
-              <Text style={{ fontSize: 20, fontWeight: "700", color: "#154b99", textAlign: "center", marginBottom: 16 }}>
+            <View style={[styles.container, { maxWidth: 350, padding: 32 }]}>
+              <Text
+                style={{
+                  fontSize: 20,
+                  fontWeight: "700",
+                  color: "#154b99",
+                  textAlign: "center",
+                  marginBottom: 16,
+                }}
+              >
                 Success!
               </Text>
-              <Text style={{ fontSize: 16, color: "#1a1a1a", textAlign: "center", marginBottom: 24 }}>
+              <Text
+                style={{
+                  fontSize: 16,
+                  color: "#1a1a1a",
+                  textAlign: "center",
+                  marginBottom: 24,
+                }}
+              >
                 Mortality record saved successfully.
               </Text>
               <TouchableOpacity
@@ -193,7 +231,10 @@ export default function MortalityInputModal({
             <View style={styles.container}>
               {/* Header */}
               <View style={styles.header}>
-                <TouchableOpacity onPress={handleClose} style={styles.backButton}>
+                <TouchableOpacity
+                  onPress={handleClose}
+                  style={styles.backButton}
+                >
                   <Icon name="chevron-left" size={24} color="#1a1a1a" />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Report Mortality</Text>
@@ -210,7 +251,9 @@ export default function MortalityInputModal({
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>Batch ID</Text>
                     <View style={styles.readOnlyInput}>
-                      <Text style={styles.readOnlyText}>{batchId || "N/A"}</Text>
+                      <Text style={styles.readOnlyText}>
+                        {batchId || "N/A"}
+                      </Text>
                     </View>
                   </View>
 
@@ -237,7 +280,9 @@ export default function MortalityInputModal({
                       </Text>
                     </TouchableOpacity>
                     {errors.mortalityDate ? (
-                      <Text style={styles.errorText}>{errors.mortalityDate}</Text>
+                      <Text style={styles.errorText}>
+                        {errors.mortalityDate}
+                      </Text>
                     ) : null}
                   </View>
 
@@ -259,7 +304,9 @@ export default function MortalityInputModal({
                       keyboardType="numeric"
                     />
                     {errors.mortalityCount ? (
-                      <Text style={styles.errorText}>{errors.mortalityCount}</Text>
+                      <Text style={styles.errorText}>
+                        {errors.mortalityCount}
+                      </Text>
                     ) : null}
                     <Text style={styles.helperText}>
                       Maximum: {chicksCount || 0} chicks

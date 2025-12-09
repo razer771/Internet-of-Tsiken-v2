@@ -9,6 +9,7 @@ import {
   ScrollView,
   PanResponder,
   Modal,
+  Platform,
 } from "react-native";
 import QuickSetupModal from "./QuickSetupModal";
 import MortalityInputModal from "./MortalityInputModal";
@@ -211,20 +212,8 @@ export default function QuickOverviewSetup({ navigation }) {
           }
         }
 
-        if (brooderData.daysCount !== undefined && brooderData.startDate) {
-          // Calculate days passed since batch started
-          const startDate = brooderData.startDate.toDate();
-          const currentDate = new Date();
-          const daysPassed = Math.floor(
-            (currentDate - startDate) / (1000 * 60 * 60 * 24)
-          );
-
-          // Calculate remaining days
-          const initialDays = parseInt(brooderData.daysCount);
-          const remainingDays = Math.max(0, initialDays - daysPassed);
-
-          setDaysCount(remainingDays.toString());
-        } else if (brooderData.daysCount !== undefined) {
+        if (brooderData.daysCount !== undefined) {
+          // daysCount is the current age of the batch, set by user or auto-incremented daily at midnight
           setDaysCount(brooderData.daysCount.toString());
         }
 
@@ -621,6 +610,15 @@ export default function QuickOverviewSetup({ navigation }) {
                         try {
                           const currentUser = auth.currentUser;
                           if (!currentUser) return;
+                          
+                          // Fetch user data for firstName and lastName
+                          const userDoc = await getDoc(doc(db, "users", currentUser.uid));
+                          const userData = userDoc.exists() ? userDoc.data() : {};
+                          const fullName = userData.fullname || userData.name || "User";
+                          const nameParts = fullName.split(" ");
+                          const firstName = nameParts[0];
+                          const lastName = nameParts.slice(1).join(" ") || "";
+                          
                           // Get all batches for this user to determine next batchId
                           const brooderQuery = query(
                             collection(db, "brooderInfo"),
@@ -644,8 +642,9 @@ export default function QuickOverviewSetup({ navigation }) {
                           const nextBatchId = maxBatchId + 1;
                           // Custom batch name: Batch{nextBatchId}
                           const customBatchName = `Batch${nextBatchId}`;
-                          // Carry over chicksCount from last batch if available
+                          // Carry over chicksCount from last batch if available, use as initialCount
                           const carryChicks = lastBatch?.chicksCount || 0;
+                          const initialCount = carryChicks;
                           // Prompt for harvestDays if needed (for now, reuse previous or default to 30)
                           const newHarvestDays = lastBatch?.harvestDays || 30;
                           // Calculate GMT+8 timestamps
@@ -663,7 +662,10 @@ export default function QuickOverviewSetup({ navigation }) {
                             createdAt: serverTimestamp(),
                             createdAtGMT8: gmt8ISOString,
                             daysCount: 1, // Set default age to 1
+                            firstName: firstName,
+                            lastName: lastName,
                             harvestDays: newHarvestDays,
+                            initialCount: initialCount,
                             startDate: serverTimestamp(),
                             startDateGMT8: gmt8ISOString,
                             updatedAt: serverTimestamp(),

@@ -1,10 +1,17 @@
 import { db } from "../config/firebaseconfig";
-import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  doc,
+  getDoc,
+} from "firebase/firestore";
 
 /**
  * Compute the updated chicks count for a specific batch
  * by subtracting total mortality from the initial count
- * 
+ *
  * @param {string} batchId - The batch ID to compute for
  * @param {string} userId - The user ID (optional, for filtering)
  * @returns {Promise<Object>} Object containing batchId, initialCount, totalMortality, and chicksCount
@@ -14,7 +21,7 @@ export const computeChicksCount = async (batchId, userId = null) => {
     // Fetch the brooderInfo document for this batch
     let brooderDoc = null;
     let brooderData = null;
-    
+
     if (userId) {
       // First try to get by document ID (batchId might be the doc ID)
       try {
@@ -31,7 +38,7 @@ export const computeChicksCount = async (batchId, userId = null) => {
       } catch (e) {
         console.log("Not found by doc ID, trying query...");
       }
-      
+
       // If not found by ID, query with userId filter
       if (!brooderDoc) {
         const brooderQuery = query(
@@ -40,7 +47,7 @@ export const computeChicksCount = async (batchId, userId = null) => {
           where("batchId", "==", batchId)
         );
         const brooderSnapshot = await getDocs(brooderQuery);
-        
+
         if (!brooderSnapshot.empty) {
           brooderDoc = brooderSnapshot.docs[0];
           brooderData = brooderDoc.data();
@@ -58,7 +65,7 @@ export const computeChicksCount = async (batchId, userId = null) => {
       } catch (e) {
         console.log("Not found by doc ID");
       }
-      
+
       // Or query all brooderInfo docs with matching batchId
       if (!brooderDoc) {
         const brooderQuery = query(
@@ -66,7 +73,7 @@ export const computeChicksCount = async (batchId, userId = null) => {
           where("batchId", "==", batchId)
         );
         const brooderSnapshot = await getDocs(brooderQuery);
-        
+
         if (!brooderSnapshot.empty) {
           brooderDoc = brooderSnapshot.docs[0];
           brooderData = brooderDoc.data();
@@ -78,7 +85,8 @@ export const computeChicksCount = async (batchId, userId = null) => {
       throw new Error(`Batch ${batchId} not found in brooderInfo collection`);
     }
 
-    const initialCount = brooderData.chicksCount || brooderData.initialCount || 0;
+    const initialCount =
+      brooderData.chicksCount || brooderData.initialCount || 0;
 
     // Fetch all mortality logs for this batch
     // Try both the batchId field and the document ID
@@ -86,9 +94,9 @@ export const computeChicksCount = async (batchId, userId = null) => {
       collection(db, "mortality"),
       where("batchId", "==", batchId)
     );
-    
+
     const mortalitySnapshot = await getDocs(mortalityQuery);
-    
+
     // Sum up all mortality counts
     let totalMortality = 0;
     mortalitySnapshot.forEach((doc) => {
@@ -113,7 +121,7 @@ export const computeChicksCount = async (batchId, userId = null) => {
 
 /**
  * Compute chicks count for multiple batches
- * 
+ *
  * @param {string} userId - The user ID to filter batches
  * @returns {Promise<Array>} Array of objects containing batch info and updated counts
  */
@@ -124,9 +132,9 @@ export const computeAllBatchesChicksCount = async (userId) => {
       collection(db, "brooderInfo"),
       where("userId", "==", userId)
     );
-    
+
     const brooderSnapshot = await getDocs(brooderQuery);
-    
+
     if (brooderSnapshot.empty) {
       return [];
     }
@@ -136,7 +144,7 @@ export const computeAllBatchesChicksCount = async (userId) => {
       brooderSnapshot.docs.map(async (brooderDoc) => {
         const brooderData = brooderDoc.data();
         const batchId = brooderData.batchId || brooderDoc.id;
-        
+
         return await computeChicksCount(batchId, userId);
       })
     );
@@ -150,7 +158,7 @@ export const computeAllBatchesChicksCount = async (userId) => {
 
 /**
  * Get mortality logs for a specific batch
- * 
+ *
  * @param {string} batchId - The batch ID
  * @returns {Promise<Array>} Array of mortality log entries
  */
@@ -160,9 +168,9 @@ export const getMortalityLogs = async (batchId) => {
       collection(db, "mortality"),
       where("batchId", "==", batchId)
     );
-    
+
     const mortalitySnapshot = await getDocs(mortalityQuery);
-    
+
     const logs = [];
     mortalitySnapshot.forEach((doc) => {
       logs.push({
