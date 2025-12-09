@@ -12,7 +12,7 @@ import {
   Modal,
 } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
-import Header2 from "../navigation/adminHeader";
+import Header2 from "./header";
 
 export default function ManageAccount({ navigation }) {
   const [firstName, setFirstName] = useState("");
@@ -122,7 +122,7 @@ export default function ManageAccount({ navigation }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Header2 showBackButton={true} />
+      <Header2 />
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}

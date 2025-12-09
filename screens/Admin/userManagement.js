@@ -109,7 +109,7 @@ export default function UserManagement({ navigation }) {
     email: "",
     phone: "",
   });
-  const roles = ["Owner", "Manager", "Worker"];
+  const roles = ["Admin", "User"];
   const [roleOpen, setRoleOpen] = useState(false);
   const [savedVisible, setSavedVisible] = useState(false);
   const [saveBtnPressed, setSaveBtnPressed] = useState(false);
@@ -155,13 +155,13 @@ export default function UserManagement({ navigation }) {
           const userId = userDoc.id;
 
           // Fetch session logs for this user to determine status
-          // Simplified query to avoid composite index requirement
           const sessionLogsRef = collection(db, "session_logs");
           const loginQuery = query(
             sessionLogsRef,
             where("userId", "==", userId),
+            where("action", "==", "login"),
             orderBy("timestamp", "desc"),
-            limit(10)
+            limit(1)
           );
 
           let status = "inactive";
@@ -172,13 +172,8 @@ export default function UserManagement({ navigation }) {
               sessionSnapshot.size
             );
 
-            // Filter for login actions in memory
-            const loginLogs = sessionSnapshot.docs.filter(
-              doc => doc.data().action === "login"
-            );
-
-            if (loginLogs.length > 0) {
-              const lastLogin = loginLogs[0].data().timestamp;
+            if (!sessionSnapshot.empty) {
+              const lastLogin = sessionSnapshot.docs[0].data().timestamp;
               const lastLoginDate = lastLogin?.toDate();
 
               if (lastLoginDate) {
@@ -529,6 +524,16 @@ export default function UserManagement({ navigation }) {
 
       {/* Create Account Action Card */}
       <View style={styles.createAccountCard}>
+        {/* Back Button */}
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.navigate("AdminDashboard")}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="arrow-left" size={24} color="#133E87" />
+          <Text style={styles.backButtonText}>Back to Dashboard</Text>
+        </TouchableOpacity>
+
         <View style={styles.createAccountRow}>
           <MaterialCommunityIcons
             name="account-plus-outline"
@@ -539,7 +544,7 @@ export default function UserManagement({ navigation }) {
           <View style={{ flex: 1 }}>
             <Text style={styles.createAccountTitle}>Create Account</Text>
             <Text style={styles.createAccountDesc}>
-              Create a new user account with role and permissions
+              Create a new user account
             </Text>
             <TouchableOpacity
               style={[
@@ -887,7 +892,7 @@ export default function UserManagement({ navigation }) {
               <Text style={styles.editUserTitle}>Edit User Account</Text>
 
               <Text style={styles.editUserLabel}>
-                Firstname<Text style={styles.requiredAsterisk}> *</Text>
+                First Name<Text style={styles.requiredAsterisk}> *</Text>
               </Text>
               <TextInput
                 style={[
@@ -902,7 +907,7 @@ export default function UserManagement({ navigation }) {
                     firstName: validateName(text, "First name"),
                   });
                 }}
-                placeholder="Firstname"
+                placeholder="Enter first name"
               />
               {validationErrors.firstName ? (
                 <Text style={styles.errorText}>
@@ -910,7 +915,7 @@ export default function UserManagement({ navigation }) {
                 </Text>
               ) : null}
 
-              <Text style={styles.editUserLabel}>Middlename</Text>
+              <Text style={styles.editUserLabel}>Middle Name</Text>
               <TextInput
                 style={[
                   styles.editUserInput,
@@ -924,7 +929,7 @@ export default function UserManagement({ navigation }) {
                     middleName: text ? validateName(text, "Middle name") : "",
                   });
                 }}
-                placeholder="Middlename"
+                placeholder="Enter middle name"
               />
               {validationErrors.middleName ? (
                 <Text style={styles.errorText}>
@@ -933,7 +938,7 @@ export default function UserManagement({ navigation }) {
               ) : null}
 
               <Text style={styles.editUserLabel}>
-                Lastname<Text style={styles.requiredAsterisk}> *</Text>
+                Last Name<Text style={styles.requiredAsterisk}> *</Text>
               </Text>
               <TextInput
                 style={[
@@ -948,7 +953,7 @@ export default function UserManagement({ navigation }) {
                     lastName: validateName(text, "Last name"),
                   });
                 }}
-                placeholder="Lastname"
+                placeholder="Enter last name"
               />
               {validationErrors.lastName ? (
                 <Text style={styles.errorText}>
@@ -1983,6 +1988,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
+  },
+  backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    paddingVertical: 4,
+  },
+  backButtonText: {
+    fontSize: 16,
+    color: "#133E87",
+    fontWeight: "500",
+    marginLeft: 8,
   },
   createAccountRow: {
     flexDirection: "row",

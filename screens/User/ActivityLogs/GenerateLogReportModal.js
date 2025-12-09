@@ -68,6 +68,10 @@ export default function GenerateLogReportModal({
     return `${month}/${day}/${year} ${hour12}:${String(minutes).padStart(2, "0")} ${ampm}`;
   };
 
+  /**
+   * Get GMT+8 timestamp in YYYY-MM-DD_HH-mm format for filenames
+   * @returns {string} Formatted timestamp
+   */
   const getFileNameTimestamp = () => {
     const now = new Date();
     const gmt8Date = new Date(now.getTime() + 8 * 60 * 60 * 1000);
@@ -79,9 +83,67 @@ export default function GenerateLogReportModal({
     return `${year}-${month}-${day}_${hours}-${minutes}`;
   };
 
+  /**
+   * Sanitize filename by removing special characters and replacing spaces with underscores
+   * @param {string} name - The name to sanitize
+   * @returns {string} Sanitized name safe for filenames
+   */
   const sanitizeFileName = (name) => {
-    // Remove special characters and replace spaces with underscores
-    return name.replace(/[^a-zA-Z0-9]/g, "_");
+    if (!name) return "";
+    // Remove special characters and replace spaces/non-alphanumeric with underscores
+    return name.trim().replace(/[^a-zA-Z0-9]/g, "_");
+  };
+
+  /**
+   * Generate customizable export filename with user info and timestamp
+   * @param {string} prefix - File prefix (e.g., "LogReport", "Export", "Summary")
+   * @param {string} firstName - User's first name (fetched from Firestore)
+   * @param {string} lastName - User's last name (fetched from Firestore)
+   * @param {string} suffix - Optional suffix (e.g., "Detailed", "Summary", "Full")
+   * @param {string} extension - File extension (default: "pdf")
+   * @returns {string} Generated filename (e.g., "LogReport_John_Doe_2025-12-04_09-27.pdf")
+   */
+  const generateExportFileName = (
+    prefix = "Export",
+    firstName = "",
+    lastName = "",
+    suffix = "",
+    extension = "pdf"
+  ) => {
+    // Sanitize all components
+    const sanitizedPrefix = sanitizeFileName(prefix) || "Export";
+    const sanitizedFirstName = sanitizeFileName(firstName) || "User";
+    const sanitizedLastName = sanitizeFileName(lastName);
+    const sanitizedSuffix = sanitizeFileName(suffix);
+
+    // Get GMT+8 timestamp
+    const timestamp = getFileNameTimestamp();
+
+    // Build filename components
+    const components = [sanitizedPrefix];
+
+    // Add user name components
+    if (sanitizedFirstName) {
+      components.push(sanitizedFirstName);
+    }
+    if (sanitizedLastName) {
+      components.push(sanitizedLastName);
+    }
+
+    // Add timestamp (always included for uniqueness)
+    components.push(timestamp);
+
+    // Add optional suffix
+    if (sanitizedSuffix) {
+      components.push(sanitizedSuffix);
+    }
+
+    // Join components with underscores and add extension
+    const fileName = `${components.join("_")}.${extension}`;
+
+    console.log("📄 [FILENAME] Generated export filename:", fileName);
+
+    return fileName;
   };
 
   const filterLogsByDateRange = () => {
@@ -373,14 +435,17 @@ export default function GenerateLogReportModal({
       // Generate HTML content
       const htmlContent = await generateHTMLContent(userName);
 
-      // Generate filename with user's name and GMT+8 timestamp
-      const timestamp = getFileNameTimestamp();
-      const sanitizedFirstName = sanitizeFileName(firstName || "User");
-      const sanitizedLastName = sanitizeFileName(lastName || "");
-      const namePrefix = sanitizedLastName
-        ? `${sanitizedFirstName}_${sanitizedLastName}`
-        : sanitizedFirstName;
-      const fileName = `LogReport_${namePrefix}_${timestamp}.pdf`;
+      // Generate customizable filename using the new helper function
+      // Options: change prefix, add suffix, or modify extension as needed
+      const fileName = generateExportFileName(
+        "LogReport", // Prefix
+        firstName, // First name from Firestore
+        lastName, // Last name from Firestore
+        "", // Optional suffix (e.g., "Detailed", "Summary")
+        "pdf" // File extension
+      );
+
+      console.log("📄 [EXPORT] Using filename:", fileName);
 
       // Create PDF
       const { uri } = await Print.printToFileAsync({
@@ -388,7 +453,7 @@ export default function GenerateLogReportModal({
         base64: false,
       });
 
-      console.log("PDF generated at:", uri);
+      console.log("✅ [PDF] Generated at:", uri);
 
       // Check if sharing is available
       const isSharingAvailable = await Sharing.isAvailableAsync();

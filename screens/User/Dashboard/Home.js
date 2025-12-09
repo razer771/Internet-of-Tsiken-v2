@@ -106,6 +106,15 @@ export default function QuickOverviewSetup({ navigation }) {
 
   const fetchUserName = async () => {
     try {
+      // Check if admin bypass
+      const isAdminBypass = await AsyncStorage.getItem('isAdminBypass');
+      const adminEmail = await AsyncStorage.getItem('adminEmail');
+      
+      if (isAdminBypass === 'true' && adminEmail === 'admin@example.com') {
+        setUserName("Admin");
+        return;
+      }
+
       const currentUser = auth.currentUser;
       
       if (currentUser) {

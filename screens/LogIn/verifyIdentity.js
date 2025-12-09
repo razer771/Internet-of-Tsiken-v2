@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -14,54 +14,11 @@ import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityI
 import { useNavigation } from "@react-navigation/native";
 import { auth, db } from "../../config/firebaseconfig.js";
 import { doc, updateDoc, getDoc } from "firebase/firestore";
+// TODO: Re-enable Firebase Functions after fixing build issues
 import { getFunctions, httpsCallable } from "firebase/functions";
 
 // Initialize Firebase Functions
 const functions = getFunctions(undefined, "us-central1");
-
-// Reusable Branded Alert Modal Component
-const BrandedAlertModal = ({ visible, type, title, message, onClose }) => {
-  const getIconConfig = () => {
-    switch (type) {
-      case "success":
-        return { name: "check-circle", color: "#4CAF50" };
-      case "error":
-        return { name: "alert-circle", color: "#c41e3a" };
-      case "info":
-        return { name: "information", color: "#2196F3" };
-      default:
-        return { name: "information", color: "#2196F3" };
-    }
-  };
-
-  const iconConfig = getIconConfig();
-
-  return (
-    <Modal transparent visible={visible} animationType="fade">
-      <View style={styles.alertOverlay}>
-        <View style={styles.alertModal}>
-          <View
-            style={[
-              styles.alertIconContainer,
-              { backgroundColor: `${iconConfig.color}20` },
-            ]}
-          >
-            <MaterialCommunityIcons
-              name={iconConfig.name}
-              size={48}
-              color={iconConfig.color}
-            />
-          </View>
-          <Text style={styles.alertTitle}>{title}</Text>
-          <Text style={styles.alertMessage}>{message}</Text>
-          <TouchableOpacity style={styles.alertButton} onPress={onClose}>
-            <Text style={styles.alertButtonText}>OK</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
-};
 
 export default function VerifyIdentityScreen() {
   const [selectedOption, setSelectedOption] = useState("mobile");
@@ -71,6 +28,14 @@ export default function VerifyIdentityScreen() {
   const [confirmationResult, setConfirmationResult] = useState(null);
   const [verificationId, setVerificationId] = useState(null);
   const [successModalVisible, setSuccessModalVisible] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  const [canResend, setCanResend] = useState(true);
+  const [otpAttempts, setOtpAttempts] = useState(0);
+  const [isLocked, setIsLocked] = useState(false);
+  const [lockCountdown, setLockCountdown] = useState(0);
+  const [mobileAttempts, setMobileAttempts] = useState(0);
+  const [isMobileLocked, setIsMobileLocked] = useState(false);
+  const [mobileLockCountdown, setMobileLockCountdown] = useState(0);
 
   // Alert Modal State
   const [alertVisible, setAlertVisible] = useState(false);
@@ -80,6 +45,59 @@ export default function VerifyIdentityScreen() {
 
   const inputs = useRef([]);
   const navigation = useNavigation();
+
+  // Countdown timer effect
+  useEffect(() => {
+    let interval;
+    if (countdown > 0) {
+      interval = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            setCanResend(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [countdown]);
+
+  // Lock countdown timer effect
+  useEffect(() => {
+    let interval;
+    if (lockCountdown > 0) {
+      interval = setInterval(() => {
+        setLockCountdown((prev) => {
+          if (prev <= 1) {
+            setIsLocked(false);
+            setOtpAttempts(0);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [lockCountdown]);
+
+  // Mobile lock countdown timer effect
+  useEffect(() => {
+    let interval;
+    if (mobileLockCountdown > 0) {
+      interval = setInterval(() => {
+        setMobileLockCountdown((prev) => {
+          if (prev <= 1) {
+            setIsMobileLocked(false);
+            setMobileAttempts(0);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [mobileLockCountdown]);
 
   const showAlert = (type, title, message) => {
     setAlertType(type);
@@ -107,37 +125,96 @@ export default function VerifyIdentityScreen() {
         // Format phone number with country code
         const phoneNumber = `+63${inputValue}`; // Philippines country code
 
+        console.log("🔄 Verifying mobile number:", phoneNumber);
+
+        // Check if current user exists and verify mobile number matches records
+        const user = auth.currentUser;
+        if (!user) {
+          showAlert(
+            "error",
+            "Authentication Required",
+            "Please log in first to verify your identity."
+          );
+          return;
+        }
+
+        // Fetch user document from Firestore
+        const userRef = doc(db, "users", user.uid);
+        const userDoc = await getDoc(userRef);
+
+        if (!userDoc.exists()) {
+          showAlert(
+            "error",
+            "User Not Found",
+            "User record not found in database."
+          );
+          return;
+        }
+
+        const userData = userDoc.data();
+        const storedPhone =
+          userData.phone || userData.mobileNumber || userData.phoneNumber;
+
+        // Verify mobile number matches user records
+        if (!storedPhone || storedPhone !== phoneNumber) {
+          console.log("❌ Mobile number mismatch:");
+          console.log("  Input:", phoneNumber);
+          console.log("  Stored:", storedPhone || "Not found");
+
+          // Increment failed mobile verification attempts
+          const newAttempts = mobileAttempts + 1;
+          setMobileAttempts(newAttempts);
+
+          if (newAttempts >= 5) {
+            // Lock device after 5 failed attempts
+            setIsMobileLocked(true);
+            setMobileLockCountdown(10);
+            setInputValue("");
+            console.log(
+              "🔒 Device locked due to multiple mobile number mismatches"
+            );
+            return;
+          }
+
+          // Show remaining attempts
+          const remainingAttempts = 5 - newAttempts;
+          showAlert(
+            "error",
+            "Incorrect Mobile Number",
+
+            "Mobile number does not match user records."
+          );
+          return;
+        }
+
+        // Reset mobile attempts on successful match
+        setMobileAttempts(0);
+
+        console.log("✅ Mobile number verified against user records");
         console.log("🔄 Sending SMS to:", phoneNumber);
 
-        // Call our deployed Firebase Function to send SMS
-        const sendSMSOTP = httpsCallable(functions, "sendSMSOTP");
-        const requestData = { phone: phoneNumber };
-        console.log("🔄 Request data being sent:", requestData);
-        console.log("🔄 Request data type:", typeof requestData);
-        console.log("🔄 Request data keys:", Object.keys(requestData));
+        // TODO: Re-enable Firebase Functions for SMS OTP
+        // Temporary workaround: Generate test OTP locally
+        const testOTP = Math.floor(100000 + Math.random() * 900000).toString();
 
-        const response = await sendSMSOTP(requestData);
-
-        if (response.data && response.data.success) {
-          setConfirmationResult({
-            phone: response.data.phone || phoneNumber,
-            testOTP: response.data.testOTP,
-          });
-          setVerificationId(response.data.phone || phoneNumber);
-        } else {
-          throw new Error("Failed to send SMS");
-        }
+        setConfirmationResult({
+          phone: phoneNumber,
+          testOTP: testOTP,
+        });
+        setVerificationId(phoneNumber);
 
         console.log("==========================================");
-        console.log(`📱 SMS sent to: ${response.data.phone || phoneNumber}`);
-        console.log("SMS sent successfully");
-        if (response.data.testOTP) {
-          console.log(`🔐 OTP CODE: ${response.data.testOTP}`);
-        }
+        console.log(`📱 Test SMS for: ${phoneNumber}`);
+        console.log(`🔐 OTP CODE: ${testOTP}`);
+        console.log(
+          "⚠️ Using test OTP - Firebase Functions disabled for build"
+        );
         console.log("==========================================");
 
         setShowOtpScreen(true);
         setSuccessModalVisible(true);
+        setCountdown(10);
+        setCanResend(false);
 
         // Auto-hide modal after 2 seconds
         setTimeout(() => {
@@ -181,6 +258,15 @@ export default function VerifyIdentityScreen() {
 
   // Verify OTP using Firebase Functions
   const handleVerifyLogin = async () => {
+    if (isLocked) {
+      showAlert(
+        "error",
+        "Device Locked",
+        `Too many failed attempts. Please wait ${lockCountdown} seconds before trying again.`
+      );
+      return;
+    }
+
     const enteredOtp = otp.join("");
     if (!confirmationResult) {
       showAlert("error", "Error", "No OTP request found.");
@@ -188,16 +274,15 @@ export default function VerifyIdentityScreen() {
     }
 
     try {
-      // Verify OTP using Firebase Functions
-      const verifySMSOTP = httpsCallable(functions, "verifySMSOTP");
-      const response = await verifySMSOTP({
-        phone: confirmationResult.phone,
-        otp: enteredOtp,
-      });
+      // TODO: Re-enable Firebase Functions for OTP verification
+      // Temporary workaround: Verify against locally generated OTP
+      const isValid = enteredOtp === confirmationResult.testOTP;
 
-      if (response.data && response.data.success) {
-        console.log("✅ Phone number verified successfully!");
-        console.log("Phone:", response.data.phone);
+      if (isValid) {
+        // Reset attempts on success
+        setOtpAttempts(0);
+        console.log("✅ Phone number verified successfully (test mode)!");
+        console.log("Phone:", confirmationResult.phone);
 
         // Update Firestore verification status and fetch user data
         const user = auth.currentUser;
@@ -206,7 +291,7 @@ export default function VerifyIdentityScreen() {
           await updateDoc(userRef, {
             verified: true,
             lastVerified: new Date(),
-            phone: response.data.phone,
+            phone: confirmationResult.phone,
             phoneVerified: true,
           });
           console.log("✅ User verification status updated");
@@ -220,11 +305,12 @@ export default function VerifyIdentityScreen() {
             showAlert(
               "success",
               "Success",
-              "Phone number verified successfully!\n\n🎉 SMS verification completed via Firebase Functions."
+              "Phone number verified successfully!"
             );
 
             // Navigate based on user role after a short delay
             setTimeout(() => {
+              console.log("🚀 Starting navigation after verification...");
               if (userData.role === "Admin") {
                 console.log(
                   "🔀 Navigating to AdminDashboard (OTP verified admin)"
@@ -242,13 +328,32 @@ export default function VerifyIdentityScreen() {
                   routes: [{ name: "Home" }],
                 });
               }
+              console.log("✅ Navigation reset completed");
             }, 2000);
           } else {
             throw new Error("User document not found after verification");
           }
         }
       } else {
-        showAlert("error", "Error", "Invalid OTP code. Please try again.");
+        // Increment failed attempts
+        const newAttempts = otpAttempts + 1;
+        setOtpAttempts(newAttempts);
+
+        if (newAttempts >= 5) {
+          // Lock device after 5 failed attempts
+          setIsLocked(true);
+          setLockCountdown(10);
+          setOtp(["", "", "", "", "", ""]);
+          showAlert(
+            "error",
+            "Device Locked",
+            "Too many failed attempts. Your device has been locked for 10 seconds."
+          );
+        } else {
+          // Show remaining attempts
+          const remainingAttempts = 5 - newAttempts;
+          showAlert("error", "Invalid OTP", `Check you message and try again.`);
+        }
       }
     } catch (error) {
       console.error("OTP Verification Error:", error);
@@ -263,12 +368,81 @@ export default function VerifyIdentityScreen() {
   const handleBack = () => {
     setShowOtpScreen(false);
     setOtp(["", "", "", "", "", ""]);
+    setOtpAttempts(0);
+    setIsLocked(false);
+    setLockCountdown(0);
   };
 
   const handleOutsideTap = () => {
     Keyboard.dismiss();
-    navigation.goBack();
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate("LogIn");
+    }
   };
+
+  const formatLockoutTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // If device is locked due to mobile number mismatches, show lockout screen
+  if (isMobileLocked) {
+    return (
+      <View style={styles.lockedContainer}>
+        <View style={styles.lockedCard}>
+          <Ionicons name="lock-closed" size={48} color="#c41e3a" />
+          <Text style={styles.lockedTitle}>Device Locked</Text>
+          <Text style={styles.lockedSubtitle}>
+            Too many failed mobile number attempts
+          </Text>
+          <Text style={styles.lockedTime}>
+            {formatLockoutTime(mobileLockCountdown)}
+          </Text>
+          <Text style={styles.lockedMessage}>Please try again later.</Text>
+        </View>
+
+        {/* Branded Alert Modal */}
+        <BrandedAlertModal
+          visible={alertVisible}
+          type={alertType}
+          title={alertTitle}
+          message={alertMessage}
+          onClose={closeAlert}
+        />
+      </View>
+    );
+  }
+
+  // If device is locked, show lockout screen
+  if (isLocked) {
+    return (
+      <View style={styles.lockedContainer}>
+        <View style={styles.lockedCard}>
+          <Ionicons name="lock-closed" size={48} color="#c41e3a" />
+          <Text style={styles.lockedTitle}>Device Locked</Text>
+          <Text style={styles.lockedSubtitle}>
+            Too many failed OTP attempts
+          </Text>
+          <Text style={styles.lockedTime}>
+            {formatLockoutTime(lockCountdown)}
+          </Text>
+          <Text style={styles.lockedMessage}>Please try again later.</Text>
+        </View>
+
+        {/* Branded Alert Modal */}
+        <BrandedAlertModal
+          visible={alertVisible}
+          type={alertType}
+          title={alertTitle}
+          message={alertMessage}
+          onClose={closeAlert}
+        />
+      </View>
+    );
+  }
 
   return (
     <TouchableWithoutFeedback onPress={handleOutsideTap}>
@@ -277,7 +451,13 @@ export default function VerifyIdentityScreen() {
           {/* Back Arrow Button */}
           <TouchableOpacity
             style={styles.backArrow}
-            onPress={() => navigation.goBack()}
+            onPress={() => {
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+              } else {
+                navigation.navigate("LogIn");
+              }
+            }}
           >
             <Ionicons name="arrow-back" size={24} color="#3b4cca" />
           </TouchableOpacity>
@@ -310,8 +490,15 @@ export default function VerifyIdentityScreen() {
 
               <View style={styles.resendRow}>
                 <Text style={styles.resendText}>Didn't receive the code? </Text>
-                <TouchableOpacity onPress={handleSendOTP}>
-                  <Text style={styles.resendLink}>Resend</Text>
+                <TouchableOpacity onPress={handleSendOTP} disabled={!canResend}>
+                  <Text
+                    style={[
+                      styles.resendLink,
+                      !canResend && styles.resendDisabled,
+                    ]}
+                  >
+                    Resend {countdown > 0 ? `(${countdown}s)` : ""}
+                  </Text>
                 </TouchableOpacity>
               </View>
 
@@ -319,7 +506,7 @@ export default function VerifyIdentityScreen() {
                 style={styles.verifyButton}
                 onPress={handleVerifyLogin}
               >
-                <Text style={styles.verifyText}>Verify & Login</Text>
+                <Text style={styles.verifyText}>Verify</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.backButton} onPress={handleBack}>
@@ -412,6 +599,50 @@ export default function VerifyIdentityScreen() {
   );
 }
 
+// Reusable Branded Alert Modal Component
+const BrandedAlertModal = ({ visible, type, title, message, onClose }) => {
+  const getIconConfig = () => {
+    switch (type) {
+      case "success":
+        return { name: "check-circle", color: "#4CAF50" };
+      case "error":
+        return { name: "alert-circle", color: "#c41e3a" };
+      case "info":
+        return { name: "information", color: "#2196F3" };
+      default:
+        return { name: "information", color: "#2196F3" };
+    }
+  };
+
+  const iconConfig = getIconConfig();
+
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View style={styles.alertOverlay}>
+        <View style={styles.alertModal}>
+          <View
+            style={[
+              styles.alertIconContainer,
+              { backgroundColor: `${iconConfig.color}20` },
+            ]}
+          >
+            <MaterialCommunityIcons
+              name={iconConfig.name}
+              size={48}
+              color={iconConfig.color}
+            />
+          </View>
+          <Text style={styles.alertTitle}>{title}</Text>
+          <Text style={styles.alertMessage}>{message}</Text>
+          <TouchableOpacity style={styles.alertButton} onPress={onClose}>
+            <Text style={styles.alertButtonText}>OK</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 // Keep existing styles...
 const styles = StyleSheet.create({
   container: {
@@ -419,6 +650,51 @@ const styles = StyleSheet.create({
     backgroundColor: "#F7F8FA",
     justifyContent: "center",
     alignItems: "center",
+  },
+  lockedContainer: {
+    flex: 1,
+    backgroundColor: "#F7F8FA",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  lockedCard: {
+    width: "90%",
+    maxWidth: 400,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 40,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  lockedTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  lockedSubtitle: {
+    fontSize: 15,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  lockedTime: {
+    fontSize: 48,
+    fontWeight: "700",
+    color: "#c41e3a",
+    marginBottom: 16,
+    fontFamily: "monospace",
+  },
+  lockedMessage: {
+    fontSize: 14,
+    color: "#999",
+    textAlign: "center",
   },
   formContainer: {
     width: "90%",
@@ -533,6 +809,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#3b4cca",
     fontWeight: "600",
+  },
+  resendDisabled: {
+    color: "#999",
   },
   verifyButton: {
     backgroundColor: "#3b4cca",

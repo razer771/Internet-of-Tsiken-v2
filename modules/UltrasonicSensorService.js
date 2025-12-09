@@ -1,12 +1,11 @@
 /**
  * UltrasonicSensorService.js
  * 
- * Service to interface with ultrasonic sensor modules for water and feeder level detection.
- * This service handles communication with hardware modules and provides fallback error handling.
- * 
- * TODO: Connect to actual hardware modules (ESP32/Arduino) via WebSocket or HTTP API
- * TODO: Connect to Firestore for data persistence
+ * Service to interface with water level sensor modules for water and feeder level detection.
+ * This service handles communication with hardware modules (ESP32) and provides fallback error handling.
  */
+
+import { getWaterSystemUrl, getFeedSystemUrl } from '../config/esp32config';
 
 // Configuration for sensor modules
 const SENSOR_CONFIG = {
@@ -49,7 +48,26 @@ let simulationMode = true;
  * @returns {Promise<Object>} Connection status
  */
 export const initializeSensors = async (config = {}) => {
+  console.log('🚀 Initializing sensors...');
+  
   try {
+    // Auto-configure endpoints from ESP32 config
+    const waterSystemUrl = getWaterSystemUrl();
+    const feedSystemUrl = getFeedSystemUrl();
+    
+    console.log(`   Water system URL: ${waterSystemUrl || 'not configured'}`);
+    console.log(`   Feed system URL: ${feedSystemUrl || 'not configured'}`);
+    
+    if (waterSystemUrl && !SENSOR_CONFIG.waterSensor.endpoint) {
+      SENSOR_CONFIG.waterSensor.endpoint = `${waterSystemUrl}/api/sensors`;
+      console.log(`   ✓ Water sensor endpoint set: ${SENSOR_CONFIG.waterSensor.endpoint}`);
+    }
+    
+    if (feedSystemUrl && !SENSOR_CONFIG.feederSensor.endpoint) {
+      SENSOR_CONFIG.feederSensor.endpoint = `${feedSystemUrl}/api/sensors`;
+      console.log(`   ✓ Feed sensor endpoint set: ${SENSOR_CONFIG.feederSensor.endpoint}`);
+    }
+    
     // Merge custom config if provided
     if (config.waterSensor) {
       Object.assign(SENSOR_CONFIG.waterSensor, config.waterSensor);
@@ -59,10 +77,14 @@ export const initializeSensors = async (config = {}) => {
     }
 
     // Attempt to connect to water sensor
+    console.log('🔍 Connecting to water sensor...');
     const waterResult = await connectToSensor('waterSensor');
     
     // Attempt to connect to feeder sensor
+    console.log('🔍 Connecting to feeder sensor...');
     const feederResult = await connectToSensor('feederSensor');
+
+    console.log(`✅ Sensor initialization complete - simulationMode: ${simulationMode}`);
 
     return {
       success: true,
@@ -88,22 +110,19 @@ export const initializeSensors = async (config = {}) => {
 const connectToSensor = async (sensorType) => {
   const sensor = SENSOR_CONFIG[sensorType];
   
+  console.log(`🔌 Connecting to ${sensorType}...`);
+  console.log(`   Endpoint: ${sensor.endpoint}`);
+  
   try {
-    // TODO: Replace with actual hardware connection logic
-    // This could be:
-    // 1. WebSocket connection to ESP32/Arduino
-    // 2. HTTP polling to a local server
-    // 3. Bluetooth connection
-    // 4. Serial port communication
-    
     if (!sensor.endpoint) {
       // No endpoint configured - module not connected
       throw new Error(`${sensor.name} module not detected. Please check the connection.`);
     }
 
-    // Simulated connection attempt
-    // In real implementation, this would ping the hardware
+    // Test connection to hardware
     const isConnected = await pingModule(sensor.endpoint);
+    
+    console.log(`   Connection result: ${isConnected}`);
     
     if (!isConnected) {
       throw new Error(`${sensor.name} module not responding. Please verify the module is powered on.`);
@@ -114,6 +133,8 @@ const connectToSensor = async (sensorType) => {
       lastUpdate: new Date().toISOString(),
       error: null,
     };
+    
+    console.log(`✅ ${sensor.name} connected successfully`);
 
     return {
       connected: true,
@@ -127,10 +148,11 @@ const connectToSensor = async (sensorType) => {
       error: error.message,
     };
 
-    console.warn(`Sensor connection warning: ${error.message}`);
+    console.warn(`⚠️ Sensor connection warning: ${error.message}`);
     
-    // Enable simulation mode as fallback
-    simulationMode = true;
+    // DON'T enable global simulation mode - let each sensor work independently
+    // simulationMode = true;  // REMOVED - this was breaking working sensors!
+    console.log(`   ${sensorType} will use simulation, but other sensors can still work`);
     
     return {
       connected: false,
@@ -149,14 +171,34 @@ const connectToSensor = async (sensorType) => {
  */
 const pingModule = async (endpoint) => {
   try {
-    // TODO: Implement actual ping logic
-    // Example for HTTP-based module:
-    // const response = await fetch(`${endpoint}/ping`, { timeout: 5000 });
-    // return response.ok;
+    console.log(`🔍 Testing connection to: ${endpoint}`);
     
-    // For now, return false to trigger simulation mode
+    // Test connection to ESP32 by calling the sensors endpoint
+    const response = await fetch(endpoint, { 
+      method: 'GET'
+    });
+    
+    console.log(`📡 Response status: ${response.status}`);
+    
+    if (response.ok) {
+      const data = await response.json();
+      console.log('📦 Response data:', JSON.stringify(data));
+      
+      // Check if it's a valid sensor response
+      if (data.water || data.feeder || data.timestamp !== undefined) {
+        console.log(`✅ Module connected successfully: ${endpoint}`);
+        simulationMode = false; // Disable simulation if hardware is available
+        return true;
+      } else {
+        console.log('⚠️ Invalid sensor data format');
+      }
+    } else {
+      console.log(`❌ HTTP error: ${response.status}`);
+    }
     return false;
   } catch (error) {
+    console.log(`❌ Module connection failed: ${endpoint}`);
+    console.log(`   Error: ${error.message}`);
     return false;
   }
 };
@@ -166,9 +208,12 @@ const pingModule = async (endpoint) => {
  * @returns {Promise<Object>} Water level reading
  */
 export const getWaterLevel = async () => {
+  console.log(`💧 getWaterLevel called - simulationMode: ${simulationMode}, connected: ${connectionStatus.waterSensor.connected}`);
+  
   try {
     if (simulationMode || !connectionStatus.waterSensor.connected) {
       // Return simulated value with warning
+      console.log('⚠️ Using simulated water level');
       return {
         success: true,
         level: simulatedValues.waterLevel,
@@ -179,10 +224,7 @@ export const getWaterLevel = async () => {
       };
     }
 
-    // TODO: Implement actual sensor reading
-    // const distance = await readUltrasonicDistance(SENSOR_CONFIG.waterSensor.endpoint);
-    // const level = calculateLevelPercentage(distance, SENSOR_CONFIG.waterSensor);
-    
+    console.log('📡 Reading from hardware...');
     const level = await readFromHardware('waterSensor');
     
     connectionStatus.waterSensor.lastUpdate = new Date().toISOString();
@@ -293,17 +335,43 @@ export const getAllSensorReadings = async () => {
 const readFromHardware = async (sensorType) => {
   const sensor = SENSOR_CONFIG[sensorType];
   
-  // TODO: Implement actual hardware communication
-  // Example for ESP32 via HTTP:
-  /*
-  const response = await fetch(`${sensor.endpoint}/read`);
-  const data = await response.json();
-  const distance = data.distance; // in cm
-  return calculateLevelPercentage(distance, sensor);
-  */
+  if (!sensor.endpoint) {
+    throw new Error('Sensor endpoint not configured');
+  }
   
-  // For now, throw error to trigger fallback
-  throw new Error('Hardware communication not implemented');
+  try {
+    console.log(`📊 Reading ${sensorType} from: ${sensor.endpoint}`);
+    
+    // Call ESP32 /api/sensors endpoint
+    const response = await fetch(sensor.endpoint, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log(`📦 Sensor data received:`, JSON.stringify(data));
+    
+    // Parse response based on sensor type
+    // ESP32 returns: { "water": { "level": 75, ... }, "simulationMode": false, ... }
+    if (sensorType === 'waterSensor' && data.water) {
+      console.log(`💧 Water level: ${data.water.level}%`);
+      return data.water.level || 0;
+    } else if (sensorType === 'feederSensor' && data.feeder) {
+      console.log(`🌾 Feeder level: ${data.feeder.level}%`);
+      return data.feeder.level || 0;
+    }
+    
+    throw new Error('Invalid sensor data format');
+  } catch (error) {
+    console.error(`❌ Hardware read error for ${sensorType}:`, error.message);
+    throw error;
+  }
 };
 
 /**
