@@ -65,8 +65,9 @@ export default function ActivityLogs({ navigation }) {
         let userName = "";
         if (!userDoc.empty) {
           const userData = userDoc.docs[0].data();
-          userName =
-            `${userData.firstName || ""} ${userData.lastName || ""}`.trim();
+          userName = `${userData.firstName || ""} ${
+            userData.lastName || ""
+          }`.trim();
         }
         setCurrentUserName(userName);
 
@@ -86,6 +87,8 @@ export default function ActivityLogs({ navigation }) {
           "manualActivity_logs",
           "feedingActivity_logs",
           "verification_logs",
+          "wateringActivity_Logs",
+          "predatorDetection_logs",
         ];
 
         // Fetch logs from all collections
@@ -113,26 +116,50 @@ export default function ActivityLogs({ navigation }) {
         const sortedLogs = mergedLogs.sort((a, b) => {
           // Normalize timestamp for log A
           let dateA;
-          if (a.timestamp?.toDate && typeof a.timestamp.toDate === "function") {
-            dateA = a.timestamp.toDate();
-          } else if (typeof a.timestamp === "string") {
-            dateA = new Date(a.timestamp);
-          } else if (a.timestamp instanceof Date) {
-            dateA = a.timestamp;
-          } else {
-            dateA = a.date || new Date(0);
+          try {
+            if (
+              a.timestamp?.toDate &&
+              typeof a.timestamp.toDate === "function"
+            ) {
+              dateA = a.timestamp.toDate();
+            } else if (typeof a.timestamp === "string") {
+              dateA = new Date(a.timestamp);
+            } else if (a.timestamp instanceof Date) {
+              dateA = a.timestamp;
+            } else {
+              dateA = a.date || new Date(0);
+            }
+            // Validate date is valid
+            if (isNaN(dateA.getTime())) {
+              dateA = new Date(0);
+            }
+          } catch (error) {
+            console.warn("Invalid date for log A:", error);
+            dateA = new Date(0);
           }
 
           // Normalize timestamp for log B
           let dateB;
-          if (b.timestamp?.toDate && typeof b.timestamp.toDate === "function") {
-            dateB = b.timestamp.toDate();
-          } else if (typeof b.timestamp === "string") {
-            dateB = new Date(b.timestamp);
-          } else if (b.timestamp instanceof Date) {
-            dateB = b.timestamp;
-          } else {
-            dateB = b.date || new Date(0);
+          try {
+            if (
+              b.timestamp?.toDate &&
+              typeof b.timestamp.toDate === "function"
+            ) {
+              dateB = b.timestamp.toDate();
+            } else if (typeof b.timestamp === "string") {
+              dateB = new Date(b.timestamp);
+            } else if (b.timestamp instanceof Date) {
+              dateB = b.timestamp;
+            } else {
+              dateB = b.date || new Date(0);
+            }
+            // Validate date is valid
+            if (isNaN(dateB.getTime())) {
+              dateB = new Date(0);
+            }
+          } catch (error) {
+            console.warn("Invalid date for log B:", error);
+            dateB = new Date(0);
           }
 
           // Sort descending (latest first)
