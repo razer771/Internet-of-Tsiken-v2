@@ -1,4 +1,4 @@
-// Settings.js – App Info Screen (Based on Screenshot)
+// Settings.js – App Info Screedn (Based on Screenshot)
 
 import React, { useState } from "react";
 import {
@@ -165,7 +165,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#2A59D1",
     marginBottom: 5,
-    textDecorationLine: "none",
+    textDecorationLine: "underline",
   },
   linkTextUnderlined: {
     textDecorationLine: 'underline',
