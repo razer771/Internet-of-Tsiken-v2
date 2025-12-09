@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 # Global variables
 camera = None
-model = None
+model_coco = None  # 80 COCO classes
+model_predators = None  # Snake + Rat
 current_frame = None
 detection_data = {
     'objects': [],
@@ -56,50 +57,76 @@ def initialize_camera():
         return False
 
 def initialize_model():
-    """Initialize YOLO model"""
-    global model
+    """Initialize DUAL YOLO models - COCO (80 classes) + Predators (snake, rat)"""
+    global model_coco, model_predators
     try:
-        # Use base COCO model with 80 classes (person, car, dog, cat, etc.)
-        model = YOLO("yolov8n_coco.pt")
-        # Enable GPU if available (will use CPU on Pi 5)
-        model.to('cpu')  # Explicitly use CPU for Pi
-        logger.info("YOLO base COCO model loaded successfully")
-        logger.info(f"Detecting: {model.names}")
+        # Model 1: Base COCO with 80 classes (person, car, dog, cat, bird, etc.)
+        logger.info("Loading COCO model (80 classes)...")
+        model_coco = YOLO("yolov8n_coco.pt")
+        model_coco.to('cpu')
+        logger.info(f"✅ COCO model loaded: {len(model_coco.names)} classes")
+        
+        # Model 2: Custom snake + rat detection
+        logger.info("Loading predator model (snake, rat)...")
+        model_predators = YOLO("yolov8n_ultimate.pt")
+        model_predators.to('cpu')
+        logger.info(f"✅ Predator model loaded: {model_predators.names}")
+        
+        logger.info("🎯 DUAL MODEL ACTIVE - Detecting 80 COCO classes + snakes + rats!")
         return True
     except Exception as e:
-        logger.error(f"Failed to load YOLO model: {e}")
+        logger.error(f"Failed to load YOLO models: {e}")
         return False
 
 def process_frame():
-    """Capture and process frames with YOLO detection"""
+    """Capture and process frames with DUAL YOLO models"""
     global current_frame, detection_data
     
     frame_count = 0
-    last_detections = None
+    last_coco_results = None
+    last_predator_results = None
     
     while True:
         try:
-            if camera is None or model is None:
+            if camera is None or model_coco is None or model_predators is None:
                 continue
             
             # Capture frame
             frame = camera.capture_array()
             
-            # Skip YOLO detection on some frames for speed (detect every 2nd frame)
+            # Skip detection on some frames for speed (detect every 2nd frame)
             frame_count += 1
-            if frame_count % 2 == 0 and last_detections is not None:
-                # Reuse previous detection results
-                results = last_detections
+            if frame_count % 2 == 0 and last_coco_results is not None:
+                # Reuse previous results
+                coco_results = last_coco_results
+                predator_results = last_predator_results
             else:
-                # Run YOLO detection with optimizations
-                results = model(frame, verbose=False, conf=0.5, iou=0.45, imgsz=416)
-                last_detections = results
+                # Run BOTH models
+                coco_results = model_coco(frame, verbose=False, conf=0.3, iou=0.45, imgsz=416)
+                predator_results = model_predators(frame, verbose=False, conf=0.3, iou=0.45, imgsz=416)
+                last_coco_results = coco_results
+                last_predator_results = predator_results
             
-            # Annotate frame with detection boxes
-            annotated_frame = results[0].plot()
+            # Start with annotated frame from COCO model
+            annotated_frame = coco_results[0].plot()
+            
+            # Add predator detections on top
+            if len(predator_results[0].boxes) > 0:
+                # Draw predator boxes in red for visibility
+                for box in predator_results[0].boxes:
+                    x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                    cls = int(box.cls[0])
+                    conf = float(box.conf[0])
+                    name = model_predators.names[cls]
+                    
+                    # Red box for predators
+                    cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                    label = f'{name} {conf:.2f}'
+                    cv2.putText(annotated_frame, label, (x1, y1 - 10), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
             
             # Calculate FPS
-            inference_time = results[0].speed['inference']
+            inference_time = coco_results[0].speed['inference']
             fps = 1000 / inference_time if inference_time > 0 else 0
             
             # Add FPS text to frame
@@ -113,19 +140,32 @@ def process_frame():
                 2
             )
             
-            # Extract detection information
+            # Extract detection information from BOTH models
             detections = []
-            for box in results[0].boxes:
+            
+            # COCO detections
+            for box in coco_results[0].boxes:
                 cls = int(box.cls[0])
                 conf = float(box.conf[0])
-                name = model.names[cls]
+                name = model_coco.names[cls]
                 detections.append({
                     'class': name,
                     'confidence': round(conf * 100, 2),
                     'bbox': box.xyxy[0].tolist()
                 })
             
-            # Log detections to console (only when objects are detected and detection changed)
+            # Predator detections
+            for box in predator_results[0].boxes:
+                cls = int(box.cls[0])
+                conf = float(box.conf[0])
+                name = model_predators.names[cls]
+                detections.append({
+                    'class': name,
+                    'confidence': round(conf * 100, 2),
+                    'bbox': box.xyxy[0].tolist()
+                })
+            
+            # Log detections to console (only when objects are detected)
             if len(detections) > 0:
                 # Create summary of detected objects
                 detection_summary = {}
@@ -187,7 +227,9 @@ def status():
     return jsonify({
         'status': 'online',
         'camera': camera is not None,
-        'model': model is not None,
+        'model_coco': model_coco is not None,
+        'model_predators': model_predators is not None,
+        'dual_model_system': True,
         'timestamp': datetime.now().isoformat()
     })
 
