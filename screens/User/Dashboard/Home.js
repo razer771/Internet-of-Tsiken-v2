@@ -13,6 +13,10 @@ import {
 import QuickSetupModal from "./QuickSetupModal";
 import { auth, db } from "../../../config/firebaseconfig";
 import { doc, getDoc } from "firebase/firestore";
+import {
+  getAllSensorReadings,
+  startSensorPolling,
+} from "../../../modules/UltrasonicSensorService";
 
 // Replace static import with a dynamic require + in-memory fallback.
 // This avoids a crash when @react-native-async-storage/async-storage is not installed.
@@ -78,6 +82,11 @@ export default function QuickOverviewSetup({ navigation }) {
   const [showConfirmReplace, setShowConfirmReplace] = useState(false);
   const [hasBatchData, setHasBatchData] = useState(false);
   const [userName, setUserName] = useState("User");
+  
+  // Real-time sensor data
+  const [waterLevel, setWaterLevel] = useState(85);
+  const [feedLevel, setFeedLevel] = useState(62);
+  const [isSimulated, setIsSimulated] = useState(true);
 
   // Load saved data when component mounts
   useEffect(() => {
@@ -102,6 +111,55 @@ export default function QuickOverviewSetup({ navigation }) {
     }, 60000); // Update every 60 seconds
     
     return () => clearInterval(interval);
+  }, []);
+
+  // Initialize sensors and start real-time polling
+  useEffect(() => {
+    let stopPolling = null;
+
+    const initSensors = async () => {
+      try {
+        // Get initial readings
+        const readings = await getAllSensorReadings();
+        if (readings) {
+          if (readings.water) {
+            setWaterLevel(readings.water.level || 85);
+            setIsSimulated(readings.water.isSimulated || false);
+          }
+          if (readings.feeder) {
+            setFeedLevel(readings.feeder.level || 62);
+          }
+        }
+
+        // Start polling for continuous updates (every 5 seconds)
+        stopPolling = startSensorPolling((readings) => {
+          if (readings) {
+            if (readings.water) {
+              setWaterLevel(readings.water.level || 85);
+              setIsSimulated(readings.water.isSimulated || false);
+            }
+            if (readings.feeder) {
+              setFeedLevel(readings.feeder.level || 62);
+            }
+          }
+        }, 5000);
+      } catch (error) {
+        console.error("Sensor initialization error:", error);
+        // Keep default values on error
+        setWaterLevel(85);
+        setFeedLevel(62);
+        setIsSimulated(true);
+      }
+    };
+
+    initSensors();
+
+    // Cleanup polling on unmount
+    return () => {
+      if (stopPolling) {
+        stopPolling();
+      }
+    };
   }, []);
 
   const fetchUserName = async () => {
@@ -382,14 +440,17 @@ export default function QuickOverviewSetup({ navigation }) {
             <View style={styles.sensorCard}>
               <Text style={styles.sensorIcon}>💧</Text>
               <Text style={styles.sensorLabel}>Water Level</Text>
-              <Text style={styles.sensorValue}>85%</Text>
+              <Text style={styles.sensorValue}>{waterLevel.toFixed(0)}%</Text>
+              {isSimulated && (
+                <Text style={styles.simulatedText}>Simulated</Text>
+              )}
             </View>
 
             {/* Feed Level Card */}
             <View style={styles.sensorCard}>
               <Text style={styles.sensorIcon}>🍴</Text>
               <Text style={styles.sensorLabel}>Feed Level</Text>
-              <Text style={styles.sensorValue}>62%</Text>
+              <Text style={styles.sensorValue}>{feedLevel.toFixed(0)}%</Text>
             </View>
 
             {/* Solar Charge Card */}
@@ -559,6 +620,12 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#1e293b",
     marginBottom: 8,
+  },
+  simulatedText: {
+    fontSize: 10,
+    color: "#f59e0b",
+    fontWeight: "600",
+    marginTop: 4,
   },
   statusBadge: {
     backgroundColor: "#dcfce7",
