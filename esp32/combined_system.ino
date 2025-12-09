@@ -1,33 +1,3 @@
-/*
- * ESP32 Combined Water & Feed Controller
- * Internet-of-Tsiken-v2
- * 
- * NOTE: THIS CODE IS CONFIGURED FOR FIREBASE FIRESTORE.
- * - Only schedule checking (GET) is implemented using the Firestore REST API.
- * - Sensor updates (PUT/POST) are DISABLED because they require a complex Firestore rewrite.
- * 
- * Features:
- * - Water level monitoring via analog water sensor
- * - Micro water pump control
- * - Feeder level monitoring via HC-SR04 ultrasonic sensor
- * - Servo motor control for feed dispensing
- * - HTTP REST API for local mobile app control
- * - Firebase Firestore schedule checking for both systems
- * 
- * Pins:
- * WATER SYSTEM:
- * - Water Sensor: GPIO 34 (ADC1_CH6)
- * - Pump Control: GPIO 23 (Connects to Relay IN)
- * 
- * FEED SYSTEM:
- * - HC-SR04 Trigger: GPIO 26
- * - HC-SR04 Echo: GPIO 27
- * - Servo Control: GPIO 25 (PWM)
- * 
- * SHARED:
- * - Status LED: GPIO 2 (built-in)
- */
-
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ArduinoJson.h>
@@ -39,41 +9,41 @@
 // =================================================================
 
 // WiFi Credentials
-const char* WIFI_SSID = "DESKTOP-PO2GELH 2223";
-const char* WIFI_PASSWORD = "3@1y9K87";
+const char *WIFI_SSID = "DESKTOP-PO2GELH 2223";
+const char *WIFI_PASSWORD = "3@1y9K87";
 
 // Firebase Configuration (Using API Key and Project ID for REST calls)
-const char* FIREBASE_API_KEY = "AIzaSyAOC8S6aOGvfnUzp0Twb-7O727Un9FoUGE";
-const char* FIREBASE_PROJECT_ID = "internet-of-tsiken-690dd";
+const char *FIREBASE_API_KEY = "AIzaSyAOC8S6aOGvfnUzp0Twb-7O727Un9FoUGE";
+const char *FIREBASE_PROJECT_ID = "internet-of-tsiken-690dd";
 
 // ========== WATER SYSTEM PINS ==========
-const int WATER_SENSOR_PIN = 34;    // Analog water level sensor (Input)
-const int PUMP_PIN = 23;            // Micro water pump control (Output to Relay)
+const int WATER_SENSOR_PIN = 34; // Analog water level sensor (Input)
+const int PUMP_PIN = 23;         // Micro water pump control (Output to Relay)
 
 // ========== FEED SYSTEM PINS ==========
-const int TRIGGER_PIN = 26;         // HC-SR04 Trigger (Output)
-const int ECHO_PIN = 27;            // HC-SR04 Echo (Input)
-const int SERVO_PIN = 25;           // Servo motor control (PWM)
+const int TRIGGER_PIN = 26; // HC-SR04 Trigger (Output)
+const int ECHO_PIN = 27;    // HC-SR04 Echo (Input)
+const int SERVO_PIN = 25;   // Servo motor control (PWM)
 
 // ========== SHARED PIN ==========
-const int LED_PIN = 2;              // Built-in LED
+const int LED_PIN = 2; // Built-in LED
 
 // ========== WATER SENSOR CALIBRATION ==========
-const int WATER_SENSOR_MIN = 0;     // ADC value when tank is empty
-const int WATER_SENSOR_MAX = 4095;  // ADC value when tank is full
-const int ADC_SAMPLES = 10;         // Number of samples to average
+const int WATER_SENSOR_MIN = 0;    // ADC value when tank is empty
+const int WATER_SENSOR_MAX = 4095; // ADC value when tank is full
+const int ADC_SAMPLES = 10;        // Number of samples to average
 
 // ========== FEED SENSOR CALIBRATION (Distance in cm) ==========
-const float TANK_HEIGHT = 30.0;     // Height of feeder container (cm) - ADJUST THIS
-const float TANK_EMPTY = 30.0;      // Distance when tank is empty (cm)
-const float TANK_FULL = 5.0;        // Distance when tank is full (cm)
-const int DISTANCE_SAMPLES = 5;     // Number of samples to average
+const float TANK_HEIGHT = 30.0; // Height of feeder container (cm) - ADJUST THIS
+const float TANK_EMPTY = 30.0;  // Distance when tank is empty (cm)
+const float TANK_FULL = 5.0;    // Distance when tank is full (cm)
+const int DISTANCE_SAMPLES = 5; // Number of samples to average
 
 // ========== PUMP CONFIGURATION ==========
-const int DEFAULT_PUMP_DURATION = 5000;     // 5 seconds default
-const int MIN_WATER_LEVEL = 20;             // Don't pump if below 20%
-const int MAX_PUMP_DURATION = 60000;        // Maximum 60 seconds
-const int PUMP_COOLDOWN = 10000;            // 10 seconds between pump cycles
+const int DEFAULT_PUMP_DURATION = 5000; // 5 seconds default
+const int MIN_WATER_LEVEL = 20;         // Don't pump if below 20%
+const int MAX_PUMP_DURATION = 60000;    // Maximum 60 seconds
+const int PUMP_COOLDOWN = 10000;        // 10 seconds between pump cycles
 
 // ========== SERVO CONFIGURATION ==========
 const int SERVO_IDLE_ANGLE = 0;             // Servo angle when idle (closed)
@@ -84,8 +54,8 @@ const int MAX_DISPENSE_DURATION = 30000;    // Maximum 30 seconds
 const int SERVO_COOLDOWN = 5000;            // 5 seconds between dispense cycles
 
 // ========== UPDATE INTERVALS ==========
-const unsigned long SENSOR_READ_INTERVAL = 2000;        // Read every 2 seconds
-const unsigned long SCHEDULE_CHECK_INTERVAL = 60000;    // Check schedule every 60 seconds
+const unsigned long SENSOR_READ_INTERVAL = 2000;     // Read every 2 seconds
+const unsigned long SCHEDULE_CHECK_INTERVAL = 60000; // Check schedule every 60 seconds
 
 // =================================================================
 // =================== GLOBAL VARIABLES ============================
@@ -119,7 +89,7 @@ unsigned long lastWaterScheduleCheck = 0;
 unsigned long lastFeedScheduleCheck = 0;
 bool wifiConnected = false;
 String deviceId = "";
-String userId = "";  // User ID for Firebase queries
+String userId = ""; // User ID for Firebase queries
 
 // =================================================================
 // =================== FORWARD DECLARATIONS ========================
@@ -162,68 +132,73 @@ void handleSetUserId();
 // ============================= SETUP =============================
 // =================================================================
 
-void setup() {
+void setup()
+{
   Serial.begin(115200);
   delay(100);
-  
+
   Serial.println("\n\n╔═══════════════════════════════════════════╗");
   Serial.println("║  ESP32 Combined Water & Feed Controller  ║");
   Serial.println("║           (Firestore Enabled)             ║");
   Serial.println("╚═══════════════════════════════════════════╝\n");
-  
+
   // Initialize water system pins
   pinMode(WATER_SENSOR_PIN, INPUT);
   pinMode(PUMP_PIN, OUTPUT);
   digitalWrite(PUMP_PIN, LOW);
-  
+
   // Initialize feed system pins
   pinMode(TRIGGER_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
   feedServo.attach(SERVO_PIN);
   feedServo.write(SERVO_IDLE_ANGLE);
-  
+
   // Initialize shared pins
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
-  
+
   // Configure ADC for water sensor
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db);
-  
+
   // Generate device ID
   deviceId = getDeviceId();
   Serial.println("Device ID: " + deviceId);
-  
+
   // Connect to WiFi
   connectWiFi();
-  
+
   // Setup web server
   setupWebServer();
   server.begin();
   Serial.println("✓ HTTP Server started on port 80\n");
-  
+
   // Sync time with Philippines timezone (GMT+8)
   Serial.println("🕐 Syncing time with NTP server...");
   configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov");
-  
+
   // Wait for time sync (max 10 seconds)
   int retries = 0;
   struct tm timeinfo;
-  while (!getLocalTime(&timeinfo) && retries < 20) {
+  while (!getLocalTime(&timeinfo) && retries < 20)
+  {
     Serial.print(".");
     delay(500);
     retries++;
   }
-  
-  if (retries < 20) {
+
+  if (retries < 20)
+  {
     Serial.println("\n✓ Time synced successfully!");
     char timeStr[64];
     strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
     Serial.println("Current time: " + String(timeStr));
-  } else {
+  }
+  else
+  {
     Serial.println("\n⚠️  Time sync timeout - schedules may not work until time is synced");
   }
-  
+
   Serial.println("\n╔═══════════════════════════════════════════╗");
   Serial.println("║            System Ready!                  ║");
   Serial.println("╚═══════════════════════════════════════════╝\n");
@@ -233,46 +208,56 @@ void setup() {
 // ============================= MAIN LOOP =========================
 // =================================================================
 
-void loop() {
+void loop()
+{
   server.handleClient();
-  
+
   // Read sensors
-  if (millis() - lastSensorRead >= SENSOR_READ_INTERVAL) {
+  if (millis() - lastSensorRead >= SENSOR_READ_INTERVAL)
+  {
     lastSensorRead = millis();
     readWaterLevel();
     readFeederLevel();
   }
-  
+
   // Check watering schedules (every 60 seconds)
-  if (millis() - lastWaterScheduleCheck >= SCHEDULE_CHECK_INTERVAL) {
+  if (millis() - lastWaterScheduleCheck >= SCHEDULE_CHECK_INTERVAL)
+  {
     lastWaterScheduleCheck = millis();
-    if (!userId.isEmpty()) {
+    if (!userId.isEmpty())
+    {
       checkWateringSchedules();
     }
   }
-  
+
   // Check feeding schedules (every 60 seconds, offset by 30 seconds)
-  if (millis() - lastFeedScheduleCheck >= SCHEDULE_CHECK_INTERVAL) {
+  if (millis() - lastFeedScheduleCheck >= SCHEDULE_CHECK_INTERVAL)
+  {
     lastFeedScheduleCheck = millis();
-    if (!userId.isEmpty()) {
+    if (!userId.isEmpty())
+    {
       checkFeedingSchedules();
     }
   }
-  
+
   // Auto-stop pump
-  if (pumpActive && (millis() - pumpStartTime >= pumpDuration)) {
+  if (pumpActive && (millis() - pumpStartTime >= pumpDuration))
+  {
     stopPump();
   }
-  
+
   // Auto-stop servo
-  if (servoActive && (millis() - servoStartTime >= servoDuration)) {
+  if (servoActive && (millis() - servoStartTime >= servoDuration))
+  {
     stopServo();
   }
-  
+
   // WiFi status LED
-  if (wifiConnected) {
+  if (wifiConnected)
+  {
     static unsigned long lastBlink = 0;
-    if (millis() - lastBlink > 2000) {
+    if (millis() - lastBlink > 2000)
+    {
       digitalWrite(LED_PIN, !digitalRead(LED_PIN));
       lastBlink = millis();
     }
@@ -283,21 +268,24 @@ void loop() {
 // ======================= CONNECTION FUNCTION =====================
 // =================================================================
 
-void connectWiFi() {
+void connectWiFi()
+{
   Serial.print("Connecting to WiFi: ");
   Serial.println(WIFI_SSID);
-  
+
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  
+
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+  while (WiFi.status() != WL_CONNECTED && attempts < 30)
+  {
     delay(500);
     Serial.print(".");
     attempts++;
   }
-  
-  if (WiFi.status() == WL_CONNECTED) {
+
+  if (WiFi.status() == WL_CONNECTED)
+  {
     wifiConnected = true;
     Serial.println("\n✓ WiFi Connected!");
     Serial.print("  IP Address: ");
@@ -305,7 +293,9 @@ void connectWiFi() {
     Serial.print("  Signal: ");
     Serial.print(WiFi.RSSI());
     Serial.println(" dBm\n");
-  } else {
+  }
+  else
+  {
     wifiConnected = false;
     Serial.println("\n✗ WiFi Connection Failed!\n");
   }
@@ -315,17 +305,19 @@ void connectWiFi() {
 // ======================= WATER SYSTEM LOGIC ======================
 // =================================================================
 
-void readWaterLevel() {
+void readWaterLevel()
+{
   long total = 0;
-  for (int i = 0; i < ADC_SAMPLES; i++) {
+  for (int i = 0; i < ADC_SAMPLES; i++)
+  {
     total += analogRead(WATER_SENSOR_PIN);
     delay(10);
   }
   rawSensorValue = total / ADC_SAMPLES;
-  
+
   waterLevel = map(rawSensorValue, WATER_SENSOR_MIN, WATER_SENSOR_MAX, 0, 100);
   waterLevel = constrain(waterLevel, 0, 100);
-  
+
   Serial.print("💧 Water: ");
   Serial.print(waterLevel);
   Serial.print("% (ADC: ");
@@ -333,24 +325,28 @@ void readWaterLevel() {
   Serial.println(")");
 }
 
-void startPump(unsigned long duration) {
-  if (pumpActive) {
+void startPump(unsigned long duration)
+{
+  if (pumpActive)
+  {
     Serial.println("⚠️  Pump already running");
     return;
   }
-  
-  if (waterLevel < MIN_WATER_LEVEL) {
+
+  if (waterLevel < MIN_WATER_LEVEL)
+  {
     Serial.println("⚠️  Water level too low!");
     return;
   }
-  
-  if (millis() - lastPumpStop < PUMP_COOLDOWN) {
+
+  if (millis() - lastPumpStop < PUMP_COOLDOWN)
+  {
     Serial.println("⚠️  Pump in cooldown period");
     return;
   }
-  
+
   duration = constrain(duration, 1000, MAX_PUMP_DURATION);
-  
+
   Serial.println("🚰 Starting pump for " + String(duration / 1000) + "s");
   digitalWrite(PUMP_PIN, HIGH);
   pumpActive = true;
@@ -358,8 +354,10 @@ void startPump(unsigned long duration) {
   pumpDuration = duration;
 }
 
-void stopPump() {
-  if (pumpActive) {
+void stopPump()
+{
+  if (pumpActive)
+  {
     Serial.println("⏹️  Stopping pump");
     digitalWrite(PUMP_PIN, LOW);
     pumpActive = false;
@@ -371,70 +369,86 @@ void stopPump() {
 // ======================= FEED SYSTEM LOGIC =======================
 // =================================================================
 
-void readFeederLevel() {
+void readFeederLevel()
+{
   float total = 0;
   int validReadings = 0;
-  
-  for (int i = 0; i < DISTANCE_SAMPLES; i++) {
+
+  for (int i = 0; i < DISTANCE_SAMPLES; i++)
+  {
     digitalWrite(TRIGGER_PIN, LOW);
     delayMicroseconds(2);
     digitalWrite(TRIGGER_PIN, HIGH);
     delayMicroseconds(10);
     digitalWrite(TRIGGER_PIN, LOW);
-    
+
     long duration = pulseIn(ECHO_PIN, HIGH, 30000);
-    
-    if (duration > 0) {
+
+    if (duration > 0)
+    {
       float dist = duration * 0.034 / 2;
-      if (dist > 0 && dist < 400) {
+      if (dist > 0 && dist < 400)
+      {
         total += dist;
         validReadings++;
       }
     }
     delay(50);
   }
-  
-  if (validReadings > 0) {
+
+  if (validReadings > 0)
+  {
     distance = total / validReadings;
-    
-    if (distance <= TANK_FULL) {
+
+    if (distance <= TANK_FULL)
+    {
       feederLevel = 100.0;
-    } else if (distance >= TANK_EMPTY) {
+    }
+    else if (distance >= TANK_EMPTY)
+    {
       feederLevel = 0.0;
-    } else {
+    }
+    else
+    {
       feederLevel = ((TANK_EMPTY - distance) / (TANK_EMPTY - TANK_FULL)) * 100.0;
     }
-    
+
     feederLevel = constrain(feederLevel, 0, 100);
-    
+
     Serial.print("🍗 Feeder: ");
     Serial.print(feederLevel);
     Serial.print("% (Distance: ");
     Serial.print(distance);
     Serial.println(" cm)");
-  } else {
+  }
+  else
+  {
     Serial.println("⚠️  Failed to read ultrasonic sensor");
   }
 }
 
-void startServo(unsigned long duration) {
-  if (servoActive) {
+void startServo(unsigned long duration)
+{
+  if (servoActive)
+  {
     Serial.println("⚠️  Servo already running");
     return;
   }
-  
-  if (feederLevel < MIN_FEEDER_LEVEL) {
+
+  if (feederLevel < MIN_FEEDER_LEVEL)
+  {
     Serial.println("⚠️  Feeder level too low!");
     return;
   }
-  
-  if (millis() - lastServoStop < SERVO_COOLDOWN) {
+
+  if (millis() - lastServoStop < SERVO_COOLDOWN)
+  {
     Serial.println("⚠️  Servo in cooldown period");
     return;
   }
-  
+
   duration = constrain(duration, 1000, MAX_DISPENSE_DURATION);
-  
+
   Serial.println("🍗 Dispensing feed for " + String(duration / 1000) + "s");
   feedServo.write(SERVO_DISPENSE_ANGLE);
   servoActive = true;
@@ -442,8 +456,10 @@ void startServo(unsigned long duration) {
   servoDuration = duration;
 }
 
-void stopServo() {
-  if (servoActive) {
+void stopServo()
+{
+  if (servoActive)
+  {
     Serial.println("⏹️  Stopping feed dispenser");
     feedServo.write(SERVO_IDLE_ANGLE);
     servoActive = false;
@@ -455,7 +471,8 @@ void stopServo() {
 // ========================= UTILITIES =============================
 // =================================================================
 
-String getDeviceId() {
+String getDeviceId()
+{
   uint8_t mac[6];
   WiFi.macAddress(mac);
   char macStr[18];
@@ -464,24 +481,28 @@ String getDeviceId() {
   return String(macStr);
 }
 
-String getCurrentTimeString() {
+String getCurrentTimeString()
+{
   struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
+  if (!getLocalTime(&timeinfo))
+  {
     Serial.println("⚠️  Unable to get current time. Check WiFi sync.");
     configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov");
     delay(1000);
-    if (!getLocalTime(&timeinfo)) {
+    if (!getLocalTime(&timeinfo))
+    {
       return "";
     }
   }
-  
+
   char timeStr[6];
   sprintf(timeStr, "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
   return String(timeStr);
 }
 
-String buildFirestoreQueryUrl() {
-  return "https://firestore.googleapis.com/v1/projects/" + String(FIREBASE_PROJECT_ID) + 
+String buildFirestoreQueryUrl()
+{
+  return "https://firestore.googleapis.com/v1/projects/" + String(FIREBASE_PROJECT_ID) +
          "/databases/(default)/documents:runQuery?key=" + String(FIREBASE_API_KEY);
 }
 
@@ -489,61 +510,76 @@ String buildFirestoreQueryUrl() {
 // ======================= SCHEDULE CHECKING =======================
 // =================================================================
 
-void checkWateringSchedules() {
-  if (!wifiConnected || userId.isEmpty()) return;
-  
+void checkWateringSchedules()
+{
+  if (!wifiConnected || userId.isEmpty())
+    return;
+
   String currentTime = getCurrentTimeString();
-  if (currentTime.isEmpty()) {
+  if (currentTime.isEmpty())
+  {
     Serial.println("⏰ Unable to get current time for watering check.");
     return;
   }
-  
+
   Serial.print("💧 Checking watering schedules at ");
   Serial.println(currentTime);
-  
+
   String url = buildFirestoreQueryUrl();
   DynamicJsonDocument queryDoc(512);
   queryDoc["structuredQuery"]["from"][0]["collectionId"] = "wateringSchedules";
-  
+
   String queryPayload;
   serializeJson(queryDoc, queryPayload);
-  
+
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
   int httpCode = http.POST(queryPayload);
-  
-  if (httpCode == HTTP_CODE_OK) {
+
+  if (httpCode == HTTP_CODE_OK)
+  {
     String payload = http.getString();
     DynamicJsonDocument doc(4096);
     DeserializationError error = deserializeJson(doc, payload);
-    
-    if (!error) {
-      for (JsonObject result : doc.as<JsonArray>()) {
-        if (result.containsKey("document")) {
+
+    if (!error)
+    {
+      for (JsonObject result : doc.as<JsonArray>())
+      {
+        if (result.containsKey("document"))
+        {
           JsonObject fields = result["document"]["fields"];
           String scheduleTime = fields["time"]["stringValue"].as<String>();
           int scheduleDuration = fields["duration"]["integerValue"].as<int>() * 1000;
           String scheduleUserId = fields["userId"]["stringValue"].as<String>();
           String documentName = result["document"]["name"].as<String>();
           String scheduleId = documentName.substring(documentName.lastIndexOf('/') + 1);
-          
-          if (scheduleUserId == userId) {
+
+          if (scheduleUserId == userId)
+          {
             String scheduleHHMM = scheduleTime;
-            if (scheduleTime.indexOf("PM") > 0 || scheduleTime.indexOf("AM") > 0) {
+            if (scheduleTime.indexOf("PM") > 0 || scheduleTime.indexOf("AM") > 0)
+            {
               int colonPos = scheduleTime.indexOf(':');
               int hour = scheduleTime.substring(0, colonPos).toInt();
               String minute = scheduleTime.substring(colonPos + 1, colonPos + 3);
-              
-              if (scheduleTime.indexOf("PM") > 0) {
-                if (hour != 12) hour += 12;
+
+              if (scheduleTime.indexOf("PM") > 0)
+              {
+                if (hour != 12)
+                  hour += 12;
                 scheduleHHMM = String(hour) + ":" + minute;
-              } else {
-                if (hour == 12) hour = 0;
+              }
+              else
+              {
+                if (hour == 12)
+                  hour = 0;
                 scheduleHHMM = (hour < 10 ? "0" : "") + String(hour) + ":" + minute;
               }
             }
-            
-            if (scheduleHHMM == currentTime && lastExecutedWaterSchedule != scheduleId) {
+
+            if (scheduleHHMM == currentTime && lastExecutedWaterSchedule != scheduleId)
+            {
               Serial.println("✅ Executing scheduled watering!");
               startPump(scheduleDuration);
               lastExecutedWaterSchedule = scheduleId;
@@ -556,64 +592,80 @@ void checkWateringSchedules() {
   http.end();
 }
 
-void checkFeedingSchedules() {
-  if (!wifiConnected || userId.isEmpty()) return;
-  
+void checkFeedingSchedules()
+{
+  if (!wifiConnected || userId.isEmpty())
+    return;
+
   String currentTime = getCurrentTimeString();
-  if (currentTime.isEmpty()) {
+  if (currentTime.isEmpty())
+  {
     Serial.println("⏰ Unable to get current time for feeding check.");
     return;
   }
-  
+
   Serial.print("🍗 Checking feeding schedules at ");
   Serial.println(currentTime);
-  
+
   String url = buildFirestoreQueryUrl();
   DynamicJsonDocument queryDoc(512);
   queryDoc["structuredQuery"]["from"][0]["collectionId"] = "feeds";
-  
+
   String queryPayload;
   serializeJson(queryDoc, queryPayload);
-  
+
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
   int httpCode = http.POST(queryPayload);
-  
-  if (httpCode == HTTP_CODE_OK) {
+
+  if (httpCode == HTTP_CODE_OK)
+  {
     String payload = http.getString();
     DynamicJsonDocument doc(4096);
     DeserializationError error = deserializeJson(doc, payload);
-    
-    if (!error) {
-      for (JsonObject result : doc.as<JsonArray>()) {
-        if (result.containsKey("document")) {
+
+    if (!error)
+    {
+      for (JsonObject result : doc.as<JsonArray>())
+      {
+        if (result.containsKey("document"))
+        {
           JsonObject fields = result["document"]["fields"];
           String scheduleTime = fields["time"]["stringValue"].as<String>();
           int scheduleDuration = DEFAULT_DISPENSE_DURATION;
-          if (fields.containsKey("duration")) {
+          if (fields.containsKey("duration"))
+          {
             scheduleDuration = fields["duration"]["integerValue"].as<int>() * 1000;
           }
           String scheduleUserId = fields["userId"]["stringValue"].as<String>();
           String documentName = result["document"]["name"].as<String>();
           String scheduleId = documentName.substring(documentName.lastIndexOf('/') + 1);
-          
-          if (scheduleUserId == userId) {
+
+          if (scheduleUserId == userId)
+          {
             String scheduleHHMM = scheduleTime;
-            if (scheduleTime.indexOf("PM") > 0 || scheduleTime.indexOf("AM") > 0) {
+            if (scheduleTime.indexOf("PM") > 0 || scheduleTime.indexOf("AM") > 0)
+            {
               int colonPos = scheduleTime.indexOf(':');
               int hour = scheduleTime.substring(0, colonPos).toInt();
               String minute = scheduleTime.substring(colonPos + 1, colonPos + 3);
-              
-              if (scheduleTime.indexOf("PM") > 0) {
-                if (hour != 12) hour += 12;
+
+              if (scheduleTime.indexOf("PM") > 0)
+              {
+                if (hour != 12)
+                  hour += 12;
                 scheduleHHMM = String(hour) + ":" + minute;
-              } else {
-                if (hour == 12) hour = 0;
+              }
+              else
+              {
+                if (hour == 12)
+                  hour = 0;
                 scheduleHHMM = (hour < 10 ? "0" : "") + String(hour) + ":" + minute;
               }
             }
-            
-            if (scheduleHHMM == currentTime && lastExecutedFeedSchedule != scheduleId) {
+
+            if (scheduleHHMM == currentTime && lastExecutedFeedSchedule != scheduleId)
+            {
               Serial.println("✅ Executing scheduled feeding!");
               startServo(scheduleDuration);
               lastExecutedFeedSchedule = scheduleId;
@@ -630,7 +682,8 @@ void checkFeedingSchedules() {
 // ========================= WEB SERVER HANDLERS ===================
 // =================================================================
 
-void setupWebServer() {
+void setupWebServer()
+{
   server.on("/", HTTP_GET, handleRoot);
   server.on("/api/water/level", HTTP_GET, handleGetWaterLevel);
   server.on("/api/feeder/level", HTTP_GET, handleGetFeederLevel);
@@ -642,17 +695,17 @@ void setupWebServer() {
   server.on("/api/servo/stop", HTTP_POST, handleStopServo);
   server.on("/api/servo/status", HTTP_GET, handleGetServoStatus);
   server.on("/api/system/userid", HTTP_POST, handleSetUserId);
-  server.on("/api/system/restart", HTTP_POST, []() {
+  server.on("/api/system/restart", HTTP_POST, []()
+            {
     server.send(200, "application/json", "{\"status\":\"restarting\"}");
     delay(500);
-    ESP.restart();
-  });
-  server.onNotFound([]() {
-    server.send(404, "application/json", "{\"error\":\"Not Found\"}");
-  });
+    ESP.restart(); });
+  server.onNotFound([]()
+                    { server.send(404, "application/json", "{\"error\":\"Not Found\"}"); });
 }
 
-void handleRoot() {
+void handleRoot()
+{
   StaticJsonDocument<512> doc;
   doc["device"] = "ESP32 Combined Water & Feed System";
   doc["id"] = deviceId;
@@ -662,13 +715,14 @@ void handleRoot() {
   doc["rssi"] = WiFi.RSSI();
   doc["waterSystem"] = "analog sensor";
   doc["feedSystem"] = "ultrasonic + servo";
-  
+
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
 }
 
-void handleGetWaterLevel() {
+void handleGetWaterLevel()
+{
   StaticJsonDocument<256> doc;
   doc["level"] = waterLevel;
   doc["sensorValue"] = rawSensorValue;
@@ -676,13 +730,14 @@ void handleGetWaterLevel() {
   doc["unit"] = "%";
   doc["timestamp"] = millis();
   doc["isSimulated"] = false;
-  
+
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
 }
 
-void handleGetFeederLevel() {
+void handleGetFeederLevel()
+{
   StaticJsonDocument<256> doc;
   doc["level"] = feederLevel;
   doc["distance"] = distance;
@@ -690,169 +745,189 @@ void handleGetFeederLevel() {
   doc["unit"] = "%";
   doc["timestamp"] = millis();
   doc["isSimulated"] = false;
-  
+
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
 }
 
-void handleGetSensors() {
+void handleGetSensors()
+{
   StaticJsonDocument<1024> doc;
-  
+
   JsonObject water = doc.createNestedObject("water");
   water["level"] = waterLevel;
   water["sensorValue"] = rawSensorValue;
   water["sensorType"] = "analog";
   water["unit"] = "%";
   water["isSimulated"] = false;
-  
+
   JsonObject feeder = doc.createNestedObject("feeder");
   feeder["level"] = feederLevel;
   feeder["distance"] = distance;
   feeder["sensorType"] = "ultrasonic";
   feeder["unit"] = "%";
   feeder["isSimulated"] = false;
-  
+
   JsonObject system = doc.createNestedObject("system");
   system["rssi"] = WiFi.RSSI();
   system["uptime"] = millis() / 1000;
   system["freeHeap"] = ESP.getFreeHeap();
-  
+
   doc["timestamp"] = millis();
   doc["simulationMode"] = false;
-  
+
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
 }
 
-void handleStartPump() {
+void handleStartPump()
+{
   unsigned long duration = DEFAULT_PUMP_DURATION;
-  if (server.hasArg("plain")) {
+  if (server.hasArg("plain"))
+  {
     StaticJsonDocument<200> doc;
     DeserializationError error = deserializeJson(doc, server.arg("plain"));
-    if (!error && doc.containsKey("duration")) {
+    if (!error && doc.containsKey("duration"))
+    {
       duration = doc["duration"];
     }
   }
-  
+
   startPump(duration);
-  
+
   StaticJsonDocument<256> doc;
   doc["status"] = pumpActive ? "started" : "failed";
   doc["duration"] = duration;
   doc["waterLevel"] = waterLevel;
   doc["message"] = pumpActive ? "Pump started successfully" : "Failed to start pump";
-  
+
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
 }
 
-void handleStopPump() {
+void handleStopPump()
+{
   stopPump();
   StaticJsonDocument<200> doc;
   doc["status"] = "stopped";
   doc["message"] = "Pump stopped";
-  
+
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
 }
 
-void handleGetPumpStatus() {
+void handleGetPumpStatus()
+{
   StaticJsonDocument<256> doc;
   doc["active"] = pumpActive;
   doc["waterLevel"] = waterLevel;
-  
-  if (pumpActive) {
+
+  if (pumpActive)
+  {
     doc["elapsedTime"] = millis() - pumpStartTime;
     doc["remainingTime"] = pumpDuration - (millis() - pumpStartTime);
-  } else {
+  }
+  else
+  {
     unsigned long cooldownRemaining = PUMP_COOLDOWN - (millis() - lastPumpStop);
     doc["cooldownRemaining"] = (millis() - lastPumpStop < PUMP_COOLDOWN) ? cooldownRemaining : 0;
   }
-  
+
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
 }
 
-void handleStartServo() {
+void handleStartServo()
+{
   unsigned long duration = DEFAULT_DISPENSE_DURATION;
-  if (server.hasArg("plain")) {
+  if (server.hasArg("plain"))
+  {
     StaticJsonDocument<200> doc;
     DeserializationError error = deserializeJson(doc, server.arg("plain"));
-    if (!error && doc.containsKey("duration")) {
+    if (!error && doc.containsKey("duration"))
+    {
       duration = doc["duration"];
     }
   }
-  
+
   startServo(duration);
-  
+
   StaticJsonDocument<256> doc;
   doc["status"] = servoActive ? "started" : "failed";
   doc["duration"] = duration;
   doc["feederLevel"] = feederLevel;
   doc["message"] = servoActive ? "Servo started successfully" : "Failed to start servo";
-  
+
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
 }
 
-void handleStopServo() {
+void handleStopServo()
+{
   stopServo();
   StaticJsonDocument<200> doc;
   doc["status"] = "stopped";
   doc["message"] = "Servo stopped";
-  
+
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
 }
 
-void handleGetServoStatus() {
+void handleGetServoStatus()
+{
   StaticJsonDocument<256> doc;
   doc["active"] = servoActive;
   doc["feederLevel"] = feederLevel;
   doc["currentAngle"] = servoActive ? SERVO_DISPENSE_ANGLE : SERVO_IDLE_ANGLE;
-  
-  if (servoActive) {
+
+  if (servoActive)
+  {
     doc["elapsedTime"] = millis() - servoStartTime;
     doc["remainingTime"] = servoDuration - (millis() - servoStartTime);
-  } else {
+  }
+  else
+  {
     unsigned long cooldownRemaining = SERVO_COOLDOWN - (millis() - lastServoStop);
     doc["cooldownRemaining"] = (millis() - lastServoStop < SERVO_COOLDOWN) ? cooldownRemaining : 0;
   }
-  
+
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
 }
 
-void handleSetUserId() {
-  if (server.hasArg("plain")) {
+void handleSetUserId()
+{
+  if (server.hasArg("plain"))
+  {
     StaticJsonDocument<200> doc;
     DeserializationError error = deserializeJson(doc, server.arg("plain"));
-    
-    if (!error && doc.containsKey("userId")) {
+
+    if (!error && doc.containsKey("userId"))
+    {
       userId = doc["userId"].as<String>();
-      
+
       Serial.print("👤 User ID set: ");
       Serial.println(userId);
-      
+
       StaticJsonDocument<200> response;
       response["status"] = "success";
       response["userId"] = userId;
       response["message"] = "User ID configured successfully";
-      
+
       String responseStr;
       serializeJson(response, responseStr);
       server.send(200, "application/json", responseStr);
       return;
     }
   }
-  
+
   server.send(400, "application/json", "{\"error\":\"Invalid request\"}");
 }
