@@ -295,11 +295,6 @@ export default function ResetPassword() {
 
       if (result.success) {
         setSubmitted(true);
-        Alert.alert(
-          "Email Sent",
-          "Check your email for password reset instructions. Don't forget to check your spam/junk folder!",
-          [{ text: "OK" }]
-        );
       } else {
         setError(result.error || "Failed to send reset email");
       }

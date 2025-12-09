@@ -11,12 +11,11 @@ const IS_PRODUCTION = false; // Change to true for production builds
 // Lockout durations
 export const LOGIN_LOCKOUT_DURATION = IS_PRODUCTION
   ? 60 * 60 * 1000 // 1 hour in production
-  : 60 * 1000; // 1 minute in development
+  : 10 * 1000; // 10 seconds in development
 
 export const OTP_LOCKOUT_DURATION = IS_PRODUCTION
   ? 60 * 60 * 1000 // 1 hour in production
-  : 60 * 1000; // 1 minute in development
-
+  : 10 * 1000; // 10 seconds in development
 // Attempt limits
 const LOGIN_ATTEMPT_LIMIT = 5;
 const OTP_ATTEMPT_LIMIT = 5;
@@ -156,7 +155,9 @@ export const lockoutLoginOnDevice = async () => {
         timestamp: Date.now(),
       })
     );
-    console.log(`🔒 Login locked for ${IS_PRODUCTION ? "1 hour" : "1 minute"}`);
+    console.log(
+      `🔒 Login locked for ${IS_PRODUCTION ? "1 hour" : "10 seconds"}`
+    );
   } catch (error) {
     console.error("Error locking out login:", error);
   }
@@ -177,7 +178,7 @@ export const lockoutOTPOnDevice = async () => {
         timestamp: Date.now(),
       })
     );
-    console.log(`🔒 OTP locked for ${IS_PRODUCTION ? "1 hour" : "1 minute"}`);
+    console.log(`🔒 OTP locked for ${IS_PRODUCTION ? "1 hour" : "10 seconds"}`);
   } catch (error) {
     console.error("Error locking out OTP:", error);
   }

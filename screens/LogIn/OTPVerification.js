@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   Image,
-  Alert,
   Keyboard,
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
@@ -14,8 +13,10 @@ import {
   ActivityIndicator,
   ScrollView,
   Pressable,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { auth, db } from "../../config/firebaseconfig.js";
 import { doc, updateDoc } from "firebase/firestore";
@@ -33,6 +34,78 @@ const Logo = require("../../assets/logo.png");
 // Initialize Firebase Functions
 const functions = getFunctions(undefined, "us-central1");
 
+// Reusable Branded Modal Component
+const BrandedModal = ({
+  visible,
+  type,
+  title,
+  message,
+  onClose,
+  onConfirm,
+  showCancel,
+}) => {
+  const getIconConfig = () => {
+    switch (type) {
+      case "success":
+        return { name: "check-circle", color: "#4CAF50" };
+      case "error":
+        return { name: "alert-circle", color: "#c41e3a" };
+      case "info":
+        return { name: "information", color: "#2196F3" };
+      default:
+        return { name: "information", color: "#2196F3" };
+    }
+  };
+
+  const iconConfig = getIconConfig();
+
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View
+            style={[
+              styles.iconContainer,
+              { backgroundColor: `${iconConfig.color}20` },
+            ]}
+          >
+            <MaterialCommunityIcons
+              name={iconConfig.name}
+              size={48}
+              color={iconConfig.color}
+            />
+          </View>
+          <Text style={styles.modalTitle}>{title}</Text>
+          <Text style={styles.modalMessage}>{message}</Text>
+
+          <View style={styles.modalButtonContainer}>
+            {showCancel && (
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={onClose}
+              >
+                <Text style={styles.modalButtonTextCancel}>Cancel</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[
+                styles.modalButton,
+                styles.modalButtonPrimary,
+                showCancel && { flex: 1 },
+              ]}
+              onPress={onConfirm || onClose}
+            >
+              <Text style={styles.modalButtonText}>
+                {showCancel ? "Confirm" : "OK"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 export default function OTPVerification() {
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [loading, setLoading] = useState(false);
@@ -46,12 +119,39 @@ export default function OTPVerification() {
   const [otpAttempts, setOtpAttempts] = useState(0);
   const [confirmationResult, setConfirmationResult] = useState(null);
 
+  // Modal State
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalType, setModalType] = useState("info");
+  const [modalTitle, setModalTitle] = useState("");
+  const [modalMessage, setModalMessage] = useState("");
+  const [modalOnConfirm, setModalOnConfirm] = useState(null);
+  const [modalShowCancel, setModalShowCancel] = useState(false);
+
   const inputs = useRef([]);
   const cooldownTimerRef = useRef(null);
   const navigation = useNavigation();
   const route = useRoute();
 
   const { mobileNumber, userId } = route.params;
+
+  const showModal = (
+    type,
+    title,
+    message,
+    onConfirm = null,
+    showCancel = false
+  ) => {
+    setModalType(type);
+    setModalTitle(title);
+    setModalMessage(message);
+    setModalOnConfirm(() => onConfirm);
+    setModalShowCancel(showCancel);
+    setModalVisible(true);
+  };
+
+  const closeModal = () => {
+    setModalVisible(false);
+  };
 
   useEffect(() => {
     checkDeviceLockoutStatus();
@@ -138,7 +238,7 @@ export default function OTPVerification() {
       await sendOTP();
     } catch (error) {
       console.error("Failed to send initial OTP:", error);
-      Alert.alert("Error", "Failed to send OTP. Please try again.");
+      showModal("error", "Error", "Failed to send OTP. Please try again.");
     }
   };
 
@@ -175,7 +275,8 @@ export default function OTPVerification() {
       return { success: true, verificationSid: response.data.verificationSid };
     } catch (error) {
       console.error("Twilio Verify send error:", error);
-      Alert.alert(
+      showModal(
+        "error",
         "Error",
         "Failed to send verification code. Please try again."
       );
@@ -185,9 +286,10 @@ export default function OTPVerification() {
 
   const handleResendOTP = async () => {
     if (resendCooldown > 0) {
-      Alert.alert(
+      showModal(
+        "info",
         "Please Wait",
-        "You can resend OTP in " + resendCooldown + " seconds."
+        `You can resend OTP in ${resendCooldown} seconds.`
       );
       return;
     }
@@ -201,7 +303,8 @@ export default function OTPVerification() {
         throw new Error(result.error || "Resend failed");
       }
 
-      Alert.alert(
+      showModal(
+        "success",
         "OTP Sent",
         "A new verification code was sent to your phone."
       );
@@ -213,7 +316,7 @@ export default function OTPVerification() {
       }
     } catch (error) {
       console.error("Resend OTP error:", error);
-      Alert.alert("Error", "Failed to resend OTP. Please try again.");
+      showModal("error", "Error", "Failed to resend OTP. Please try again.");
     } finally {
       setResendLoading(false);
     }
@@ -274,7 +377,8 @@ export default function OTPVerification() {
         console.log("Device is locked for OTP attempts");
         setDeviceLocked(true);
         setLockoutTime(lockoutStatus.remainingTime);
-        Alert.alert(
+        showModal(
+          "error",
           "Account Locked",
           `Too many failed OTP attempts. Please try again in ${formatLockoutTime(
             lockoutStatus.remainingTime
@@ -351,7 +455,8 @@ export default function OTPVerification() {
       if (remainingAttempts <= 0) {
         setDeviceLocked(true);
         setLockoutTime(60000); // 1 minute for development
-        Alert.alert(
+        showModal(
+          "error",
           "Account Locked",
           "Too many failed OTP attempts. Your account is locked temporarily."
         );
@@ -371,19 +476,15 @@ export default function OTPVerification() {
   };
 
   const handleBack = () => {
-    Alert.alert(
+    showModal(
+      "info",
       "Go Back",
       "Are you sure you want to go back? You'll need to start the verification process again.",
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Go Back",
-          onPress: () => navigation.goBack(),
-        },
-      ]
+      () => {
+        closeModal();
+        navigation.goBack();
+      },
+      true // showCancel
     );
   };
 
@@ -554,6 +655,17 @@ export default function OTPVerification() {
           </View>
         </ScrollView>
       </TouchableWithoutFeedback>
+
+      {/* Branded Modal */}
+      <BrandedModal
+        visible={modalVisible}
+        type={modalType}
+        title={modalTitle}
+        message={modalMessage}
+        onClose={closeModal}
+        onConfirm={modalOnConfirm}
+        showCancel={modalShowCancel}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -776,5 +888,75 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#666",
     textAlign: "center",
+  },
+  // Branded Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 40,
+    width: "90%",
+    maxWidth: 400,
+    alignItems: "center",
+  },
+  iconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#133E87",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  modalMessage: {
+    fontSize: 16,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  modalButtonContainer: {
+    flexDirection: "row",
+    width: "100%",
+    gap: 12,
+  },
+  modalButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    minWidth: 100,
+    alignItems: "center",
+  },
+  modalButtonPrimary: {
+    backgroundColor: "#133E87",
+    flex: 1,
+  },
+  modalButtonCancel: {
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    flex: 1,
+  },
+  modalButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  modalButtonTextCancel: {
+    color: "#666",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

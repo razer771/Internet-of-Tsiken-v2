@@ -103,7 +103,7 @@ def process_frame():
             else:
                 # Run BOTH models
                 results_general = model_general(frame, verbose=False, conf=0.4, iou=0.45, imgsz=416)
-                results_predators = model_predators(frame, verbose=False, conf=0.5, iou=0.45, imgsz=416)
+                results_predators = model_predators(frame, verbose=False, conf=0.3, iou=0.45, imgsz=416)  # Lower threshold for better detection
                 last_results_general = results_general
                 last_results_predators = results_predators
             
