@@ -17,7 +17,7 @@ export const ESP32_CONFIG = {
   
   // Feed Dispenser (if using separate ESP32)
   feedSystem: {
-    enabled: false,  // Set to true when ESP32 is connected
+    enabled: true,  // Set to true when ESP32 is connected
     ipAddress: '192.168.137.222', // Change to your ESP32's IP address
     port: 80,
   },
