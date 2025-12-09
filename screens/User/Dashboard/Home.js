@@ -193,6 +193,7 @@ export default function QuickOverviewSetup({ navigation }) {
 
   const loadSavedData = async () => {
     try {
+      
       const savedChicks = await AsyncStorage.getItem("chicksCount");
       const savedDays = await AsyncStorage.getItem("daysCount");
       const savedHarvest = await AsyncStorage.getItem("harvestDays");
