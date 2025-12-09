@@ -9,8 +9,8 @@
 // =================================================================
 
 // WiFi Credentials
-const char *WIFI_SSID = "DESKTOP-PO2GELH 2223";
-const char *WIFI_PASSWORD = "3@1y9K87";
+const char *WIFI_SSID = "mzkmbp";
+const char *WIFI_PASSWORD = "ncmaganda";
 
 // Firebase Configuration (Using API Key and Project ID for REST calls)
 const char *FIREBASE_API_KEY = "AIzaSyAOC8S6aOGvfnUzp0Twb-7O727Un9FoUGE";
@@ -18,12 +18,12 @@ const char *FIREBASE_PROJECT_ID = "internet-of-tsiken-690dd";
 
 // ========== WATER SYSTEM PINS ==========
 const int WATER_SENSOR_PIN = 34; // Analog water level sensor (Input)
-const int PUMP_PIN = 23;         // Micro water pump control (Output to Relay)
+const int PUMP_PIN = 27;         // Micro water pump control (Output to Relay)
 
 // ========== FEED SYSTEM PINS ==========
-const int TRIGGER_PIN = 26; // HC-SR04 Trigger (Output)
-const int ECHO_PIN = 27;    // HC-SR04 Echo (Input)
-const int SERVO_PIN = 25;   // Servo motor control (PWM)
+const int TRIGGER_PIN = 32; // HC-SR04 Trigger (Output)
+const int ECHO_PIN = 33;    // HC-SR04 Echo (Input)
+const int SERVO_PIN = 4;    // Servo motor control (PWM)
 
 // ========== SHARED PIN ==========
 const int LED_PIN = 2; // Built-in LED
@@ -46,16 +46,16 @@ const int MAX_PUMP_DURATION = 60000;    // Maximum 60 seconds
 const int PUMP_COOLDOWN = 10000;        // 10 seconds between pump cycles
 
 // ========== SERVO CONFIGURATION ==========
-const int SERVO_IDLE_ANGLE = 0;             // Servo angle when idle (closed)
-const int SERVO_DISPENSE_ANGLE = 90;        // Servo angle when dispensing (open)
+const int SERVO_IDLE_ANGLE = 90;            // Servo angle when idle (resting - closed)
+const int SERVO_DISPENSE_ANGLE = 45;        // Servo angle when dispensing (open)
 const int DEFAULT_DISPENSE_DURATION = 3000; // 3 seconds default
-const int MIN_FEEDER_LEVEL = 10;            // Don't dispense if below 10%
+const int MIN_FEEDER_LEVEL = 0;             // Don't dispense if below 0% (disabled for testing)
 const int MAX_DISPENSE_DURATION = 30000;    // Maximum 30 seconds
 const int SERVO_COOLDOWN = 5000;            // 5 seconds between dispense cycles
 
 // ========== UPDATE INTERVALS ==========
-const unsigned long SENSOR_READ_INTERVAL = 2000;     // Read every 2 seconds
-const unsigned long SCHEDULE_CHECK_INTERVAL = 60000; // Check schedule every 60 seconds
+const unsigned long SENSOR_READ_INTERVAL = 5000;     // Read every 5 seconds
+const unsigned long SCHEDULE_CHECK_INTERVAL = 10000; // Check schedule every 10 seconds (better timing accuracy)
 
 // =================================================================
 // =================== GLOBAL VARIABLES ============================

@@ -160,14 +160,15 @@ const connectToServo = async (servoType) => {
  */
 const pingServo = async (endpoint) => {
   try {
-    // TODO: Implement actual ping logic
-    // Example for HTTP-based module:
-    // const response = await fetch(`${endpoint}/ping`, { timeout: 5000 });
-    // return response.ok;
-    
-    // For now, return false to trigger simulation mode
-    return false;
+    console.log(`[ServoMotorService] Pinging ${endpoint}/api/status`);
+    const response = await fetch(`${endpoint}/api/status`, { 
+      method: 'GET'
+    });
+    const isConnected = response.ok;
+    console.log(`[ServoMotorService] Ping result: ${isConnected ? 'Connected' : 'Failed'}`);
+    return isConnected;
   } catch (error) {
+    console.log(`[ServoMotorService] Ping failed:`, error.message);
     return false;
   }
 };
@@ -346,12 +347,25 @@ const sendServoCommand = async (servoType, command) => {
   try {
     let endpoint = servo.endpoint;
     
+    // For feed dispenser, use ESP32 servo API
+    if (servoType === 'feedDispenser') {
+      endpoint = command.action === 'dispense' 
+        ? `${servo.endpoint}/api/servo/start`
+        : `${servo.endpoint}/api/servo/stop`;
+    }
+    
     // For water sprinkler (micro water pump), use ESP32 pump API
     if (servoType === 'waterSprinkler') {
       endpoint = command.action === 'activate' 
         ? `${servo.endpoint}/api/pump/start`
         : `${servo.endpoint}/api/pump/stop`;
     }
+    
+    console.log(`[ServoMotorService] Sending command to ${endpoint}`, {
+      duration: command.duration,
+      angle: command.angle,
+      action: command.action,
+    });
     
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -371,6 +385,7 @@ const sendServoCommand = async (servoType, command) => {
     }
     
     const data = await response.json();
+    console.log(`[ServoMotorService] Response from ${endpoint}:`, data);
     return data;
   } catch (error) {
     console.error(`Hardware command error for ${servoType}:`, error);

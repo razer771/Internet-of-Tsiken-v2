@@ -14,9 +14,11 @@ import QuickSetupModal from "./QuickSetupModal";
 import { auth, db } from "../../../config/firebaseconfig";
 import { doc, getDoc } from "firebase/firestore";
 import {
+  initializeSensors,
   getAllSensorReadings,
   startSensorPolling,
 } from "../../../modules/UltrasonicSensorService";
+import { configureWaterSystemUserId } from "../../../modules/ServoMotorService";
 
 // Replace static import with a dynamic require + in-memory fallback.
 // This avoids a crash when @react-native-async-storage/async-storage is not installed.
@@ -87,6 +89,7 @@ export default function QuickOverviewSetup({ navigation }) {
   const [waterLevel, setWaterLevel] = useState(85);
   const [feedLevel, setFeedLevel] = useState(62);
   const [isSimulated, setIsSimulated] = useState(true);
+  const [isFeederSimulated, setIsFeederSimulated] = useState(true);
 
   // Load saved data when component mounts
   useEffect(() => {
@@ -119,27 +122,48 @@ export default function QuickOverviewSetup({ navigation }) {
 
     const initSensors = async () => {
       try {
+        // Initialize sensor connections first
+        console.log("🚀 [Home] Initializing sensors...");
+        await initializeSensors();
+        
+        // Configure ESP32 with user ID for scheduled watering/feeding
+        const user = auth.currentUser;
+        if (user) {
+          console.log("📡 [Home] Configuring ESP32 with user ID for scheduled tasks...");
+          await configureWaterSystemUserId(user.uid);
+        }
+        
         // Get initial readings
         const readings = await getAllSensorReadings();
+        console.log("📊 [Home] Initial sensor readings:", JSON.stringify(readings, null, 2));
+        
         if (readings) {
           if (readings.water) {
+            console.log("💧 [Home] Water level:", readings.water.level, "Simulated:", readings.water.isSimulated);
             setWaterLevel(readings.water.level || 85);
             setIsSimulated(readings.water.isSimulated || false);
           }
           if (readings.feeder) {
-            setFeedLevel(readings.feeder.level || 62);
+            console.log("🌾 [Home] Feeder level:", readings.feeder.level, "Simulated:", readings.feeder.isSimulated);
+            setFeedLevel(readings.feeder.level !== undefined ? readings.feeder.level : 62);
+            setIsFeederSimulated(readings.feeder.isSimulated || false);
           }
         }
 
         // Start polling for continuous updates (every 5 seconds)
         stopPolling = startSensorPolling((readings) => {
+          console.log("🔄 [Home Polling] Sensor update:", JSON.stringify(readings, null, 2));
+          
           if (readings) {
             if (readings.water) {
+              console.log("💧 [Home Polling] Water level:", readings.water.level);
               setWaterLevel(readings.water.level || 85);
               setIsSimulated(readings.water.isSimulated || false);
             }
             if (readings.feeder) {
-              setFeedLevel(readings.feeder.level || 62);
+              console.log("🌾 [Home Polling] Feeder level:", readings.feeder.level);
+              setFeedLevel(readings.feeder.level !== undefined ? readings.feeder.level : 62);
+              setIsFeederSimulated(readings.feeder.isSimulated || false);
             }
           }
         }, 5000);
@@ -452,6 +476,9 @@ export default function QuickOverviewSetup({ navigation }) {
               <Text style={styles.sensorIcon}>🍴</Text>
               <Text style={styles.sensorLabel}>Feed Level</Text>
               <Text style={styles.sensorValue}>{feedLevel.toFixed(0)}%</Text>
+              {isFeederSimulated && (
+                <Text style={styles.simulatedText}>Simulated</Text>
+              )}
             </View>
 
             {/* Solar Charge Card */}

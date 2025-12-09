@@ -256,9 +256,12 @@ export const getWaterLevel = async () => {
  * @returns {Promise<Object>} Feeder level reading
  */
 export const getFeederLevel = async () => {
+  console.log(`🌾 getFeederLevel called - simulationMode: ${simulationMode}, connected: ${connectionStatus.feederSensor.connected}`);
+  
   try {
     if (simulationMode || !connectionStatus.feederSensor.connected) {
       // Return simulated value with warning
+      console.log('⚠️ Using simulated feeder level');
       return {
         success: true,
         level: simulatedValues.feederLevel,
@@ -269,7 +272,7 @@ export const getFeederLevel = async () => {
       };
     }
 
-    // TODO: Implement actual sensor reading
+    console.log('📡 Reading from hardware...');
     const level = await readFromHardware('feederSensor');
     
     connectionStatus.feederSensor.lastUpdate = new Date().toISOString();
@@ -302,10 +305,16 @@ export const getFeederLevel = async () => {
  */
 export const getAllSensorReadings = async () => {
   try {
+    console.log("📊 [getAllSensorReadings] Starting...");
+    
     const [waterReading, feederReading] = await Promise.all([
       getWaterLevel(),
       getFeederLevel(),
     ]);
+
+    console.log("📊 [getAllSensorReadings] Results:");
+    console.log("   💧 Water:", JSON.stringify(waterReading));
+    console.log("   🌾 Feeder:", JSON.stringify(feederReading));
 
     return {
       success: true,
