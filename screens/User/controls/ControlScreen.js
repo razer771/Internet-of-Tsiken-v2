@@ -1158,18 +1158,30 @@ export default function ControlScreen({ navigation }) {
   };
 
   const confirmAddWater = async () => {
+    // Prevent duplicate submissions
+    if (isSubmitting) {
+      console.warn("Submit already in progress, ignoring duplicate click");
+      return;
+    }
+
     if (!pendingWaterTime) {
       setConfirmWaterAddVisible(false);
       setShowWaterAddPicker(false);
       return;
     }
+
+    setIsSubmitting(true);
+
     const formattedTime = pendingWaterTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    
+    // Double-check for duplicates (in case of race condition)
     const isDuplicate = waterings.some((w) => w.time === formattedTime);
     if (isDuplicate) {
       setConfirmWaterAddVisible(false);
       setShowWaterAddPicker(false);
       setPendingWaterTime(null);
       setShowDuplicateWaterModal(true);
+      setIsSubmitting(false);
       return;
     }
 
@@ -1216,12 +1228,28 @@ export default function ControlScreen({ navigation }) {
           action: "Add new watering schedule",
           description: `Added ${formattedTime}`,
         });
+
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "Watering schedule added",
+          description: `New watering schedule created for ${formattedTime}`,
+        });
+
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "Watering schedule added",
+          description: `${user.displayName || user.email} added watering schedule at ${formattedTime}`,
+          type: "schedule",
+        });
       }
     } catch (err) {
       Alert.alert("Error", "Failed to save watering: " + err.message);
       setConfirmWaterAddVisible(false);
       setShowWaterAddPicker(false);
       setPendingWaterTime(null);
+      setIsSubmitting(false);
       return;
     }
 
@@ -1233,6 +1261,7 @@ export default function ControlScreen({ navigation }) {
     setConfirmWaterAddVisible(false);
     setShowWaterAddPicker(false);
     setPendingWaterTime(null);
+    setIsSubmitting(false);
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
@@ -1265,6 +1294,15 @@ export default function ControlScreen({ navigation }) {
     const newTime = waterEdit.timeDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const oldTime = waterings[waterEdit.idx].time;
     const wateringId = waterings[waterEdit.idx].id;
+
+    // Check for duplicate time (excluding current schedule being edited)
+    const isDuplicate = waterings.some((w, i) => w.time === newTime && i !== waterEdit.idx);
+    if (isDuplicate) {
+      setConfirmEditVisible(false);
+      setWaterEdit({ open: false, idx: null, timeDate: new Date() });
+      setShowDuplicateWaterModal(true);
+      return;
+    }
 
     try {
       const user = auth.currentUser;
@@ -1305,6 +1343,21 @@ export default function ControlScreen({ navigation }) {
           timestamp: new Date().toISOString(),
           action: "Updated watering time",
           description: `From ${oldTime} to ${newTime}`,
+        });
+
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "Watering schedule updated",
+          description: `Schedule changed from ${oldTime} to ${newTime}`,
+        });
+
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "Watering schedule updated",
+          description: `${user.displayName || user.email} changed watering time from ${oldTime} to ${newTime}`,
+          type: "schedule",
         });
       }
     } catch (err) {
@@ -1375,6 +1428,21 @@ export default function ControlScreen({ navigation }) {
           timestamp: new Date().toISOString(),
           action: "Deleted a watering schedule",
           description: `Deleted ${waterToDelete.time}`,
+        });
+
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "Watering schedule deleted",
+          description: `Watering schedule at ${waterToDelete.time} has been removed`,
+        });
+
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "Watering schedule deleted",
+          description: `${user.displayName || user.email} deleted watering schedule at ${waterToDelete.time}`,
+          type: "schedule",
         });
         
         console.log("✅ Successfully deleted from Firestore");
@@ -2015,8 +2083,16 @@ export default function ControlScreen({ navigation }) {
             setShowWaterAddPicker(false);
             const confirmed = (event?.type === "set" || !event?.type) && selected;
             if (confirmed) {
-              setPendingWaterTime(selected);
-              setConfirmWaterAddVisible(true);
+              // Check for duplicate time BEFORE showing confirmation
+              const formattedTime = selected.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+              const isDuplicate = waterings.some((w) => w.time === formattedTime);
+              
+              if (isDuplicate) {
+                setShowDuplicateWaterModal(true);
+              } else {
+                setPendingWaterTime(selected);
+                setConfirmWaterAddVisible(true);
+              }
             }
           }}
         />
