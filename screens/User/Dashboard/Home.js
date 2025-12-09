@@ -11,7 +11,9 @@ import {
   Modal,
 } from "react-native";
 import QuickSetupModal from "./QuickSetupModal";
+import MortalityInputModal from "./MortalityInputModal";
 import { auth, db } from "../../../config/firebaseconfig";
+import { computeChicksCount } from "../../../services/MortalityService";
 import {
   doc,
   getDoc,
@@ -64,6 +66,7 @@ export default function QuickOverviewSetup({ navigation }) {
   const [currentBatchId, setCurrentBatchId] = useState(null);
   const [addBatchDisabled, setAddBatchDisabled] = useState(false);
   const [lastAgeEdit, setLastAgeEdit] = useState(null);
+  const [showMortalityModal, setShowMortalityModal] = useState(false);
 
   // Load saved data when component mounts
   useEffect(() => {
@@ -192,8 +195,20 @@ export default function QuickOverviewSetup({ navigation }) {
         );
         setHasBatchData(hasData);
 
+        // Compute actual chicks count by subtracting mortality
         if (brooderData.chicksCount !== undefined) {
-          setChicksCount(brooderData.chicksCount.toString());
+          try {
+            const computedData = await computeChicksCount(
+              brooderData.batchId || latestBatch.id,
+              currentUser.uid
+            );
+            setChicksCount(computedData.chicksCount.toString());
+            console.log("Computed chicks count:", computedData);
+          } catch (error) {
+            console.error("Error computing chicks count:", error);
+            // Fallback to original value if computation fails
+            setChicksCount(brooderData.chicksCount.toString());
+          }
         }
 
         if (brooderData.daysCount !== undefined && brooderData.startDate) {
@@ -563,6 +578,19 @@ export default function QuickOverviewSetup({ navigation }) {
               </View>
             </TouchableOpacity>
 
+            {/* Mortality Input Button - Only show if batch data exists */}
+            {hasBatchData && (
+              <TouchableOpacity
+                style={styles.ctaWrapper}
+                activeOpacity={0.9}
+                onPress={() => setShowMortalityModal(true)}
+              >
+                <View style={styles.ctaButton}>
+                  <Text style={styles.ctaText}>Report Mortality</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
             {/* Add Batch button if age is 35 or more and after midnight GMT+8 if age was edited */}
             {(() => {
               if (daysCount !== "" && parseInt(daysCount) >= 35) {
@@ -721,6 +749,17 @@ export default function QuickOverviewSetup({ navigation }) {
               onSaveDaysCount={handleSaveDaysCountModal}
               onSaveHarvestDays={handleSaveHarvestDaysModal}
               onClose={closeQuickSetup}
+            />
+
+            {/* Mortality Input Modal */}
+            <MortalityInputModal
+              visible={showMortalityModal}
+              onClose={() => {
+                setShowMortalityModal(false);
+                loadSavedData(); // Reload data to update chicks count
+              }}
+              currentBatchId={currentBatchId}
+              chicksCount={chicksCount}
             />
 
             {/* Confirmation Modal */}
