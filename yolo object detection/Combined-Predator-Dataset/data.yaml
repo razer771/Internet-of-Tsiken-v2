@@ -1,0 +1,10 @@
+# Combined Predator Detection Dataset
+# Snakes + Rats
+
+path: C:\Users\Lloyd\Internet-of-Tsiken-v2\yolo object detection\Combined-Predator-Dataset
+train: train/images
+val: valid/images
+
+# Classes
+nc: 2
+names: ['snake', 'rats']

@@ -1,8 +1,13 @@
-// If you haven’t yet installed Firebase, run: // 👉 npm install firebase
+// If you haven't yet installed Firebase, run: // 👉 npm install firebase
 import { initializeApp } from "firebase/app";
 // Import the functions for persistence
 import { initializeAuth, getReactNativePersistence } from "firebase/auth";
-import { initializeFirestore } from "firebase/firestore";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 import { getAnalytics, isSupported } from "firebase/analytics"; // For the analytics warning
 
@@ -28,6 +33,9 @@ export const auth = initializeAuth(app, {
 export const db = initializeFirestore(app, {
   // No localCache configuration for React Native - uses in-memory cache by default
 });
+
+// Initialize Firebase Storage
+export const storage = getStorage(app);
 
 // Conditionally initialize Analytics to fix the other warning
 let analytics;

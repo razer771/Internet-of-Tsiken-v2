@@ -1,0 +1,12 @@
+names:
+- Snake
+nc: 1
+roboflow:
+  license: CC BY 4.0
+  project: snake-detection-gat5j
+  url: https://universe.roboflow.com/amir-pdcee/snake-detection-gat5j/dataset/1
+  version: 1
+  workspace: amir-pdcee
+test: ../test/images
+train: ../train/images
+val: ../valid/images

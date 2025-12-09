@@ -49,11 +49,20 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
   // Auto-calculate expected date
   useEffect(() => {
     if (batchStartDate && expectedHarvestDays) {
-      const days = parseInt(expectedHarvestDays);
-      if (days >= 30 && days <= 60) {
-        const calculatedDate = new Date(batchStartDate);
-        calculatedDate.setDate(calculatedDate.getDate() + days);
-        setExpectedDate(calculatedDate);
+      try {
+        const days = parseInt(expectedHarvestDays);
+        if (days >= 30 && days <= 60) {
+          const calculatedDate = new Date(batchStartDate);
+          // Validate date is valid
+          if (!isNaN(calculatedDate.getTime())) {
+            calculatedDate.setDate(calculatedDate.getDate() + days);
+            setExpectedDate(calculatedDate);
+          } else {
+            console.warn("Invalid batch start date");
+          }
+        }
+      } catch (error) {
+        console.warn("Error calculating expected harvest date:", error);
       }
     }
   }, [batchStartDate, expectedHarvestDays]);
