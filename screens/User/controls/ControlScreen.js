@@ -46,6 +46,7 @@ import {
   dispenseFeed,
   activateSprinkler,
   getServoConnectionStatus,
+  configureWaterSystemUserId,
 } from "../../../modules/ServoMotorService";
 import CameraStream from "../../../modules/CameraStream";
 import { useAdminNotifications } from "../../Admin/AdminNotificationContext";
@@ -197,6 +198,13 @@ export default function ControlScreen({ navigation }) {
         // Initialize sensors
         const initResult = await initializeSensors();
         console.log("Sensor initialization:", initResult);
+
+        // Configure ESP32 with user ID for scheduled watering
+        const user = auth.currentUser;
+        if (user) {
+          console.log("📡 Configuring ESP32 with user ID for scheduled watering...");
+          await configureWaterSystemUserId(user.uid);
+        }
 
         // Get initial readings
         const readings = await getAllSensorReadings();
@@ -1190,6 +1198,7 @@ export default function ControlScreen({ navigation }) {
           wateringId: nextId,
           label: label,
           time: formattedTime,
+          duration: 15,
           userId: user.uid,
           timestamp: new Date().toISOString(),
         });
@@ -1278,6 +1287,7 @@ export default function ControlScreen({ navigation }) {
           wateringId,
           label: waterings[waterEdit.idx].label,
           time: newTime,
+          duration: 15,
           userId: user.uid,
           timestamp: new Date().toISOString(),
         });

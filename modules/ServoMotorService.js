@@ -2,11 +2,10 @@
  * ServoMotorService.js
  * 
  * Service to interface with servo motors for feed dispensing and water sprinkler control.
- * This service handles communication with hardware modules and provides fallback error handling.
- * 
- * TODO: Connect to actual hardware modules (ESP32/Arduino) via WebSocket or HTTP API
- * TODO: Connect to Firestore for activity logging
+ * This service handles communication with hardware modules (ESP32) and provides fallback error handling.
  */
+
+import { getWaterSystemUrl, getFeedSystemUrl } from '../config/esp32config';
 
 // Configuration for servo motors
 const SERVO_CONFIG = {
@@ -50,6 +49,18 @@ let simulationMode = true;
  */
 export const initializeServos = async (config = {}) => {
   try {
+    // Auto-configure endpoints from ESP32 config
+    const waterSystemUrl = getWaterSystemUrl();
+    const feedSystemUrl = getFeedSystemUrl();
+    
+    if (waterSystemUrl && !SERVO_CONFIG.waterSprinkler.endpoint) {
+      SERVO_CONFIG.waterSprinkler.endpoint = waterSystemUrl;
+    }
+    
+    if (feedSystemUrl && !SERVO_CONFIG.feedDispenser.endpoint) {
+      SERVO_CONFIG.feedDispenser.endpoint = feedSystemUrl;
+    }
+    
     // Merge custom config if provided
     if (config.feedDispenser) {
       Object.assign(SERVO_CONFIG.feedDispenser, config.feedDispenser);
@@ -328,20 +339,43 @@ export const activateSprinkler = async (options = {}) => {
 const sendServoCommand = async (servoType, command) => {
   const servo = SERVO_CONFIG[servoType];
   
-  // TODO: Implement actual hardware communication
-  // Example for ESP32 via HTTP:
-  /*
-  const response = await fetch(`${servo.endpoint}/command`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(command),
-  });
-  const data = await response.json();
-  return data;
-  */
+  if (!servo.endpoint) {
+    throw new Error('Hardware endpoint not configured');
+  }
   
-  // For now, throw error to trigger fallback
-  throw new Error('Hardware communication not implemented');
+  try {
+    let endpoint = servo.endpoint;
+    
+    // For water sprinkler (micro water pump), use ESP32 pump API
+    if (servoType === 'waterSprinkler') {
+      endpoint = command.action === 'activate' 
+        ? `${servo.endpoint}/api/pump/start`
+        : `${servo.endpoint}/api/pump/stop`;
+    }
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        duration: command.duration,
+        angle: command.angle,
+        action: command.action,
+      }),
+      timeout: 10000, // 10 second timeout
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error(`Hardware command error for ${servoType}:`, error);
+    throw error;
+  }
 };
 
 /**
@@ -420,6 +454,44 @@ export const emergencyStop = async () => {
   }
 };
 
+/**
+ * Configure ESP32 water system with user ID for scheduled watering
+ * @param {string} userId - Firebase user ID
+ * @returns {Promise<Object>} Configuration result
+ */
+export const configureWaterSystemUserId = async (userId) => {
+  try {
+    const waterSystemUrl = getWaterSystemUrl();
+    if (!waterSystemUrl) {
+      console.log('⚠️ Water system URL not configured');
+      return { success: false, error: 'Water system not configured' };
+    }
+
+    console.log(`📡 Sending user ID to ESP32: ${waterSystemUrl}/api/system/userid`);
+
+    const response = await fetch(`${waterSystemUrl}/api/system/userid`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ userId }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log('✅ ESP32 configured with user ID:', userId);
+      return { success: true, data };
+    } else {
+      const errorText = await response.text();
+      console.log(`⚠️ Failed to configure ESP32 user ID: ${response.status} - ${errorText}`);
+      return { success: false, error: `HTTP ${response.status}` };
+    }
+  } catch (error) {
+    console.error('❌ Error configuring ESP32 user ID:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 export default {
   initializeServos,
   dispenseFeed,
@@ -430,4 +502,5 @@ export default {
   configureServoEndpoint,
   setServoSimulationMode,
   emergencyStop,
+  configureWaterSystemUserId,
 };
