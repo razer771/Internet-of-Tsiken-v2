@@ -145,24 +145,23 @@ export default function QuickOverviewSetup({ navigation }) {
           }
           if (readings.feeder) {
             console.log("🌾 [Home] Feeder level:", readings.feeder.level, "Simulated:", readings.feeder.isSimulated);
-            setFeedLevel(readings.feeder.level !== undefined ? readings.feeder.level : 62);
+              const feederLevel = readings.feeder.level !== undefined ? readings.feeder.level : 62;
+              setFeedLevel(Math.round(feederLevel));
             setIsFeederSimulated(readings.feeder.isSimulated || false);
           }
         }
 
         // Start polling for continuous updates (every 5 seconds)
         stopPolling = startSensorPolling((readings) => {
-          console.log("🔄 [Home Polling] Sensor update:", JSON.stringify(readings, null, 2));
-          
+          // Reduced logging - only log if values change significantly or errors occur
           if (readings) {
             if (readings.water) {
-              console.log("💧 [Home Polling] Water level:", readings.water.level);
               setWaterLevel(readings.water.level || 85);
               setIsSimulated(readings.water.isSimulated || false);
             }
             if (readings.feeder) {
-              console.log("🌾 [Home Polling] Feeder level:", readings.feeder.level);
-              setFeedLevel(readings.feeder.level !== undefined ? readings.feeder.level : 62);
+              const feederLevel = readings.feeder.level !== undefined ? readings.feeder.level : 62;
+              setFeedLevel(Math.round(feederLevel));
               setIsFeederSimulated(readings.feeder.isSimulated || false);
             }
           }

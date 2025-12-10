@@ -257,7 +257,8 @@ export default function ControlScreen({ navigation }) {
 
       // Update feeder level
       if (readings.feeder) {
-        setFeederNow(readings.feeder.level || 0);
+        const feederLevel = readings.feeder.level || 0;
+        setFeederNow(Math.round(feederLevel));
       }
 
       // Check simulation mode
@@ -1061,12 +1062,17 @@ export default function ControlScreen({ navigation }) {
 
   const handleDispense = async () => {
     try {
+      console.log("🍽️ [TEST FEEDING] Button clicked - starting dispense...");
       setIsDispensing(true);
       setServoError(null);
 
+      console.log("🍽️ [TEST FEEDING] Calling dispenseFeed()...");
       const result = await dispenseFeed();
+      console.log("🍽️ [TEST FEEDING] Result:", result);
 
       if (result.success) {
+        console.log("✅ [TEST FEEDING] Dispense successful!");
+        
         // Add admin notification for successful feeding
         const currentUser = auth.currentUser;
         const userName = currentUser?.email || "User";
@@ -1085,25 +1091,30 @@ export default function ControlScreen({ navigation }) {
         });
 
         // Show warning modal if simulated
-        if (result.isSimulated && result.warning) {
+        if (result.isSimulated) {
+          console.log("⚠️ [TEST FEEDING] Showing simulated warning modal");
           showMotorWarning(
             "Motor Not Detected",
-            result.warning + "\n\nThe operation was simulated."
+            (result.warning || "Feed dispenser motor not detected.") + "\n\nThe operation was simulated."
           );
+        } else {
+          console.log("🎉 [TEST FEEDING] Real hardware operation completed!");
         }
       } else {
+        console.error("❌ [TEST FEEDING] Dispense failed:", result.error);
         showMotorWarning(
           "Dispense Error",
           result.error || "Failed to dispense feed."
         );
       }
     } catch (error) {
-      console.error("Dispense error:", error);
+      console.error("❌ [TEST FEEDING] Exception caught:", error);
       showMotorWarning(
         "Error",
         "Feed dispenser motor not detected. Please check the connection."
       );
     } finally {
+      console.log("🔄 [TEST FEEDING] Setting isDispensing to false");
       setIsDispensing(false);
     }
   };
@@ -1134,10 +1145,10 @@ export default function ControlScreen({ navigation }) {
         });
 
         // Show warning modal if simulated
-        if (result.isSimulated && result.warning) {
+        if (result.isSimulated) {
           showMotorWarning(
-            "Motor Not Detected",
-            result.warning + "\n\nThe operation was simulated."
+            "Sprinkler Not Detected",
+            (result.warning || "Water pump not detected.") + "\n\nThe operation was simulated."
           );
         }
       } else {
@@ -1960,7 +1971,7 @@ export default function ControlScreen({ navigation }) {
               </View>
             ) : (
               <Text style={styles.testBtnText}>
-                Test Hydro Defense Mechanism
+                Test Watering
               </Text>
             )}
           </TouchableOpacity>

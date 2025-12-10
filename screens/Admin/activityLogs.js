@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
+import Header2 from "../navigation/adminHeader";
+import React, { useState, useEffect } from "react";
 import {
   SafeAreaView,
   ScrollView,
@@ -104,18 +105,8 @@ export default function ActivityLogs({ navigation }) {
   ];
   const dayNames = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
-  // Prevent duplicate fetches (React StrictMode protection)
-  const hasFetchedRef = useRef(false);
-
   // Fetch all logs from Firestore
   useEffect(() => {
-    // Prevent duplicate fetches in React StrictMode (development)
-    if (hasFetchedRef.current) {
-      console.log("⏭️  Skipping duplicate fetch (already loaded)");
-      return;
-    }
-
-    hasFetchedRef.current = true;
     fetchAllLogs();
   }, []);
 
@@ -206,35 +197,14 @@ export default function ActivityLogs({ navigation }) {
                 ? capitalizeFirstLetter(logData.role)
                 : userRole;
 
-            // Safely convert timestamp - handle both Firestore Timestamp and ISO string
+            // Safely convert timestamp
             let timestamp;
             try {
-              if (logData.timestamp?.toDate) {
-                // Firestore Timestamp object
-                timestamp = logData.timestamp.toDate();
-              } else if (typeof logData.timestamp === "string") {
-                // ISO string format
-                timestamp = new Date(logData.timestamp);
-              } else if (logData.timestamp instanceof Date) {
-                // Already a Date object
-                timestamp = logData.timestamp;
-              } else {
-                console.warn(
-                  "⚠️ Unknown timestamp format for log:",
-                  logDoc.id,
-                  logData.timestamp
-                );
-                timestamp = new Date(0); // Use epoch instead of current time
-              }
-
+              timestamp = logData.timestamp?.toDate?.() || new Date();
               // Validate the timestamp
               if (isNaN(timestamp.getTime())) {
-                console.warn(
-                  "⚠️ Invalid timestamp for log:",
-                  logDoc.id,
-                  "Using epoch"
-                );
-                timestamp = new Date(0); // Use epoch instead of current time
+                console.warn("⚠️ Invalid timestamp for log:", logDoc.id);
+                timestamp = new Date();
               }
             } catch (error) {
               console.warn(
@@ -242,7 +212,7 @@ export default function ActivityLogs({ navigation }) {
                 logDoc.id,
                 error
               );
-              timestamp = new Date(0); // Use epoch instead of current time
+              timestamp = new Date();
             }
 
             allLogsArray.push({
@@ -306,7 +276,7 @@ export default function ActivityLogs({ navigation }) {
     const minutes = String(gmt8Date.getUTCMinutes()).padStart(2, "0");
     const ampm = hours >= 12 ? "PM" : "AM";
     hours = hours % 12 || 12;
-    return `${hours}:${minutes}${ampm}`; // No space between minutes and AM/PM
+    return `${hours}:${minutes} ${ampm}`;
   };
 
   const applyFilters = () => {
@@ -891,7 +861,7 @@ export default function ActivityLogs({ navigation }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Header2 />
+      <Header2 showBackButton={true} />
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#234187" />
@@ -1168,9 +1138,6 @@ export default function ActivityLogs({ navigation }) {
                   </TouchableOpacity>
                 </View>
               )}
-
-              {/* Bottom spacing to prevent overlap with device buttons */}
-              <View style={styles.bottomSpacing} />
             </>
           )}
         </ScrollView>
@@ -1745,8 +1712,5 @@ const styles = StyleSheet.create({
     color: "#666",
     flex: 1,
     fontStyle: "italic",
-  },
-  bottomSpacing: {
-    height: 80,
   },
 });

@@ -125,6 +125,9 @@ const connectToServo = async (servoType) => {
       isOperating: false,
     };
 
+    // If any servo connects successfully, disable simulation mode for real commands
+    simulationMode = false;
+
     return {
       connected: true,
       servoId: servo.id,
@@ -195,46 +198,57 @@ export const dispenseFeed = async (options = {}) => {
       };
     }
 
-    // Check connection status
-    if (simulationMode || !connectionStatus.feedDispenser.connected) {
-      // Simulate dispense operation
-      console.log(`[SIMULATED] Dispensing feed - Angle: ${angle}°, Duration: ${duration}ms`);
-      
-      connectionStatus.feedDispenser.isOperating = true;
-      
-      // Simulate the operation delay
-      await new Promise(resolve => setTimeout(resolve, Math.min(duration, 2000)));
-      
-      connectionStatus.feedDispenser.isOperating = false;
-      connectionStatus.feedDispenser.lastUpdate = new Date().toISOString();
-      
-      return {
-        success: true,
-        message: 'Feed dispensed successfully (simulated)',
-        isSimulated: true,
-        warning: connectionStatus.feedDispenser.error || 'Feed dispenser motor not detected. Operation simulated.',
-        duration,
-        angle,
-        timestamp: new Date().toISOString(),
-      };
+    // Always try real hardware first if an endpoint is configured
+    connectionStatus.feedDispenser.isOperating = true;
+
+    let hardwareAttempted = false;
+    if (servo.endpoint) {
+      try {
+        hardwareAttempted = true;
+        const result = await sendServoCommand('feedDispenser', {
+          action: 'dispense',
+          angle,
+          duration,
+        });
+
+        connectionStatus.feedDispenser.connected = true;
+        connectionStatus.feedDispenser.error = null;
+        simulationMode = false;
+
+        connectionStatus.feedDispenser.isOperating = false;
+        connectionStatus.feedDispenser.lastUpdate = new Date().toISOString();
+
+        return {
+          success: true,
+          message: 'Feed dispensed successfully',
+          isSimulated: false,
+          duration,
+          angle,
+          timestamp: new Date().toISOString(),
+        };
+      } catch (error) {
+        console.warn('[ServoMotorService] Hardware dispense failed, falling back to simulation:', error.message);
+        connectionStatus.feedDispenser.connected = false;
+        connectionStatus.feedDispenser.error = error.message;
+      }
     }
 
-    // Real hardware operation
-    connectionStatus.feedDispenser.isOperating = true;
-    
-    const result = await sendServoCommand('feedDispenser', {
-      action: 'dispense',
-      angle,
-      duration,
-    });
-    
+    // If no endpoint or hardware failed, simulate as fallback
+    console.log(`[SIMULATED] Dispensing feed - Angle: ${angle}°, Duration: ${duration}ms`);
+
+    // Simulate the operation delay
+    await new Promise(resolve => setTimeout(resolve, Math.min(duration, 2000)));
+
     connectionStatus.feedDispenser.isOperating = false;
     connectionStatus.feedDispenser.lastUpdate = new Date().toISOString();
-    
+
     return {
       success: true,
-      message: 'Feed dispensed successfully',
-      isSimulated: false,
+      message: hardwareAttempted
+        ? 'Hardware dispense failed. Simulated operation completed.'
+        : 'Feed dispensed successfully (simulated)',
+      isSimulated: true,
+      warning: connectionStatus.feedDispenser.error || 'Feed dispenser motor not detected. Operation simulated.',
       duration,
       angle,
       timestamp: new Date().toISOString(),
@@ -274,46 +288,57 @@ export const activateSprinkler = async (options = {}) => {
       };
     }
 
-    // Check connection status
-    if (simulationMode || !connectionStatus.waterSprinkler.connected) {
-      // Simulate sprinkler operation
-      console.log(`[SIMULATED] Activating sprinkler - Angle: ${angle}°, Duration: ${duration}ms`);
-      
-      connectionStatus.waterSprinkler.isOperating = true;
-      
-      // Simulate the operation delay
-      await new Promise(resolve => setTimeout(resolve, Math.min(duration, 2000)));
-      
-      connectionStatus.waterSprinkler.isOperating = false;
-      connectionStatus.waterSprinkler.lastUpdate = new Date().toISOString();
-      
-      return {
-        success: true,
-        message: 'Water sprinkler activated successfully (simulated)',
-        isSimulated: true,
-        warning: connectionStatus.waterSprinkler.error || 'Water sprinkler motor not detected. Operation simulated.',
-        duration,
-        angle,
-        timestamp: new Date().toISOString(),
-      };
+    // Always try real hardware first if an endpoint is configured
+    connectionStatus.waterSprinkler.isOperating = true;
+
+    let hardwareAttempted = false;
+    if (servo.endpoint) {
+      try {
+        hardwareAttempted = true;
+        const result = await sendServoCommand('waterSprinkler', {
+          action: 'activate',
+          angle,
+          duration,
+        });
+
+        connectionStatus.waterSprinkler.connected = true;
+        connectionStatus.waterSprinkler.error = null;
+        simulationMode = false;
+
+        connectionStatus.waterSprinkler.isOperating = false;
+        connectionStatus.waterSprinkler.lastUpdate = new Date().toISOString();
+
+        return {
+          success: true,
+          message: 'Water sprinkler activated successfully',
+          isSimulated: false,
+          duration,
+          angle,
+          timestamp: new Date().toISOString(),
+        };
+      } catch (error) {
+        console.warn('[ServoMotorService] Water hardware activate failed, falling back to simulation:', error.message);
+        connectionStatus.waterSprinkler.connected = false;
+        connectionStatus.waterSprinkler.error = error.message;
+      }
     }
 
-    // Real hardware operation
-    connectionStatus.waterSprinkler.isOperating = true;
-    
-    const result = await sendServoCommand('waterSprinkler', {
-      action: 'activate',
-      angle,
-      duration,
-    });
-    
+    // If no endpoint or hardware failed, simulate as fallback
+    console.log(`[SIMULATED] Activating sprinkler - Angle: ${angle}°, Duration: ${duration}ms`);
+
+    // Simulate the operation delay
+    await new Promise(resolve => setTimeout(resolve, Math.min(duration, 2000)));
+
     connectionStatus.waterSprinkler.isOperating = false;
     connectionStatus.waterSprinkler.lastUpdate = new Date().toISOString();
-    
+
     return {
       success: true,
-      message: 'Water sprinkler activated successfully',
-      isSimulated: false,
+      message: hardwareAttempted
+        ? 'Hardware activation failed. Simulated operation completed.'
+        : 'Water sprinkler activated successfully (simulated)',
+      isSimulated: true,
+      warning: connectionStatus.waterSprinkler.error || 'Water sprinkler motor not detected. Operation simulated.',
       duration,
       angle,
       timestamp: new Date().toISOString(),
