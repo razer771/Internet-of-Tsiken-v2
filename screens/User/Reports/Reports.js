@@ -23,7 +23,7 @@ import {
 import { db, auth } from "../../../config/firebaseconfig";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
-import * as FileSystem from "expo-file-system/legacy";
+import * as FileSystem from "expo-file-system";
 import { Asset } from "expo-asset";
 import * as XLSX from "xlsx";
 import CalendarModal from "../../navigation/CalendarModal";
