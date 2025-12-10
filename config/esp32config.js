@@ -1,31 +1,24 @@
 /**
  * ESP32 Hardware Configuration
  * 
- * Configure your ESP32 device IP addresses or hostnames here.
- * 
- * AUTO-DISCOVERY (Recommended):
- * - Leave ipAddress as 'tsiken-esp32.local' to use mDNS auto-discovery
- * - ESP32 will be automatically discovered on your local network
- * - No need to manually find or update IP addresses
- * 
- * MANUAL IP (Fallback):
- * - If auto-discovery doesn't work, find IP from ESP32 Serial Monitor
- * - Update ipAddress to the actual IP (e.g., '192.168.1.100')
+ * Configure your ESP32 device IP addresses here.
+ * After uploading the Arduino code to your ESP32, update the IP address below.
  */
 
 // ESP32 Configuration
 export const ESP32_CONFIG = {
   // Water System (Water Level Sensor + Micro Water Pump)
+  // Find this IP from your ESP32 Serial Monitor after connecting to WiFi
   waterSystem: {
     enabled: true,  // Set to true when ESP32 is connected
-    ipAddress: 'tsiken-esp32.local', // mDNS hostname (auto-discovery) or IP address
+    ipAddress: '192.168.137.42', // Change to your ESP32's actual IP address
     port: 80,
   },
   
   // Feed Dispenser (if using separate ESP32)
   feedSystem: {
     enabled: true,  // Set to true when ESP32 is connected
-    ipAddress: 'tsiken-esp32.local', // mDNS hostname (auto-discovery) or IP address
+    ipAddress: '192.168.137.42', // Change to your ESP32's IP address
     port: 80,
   },
 };
