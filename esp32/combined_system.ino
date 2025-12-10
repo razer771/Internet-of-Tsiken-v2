@@ -3,10 +3,14 @@
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <ESP32Servo.h>
+#include <ESPmDNS.h>
 
 // =================================================================
 // ============== CONFIGURATION (CRITICAL: CHANGE THESE) ===========
 // =================================================================
+
+// mDNS Hostname (ESP32 will be accessible at tsiken-esp32.local)
+const char *MDNS_HOSTNAME = "tsiken-esp32";
 
 // WiFi Credentials
 const char *WIFI_SSID = "mzkmbp";
@@ -293,6 +297,23 @@ void connectWiFi()
     Serial.print("  Signal: ");
     Serial.print(WiFi.RSSI());
     Serial.println(" dBm\n");
+
+    // Initialize mDNS
+    if (MDNS.begin(MDNS_HOSTNAME))
+    {
+      Serial.println("✓ mDNS responder started");
+      Serial.print("  Hostname: ");
+      Serial.print(MDNS_HOSTNAME);
+      Serial.println(".local");
+
+      // Advertise HTTP service
+      MDNS.addService("http", "tcp", 80);
+      Serial.println("  Service: HTTP on port 80");
+    }
+    else
+    {
+      Serial.println("✗ mDNS failed to start");
+    }
   }
   else
   {
