@@ -20,8 +20,8 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import {
   doc,
   getDoc,
-  collection,
   addDoc,
+  collection,
   serverTimestamp,
 } from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -57,6 +57,7 @@ import UserProfile from "./screens/User/Profile/userProfile";
 import EditProfile from "./screens/User/Profile/editProfile";
 import UserActivityLogs from "./screens/User/ActivityLogs/ActivityLogs";
 import AdminActivityLogs from "./screens/Admin/activityLogs";
+import GenerateLogReport from "./screens/Admin/generatelogReport";
 import Reports from "./screens/User/Reports/Reports";
 import ViewReport from "./screens/User/Reports/ViewReport";
 import Analytics from "./screens/User/Analytics/analytics";
@@ -133,6 +134,7 @@ const AUTH_SCREENS = [
   "AdminAnalytics",
   "AdminActivityLogs",
   "AdminNotification",
+  "GenerateLogReport",
 ];
 
 // Screen wrapper that reports its route name to parent
@@ -177,177 +179,271 @@ export default function App() {
   const [alertType, setAlertType] = useState("info");
   const [alertTitle, setAlertTitle] = useState("");
   const [alertMessage, setAlertMessage] = useState("");
+  const [alertCallback, setAlertCallback] = useState(null);
 
-  const showAlert = (type, title, message) => {
+  const showAlert = (type, title, message, callback = null) => {
     setAlertType(type);
     setAlertTitle(title);
     setAlertMessage(message);
+    setAlertCallback(() => callback);
     setAlertVisible(true);
   };
 
   const closeAlert = () => {
+    console.log("❌ Closing alert modal");
     setAlertVisible(false);
+    if (alertCallback) {
+      console.log("🔄 Executing alert callback");
+      alertCallback();
+      setAlertCallback(null);
+    }
   };
 
   // Listen to authentication state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       console.log(
-        "🔔 Auth listener fired - hasInitialized:",
-        hasInitializedRef.current
+        "🔔 Auth listener fired:",
+        user ? "authenticated" : "not authenticated"
       );
 
-      // CRITICAL: Check if we're in the middle of a login flow FIRST
-      // Exit early to prevent ANY state updates that could interfere with navigation
-      const isLoginInProgress = await AsyncStorage.getItem("loginInProgress");
-      if (isLoginInProgress === "true") {
-        console.log("⏸️ Login in progress - App.js skipping ALL auth handling");
-        return;
-      }
-
-      // Check if we're in the middle of account creation
-      const isAccountCreationInProgress = await AsyncStorage.getItem(
+      // Check if account creation is in progress - skip navigation if true
+      const accountCreationInProgress = await AsyncStorage.getItem(
         "accountCreationInProgress"
       );
-      if (isAccountCreationInProgress === "true") {
+      if (accountCreationInProgress === "true") {
         console.log(
-          "⏸️ Account creation in progress - App.js skipping ALL auth handling"
+          "⏸️ Account creation in progress - skipping auth navigation"
         );
         return;
       }
 
       if (user) {
-        console.log("🔐 Auth state changed: User authenticated", user.uid);
+        // Clear the logout flag after successful login
+        await AsyncStorage.removeItem("userLoggedOut");
+        console.log("✅ Cleared userLoggedOut flag after login");
 
-        // User is signed in - fetch their role and accountStatus from Firestore
-        try {
-          // Check if admin bypass first
-          const isAdmin = await AsyncStorage.getItem("isAdminBypass");
-          if (isAdmin === "true") {
-            console.log("👤 Admin bypass detected → AdminDashboard");
-            setIsAuthenticated(true);
-            setAuthLoading(false);
-            setHasInitialized(true);
-            hasInitializedRef.current = true;
-            // Navigate to AdminDashboard
-            if (navigationRef.isReady()) {
-              navigationRef.reset({
-                index: 0,
-                routes: [{ name: "AdminDashboard" }],
-              });
-            }
-            return;
+        // Check if user explicitly logged out
+        const logoutFlag = await AsyncStorage.getItem("userLoggedOut");
+        if (logoutFlag === "true") {
+          console.log("🚫 User logged out explicitly - redirecting to login");
+          await signOut(auth);
+          setIsAuthenticated(false);
+          setAuthLoading(false);
+          if (navigationRef.isReady()) {
+            navigationRef.reset({
+              index: 0,
+              routes: [{ name: "LogIn" }],
+            });
           }
+          return;
+        }
+        console.log("✅ Persistent login - user is authenticated");
 
-          // Fetch user data from Firestore
+        try {
           const userRef = doc(db, "users", user.uid);
           const userDoc = await getDoc(userRef);
+
+          console.log("📄 User document fetched, exists:", userDoc.exists());
 
           if (userDoc.exists()) {
             const userData = userDoc.data();
             const accountStatus = (userData.accountStatus || "").toLowerCase();
-            const userRole = (userData.role || "").toLowerCase();
+            const isVerified = userData.verified || false;
 
-            console.log(
-              `📊 Auth state - Status: ${accountStatus}, Role: ${userRole}`
-            );
+            console.log("📊 User data:", {
+              accountStatus,
+              isVerified,
+              role: userData.role,
+            });
 
-            // Sign out unverified or inactive users - let them go through login flow
-            if (!userData.verified || accountStatus === "inactive") {
-              console.log(
-                "❌ Unverified or inactive user → signing out to force login"
-              );
-              await auth.signOut();
+            // 🚨 Inactive account handling
+            if (accountStatus === "inactive") {
+              console.log("❌ Inactive account detected - showing modal first");
+
+              // Log inactive account login attempt to session_logs (non-blocking)
+              try {
+                const logPromise = addDoc(collection(db, "session_logs"), {
+                  userId: user.uid,
+                  action: "Inactive Account Login Attempt",
+                  description: "Attempted login with inactive account",
+                  timestamp: serverTimestamp(),
+                  deviceInfo: Platform.OS,
+                  email: userData.email || user.email,
+                  accountStatus: accountStatus,
+                  role: userData.role || "unknown",
+                });
+
+                // Non-blocking with timeout
+                Promise.race([
+                  logPromise,
+                  new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error("Timeout")), 3000)
+                  ),
+                ])
+                  .then(() => {
+                    console.log(
+                      "📝 Inactive account login attempt logged to session_logs"
+                    );
+                  })
+                  .catch((logError) => {
+                    console.log(
+                      "⚠️ Failed to log inactive account attempt:",
+                      logError.message
+                    );
+                  });
+              } catch (logError) {
+                console.log(
+                  "⚠️ Error setting up inactive account logging:",
+                  logError.message
+                );
+              }
+
+              // Set loading to false and authenticated to false BEFORE showing modal
+              setAuthLoading(false);
               setIsAuthenticated(false);
+              setHasInitialized(true);
+              hasInitializedRef.current = true;
+
+              console.log("📢 Showing inactive account modal...");
+              showAlert(
+                "error",
+                "Inactive Account",
+                "Your account is inactive. Please contact support.",
+                async () => {
+                  console.log(
+                    "🔄 Modal closed - signing out and navigating to login"
+                  );
+                  // 🔄 Sign out only after modal is closed
+                  await AsyncStorage.setItem("userLoggedOut", "true");
+                  await signOut(auth);
+                  if (navigationRef.isReady()) {
+                    navigationRef.reset({
+                      index: 0,
+                      routes: [{ name: "LogIn" }],
+                    });
+                  }
+                }
+              );
+              return;
+            }
+
+            // 🚨 Not verified handling
+            if (!isVerified) {
+              console.log(
+                "❌ User not verified - going straight to OTP verification"
+              );
+              setIsAuthenticated(false);
+              if (navigationRef.isReady()) {
+                navigationRef.reset({
+                  index: 0,
+                  routes: [{ name: "VerifyIdentity" }],
+                });
+              }
               setAuthLoading(false);
               return;
             }
 
-            // REQUIREMENT 5: Account is active → check role and navigate
+            // ✅ Verified & active → role-based navigation
+            const userRole = (userData.role || "").toLowerCase();
+            const targetScreen =
+              userRole === "admin" ? "AdminDashboard" : "Home";
+
+            console.log(`🔀 Auto-login navigating to: ${targetScreen}`);
             setIsAuthenticated(true);
-
-            if (!hasInitializedRef.current) {
-              let targetScreen = "Home"; // default
-              if (accountStatus === "active") {
-                if (userRole === "admin") {
-                  console.log(
-                    "👤 [App.js] Active Admin → Navigating to AdminDashboard"
-                  );
-                  targetScreen = "AdminDashboard";
-                } else {
-                  console.log("👤 [App.js] Active User → Navigating to Home");
-                  targetScreen = "Home";
-                }
-              } else {
-                // Unknown status - default to Home
-                console.log(
-                  "⚠️ [App.js] Unknown status → Navigating to Home (default)"
-                );
-                targetScreen = "Home";
-              }
-
-              // Navigate to the appropriate screen
-              if (navigationRef.isReady()) {
-                navigationRef.reset({
-                  index: 0,
-                  routes: [{ name: targetScreen }],
-                });
-              }
-
-              // Mark as initialized
-              setHasInitialized(true);
-              hasInitializedRef.current = true;
-            } else {
-              console.log(
-                "✅ [App.js] Already initialized - NOT navigating (prevents re-mount)"
-              );
-            }
             setAuthLoading(false);
-          } else {
-            console.log("❌ User document not found → LogIn");
-            setIsAuthenticated(false);
-            if (!hasInitializedRef.current) {
-              setHasInitialized(true);
-              hasInitializedRef.current = true;
-            }
-            setAuthLoading(false);
-          }
-        } catch (error) {
-          console.error("Error fetching user data in auth listener:", error);
-          // On error, default to Home if authenticated
-          setIsAuthenticated(true);
-          if (!hasInitializedRef.current) {
-            console.log(
-              "❌ [App.js] Error fetching user data → Navigating to Home"
-            );
             if (navigationRef.isReady()) {
               navigationRef.reset({
                 index: 0,
-                routes: [{ name: "Home" }],
+                routes: [{ name: targetScreen }],
               });
             }
-            setHasInitialized(true);
-            hasInitializedRef.current = true;
+          } else {
+            console.log("⚠️ User document not found - showing error modal");
+            setAuthLoading(false);
+            showAlert(
+              "error",
+              "Account Error",
+              "Unable to load your account information. Please try logging in again.",
+              async () => {
+                await AsyncStorage.setItem("userLoggedOut", "true");
+                await signOut(auth);
+                setIsAuthenticated(false);
+                if (navigationRef.isReady()) {
+                  navigationRef.reset({
+                    index: 0,
+                    routes: [{ name: "LogIn" }],
+                  });
+                }
+              }
+            );
           }
+        } catch (error) {
+          console.error("Error fetching user data:", error);
           setAuthLoading(false);
+          showAlert(
+            "error",
+            "Connection Error",
+            "Unable to verify your account status. Please check your internet connection and try again.",
+            async () => {
+              await AsyncStorage.setItem("userLoggedOut", "true");
+              await signOut(auth);
+              setIsAuthenticated(false);
+              if (navigationRef.isReady()) {
+                navigationRef.reset({
+                  index: 0,
+                  routes: [{ name: "LogIn" }],
+                });
+              }
+            }
+          );
         }
       } else {
-        // User is signed out
-        console.log("🔓 Auth state changed: User signed out");
+        // 🔓 Not authenticated → Login
+        console.log("🔓 User not authenticated - navigating to Login");
         setIsAuthenticated(false);
-
-        // CRITICAL: Reset initialization flag on logout
-        // This allows App.js to properly set initialRoute on next login
-        console.log("🔄 Resetting hasInitializedRef for fresh login flow");
-        hasInitializedRef.current = false;
-        setHasInitialized(false);
-
-        setAuthLoading(false);
+        if (navigationRef.isReady()) {
+          navigationRef.reset({
+            index: 0,
+            routes: [{ name: "LogIn" }],
+          });
+        }
       }
+
+      setHasInitialized(true);
+      hasInitializedRef.current = true;
+      setAuthLoading(false);
     });
 
     return () => unsubscribe();
   }, []);
+
+  // Separate lockout data clearing routine (independent of auth logic)
+  useEffect(() => {
+    const clearOldLockoutData = async () => {
+      try {
+        const keys = await AsyncStorage.getAllKeys();
+        const lockoutKeys = keys.filter((key) => key.includes("lockout"));
+
+        for (const key of lockoutKeys) {
+          await AsyncStorage.removeItem(key);
+        }
+
+        if (lockoutKeys.length > 0) {
+          console.log("🧹 Cleared old lockout data");
+        }
+      } catch (error) {
+        console.warn("⚠️ Error clearing lockout data:", error);
+      }
+    };
+
+    // Add a small delay to ensure auth is fully initialized first
+    const timer = setTimeout(() => {
+      clearOldLockoutData();
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, []); // Empty dependency array - runs once on mount
 
   useEffect(() => {
     async function prepare() {
@@ -594,6 +690,14 @@ export default function App() {
                     component={createTrackedScreen(
                       AdminActivityLogs,
                       "AdminActivityLogs",
+                      setCurrentRoute
+                    )}
+                  />
+                  <Stack.Screen
+                    name="GenerateLogReport"
+                    component={createTrackedScreen(
+                      GenerateLogReport,
+                      "GenerateLogReport",
                       setCurrentRoute
                     )}
                   />

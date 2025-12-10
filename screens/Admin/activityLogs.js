@@ -25,7 +25,7 @@ const COLUMN_WIDTHS = {
   time: 100,
   name: 150,
   role: 110,
-  action: 120,
+  action: 150,
   description: 220,
 };
 const TABLE_WIDTH =
@@ -50,6 +50,11 @@ const LOG_COLLECTIONS = [
   "report_logs",
   "session_logs",
   "wateringActivity_logs",
+  "activity_logs",
+  "addBatch_logs",
+  "manualActivity_logs",
+  "feedingActivity_logs",
+  "verification_logs",
 ];
 
 export default function ActivityLogs({ navigation }) {
@@ -276,7 +281,7 @@ export default function ActivityLogs({ navigation }) {
     const minutes = String(gmt8Date.getUTCMinutes()).padStart(2, "0");
     const ampm = hours >= 12 ? "PM" : "AM";
     hours = hours % 12 || 12;
-    return `${hours}:${minutes} ${ampm}`;
+    return `${hours}:${minutes} ${ampm}`; // Space between minutes and AM/PM
   };
 
   const applyFilters = () => {
@@ -356,7 +361,7 @@ export default function ActivityLogs({ navigation }) {
         `📄 Export will create ${totalPages} page(s) (${EXPORT_ENTRIES_PER_PAGE} entries per page)`
       );
 
-      // Prepare export data with pagination
+      // Prepare export data with pagination, always ensure valid timestamp
       const exportPages = [];
       for (let page = 0; page < totalPages; page++) {
         const startIdx = page * EXPORT_ENTRIES_PER_PAGE;
@@ -366,15 +371,27 @@ export default function ActivityLogs({ navigation }) {
         );
         const pageEntries = logsToExport.slice(startIdx, endIdx);
 
-        const formattedEntries = pageEntries.map((log, idx) => ({
-          No: startIdx + idx + 1,
-          Date: formatDateGMT8(log.timestamp),
-          Time: formatTimeGMT8(log.timestamp),
-          Name: log.userName,
-          Role: log.role,
-          Action: log.action,
-          Description: log.description,
-        }));
+        const formattedEntries = pageEntries.map((log, idx) => {
+          let ts = log.timestamp;
+          // If missing or invalid, use current date
+          if (!ts || isNaN(new Date(ts).getTime())) {
+            ts = new Date();
+          }
+          // If still not a Date object, convert
+          if (!(ts instanceof Date)) {
+            ts = new Date(ts);
+          }
+          return {
+            No: startIdx + idx + 1,
+            timestamp: ts, // Include raw timestamp for proper formatting
+            Date: formatDateGMT8(ts),
+            Time: formatTimeGMT8(ts),
+            Name: log.userName,
+            Role: log.role,
+            Action: log.action,
+            Description: log.description,
+          };
+        });
 
         exportPages.push({
           pageNumber: page + 1,
@@ -871,6 +888,19 @@ export default function ActivityLogs({ navigation }) {
         <ScrollView contentContainerStyle={styles.pageContent}>
           {/* Buttons Row */}
           <View style={styles.buttonsRow}>
+            {/* Back Arrow */}
+            <TouchableOpacity
+              style={styles.backArrowContainer}
+              onPress={() => navigation.navigate("AdminDashboard")}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons
+                name="arrow-left"
+                size={24}
+                color="#133E87"
+              />
+              <Text style={styles.backArrowText}></Text>
+            </TouchableOpacity>
             <TouchableOpacity
               style={[
                 styles.actionButton,
@@ -902,7 +932,7 @@ export default function ActivityLogs({ navigation }) {
           <View style={styles.filtersContainer}>
             {/* Name Filter */}
             <View style={styles.filterRow}>
-              <Text style={styles.filterLabel}>Search by Name:</Text>
+              <Text style={styles.filterLabel}>Search by Name</Text>
               <TextInput
                 style={styles.filterInput}
                 placeholder="Enter name..."
@@ -914,7 +944,7 @@ export default function ActivityLogs({ navigation }) {
 
             {/* Date Range Filter */}
             <View style={styles.filterRow}>
-              <Text style={styles.filterLabel}>Date Range:</Text>
+              <Text style={styles.filterLabel}>Date Range</Text>
               <TouchableOpacity
                 style={styles.dateRangeButton}
                 onPress={openDateRangeModal}
@@ -1336,7 +1366,7 @@ const styles = StyleSheet.create({
   buttonsRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
+    justifyContent: "space-between",
     gap: 8,
     marginBottom: 16,
   },
@@ -1556,7 +1586,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F7F8FA",
     borderRadius: 8,
     padding: 16,
-    marginBottom: 16,
+    marginBottom: 10,
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
@@ -1570,7 +1600,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: "#333",
-    minWidth: 100,
+    minWidth: 120,
   },
   filterInput: {
     flex: 1,
@@ -1590,7 +1620,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#D1D5DB",
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
   dateRangeButtonText: {
     fontSize: 14,
@@ -1712,5 +1742,20 @@ const styles = StyleSheet.create({
     color: "#666",
     flex: 1,
     fontStyle: "italic",
+  },
+  backArrowContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 1,
+    paddingVertical: 0,
+  },
+  backArrowText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#133E87",
+    marginLeft: 8,
+  },
+  bottomSpacing: {
+    height: 10,
   },
 });

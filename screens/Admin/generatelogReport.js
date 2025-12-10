@@ -1,3 +1,55 @@
+// Helper: Normalize Firestore Timestamp, ISO string, or Date to Date object
+const normalizeTimestamp = (ts) => {
+  if (!ts) return null;
+  if (ts.toDate) return ts.toDate(); // Firestore Timestamp
+  if (typeof ts === "string") return new Date(ts); // ISO string
+  if (ts instanceof Date) return ts; // Already Date
+  return null;
+};
+
+// Helper: Format date to DD-MMM-YYYY in GMT+8
+const monthNamesShort = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+const formatDateGMT8 = (date) => {
+  if (!date) return "N/A";
+  const validDate = date instanceof Date ? date : new Date(date);
+  if (isNaN(validDate.getTime())) {
+    console.warn("⚠️ Invalid date in formatDateGMT8:", date);
+    return "N/A";
+  }
+  const gmt8Date = new Date(validDate.getTime() + 8 * 60 * 60 * 1000);
+  const day = String(gmt8Date.getUTCDate()).padStart(2, "0");
+  const month = monthNamesShort[gmt8Date.getUTCMonth()];
+  const year = gmt8Date.getUTCFullYear();
+  return `${day}-${month}-${year}`;
+};
+
+const formatTimeGMT8 = (date) => {
+  if (!date) return "N/A";
+  const validDate = date instanceof Date ? date : new Date(date);
+  if (isNaN(validDate.getTime())) {
+    console.warn("⚠️ Invalid date in formatTimeGMT8:", date);
+    return "N/A";
+  }
+  const gmt8Date = new Date(validDate.getTime() + 8 * 60 * 60 * 1000);
+  let hours = gmt8Date.getUTCHours();
+  const minutes = String(gmt8Date.getUTCMinutes()).padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12 || 12;
+  return `${hours}:${minutes} ${ampm}`;
+};
 import React, { useState, useEffect } from "react";
 import {
   SafeAreaView,
@@ -9,169 +61,125 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  Modal,
 } from "react-native";
 import Header2 from "../navigation/adminHeader";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
-import { db } from "../../config/firebaseconfig";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
+import * as FileSystem from "expo-file-system/legacy";
+import {
+  addDoc,
+  collection,
+  getDocs,
+  query,
+  orderBy,
+  limit,
+  doc,
+  getDoc,
+} from "firebase/firestore";
+import { auth, db } from "../../config/firebaseconfig";
 
 const Logo = require("../../assets/logo.png");
 
-// Records per page
-const RECORDS_PER_PAGE = 10;
-
-export default function GenerateLogReport({ route, navigation }) {
+export default function GenerateLogReport({ route }) {
   const { exportData, totalLogs, filters, onExportPDF } = route.params || {};
+  const navigation = require("@react-navigation/native").useNavigation();
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [exporting, setExporting] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   // Activity logs state
   const [activityLogs, setActivityLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [logsCurrentPage, setLogsCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
-  /**
-   * Fetch all activity logs from Firestore
-   * Retrieves logs from all sub-collections under activity_logs
-   */
-  useEffect(() => {
-    fetchActivityLogs();
-  }, []);
-
+  // Fetch latest 10 activity logs
   const fetchActivityLogs = async () => {
     setLoading(true);
     try {
-      const allLogs = [];
-
-      // Define all log sub-collection types
       const logTypes = [
         "addFeedSchedule_logs",
-        "editFeedSchedule_logs",
         "deleteFeedSchedule_logs",
         "addWaterSchedule_logs",
-        "editWaterSchedule_logs",
         "deleteWaterSchedule_logs",
-        "wateringActivity_logs",
+        "editFeedSchedule_logs",
+        "editWaterSchedule_logs",
         "nightTime_logs",
         "report_logs",
         "session_logs",
+        "wateringActivity_logs",
+        "activity_logs",
+        "addBatch_logs",
       ];
 
-      // Fetch logs from each sub-collection
-      for (const logType of logTypes) {
-        try {
-          const logsRef = collection(db, "activity_logs", logType, "logs");
-          const snapshot = await getDocs(logsRef);
+      // Run all queries in parallel
+      const snapshots = await Promise.all(
+        logTypes.map((type) =>
+          getDocs(
+            query(
+              collection(db, "activity_logs", type, "logs"),
+              orderBy("timestamp", "desc"),
+              limit(10)
+            )
+          )
+        )
+      );
 
-          snapshot.forEach((doc) => {
-            const data = doc.data();
-            allLogs.push({
-              id: doc.id,
-              type: logType,
-              ...data,
-            });
-          });
+      // Merge results and ensure timestamp, Date, and Time fields
+      const allLogs = snapshots.flatMap((snap, idx) =>
+        snap.docs.map((doc) => {
+          const data = doc.data();
+          let timestamp;
+          // Safe timestamp conversion
+          if (data.timestamp?.toDate) {
+            timestamp = data.timestamp.toDate();
+          } else if (typeof data.timestamp === "string") {
+            timestamp = new Date(data.timestamp);
+          } else if (data.timestamp instanceof Date) {
+            timestamp = data.timestamp;
+          } else {
+            console.warn(
+              "⚠️ Unknown timestamp format:",
+              doc.id,
+              data.timestamp
+            );
+            timestamp = new Date(0);
+          }
+          if (isNaN(timestamp.getTime())) {
+            console.warn("⚠️ Invalid timestamp:", doc.id);
+            timestamp = new Date(0);
+          }
+          return {
+            id: doc.id,
+            type: logTypes[idx],
+            ...data,
+            timestamp,
+            Date: formatDateGMT8(timestamp),
+            Time: formatTimeGMT8(timestamp),
+          };
+        })
+      );
 
-          console.log(`✅ Fetched ${snapshot.size} logs from ${logType}`);
-        } catch (error) {
-          console.warn(`⚠️ Failed to fetch ${logType}:`, error.message);
-          // Continue with other log types even if one fails
-        }
-      }
+      // Sort globally and keep only 10 latest
+      allLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      const latest10 = allLogs.slice(0, 10);
 
-      // Sort logs by timestamp (latest first)
-      allLogs.sort((a, b) => {
-        const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-        const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-        return timeB - timeA; // Descending order
-      });
-
-      setActivityLogs(allLogs);
-      setTotalPages(Math.ceil(allLogs.length / RECORDS_PER_PAGE));
-
-      console.log(`📊 Total logs fetched: ${allLogs.length}`);
-    } catch (error) {
-      console.error("❌ Error fetching activity logs:", error);
-      Alert.alert("Error", "Failed to load activity logs: " + error.message);
+      setActivityLogs(latest10);
+      setTotalPages(1);
+      console.log("✅ Latest 10 logs fetched:", latest10);
+    } catch (err) {
+      console.error("❌ Error fetching logs:", err);
+      Alert.alert("Error", "Failed to load logs: " + err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  /**
-   * Format timestamp to "DD-MMM-YYYY" format
-   */
-  const formatDate = (timestamp) => {
-    if (!timestamp) return "N/A";
-
-    const date = new Date(timestamp);
-    if (isNaN(date.getTime())) return "N/A";
-
-    const day = String(date.getDate()).padStart(2, "0");
-    const monthNames = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
-    const month = monthNames[date.getMonth()];
-    const year = date.getFullYear();
-
-    return `${day}-${month}-${year}`;
-  };
-
-  /**
-   * Format timestamp to "hh:mm AM/PM" format
-   */
-  const formatTime = (timestamp) => {
-    if (!timestamp) return "N/A";
-
-    const date = new Date(timestamp);
-    if (isNaN(date.getTime())) return "N/A";
-
-    const hours = date.getHours();
-    const minutes = date.getMinutes();
-    const ampm = hours >= 12 ? "PM" : "AM";
-    const hour12 = hours % 12 || 12;
-
-    return `${hour12}:${String(minutes).padStart(2, "0")} ${ampm}`;
-  };
-
-  /**
-   * Get paginated logs for current page
-   */
-  const getPaginatedLogs = () => {
-    const startIndex = (logsCurrentPage - 1) * RECORDS_PER_PAGE;
-    const endIndex = startIndex + RECORDS_PER_PAGE;
-    return activityLogs.slice(startIndex, endIndex);
-  };
-
-  /**
-   * Navigate to next page
-   */
-  const handleLogsNextPage = () => {
-    if (logsCurrentPage < totalPages) {
-      setLogsCurrentPage(logsCurrentPage + 1);
-    }
-  };
-
-  /**
-   * Navigate to previous page
-   */
-  const handleLogsPrevPage = () => {
-    if (logsCurrentPage > 1) {
-      setLogsCurrentPage(logsCurrentPage - 1);
-    }
-  };
+  // Fetch logs on component mount
+  useEffect(() => {
+    fetchActivityLogs();
+  }, []);
 
   if (!exportData || exportData.length === 0) {
     return (
@@ -198,15 +206,257 @@ export default function GenerateLogReport({ route, navigation }) {
   const currentPage = exportData[currentPageIndex];
 
   const handleExportPDF = async () => {
-    if (onExportPDF) {
-      setExporting(true);
-      try {
-        await onExportPDF();
-      } catch (error) {
-        console.error("Error exporting PDF:", error);
-      } finally {
-        setExporting(false);
+    // Debug: log exportData structure
+    console.log("ExportData for PDF:", JSON.stringify(exportData, null, 2));
+    setExporting(true);
+    try {
+      // Build HTML content
+      let htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              margin: 20px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 30px;
+              border-bottom: 2px solid #133E87;
+              padding-bottom: 20px;
+            }
+            .company-name {
+              font-size: 24px;
+              font-weight: bold;
+              color: #133E87;
+              margin-bottom: 5px;
+            }
+            .report-title {
+              font-size: 20px;
+              color: #333;
+              margin-bottom: 15px;
+            }
+            .filter-info {
+              font-size: 12px;
+              color: #666;
+              margin-bottom: 10px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 20px;
+            }
+            th {
+              background-color: #133E87;
+              color: white;
+              padding: 10px;
+              text-align: left;
+              font-size: 12px;
+              border: 1px solid #ddd;
+            }
+            td {
+              padding: 8px;
+              border: 1px solid #ddd;
+              font-size: 11px;
+              color: #333;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+          </style>
+        </head>
+        <body>
+      `;
+
+      // Add header section
+      htmlContent += `
+        <div class="header">
+          <div class="company-name">Smart Brooder Systems Inc.</div>
+          <div class="report-title">Activity Logs Report</div>
+          <div class="filter-info">
+            Filter Applied: Name: ${filters?.name || "All"}
+          </div>
+          <div class="filter-info">
+            Date Range: ${filters?.startDate || " "} - ${filters?.endDate || " "}
+          </div>
+          <div class="filter-info">
+            Total Logs: ${totalLogs || 0}
+          </div>
+        </div>
+      `;
+
+      // Add table
+      htmlContent += `
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 5%;">No</th>
+              <th style="width: 12%;">Date</th>
+              <th style="width: 10%;">Time</th>
+              <th style="width: 15%;">Name</th>
+              <th style="width: 10%;">Role</th>
+              <th style="width: 15%;">Action</th>
+              <th style="width: 33%;">Description</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      // Add all entries from all pages
+      let entryNumber = 1;
+      exportData.forEach((page) => {
+        page.entries.forEach((entry) => {
+          // Normalize timestamp before formatting, or use pre-formatted fields
+          const ts = normalizeTimestamp(entry.timestamp);
+          const dateStr = ts ? formatDateGMT8(ts) : entry.Date || "N/A";
+          const timeStr = ts ? formatTimeGMT8(ts) : entry.Time || "N/A";
+
+          htmlContent += `
+            <tr>
+              <td>${entryNumber}</td>
+              <td>${dateStr}</td>
+              <td>${timeStr}</td>
+              <td>${entry.Name || "N/A"}</td>
+              <td>${entry.Role || "N/A"}</td>
+              <td>${entry.Action || "N/A"}</td>
+              <td>${entry.Description || "N/A"}</td>
+            </tr>
+          `;
+          entryNumber++;
+        });
+      });
+
+      htmlContent += `
+          </tbody>
+        </table>
+        </body>
+        </html>
+      `;
+
+      // Generate PDF
+      const { uri } = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+      });
+
+      // Custom filename
+      const formatDateForFilename = (date) => {
+        const d = new Date(date);
+        const day = String(d.getDate()).padStart(2, "0");
+        const monthNames = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        const month = monthNames[d.getMonth()];
+        const year = d.getFullYear();
+        return `${day}-${month}-${year}`;
+      };
+
+      // Always use today's date for filename
+      const today = new Date();
+      const filename = `ActivityLogs_${formatDateForFilename(today)}.pdf`;
+      const newUri = `${FileSystem.documentDirectory}${filename}`;
+
+      // Move file to permanent location
+      await FileSystem.moveAsync({ from: uri, to: newUri });
+
+      // Log report to Firestore with GMT+8 timestamp
+      const user = auth.currentUser;
+      if (user) {
+        // Fetch user details for the log
+        let userName = "Unknown User";
+        let firstName = "";
+        let lastName = "";
+        let userRole = "N/A";
+        try {
+          const userDocRef = doc(db, "users", user.uid);
+          const userDoc = await getDoc(userDocRef);
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            firstName = userData.firstName || "";
+            lastName = userData.lastName || "";
+            userName = `${firstName} ${lastName}`.trim() || "Unknown User";
+            userRole = userData.role
+              ? userData.role.charAt(0).toUpperCase() + userData.role.slice(1)
+              : "N/A";
+          }
+        } catch (err) {
+          console.warn("⚠️ Could not fetch user details:", err);
+        }
+
+        // Create timestamp (UTC, formatting functions will handle GMT+8 conversion)
+        const now = new Date();
+        const timestamp = now.toISOString();
+
+        console.log("📝 Saving report to 'report' collection...");
+        // Save to "report" collection
+        await addDoc(collection(db, "report"), {
+          fileName: filename,
+          reportName: "Activity Logs Report",
+          timestamp: timestamp, // UTC ISO string
+          type: "pdf",
+          userId: user.uid,
+          userName: userName,
+          firstName: firstName,
+          lastName: lastName,
+          role: userRole,
+          generatedBy: userName,
+          filterApplied: {
+            name: filters?.name || "All",
+            startDate: filters?.startDate || "None",
+            endDate: filters?.endDate || "None",
+          },
+          totalLogs: totalLogs || 0,
+        });
+        console.log("✅ Report saved to 'report' collection");
+
+        console.log("📝 Saving activity log to 'report_logs' collection...");
+        // Save to "report_logs" collection (for activity logs tracking)
+        await addDoc(collection(db, "report_logs"), {
+          fileName: filename,
+          reportName: "Activity Logs Report",
+          timestamp: timestamp, // UTC ISO string
+          type: "pdf",
+          userId: user.uid,
+          userName: userName,
+          firstName: firstName,
+          lastName: lastName,
+          role: userRole,
+          action: "Generated a report",
+          description: `Generated Activity Logs report`,
+        });
+        console.log("✅ Activity log saved to 'report_logs' collection");
       }
+
+      // Share the PDF
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(newUri, {
+          mimeType: "application/pdf",
+          dialogTitle: "Share Activity Logs Report",
+        });
+      } else {
+        Alert.alert("Success", `PDF saved as ${filename}`, [{ text: "OK" }]);
+      }
+
+      // Show success modal
+      setShowSuccessModal(true);
+    } catch (error) {
+      console.error("Error exporting PDF:", error);
+      Alert.alert("Error", "Failed to export PDF: " + error.message);
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -226,165 +476,6 @@ export default function GenerateLogReport({ route, navigation }) {
     <SafeAreaView style={styles.safe}>
       <Header2 />
       <ScrollView contentContainerStyle={styles.container}>
-        {/* Activity Logs Section */}
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Activity Logs</Text>
-
-          {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#133E87" />
-              <Text style={styles.loadingText}>Loading activity logs...</Text>
-            </View>
-          ) : activityLogs.length === 0 ? (
-            <View style={styles.emptyLogsContainer}>
-              <MaterialCommunityIcons
-                name="file-document-outline"
-                size={60}
-                color="#ccc"
-              />
-              <Text style={styles.emptyLogsText}>No logs found</Text>
-            </View>
-          ) : (
-            <>
-              {/* Logs Table */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator
-                style={styles.tableScrollView}
-              >
-                <View style={styles.logsTableContainer}>
-                  {/* Table Header */}
-                  <View style={[styles.logsTableRow, styles.logsTableHeader]}>
-                    <View style={[styles.logsTableCell, styles.cellDate]}>
-                      <Text style={styles.logsHeaderText}>Date</Text>
-                    </View>
-                    <View style={[styles.logsTableCell, styles.cellTime]}>
-                      <Text style={styles.logsHeaderText}>Time</Text>
-                    </View>
-                    <View style={[styles.logsTableCell, styles.cellUser]}>
-                      <Text style={styles.logsHeaderText}>User</Text>
-                    </View>
-                    <View style={[styles.logsTableCell, styles.cellAction]}>
-                      <Text style={styles.logsHeaderText}>Action</Text>
-                    </View>
-                    <View
-                      style={[styles.logsTableCell, styles.cellDescription]}
-                    >
-                      <Text style={styles.logsHeaderText}>Description</Text>
-                    </View>
-                  </View>
-
-                  {/* Table Body */}
-                  {getPaginatedLogs().map((log, index) => (
-                    <View
-                      key={log.id}
-                      style={[
-                        styles.logsTableRow,
-                        index % 2 === 0 && styles.logsTableRowEven,
-                      ]}
-                    >
-                      <View style={[styles.logsTableCell, styles.cellDate]}>
-                        <Text style={styles.logsCellText}>
-                          {formatDate(log.timestamp)}
-                        </Text>
-                      </View>
-                      <View style={[styles.logsTableCell, styles.cellTime]}>
-                        <Text style={styles.logsCellText}>
-                          {formatTime(log.timestamp)}
-                        </Text>
-                      </View>
-                      <View style={[styles.logsTableCell, styles.cellUser]}>
-                        <Text style={styles.logsCellText}>
-                          {log.firstName && log.lastName
-                            ? `${log.firstName} ${log.lastName}`
-                            : log.userName || "N/A"}
-                        </Text>
-                      </View>
-                      <View style={[styles.logsTableCell, styles.cellAction]}>
-                        <Text style={styles.logsCellText}>
-                          {log.action || "N/A"}
-                        </Text>
-                      </View>
-                      <View
-                        style={[styles.logsTableCell, styles.cellDescription]}
-                      >
-                        <Text style={styles.logsCellText}>
-                          {log.description || "N/A"}
-                        </Text>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              </ScrollView>
-
-              {/* Pagination Controls */}
-              <View style={styles.paginationContainer}>
-                <TouchableOpacity
-                  style={[
-                    styles.paginationButton,
-                    logsCurrentPage === 1 && styles.paginationButtonDisabled,
-                  ]}
-                  onPress={handleLogsPrevPage}
-                  disabled={logsCurrentPage === 1}
-                >
-                  <MaterialCommunityIcons
-                    name="chevron-left"
-                    size={20}
-                    color={logsCurrentPage === 1 ? "#ccc" : "#133E87"}
-                  />
-                  <Text
-                    style={[
-                      styles.paginationButtonText,
-                      logsCurrentPage === 1 &&
-                        styles.paginationButtonTextDisabled,
-                    ]}
-                  >
-                    Previous
-                  </Text>
-                </TouchableOpacity>
-
-                <View style={styles.paginationInfo}>
-                  <Text style={styles.paginationText}>
-                    Page {logsCurrentPage} of {totalPages}
-                  </Text>
-                  <Text style={styles.paginationSubText}>
-                    Showing {getPaginatedLogs().length} of {activityLogs.length}{" "}
-                    logs
-                  </Text>
-                </View>
-
-                <TouchableOpacity
-                  style={[
-                    styles.paginationButton,
-                    logsCurrentPage === totalPages &&
-                      styles.paginationButtonDisabled,
-                  ]}
-                  onPress={handleLogsNextPage}
-                  disabled={logsCurrentPage === totalPages}
-                >
-                  <Text
-                    style={[
-                      styles.paginationButtonText,
-                      logsCurrentPage === totalPages &&
-                        styles.paginationButtonTextDisabled,
-                    ]}
-                  >
-                    Next
-                  </Text>
-                  <MaterialCommunityIcons
-                    name="chevron-right"
-                    size={20}
-                    color={logsCurrentPage === totalPages ? "#ccc" : "#133E87"}
-                  />
-                </TouchableOpacity>
-              </View>
-
-              {/* Bottom Spacing */}
-              <View style={styles.bottomSpacing} />
-            </>
-          )}
-        </View>
-
         {/* Divider */}
         {exportData && exportData.length > 0 && <View style={styles.divider} />}
 
@@ -393,6 +484,17 @@ export default function GenerateLogReport({ route, navigation }) {
           <>
             {/* Header Section with Logo and Company Info */}
             <View style={styles.headerSection}>
+              <TouchableOpacity
+                style={styles.backArrow}
+                onPress={() => navigation.goBack()}
+                accessibilityLabel="Go Back"
+              >
+                <MaterialCommunityIcons
+                  name="arrow-left"
+                  size={28}
+                  color="#133E87"
+                />
+              </TouchableOpacity>
               <Image source={Logo} style={styles.logo} resizeMode="contain" />
               <Text style={styles.companyName}>Smart Brooder Systems Inc.</Text>
               <Text style={styles.reportTitle}>Activity Logs Report</Text>
@@ -526,37 +628,51 @@ export default function GenerateLogReport({ route, navigation }) {
                   </View>
 
                   {/* Table Body */}
-                  {currentPage.entries.map((entry, index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.tableRow,
-                        index % 2 === 0 && styles.tableRowEven,
-                      ]}
-                    >
-                      <View style={[styles.tableCell, styles.cellNo]}>
-                        <Text style={styles.cellText}>{entry.No}</Text>
+                  {currentPage.entries.map((entry, index) => {
+                    // Normalize timestamp before formatting, or use pre-formatted fields
+                    const ts = normalizeTimestamp(entry.timestamp);
+                    const dateStr = ts
+                      ? formatDateGMT8(ts)
+                      : entry.Date || "N/A";
+                    const timeStr = ts
+                      ? formatTimeGMT8(ts)
+                      : entry.Time || "N/A";
+                    return (
+                      <View
+                        key={index}
+                        style={[
+                          styles.tableRow,
+                          index % 2 === 0 && styles.tableRowEven,
+                        ]}
+                      >
+                        <View style={[styles.tableCell, styles.cellNo]}>
+                          <Text style={styles.cellText}>{entry.No}</Text>
+                        </View>
+                        <View style={[styles.tableCell, styles.cellDate]}>
+                          <Text style={styles.cellText}>{dateStr}</Text>
+                        </View>
+                        <View style={[styles.tableCell, styles.cellTime]}>
+                          <Text style={styles.cellText}>{timeStr}</Text>
+                        </View>
+                        <View style={[styles.tableCell, styles.cellName]}>
+                          <Text style={styles.cellText}>{entry.Name}</Text>
+                        </View>
+                        <View style={[styles.tableCell, styles.cellRole]}>
+                          <Text style={styles.cellText}>{entry.Role}</Text>
+                        </View>
+                        <View style={[styles.tableCell, styles.cellAction]}>
+                          <Text style={styles.cellText}>{entry.Action}</Text>
+                        </View>
+                        <View
+                          style={[styles.tableCell, styles.cellDescription]}
+                        >
+                          <Text style={styles.cellText}>
+                            {entry.Description}
+                          </Text>
+                        </View>
                       </View>
-                      <View style={[styles.tableCell, styles.cellDate]}>
-                        <Text style={styles.cellText}>{entry.Date}</Text>
-                      </View>
-                      <View style={[styles.tableCell, styles.cellTime]}>
-                        <Text style={styles.cellText}>{entry.Time}</Text>
-                      </View>
-                      <View style={[styles.tableCell, styles.cellName]}>
-                        <Text style={styles.cellText}>{entry.Name}</Text>
-                      </View>
-                      <View style={[styles.tableCell, styles.cellRole]}>
-                        <Text style={styles.cellText}>{entry.Role}</Text>
-                      </View>
-                      <View style={[styles.tableCell, styles.cellAction]}>
-                        <Text style={styles.cellText}>{entry.Action}</Text>
-                      </View>
-                      <View style={[styles.tableCell, styles.cellDescription]}>
-                        <Text style={styles.cellText}>{entry.Description}</Text>
-                      </View>
-                    </View>
-                  ))}
+                    );
+                  })}
                 </View>
               </ScrollView>
             </View>
@@ -570,11 +686,54 @@ export default function GenerateLogReport({ route, navigation }) {
           </>
         )}
       </ScrollView>
+
+      {/* Success Modal */}
+      <Modal
+        transparent
+        visible={showSuccessModal}
+        animationType="fade"
+        onRequestClose={() => setShowSuccessModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <MaterialCommunityIcons
+              name="check-circle"
+              size={60}
+              color="#28a745"
+              style={styles.modalIcon}
+            />
+            <Text style={styles.modalTitle}>Success!</Text>
+            <Text style={styles.modalMessage}>
+              PDF report has been generated and shared successfully.
+            </Text>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => setShowSuccessModal(false)}
+            >
+              <Text style={styles.modalButtonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  backArrow: {
+    position: "absolute",
+    left: 10,
+    top: 10,
+    zIndex: 10,
+    padding: 6,
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
   safe: {
     flex: 1,
     backgroundColor: "#fff",
@@ -773,130 +932,49 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  // Activity Logs Styles
-  sectionContainer: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#133E87",
-    marginBottom: 16,
-    textAlign: "center",
-  },
-  loadingContainer: {
-    paddingVertical: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: "#666",
-  },
-  emptyLogsContainer: {
-    paddingVertical: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyLogsText: {
-    fontSize: 16,
-    color: "#999",
-    marginTop: 12,
-  },
-  tableScrollView: {
-    marginBottom: 16,
-  },
-  logsTableContainer: {
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 8,
-    overflow: "hidden",
-    backgroundColor: "#fff",
-  },
-  logsTableRow: {
-    flexDirection: "row",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  logsTableHeader: {
-    backgroundColor: "#133E87",
-  },
-  logsTableRowEven: {
-    backgroundColor: "#F9FAFB",
-  },
-  logsTableCell: {
-    padding: 12,
-    justifyContent: "center",
-    borderRightWidth: 1,
-    borderRightColor: "#E5E7EB",
-  },
-  cellUser: {
-    width: 180,
-  },
-  logsHeaderText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 14,
-    textAlign: "center",
-  },
-  logsCellText: {
-    color: "#333",
-    fontSize: 13,
-    textAlign: "center",
-  },
-  paginationContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-    backgroundColor: "#F9FAFB",
-    borderRadius: 8,
-    marginTop: 8,
-  },
-  paginationButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 4,
-  },
-  paginationButtonDisabled: {
-    backgroundColor: "#F7F8FA",
-    borderColor: "#E5E7EB",
-  },
-  paginationButtonText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#133E87",
-  },
-  paginationButtonTextDisabled: {
-    color: "#ccc",
-  },
-  paginationInfo: {
-    alignItems: "center",
-  },
-  paginationText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-  },
-  paginationSubText: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 4,
-  },
   divider: {
     height: 2,
     backgroundColor: "#E5E7EB",
     marginVertical: 24,
   },
-  bottomSpacing: {
-    height: 24,
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 24,
+    alignItems: "center",
+    width: "80%",
+    maxWidth: 300,
+  },
+  modalIcon: {
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#133E87",
+    marginBottom: 8,
+  },
+  modalMessage: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  modalButton: {
+    backgroundColor: "#133E87",
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 8,
+  },
+  modalButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

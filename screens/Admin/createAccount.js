@@ -27,6 +27,8 @@ import {
   query,
   where,
   getDocs,
+  addDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -114,6 +116,16 @@ export default function CreateAccount({ navigation }) {
 
   const closeAlert = () => {
     setAlertVisible(false);
+
+    // If this was a success alert for account creation, navigate to UserManagement
+    if (alertType === "success" && alertTitle === "Account Created") {
+      console.log("✅ Alert modal closed. Navigating to UserManagement...");
+      setTimeout(() => {
+        navigation.navigate("UserManagement");
+      }, 300); // Small delay to allow modal to close smoothly
+    } else {
+      console.log("✅ Alert modal closed.");
+    }
   };
 
   const validateName = (name, fieldName = "Name") => {
@@ -292,6 +304,9 @@ export default function CreateAccount({ navigation }) {
         }
         console.log("✅ Email is unique, proceeding with account creation");
 
+        // Save current admin email to re-authenticate later
+        const adminEmail = auth.currentUser?.email;
+
         // Step 2: Create Firebase Authentication account
         console.log("Creating Firebase Authentication account...");
         const userCredential = await createUserWithEmailAndPassword(
@@ -376,25 +391,76 @@ export default function CreateAccount({ navigation }) {
           // Don't fail the entire process if email fails
         }
 
-        // Step 5: Sign out the newly created user
+        // Step 5: Sign out the newly created user and re-authenticate admin
+        console.log("Signing out newly created user...");
         await auth.signOut();
-        console.log("New user signed out");
+        console.log("New user signed out successfully");
 
-        // Step 6: Show success modal
-        setSuccessVisible(true);
+        // Step 6: Re-authenticate the admin immediately
+        if (adminEmail) {
+          console.log("Re-authenticating admin:", adminEmail);
+          try {
+            // Get admin password from AsyncStorage (set during login)
+            const adminPassword = await AsyncStorage.getItem("adminPassword");
 
-        // Step 7: Redirect after 2.5 seconds
-        setTimeout(async () => {
-          setSuccessVisible(false);
+            if (adminPassword) {
+              await signInWithEmailAndPassword(auth, adminEmail, adminPassword);
+              console.log("✅ Admin re-authenticated successfully");
+              console.log(
+                "✅ Current user after re-auth:",
+                auth.currentUser?.email
+              );
+            } else {
+              console.warn("⚠️ Admin password not found in storage");
+            }
+          } catch (reAuthError) {
+            console.error("❌ Failed to re-authenticate admin:", reAuthError);
+          }
+        }
 
-          // Clear the flag before navigation
-          await AsyncStorage.removeItem("accountCreationInProgress");
+        // Step 7: Clear the flag after re-authentication
+        await AsyncStorage.removeItem("accountCreationInProgress");
 
-          navigation.reset({
-            index: 0,
-            routes: [{ name: "UserManagement" }],
+        // Step 8: Show success modal via showAlert
+        console.log("📢 Showing account creation success modal...");
+        showAlert(
+          "success",
+          "Account Created",
+          "The account was successfully created and credentials have been sent to the user's email."
+        );
+
+        // Step 9: Log account creation to session_logs
+        console.log("📝 Logging account creation to session_logs...");
+        try {
+          await addDoc(collection(db, "session_logs"), {
+            userId: currentAdminUid,
+            action: "Created account",
+            description: `Created a new ${role} account`,
+            timestamp: serverTimestamp(),
+            deviceInfo: Platform.OS,
+            email: currentAdminEmail,
+            createdUserEmail: email,
+            createdUserRole: role,
+            createdUserName: fullName,
           });
-        }, 2500);
+          console.log("✅ Account creation logged to session_logs");
+        } catch (logError) {
+          console.error("⚠️ Failed to log account creation:", logError);
+          // Don't fail the entire process if logging fails
+        }
+
+        // Reset form fields
+        setFirstName("");
+        setMiddleName("");
+        setLastName("");
+        setEmail("");
+        setMobileNumber("");
+        setPassword("");
+        setConfirmPassword("");
+        setRole("");
+        setErrors({});
+
+        console.log("✅ Admin remains logged in:", auth.currentUser?.email);
       } catch (error) {
         console.error("Error creating account:", error);
 
@@ -439,6 +505,15 @@ export default function CreateAccount({ navigation }) {
   return (
     <SafeAreaView style={styles.safe}>
       <Header2 />
+      {/* Back Arrow */}
+      <TouchableOpacity
+        style={styles.backArrowContainer}
+        onPress={() => navigation.navigate("AdminDashboard")}
+        activeOpacity={0.7}
+      >
+        <MaterialCommunityIcons name="arrow-left" size={24} color="#133E87" />
+        <Text style={styles.backArrowText}>Back to Dashboard</Text>
+      </TouchableOpacity>
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -1166,5 +1241,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     textAlign: "center",
+  },
+  backArrowContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#F8F9FA",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E9ECEF",
+  },
+  backArrowText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#133E87",
+    marginLeft: 8,
   },
 });

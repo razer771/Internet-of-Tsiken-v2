@@ -25,21 +25,24 @@ const generateOTP = () => {
  */
 export const sendOTPViaSMS = async (phoneNumber, otp) => {
   try {
-    // TODO: Integrate with your SMS provider (Twilio, Firebase Cloud Messaging, etc.)
-    // Example with Firebase Cloud Functions:
-    // const response = await fetch('YOUR_CLOUD_FUNCTION_URL', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ phoneNumber, otp })
-    // });
+    // Using Firebase Cloud Functions with Twilio integration
+    const { getFunctions, httpsCallable } = await import("firebase/functions");
+    const functions = getFunctions(undefined, "us-central1");
+    const sendSMSOTP = httpsCallable(functions, "sendSMSOTP");
 
-    // For now, we'll just log it (remove in production)
-    console.log(`OTP sent to ${phoneNumber}: ${otp}`);
+    const response = await sendSMSOTP({
+      phone: phoneNumber,
+    });
 
-    return { success: true, error: null };
+    if (response.data && response.data.success) {
+      console.log(`✅ OTP sent to ${phoneNumber} via Twilio`);
+      return { success: true, error: null };
+    } else {
+      throw new Error("Failed to send OTP via Twilio");
+    }
   } catch (error) {
     console.error("Error sending OTP:", error);
-    return { success: false, error: "Failed to send OTP" };
+    return { success: false, error: error.message || "Failed to send OTP" };
   }
 };
 

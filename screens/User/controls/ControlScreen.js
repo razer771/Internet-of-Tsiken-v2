@@ -19,6 +19,7 @@ import {
   Platform,
   PanResponder,
   ActivityIndicator,
+  Animated,
 } from "react-native";
 import Slider from "@react-native-community/slider";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -34,6 +35,8 @@ import {
   query,
   where,
   getDoc,
+  orderBy,
+  limit,
 } from "firebase/firestore";
 import {
   initializeSensors,
@@ -101,18 +104,26 @@ export default function ControlScreen({ navigation }) {
         console.error("⚠️ [LOGGING] Failed to fetch user data:", fetchErr);
       }
 
-      // Format time in GMT+8
+      // Format time in GMT+8 using proper timezone handling
       const formatTimeGMT8 = (isoString) => {
         if (!isoString) return "N/A";
         const date = new Date(isoString);
-        // GMT+8 offset (8 hours * 60 minutes * 60 seconds * 1000 milliseconds)
-        const gmt8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
-        return gmt8Date.toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: true,
-          timeZone: "UTC", // Already adjusted to GMT+8
-        });
+        // Input is UTC ISO string corresponding to GMT+8 time, so format directly as GMT+8
+        return (
+          date.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+            timeZone: "Asia/Manila",
+          }) +
+          ", " +
+          date.toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+            timeZone: "Asia/Manila",
+          })
+        );
       };
 
       // Build log record with all required fields
@@ -141,11 +152,8 @@ export default function ControlScreen({ navigation }) {
         }),
       };
 
-      // Save to Firestore: activity_logs/{actionType}/{auto-generated-id}
-      await addDoc(
-        collection(db, "activity_logs", actionType, "logs"),
-        logRecord
-      );
+      // Save to Firestore: direct collection (separate collections instead of subfolders)
+      await addDoc(collection(db, actionType), logRecord);
 
       console.log(`✅ [LOGGING] Logged to ${actionType}:`, logRecord);
     } catch (error) {
@@ -272,6 +280,7 @@ export default function ControlScreen({ navigation }) {
   useEffect(() => {
     loadFeedsFromFirestore();
     loadWateringScheduleFromFirestore();
+    loadNightTimeFromFirestore();
   }, []);
 
   const loadFeedsFromFirestore = async () => {
@@ -319,34 +328,38 @@ export default function ControlScreen({ navigation }) {
     try {
       const user = auth.currentUser;
       if (!user) return;
-      
+
       const wateringSnapshot = await getDocs(
         collection(db, "wateringSchedules")
       );
-      
+
       const loadedWaterings = [];
       const seenIds = new Set();
-      
+
       wateringSnapshot.forEach((doc) => {
         const data = doc.data();
         if (data.userId === user.uid) {
           // Skip duplicates based on wateringId
           if (seenIds.has(data.wateringId)) {
-            console.warn(`Duplicate wateringId ${data.wateringId} found, skipping`);
+            console.warn(
+              `Duplicate wateringId ${data.wateringId} found, skipping`
+            );
             return;
           }
           seenIds.add(data.wateringId);
 
           loadedWaterings.push({
-            id: data.wateringId,
-            label: data.label,
+            id: parseInt(data.wateringId) || 0,
+            label: data.label || `Watering ${data.wateringId || "Unknown"}`,
             time: data.time,
           });
         }
       });
 
       // Sort by time
-      loadedWaterings.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+      loadedWaterings.sort(
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+      );
       setWaterings(loadedWaterings);
       console.log("💧 [SORT] Watering schedules loaded and sorted:");
       loadedWaterings.forEach((w) => {
@@ -356,6 +369,36 @@ export default function ControlScreen({ navigation }) {
       });
     } catch (err) {
       console.error("Failed to load watering schedules:", err);
+    }
+  };
+
+  const loadNightTimeFromFirestore = async () => {
+    try {
+      // Fetch the night time document with fixed ID "1"
+      const nightTimeDoc = await getDoc(doc(db, "nightTime", "1"));
+      if (nightTimeDoc.exists()) {
+        const data = nightTimeDoc.data();
+        // Use the stored UTC selectedTime directly (DateTimePicker handles display)
+        if (data.selectedTime) {
+          const selectedTime = new Date(data.selectedTime);
+          setNightStart(selectedTime);
+          console.log(
+            "🌙 [LOAD] Night time loaded:",
+            data.selectedTimeGMT8Formatted || "N/A"
+          );
+        } else {
+          console.log("🌙 [LOAD] No time set in document");
+          setNightStart(new Date()); // Default to current time
+        }
+        console.log(
+          "🌙 [LOAD] Night time loaded from Firestore:",
+          data.selectedTimeGMT8Formatted
+        );
+      } else {
+        console.log("🌙 [LOAD] No night time schedule found, using default");
+      }
+    } catch (err) {
+      console.error("Failed to load night time schedule:", err);
     }
   };
 
@@ -372,6 +415,8 @@ export default function ControlScreen({ navigation }) {
   const [pendingNightTime, setPendingNightTime] = useState(null);
   // morning warning before confirmation
   const [warnMorningVisible, setWarnMorningVisible] = useState(false);
+  // same time warning modal
+  const [showSameTimeModal, setShowSameTimeModal] = useState(false);
 
   // feed add time picker flow
   const [pendingFeedTime, setPendingFeedTime] = useState(null);
@@ -381,17 +426,23 @@ export default function ControlScreen({ navigation }) {
 
   // watering schedule: mirror feeding schedule
   const [waterings, setWaterings] = useState([]);
-  const [waterEdit, setWaterEdit] = useState({ open: false, idx: null, timeDate: new Date() });
+  const [waterEdit, setWaterEdit] = useState({
+    open: false,
+    idx: null,
+    timeDate: new Date(),
+  });
   const [showWaterAddPicker, setShowWaterAddPicker] = useState(false);
   const [pendingWaterTime, setPendingWaterTime] = useState(null);
   const [confirmWaterAddVisible, setConfirmWaterAddVisible] = useState(false);
   const [showDuplicateWaterModal, setShowDuplicateWaterModal] = useState(false);
-  const [confirmDeleteWaterVisible, setConfirmDeleteWaterVisible] = useState(false);
+  const [confirmDeleteWaterVisible, setConfirmDeleteWaterVisible] =
+    useState(false);
   const [pendingDeleteWaterId, setPendingDeleteWaterId] = useState(null);
   const [showWaterTimePicker, setShowWaterTimePicker] = useState(false);
 
   // popups
   const [showSavedPopup, setShowSavedPopup] = useState(false);
+  const [showDeletedPopup, setShowDeletedPopup] = useState(false);
 
   // camera placeholder modal
   const [cameraModal, setCameraModal] = useState(false);
@@ -406,6 +457,7 @@ export default function ControlScreen({ navigation }) {
   const handleServerDiscovered = (discoveredUrl) => {
     console.log("📡 Auto-discovered camera server:", discoveredUrl);
     setCameraServerUrl(discoveredUrl);
+    setIsCameraConnected(true); // Mark camera as connected
     // Don't show settings - it worked automatically!
   };
 
@@ -552,7 +604,7 @@ export default function ControlScreen({ navigation }) {
 
         // Log activity to Firestore
         await logActivity("addFeedSchedule_logs", {
-          action: "Add new feeding schedule",
+          action: "New feed schedule",
           description: `Added ${formattedTime}`,
           feedId: nextId,
           newTime: formattedTime,
@@ -575,7 +627,11 @@ export default function ControlScreen({ navigation }) {
         });
       }
     } catch (err) {
-      Alert.alert("Error", "Failed to save feed: " + err.message);
+      setErrorModal({
+        visible: true,
+        title: "Error",
+        message: "Failed to save feed: " + err.message,
+      });
       setConfirmFeedSaveVisible(false);
       setShowFeedAddPicker(false);
       setPendingFeedTime(null);
@@ -607,28 +663,10 @@ export default function ControlScreen({ navigation }) {
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
 
+  const [deleteOptionsModal, setDeleteOptionsModal] = useState(false);
+
   const beginDeleteFlow = () => {
-    // Show options: Delete All or Choose
-    Alert.alert(
-      "Delete schedules",
-      "Choose delete option",
-      [
-        {
-          text: "Delete All",
-          style: "destructive",
-          onPress: () => setConfirmDeleteVisible(true),
-        },
-        {
-          text: "Choose",
-          onPress: () => {
-            setDeleteMode(true);
-            setSelectedToDelete([]);
-          },
-        },
-        { text: "Cancel", style: "cancel" },
-      ],
-      { cancelable: true }
-    );
+    setDeleteOptionsModal(true);
   };
 
   const confirmDeleteAll = async () => {
@@ -685,8 +723,8 @@ export default function ControlScreen({ navigation }) {
     setIsSubmitting(false);
 
     // Show success popup
-    setShowSavedPopup(true);
-    setTimeout(() => setShowSavedPopup(false), 1200);
+    setShowDeletedPopup(true);
+    setTimeout(() => setShowDeletedPopup(false), 1200);
   };
 
   const toggleSelectToDelete = (id) => {
@@ -696,28 +734,19 @@ export default function ControlScreen({ navigation }) {
     });
   };
 
+  const [confirmDeleteSelectedModal, setConfirmDeleteSelectedModal] = useState(false);
+
   const deleteSelected = () => {
     if (selectedToDelete.length === 0) {
-      Alert.alert(
-        "No selection",
-        "Please select at least one schedule to delete."
-      );
+      setErrorModal({
+        visible: true,
+        title: "No selection",
+        message: "Please select at least one schedule to delete.",
+      });
       return;
     }
-    // confirmation
-    Alert.alert(
-      "Delete selected",
-      "Are you sure you want to delete selected schedules?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            console.log(
-              "📄 [ACTION] Deleting selected feeds:",
-              selectedToDelete
-            );
+    setConfirmDeleteSelectedModal(true);
+  };
 
             // Prevent duplicate submissions
             if (isSubmitting) {
@@ -780,8 +809,8 @@ export default function ControlScreen({ navigation }) {
             setIsSubmitting(false);
 
             // Show success popup
-            setShowSavedPopup(true);
-            setTimeout(() => setShowSavedPopup(false), 1200);
+            setShowDeletedPopup(true);
+            setTimeout(() => setShowDeletedPopup(false), 1200);
           },
         },
       ],
@@ -911,7 +940,11 @@ export default function ControlScreen({ navigation }) {
         });
       }
     } catch (err) {
-      Alert.alert("Error", "Failed to update feed: " + err.message);
+      setErrorModal({
+        visible: true,
+        title: "Error",
+        message: "Failed to update feed: " + err.message,
+      });
       setConfirmEditVisible(false);
       setFeedEdit({ open: false, idx: null, timeDate: new Date() });
       setIsSubmitting(false);
@@ -1000,7 +1033,7 @@ export default function ControlScreen({ navigation }) {
         // Log activity to Firestore
         await logActivity("deleteFeedSchedule_logs", {
           action: "Deleted a feeding schedule",
-          description: `Deleted schedule at ${feedToDelete.time}`,
+          description: `Deleted the ${feedToDelete.time} schedule`,
           feedId: pendingDeleteFeedId,
           oldTime: feedToDelete.time,
         });
@@ -1016,12 +1049,16 @@ export default function ControlScreen({ navigation }) {
         addNotification({
           category: "Schedule Management",
           title: "Feeding schedule deleted",
-          description: `${user.displayName || user.email} deleted feeding schedule at ${feedToDelete.time}`,
+          description: `${user.displayName || user.email} deleted feeding schedule : ${feedToDelete.time}`,
           type: "schedule",
         });
       }
     } catch (err) {
-      Alert.alert("Error", "Failed to delete feed: " + err.message);
+      setErrorModal({
+        visible: true,
+        title: "Error",
+        message: "Failed to delete feed: " + err.message,
+      });
       // Close modal even on error
       setConfirmDeleteFeedVisible(false);
       setPendingDeleteFeedId(null);
@@ -1036,8 +1073,8 @@ export default function ControlScreen({ navigation }) {
     setConfirmDeleteFeedVisible(false);
     setPendingDeleteFeedId(null);
     setIsSubmitting(false);
-    setShowSavedPopup(true);
-    setTimeout(() => setShowSavedPopup(false), 1200);
+    setShowDeletedPopup(true);
+    setTimeout(() => setShowDeletedPopup(false), 1200);
   };
 
   // State for manual action operations
@@ -1051,6 +1088,14 @@ export default function ControlScreen({ navigation }) {
     title: "",
     message: "",
   });
+  
+  // Error modal state
+  const [errorModal, setErrorModal] = useState({
+    visible: false,
+    title: "",
+    message: "",
+  });
+  const errorModalScale = useState(new Animated.Value(0))[0];
 
   const showMotorWarning = (title, message) => {
     setMotorWarningModal({ visible: true, title, message });
@@ -1059,6 +1104,19 @@ export default function ControlScreen({ navigation }) {
   const hideMotorWarning = () => {
     setMotorWarningModal({ visible: false, title: "", message: "" });
   };
+
+  // Animate error modal
+  useEffect(() => {
+    if (errorModal.visible) {
+      Animated.spring(errorModalScale, {
+        toValue: 1,
+        friction: 5,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      errorModalScale.setValue(0);
+    }
+  }, [errorModal.visible]);
 
   const handleDispense = async () => {
     try {
@@ -1084,7 +1142,7 @@ export default function ControlScreen({ navigation }) {
         });
 
         // Log manual feeding activity
-        await logActivity("wateringActivity_logs", {
+        await logActivity("feedingActivity_logs", {
           action: "Manual feed dispensed",
           description: "User manually dispensed feed",
           status: result.isSimulated ? "Simulated" : "Completed",
@@ -1201,18 +1259,23 @@ export default function ControlScreen({ navigation }) {
       return;
     }
 
-    const nextId = waterings.length ? Math.max(...waterings.map((w) => w.id)) + 1 : 1;
-    const label = `Schedule ${nextId}`;
+    const nextId = waterings.length
+      ? Math.max(...waterings.map((w) => parseInt(w.id) || 0)) + 1 || 1
+      : 1;
+    const label = `Watering ${nextId}`;
     const newWater = { id: nextId, label, time: formattedTime };
 
     try {
       const user = auth.currentUser;
       if (user) {
+        // Fetch firstName and lastName from users collection
         let firstName = "N/A";
         let lastName = "N/A";
+
         try {
           const userDocRef = doc(db, "users", user.uid);
           const userDocSnap = await getDoc(userDocRef);
+
           if (userDocSnap.exists()) {
             const userData = userDocSnap.data();
             firstName = userData.firstName || "N/A";
@@ -1220,8 +1283,10 @@ export default function ControlScreen({ navigation }) {
           }
         } catch (fetchErr) {
           console.error("Failed to fetch user data:", fetchErr);
+          // firstName and lastName will remain "N/A"
         }
 
+        // Persist to Firestore wateringSchedules collection
         await setDoc(doc(db, "wateringSchedules", `${user.uid}_${nextId}`), {
           wateringId: nextId,
           label: label,
@@ -1231,18 +1296,31 @@ export default function ControlScreen({ navigation }) {
           timestamp: new Date().toISOString(),
         });
 
-        await addDoc(collection(db, "addWaterSchedule_logs"), {
+        // Log to session_logs collection
+        await addDoc(collection(db, "wateringActivity_logs"), {
+          action: "Watering schedule added",
+          description: `Added watering schedule : ${formattedTime}`,
+          oldTime: null,
+          newTime: formattedTime,
           wateringId: nextId,
           userId: user.uid,
-          userName: user.displayName || user.email || "Unknown User",
-          firstName,
-          lastName,
-          selectedTime: pendingWaterTime.toISOString(),
-          selectedTimeFormatted: formattedTime,
-          newTime: formattedTime,
           timestamp: new Date().toISOString(),
-          action: "Add new watering schedule",
-          description: `Added ${formattedTime}`,
+          status: "saved",
+        });
+
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "Watering schedule added",
+          description: `New watering schedule created for ${formattedTime}`,
+        });
+
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "Watering schedule added",
+          description: `Added watering schedule : ${formattedTime}`,
+          type: "schedule",
         });
 
         // Add user notification
@@ -1269,11 +1347,25 @@ export default function ControlScreen({ navigation }) {
       return;
     }
 
+    // Add and sort by time
     setWaterings((s) => {
       const updated = [...s, newWater];
-      return updated.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+      const sorted = updated.sort(
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+      );
+      console.log("💧 [SORT] Watering schedules after adding new schedule:");
+      sorted.forEach((w) => {
+        console.log(
+          `  - ${w.time} (${w.label}) = ${timeToMinutes(w.time)} minutes`
+        );
+      });
+      return sorted;
     });
 
+    // Reload from Firestore to ensure consistency
+    loadWateringScheduleFromFirestore();
+
+    // Close all related modals
     setConfirmWaterAddVisible(false);
     setShowWaterAddPicker(false);
     setPendingWaterTime(null);
@@ -1302,12 +1394,28 @@ export default function ControlScreen({ navigation }) {
   };
 
   const saveWaterEdit = async () => {
+    // Defensive: Only allow if modal is open and user confirmed
+    if (!confirmEditVisible) return;
+    console.log("📄 [ACTION] Saving water edit");
+
+    // Prevent duplicate submissions
+    if (isSubmitting) {
+      console.warn("Submit already in progress, ignoring duplicate click");
+      return;
+    }
+
     if (waterEdit.idx === null) {
       setConfirmEditVisible(false);
       setWaterEdit({ open: false, idx: null, timeDate: new Date() });
       return;
     }
-    const newTime = waterEdit.timeDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    setIsSubmitting(true);
+    const newTime = waterEdit.timeDate.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
     const oldTime = waterings[waterEdit.idx].time;
     const wateringId = waterings[waterEdit.idx].id;
 
@@ -1323,11 +1431,14 @@ export default function ControlScreen({ navigation }) {
     try {
       const user = auth.currentUser;
       if (user) {
+        // Fetch firstName and lastName from users collection
         let firstName = "N/A";
         let lastName = "N/A";
+
         try {
           const userDocRef = doc(db, "users", user.uid);
           const userDocSnap = await getDoc(userDocRef);
+
           if (userDocSnap.exists()) {
             const userData = userDocSnap.data();
             firstName = userData.firstName || "N/A";
@@ -1335,6 +1446,7 @@ export default function ControlScreen({ navigation }) {
           }
         } catch (fetchErr) {
           console.error("Failed to fetch user data:", fetchErr);
+          // firstName and lastName will remain "N/A"
         }
 
         await setDoc(doc(db, "wateringSchedules", `${user.uid}_${wateringId}`), {
@@ -1346,19 +1458,31 @@ export default function ControlScreen({ navigation }) {
           timestamp: new Date().toISOString(),
         });
 
+        // Log to session_logs collection
         await addDoc(collection(db, "editWaterSchedule_logs"), {
-          wateringId,
+          action: "Watering schedule updated",
+          description: `Changed from ${oldTime} to ${newTime}`,
+          oldTime: oldTime,
+          newTime: newTime,
+          wateringId: wateringId,
           userId: user.uid,
-          userName: user.displayName || user.email || "Unknown User",
-          firstName,
-          lastName,
-          oldTime,
-          newTime,
-          selectedTime: waterEdit.timeDate.toISOString(),
-          selectedTimeFormatted: newTime,
           timestamp: new Date().toISOString(),
-          action: "Updated watering time",
-          description: `From ${oldTime} to ${newTime}`,
+          status: "saved",
+        });
+
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "Watering schedule updated",
+          description: `Schedule changed from ${oldTime} to ${newTime}`,
+        });
+
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "Watering schedule updated",
+          description: `${user.displayName || user.email} changed watering schedule from ${oldTime} to ${newTime}`,
+          type: "schedule",
         });
 
         // Add user notification
@@ -1377,50 +1501,73 @@ export default function ControlScreen({ navigation }) {
         });
       }
     } catch (err) {
-      console.error("Failed to save watering edit:", err);
+      Alert.alert("Error", "Failed to update watering: " + err.message);
+      setConfirmEditVisible(false);
+      setWaterEdit({ open: false, idx: null, timeDate: new Date() });
+      setIsSubmitting(false);
+      return;
     }
 
-    setWaterings((s) =>
-      s.map((w, i) =>
-        i === waterEdit.idx ? { ...w, time: newTime } : w
-      ).sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time))
-    );
+    // Update local state and sort
+    setWaterings((s) => {
+      const copy = [...s];
+      copy[waterEdit.idx].time = newTime;
+      const sorted = copy.sort(
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+      );
+      console.log("💧 [SORT] Watering schedules after editing schedule:");
+      sorted.forEach((w) => {
+        console.log(
+          `  - ${w.time} (${w.label}) = ${timeToMinutes(w.time)} minutes`
+        );
+      });
+      return sorted;
+    });
 
+    // Close all related modals
     setConfirmEditVisible(false);
     setWaterEdit({ open: false, idx: null, timeDate: new Date() });
+    setIsSubmitting(false);
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
 
   const confirmDeleteWater = async () => {
     console.log("📄 [ACTION] Confirming water schedule delete");
-    console.log("🔍 pendingDeleteWaterId value:", pendingDeleteWaterId);
-    console.log("🔍 Current waterings list:", waterings);
+
+    // Prevent duplicate submissions
+    if (isSubmitting) {
+      console.warn("Submit already in progress, ignoring duplicate click");
+      return;
+    }
 
     if (!pendingDeleteWaterId) {
-      console.warn("❌ No pending water ID to delete");
       setConfirmDeleteWaterVisible(false);
       setPendingDeleteWaterId(null);
       return;
     }
+
+    setIsSubmitting(true);
+
     const waterToDelete = waterings.find((w) => w.id === pendingDeleteWaterId);
     if (!waterToDelete) {
-      console.warn("❌ Water schedule not found in list:", pendingDeleteWaterId);
       setConfirmDeleteWaterVisible(false);
       setPendingDeleteWaterId(null);
+      setIsSubmitting(false);
       return;
     }
-    
-    console.log("🗑️ Deleting water schedule:", waterToDelete);
-    
+
     try {
       const user = auth.currentUser;
       if (user) {
+        // Fetch firstName and lastName from users collection
         let firstName = "N/A";
         let lastName = "N/A";
+
         try {
           const userDocRef = doc(db, "users", user.uid);
           const userDocSnap = await getDoc(userDocRef);
+
           if (userDocSnap.exists()) {
             const userData = userDocSnap.data();
             firstName = userData.firstName || "N/A";
@@ -1428,22 +1575,39 @@ export default function ControlScreen({ navigation }) {
           }
         } catch (fetchErr) {
           console.error("Failed to fetch user data:", fetchErr);
+          // firstName and lastName will remain "N/A"
         }
 
-        console.log("🔥 Deleting from Firestore...");
-        await deleteDoc(doc(db, "wateringSchedules", `${user.uid}_${pendingDeleteWaterId}`));
-        
-        console.log("📝 Adding delete log...");
-        await addDoc(collection(db, "deleteWaterSchedule_logs"), {
+        // Delete from Firestore wateringSchedules collection
+        await deleteDoc(
+          doc(db, "wateringSchedules", `${user.uid}_${pendingDeleteWaterId}`)
+        );
+
+        // Log to session_logs collection
+        await addDoc(collection(db, "wateringActivity_logs"), {
+          action: "Watering schedule deleted",
+          description: `Deleted the ${waterToDelete.time} watering schedule`,
+          oldTime: waterToDelete.time,
+          newTime: null,
           wateringId: pendingDeleteWaterId,
           userId: user.uid,
-          userName: user.displayName || user.email || "Unknown User",
-          firstName,
-          lastName,
-          oldTime: waterToDelete.time,
           timestamp: new Date().toISOString(),
-          action: "Deleted a watering schedule",
-          description: `Deleted ${waterToDelete.time}`,
+          status: "saved",
+        });
+
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "Watering schedule deleted",
+          description: `Watering schedule at ${waterToDelete.time} has been removed`,
+        });
+
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "Watering schedule deleted",
+          description: `${user.displayName || user.email} deleted watering schedule at ${waterToDelete.time}`,
+          type: "schedule",
         });
 
         // Add user notification
@@ -1464,20 +1628,232 @@ export default function ControlScreen({ navigation }) {
         console.log("✅ Successfully deleted from Firestore");
       }
     } catch (err) {
-      console.error("❌ Error deleting watering schedule:", err);
       Alert.alert("Error", "Failed to delete watering: " + err.message);
+      // Close modal even on error
       setConfirmDeleteWaterVisible(false);
       setPendingDeleteWaterId(null);
+      setIsSubmitting(false);
       return;
     }
 
-    console.log("🔄 Updating local state...");
-    setWaterings((s) => s.filter((w) => w.id !== pendingDeleteWaterId));
+    // Update local state
+    setWaterings((s) => s.filter((water) => water.id !== pendingDeleteWaterId));
+
+    // Close modal and cleanup
     setConfirmDeleteWaterVisible(false);
     setPendingDeleteWaterId(null);
-    setShowSavedPopup(true);
-    setTimeout(() => setShowSavedPopup(false), 1200);
-    console.log("✅ Water schedule deleted successfully");
+    setIsSubmitting(false);
+    setShowDeletedPopup(true);
+    setTimeout(() => setShowDeletedPopup(false), 1200);
+  };
+
+  // Watering schedule delete all functionality
+  const beginDeleteWaterFlow = () => {
+    // Show options: Delete All or Choose
+    Alert.alert(
+      "Delete watering schedules",
+      "Choose delete option",
+      [
+        {
+          text: "Delete All",
+          style: "destructive",
+          onPress: () => setConfirmDeleteVisible(true), // Reuse the same modal
+        },
+        {
+          text: "Choose",
+          onPress: () => {
+            setDeleteMode(true);
+            setSelectedToDelete([]);
+          },
+        },
+        { text: "Cancel", style: "cancel" },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  const confirmDeleteAllWater = async () => {
+    console.log("📄 [ACTION] Confirming delete all waterings");
+
+    // Prevent duplicate submissions
+    if (isSubmitting) {
+      console.warn("Submit already in progress, ignoring duplicate click");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        // Delete all watering documents from Firestore for this user
+        const deletePromises = waterings.map((watering) =>
+          deleteDoc(doc(db, "wateringSchedules", `${user.uid}_${watering.id}`))
+        );
+        await Promise.all(deletePromises);
+
+        console.log(
+          `✅ Deleted ${waterings.length} watering schedules from Firestore`
+        );
+
+        // Log activity for each deleted schedule
+        for (const watering of waterings) {
+          await addDoc(collection(db, "deleteWaterSchedule_logs"), {
+            action: "Watering schedule deleted",
+            description: `Deleted the watering schedule ${watering.time}`,
+            oldTime: watering.time,
+            newTime: null,
+            wateringId: watering.id,
+            userId: user.uid,
+            timestamp: new Date().toISOString(),
+            status: "saved",
+          });
+        }
+
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "All watering schedules deleted",
+          description: `Removed all ${waterings.length} watering schedules`,
+        });
+
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "All watering schedules deleted",
+          description: `${user.displayName || user.email} deleted all ${waterings.length} watering schedules`,
+          type: "schedule",
+        });
+      }
+    } catch (err) {
+      console.error("Failed to delete all waterings:", err);
+      Alert.alert("Error", "Failed to delete all schedules: " + err.message);
+      setIsSubmitting(false);
+      return;
+    }
+
+    // Update local state
+    setWaterings([]);
+    setDeleteMode(false);
+    setSelectedToDelete([]);
+    setConfirmDeleteVisible(false);
+    setIsSubmitting(false);
+
+    // Show success popup
+    setShowDeletedPopup(true);
+    setTimeout(() => setShowDeletedPopup(false), 1200);
+  };
+
+  const deleteSelectedWater = () => {
+    if (selectedToDelete.length === 0) {
+      Alert.alert(
+        "No selection",
+        "Please select at least one schedule to delete."
+      );
+      return;
+    }
+    // confirmation
+    Alert.alert(
+      "Delete selected watering schedules",
+      "Are you sure you want to delete selected schedules?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            console.log(
+              "📄 [ACTION] Deleting selected waterings:",
+              selectedToDelete
+            );
+
+            // Prevent duplicate submissions
+            if (isSubmitting) {
+              console.warn(
+                "Submit already in progress, ignoring duplicate click"
+              );
+              return;
+            }
+
+            setIsSubmitting(true);
+
+            try {
+              const user = auth.currentUser;
+              if (user) {
+                // Delete selected watering documents from Firestore
+                const deletePromises = selectedToDelete.map((wateringId) =>
+                  deleteDoc(
+                    doc(db, "wateringSchedules", `${user.uid}_${wateringId}`)
+                  )
+                );
+                await Promise.all(deletePromises);
+
+                console.log(
+                  `✅ Deleted ${selectedToDelete.length} selected watering schedules`
+                );
+
+                // Get deleted watering times for logging and notification
+                const deletedWaterings = waterings.filter((w) =>
+                  selectedToDelete.includes(w.id)
+                );
+                const deletedTimes = deletedWaterings
+                  .map((w) => w.time)
+                  .join(", ");
+
+                // Log activity for each deleted schedule
+                for (const watering of deletedWaterings) {
+                  await addDoc(collection(db, "session_logs"), {
+                    action: "Watering schedule deleted",
+                    oldTime: watering.time,
+                    newTime: null,
+                    wateringId: watering.id,
+                    userId: user.uid,
+                    timestamp: new Date().toISOString(),
+                    status: "saved",
+                  });
+                }
+
+                // Add user notification
+                addUserNotification({
+                  category: "IoT: Internet of Tsiken",
+                  title: "Watering schedules deleted",
+                  description: `Removed ${selectedToDelete.length} watering schedule(s)`,
+                });
+
+                // Add admin notification
+                addNotification({
+                  category: "Schedule Management",
+                  title: "Watering schedules deleted",
+                  description: `${user.displayName || user.email} deleted ${selectedToDelete.length} watering schedule(s): ${deletedTimes}`,
+                  type: "schedule",
+                });
+              }
+            } catch (err) {
+              console.error("Failed to delete selected waterings:", err);
+              Alert.alert(
+                "Error",
+                "Failed to delete selected schedules: " + err.message
+              );
+              setIsSubmitting(false);
+              return;
+            }
+
+            // Update local state
+            setWaterings((s) =>
+              s.filter((w) => !selectedToDelete.includes(w.id))
+            );
+            setDeleteMode(false);
+            setSelectedToDelete([]);
+            setIsSubmitting(false);
+
+            // Show success popup
+            setShowDeletedPopup(true);
+            setTimeout(() => setShowDeletedPopup(false), 1200);
+          },
+        },
+      ],
+      { cancelable: true }
+    );
   };
 
   const confirmSaveWaterSchedule = async () => {
@@ -1569,7 +1945,11 @@ export default function ControlScreen({ navigation }) {
         );
       }
     } catch (err) {
-      Alert.alert("Error", "Failed to save watering schedule: " + err.message);
+      setErrorModal({
+        visible: true,
+        title: "Error",
+        message: "Failed to save watering schedule: " + err.message,
+      });
       setConfirmWaterSaveVisible(false);
       setPendingWaterSchedule(null);
       setIsSubmitting(false);
@@ -1586,6 +1966,26 @@ export default function ControlScreen({ navigation }) {
   const fmtDate = (d) => d.toISOString().split("T")[0];
   const fmtTime = (d) =>
     d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const formatTimeGMT8 = (isoString) => {
+    if (!isoString) return "N/A";
+    const date = new Date(isoString);
+    // Input is UTC ISO string corresponding to GMT+8 time, so format directly as GMT+8
+    return (
+      date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "Asia/Manila",
+      }) +
+      ", " +
+      date.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: "Asia/Manila",
+      })
+    );
+  };
 
   const saveNightTimeLog = async (time) => {
     console.log("📄 [ACTION] Saving night schedule");
@@ -1605,65 +2005,99 @@ export default function ControlScreen({ navigation }) {
         return;
       }
 
-      // Fetch firstName and lastName from users collection
+      // Fetch user profile
+      const userDocRef = doc(db, "users", user.uid);
+      const userDocSnap = await getDoc(userDocRef);
       let firstName = "N/A";
       let lastName = "N/A";
-      try {
-        const userDocRef = doc(db, "users", user.uid);
-        const userDocSnap = await getDoc(userDocRef);
-        if (userDocSnap.exists()) {
-          const userData = userDocSnap.data();
-          firstName = userData.firstName || "N/A";
-          lastName = userData.lastName || "N/A";
-        }
-      } catch (userFetchError) {
-        console.error("Error fetching user data:", userFetchError);
+
+      if (userDocSnap.exists()) {
+        const userData = userDocSnap.data();
+        firstName = userData.firstName || "N/A";
+        lastName = userData.lastName || "N/A";
       }
 
-      // Convert to GMT+8 and format as human-readable string
-      const gmt8Time = new Date(time.getTime() + 8 * 60 * 60 * 1000);
-      const hours = gmt8Time.getUTCHours();
-      const minutes = gmt8Time.getUTCMinutes();
-      const ampm = hours >= 12 ? "PM" : "AM";
-      const hour12 = hours % 12 || 12;
-      const monthNames = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-      ];
-      const selectedTimeGMT8Formatted = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}, ${monthNames[gmt8Time.getUTCMonth()]} ${gmt8Time.getUTCDate()}, ${gmt8Time.getUTCFullYear()}`;
-      const timeOnly = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}`;
-
-      // LOGGING REMOVED - Log to nightTime_logs collection
-      console.log("📋 [LOGGING DISABLED] Would log night schedule change:", {
-        time: timeOnly,
-        action: "Set the night time",
+      // Format GMT+8 time string (only time, no date)
+      const formattedTimeOnly = new Date(time).toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: "Asia/Manila",
       });
 
-      // Log activity to Firestore
+      // Fetch previous time from document ID "1"
+      let previousTimeGMT8String = "N/A";
+      const prevDoc = await getDoc(doc(db, "nightTime", "1"));
+      if (prevDoc.exists()) {
+        previousTimeGMT8String =
+          prevDoc.data().selectedTimeGMT8Formatted || "N/A";
+      }
+
+      // Save/update record with fixed ID "1"
+      await setDoc(doc(db, "nightTime", "1"), {
+        nightTimeId: 1,
+        selectedTime: time.toISOString(),
+        selectedTimeGMT8Formatted: formattedTimeOnly,
+        timestamp: new Date().toISOString(),
+        status: "saved",
+      });
+
+      // Log activity
       await logActivity("nightTime_logs", {
         action: "Set the night time",
-        description: `Night mode scheduled at ${timeOnly}`,
-        newTime: timeOnly,
+        description: `Night time starts : ${formattedTimeOnly}`,
+        oldTime: previousTimeGMT8String,
+        newTime: formattedTimeOnly,
         selectedTime: time.toISOString(),
-        nightModeEnabled: true,
+        status: "saved",
+        userId: user.uid,
+        firstName,
+        lastName,
       });
 
-      setIsSubmitting(false);
+      // Show popup
       setShowSavedPopup(true);
       setTimeout(() => setShowSavedPopup(false), 1400);
+
+      // Update local state directly with the selected time
+      setNightStart(time);
+
+      setIsSubmitting(false);
     } catch (err) {
       setIsSubmitting(false);
-      Alert.alert("Error", err.message);
+      Alert.alert("Error", "Failed to save night time: " + err.message);
+    }
+  };
+
+  // Migration function to fix existing nightTime records with incorrect GMT+8 formatting
+  const migrateNightTimeRecords = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, "nightTime"));
+      const migrationPromises = [];
+
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        const correctedGMT8 = formatTimeGMT8(data.selectedTime);
+        if (correctedGMT8 !== (data.selectedTimeGMT8Formatted || "N/A")) {
+          migrationPromises.push(
+            setDoc(doc(db, "nightTime", docSnap.id), {
+              ...data,
+              selectedTimeGMT8Formatted: correctedGMT8,
+            }).then(() => {
+              console.log(
+                `✅ Migrated record ${docSnap.id} to GMT+8: ${correctedGMT8}`
+              );
+            })
+          );
+        }
+      });
+
+      await Promise.all(migrationPromises);
+      console.log(
+        `✅ Migration completed for ${migrationPromises.length} records`
+      );
+    } catch (err) {
+      console.error("❌ Migration failed:", err);
     }
   };
 
@@ -1725,8 +2159,10 @@ export default function ControlScreen({ navigation }) {
             <CameraStream
               serverUrl={cameraServerUrl}
               onServerDiscovered={handleServerDiscovered}
+              persistConnection={isCameraConnected}
+              autoConnect={true}
             />
-          </TouchableOpacity>
+          </View>
         </View>
 
         {/* Night Schedule */}
@@ -1867,7 +2303,15 @@ export default function ControlScreen({ navigation }) {
         {/* Water Scheduling (like Feeding) */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader icon="water-outline" title="Watering Schedule" />
-          <View style={{ flexDirection: "row", justifyContent: "flex-end", marginBottom: 8 }}>
+
+          {/* Action buttons: Add only */}
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "flex-end",
+              marginBottom: 8,
+            }}
+          >
             <TouchableOpacity
               style={[styles.smallActionBtn, { backgroundColor: GREEN }]}
               onPress={addWaterSchedule}
@@ -1884,30 +2328,34 @@ export default function ControlScreen({ navigation }) {
             waterings.map((w, idx) => (
               <View key={`water-${w.id}-${idx}`} style={styles.feedRow}>
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  {deleteMode ? (
-                    <TouchableOpacity
-                      onPress={() => toggleSelectToDelete(w.id)}
-                      style={[styles.checkbox, selectedToDelete.includes(w.id) && styles.checkboxChecked]}
-                    >
-                      {selectedToDelete.includes(w.id) && (
-                        <Text style={{ color: "#fff" }}>✓</Text>
-                      )}
-                    </TouchableOpacity>
-                  ) : (
-                    <Ionicons name="time-outline" size={16} color={PRIMARY} style={{ marginRight: 8 }} />
-                  )}
+                  <Ionicons
+                    name="time-outline"
+                    size={16}
+                    color={PRIMARY}
+                    style={{ marginRight: 8 }}
+                  />
 
                   <Text style={styles.feedTimeText}>{w.time}</Text>
                 </View>
 
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <TouchableOpacity style={styles.editBtn} onPress={() => openEditWater(idx)}>
+                  <TouchableOpacity
+                    style={styles.editBtn}
+                    onPress={() => openEditWater(idx)}
+                  >
                     <Text style={styles.editText}>Edit</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.editBtn, { backgroundColor: RED, marginLeft: 6 }]}
+                    style={[
+                      styles.editBtn,
+                      { backgroundColor: RED, marginLeft: 6 },
+                    ]}
                     onPress={() => {
-                      console.log("🗑️ [ACTION] Delete button clicked for water schedule:", w.id, w.time);
+                      console.log(
+                        "🗑️ [ACTION] Delete button clicked for water schedule:",
+                        w.id,
+                        w.time
+                      );
                       setPendingDeleteWaterId(w.id);
                       setConfirmDeleteWaterVisible(true);
                       console.log("✅ Set pendingDeleteWaterId to:", w.id);
@@ -2013,7 +2461,9 @@ export default function ControlScreen({ navigation }) {
           />
 
           <View style={{ marginTop: 8 }}>
-            <Text style={styles.smallLabel}>Solar power level: {solarPowerLevel}%</Text>
+            <Text style={styles.smallLabel}>
+              Solar power level: {solarPowerLevel}%
+            </Text>
 
             {/* Horizontal bar container (looks like the requested layout) */}
             <View style={styles.powerBarContainer}>
@@ -2062,7 +2512,11 @@ export default function ControlScreen({ navigation }) {
         <View style={{ marginHorizontal: 14, marginTop: 14 }}>
           <TouchableOpacity
             style={[styles.continueBtn]}
-            onPress={() => Alert.alert("Continue", "Continue operations")}
+            onPress={() => setErrorModal({
+              visible: true,
+              title: "Continue",
+              message: "Continue operations",
+            })}
           >
             <Text style={{ color: "#fff", fontWeight: "700" }}>
               Continue Operations
@@ -2071,7 +2525,11 @@ export default function ControlScreen({ navigation }) {
 
           <TouchableOpacity
             style={[styles.pauseBtn]}
-            onPress={() => Alert.alert("Pause", "Paused non-critical tasks")}
+            onPress={() => setErrorModal({
+              visible: true,
+              title: "Pause",
+              message: "Paused non-critical tasks",
+            })}
           >
             <Text style={{ fontWeight: "700" }}>Pause non-critical tasks</Text>
           </TouchableOpacity>
@@ -2081,12 +2539,14 @@ export default function ControlScreen({ navigation }) {
       {/* Date / Time Pickers */}
       {showWaterTimePicker && (
         <DateTimePicker
-          value={waterEdit.open ? (waterEdit.timeDate || new Date()) : new Date()}
+          value={waterEdit.open ? waterEdit.timeDate || new Date() : new Date()}
           mode="time"
           display="default"
-          onChange={(_, selected) => {
+          onChange={(event, selected) => {
             setShowWaterTimePicker(false);
-            if (selected) setWaterEdit((prev) => ({ ...prev, timeDate: selected }));
+            if (event.type === "set" && selected) {
+              setWaterEdit((prev) => ({ ...prev, timeDate: selected }));
+            }
           }}
         />
       )}
@@ -2097,7 +2557,8 @@ export default function ControlScreen({ navigation }) {
           display="default"
           onChange={(event, selected) => {
             setShowWaterAddPicker(false);
-            const confirmed = (event?.type === "set" || !event?.type) && selected;
+            const confirmed =
+              (event?.type === "set" || !event?.type) && selected;
             if (confirmed) {
               // Check for duplicate time BEFORE showing confirmation
               const formattedTime = selected.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -2125,15 +2586,18 @@ export default function ControlScreen({ navigation }) {
             const confirmed =
               (event?.type === "set" || !event?.type) && selected;
             if (confirmed) {
-              const hour = selected.getHours(); // 0-23
-              // Duplicate time check: if same as current nightStart, warn like feed schedule duplicate
-              const selectedStr = fmtTime(selected);
-              const currentStr = fmtTime(nightStart);
-              if (selectedStr === currentStr) {
-                setShowDuplicateModal(true);
+              // Compare GMT+8 formatted times
+              const selectedGMT8 = formatTimeGMT8(selected.toISOString());
+              const currentGMT8 = formatTimeGMT8(nightStart.toISOString());
+
+              if (selectedGMT8 === currentGMT8) {
+                // Show same time modal
+                setShowSameTimeModal(true);
                 return;
               }
+
               setPendingNightTime(selected);
+              const hour = selected.getHours(); // 0-23
               if (hour < 12) {
                 // Morning selection warning
                 setWarnMorningVisible(true);
@@ -2214,10 +2678,11 @@ export default function ControlScreen({ navigation }) {
               value={feedEdit.timeDate || new Date()}
               mode="time"
               display="default"
-              onChange={(_, selected) => {
-                setShowFeedTimePicker(false);
-                if (selected)
+              onChange={(event, selected) => {
+                if (event.type === "set" && selected) {
                   setFeedEdit((s) => ({ ...s, timeDate: selected }));
+                }
+                setShowFeedTimePicker(false);
               }}
             />
           )}
@@ -2226,10 +2691,11 @@ export default function ControlScreen({ navigation }) {
               value={waterEdit.timeDate || new Date()}
               mode="time"
               display="default"
-              onChange={(_, selected) => {
-                setShowWaterTimePicker(false);
-                if (selected)
+              onChange={(event, selected) => {
+                if (event.type === "set" && selected) {
                   setWaterEdit((s) => ({ ...s, timeDate: selected }));
+                }
+                setShowWaterTimePicker(false);
               }}
             />
           )}
@@ -2250,7 +2716,11 @@ export default function ControlScreen({ navigation }) {
                 if (feedEdit.open) {
                   setFeedEdit({ open: false, idx: null, timeDate: new Date() });
                 } else if (waterEdit.open) {
-                  setWaterEdit({ open: false, idx: null, timeDate: new Date() });
+                  setWaterEdit({
+                    open: false,
+                    idx: null,
+                    timeDate: new Date(),
+                  });
                 }
               }}
             >
@@ -2448,6 +2918,37 @@ export default function ControlScreen({ navigation }) {
         </View>
       </Modal>
 
+      {/* Same Time Warning Modal */}
+      <Modal
+        key="sameTimeModal"
+        visible={showSameTimeModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSameTimeModal(false)}
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Text style={{ fontWeight: "700", fontSize: 16 }}>
+              Same Time Selected
+            </Text>
+            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+              You picked the same time as the current night schedule.
+            </Text>
+            <View style={{ flexDirection: "row", marginTop: 12 }}>
+              <TouchableOpacity
+                style={[
+                  styles.smallActionBtn,
+                  { backgroundColor: PRIMARY, flex: 1 },
+                ]}
+                onPress={() => setShowSameTimeModal(false)}
+              >
+                <Text style={styles.smallActionText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Confirm Night Time Save */}
       <Modal
         key="confirmNightSaveModal"
@@ -2487,7 +2988,6 @@ export default function ControlScreen({ navigation }) {
                     return;
                   }
                   await saveNightTimeLog(pendingNightTime);
-                  setNightStart(pendingNightTime);
                   setConfirmNightSaveVisible(false);
                   setPendingNightTime(null);
                 }}
@@ -2687,7 +3187,10 @@ export default function ControlScreen({ navigation }) {
                 <Text style={styles.smallActionText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: RED, marginLeft: 8 }]}
+                style={[
+                  styles.smallActionBtn,
+                  { backgroundColor: RED, marginLeft: 8 },
+                ]}
                 onPress={confirmDeleteWater}
               >
                 <Text style={styles.smallActionText}>Delete</Text>
@@ -2697,9 +3200,6 @@ export default function ControlScreen({ navigation }) {
         </View>
       </Modal>
 
-      
-
-      
       {/* Duplicate Watering Time Modal */}
       <Modal
         key="duplicateWaterTimeModal"
@@ -2743,7 +3243,9 @@ export default function ControlScreen({ navigation }) {
               Save watering time?
             </Text>
             <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
-              Are you sure you want to save {pendingWaterTime ? fmtTime(pendingWaterTime) : ""} as a watering schedule?
+              Are you sure you want to save{" "}
+              {pendingWaterTime ? fmtTime(pendingWaterTime) : ""} as a watering
+              schedule?
             </Text>
             <View style={{ flexDirection: "row", marginTop: 12 }}>
               <TouchableOpacity
@@ -2756,7 +3258,10 @@ export default function ControlScreen({ navigation }) {
                 <Text style={styles.smallActionText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: PRIMARY, marginLeft: 8 }]}
+                style={[
+                  styles.smallActionBtn,
+                  { backgroundColor: PRIMARY, marginLeft: 8 },
+                ]}
                 onPress={confirmAddWater}
               >
                 <Text style={styles.smallActionText}>Yes, Save</Text>
@@ -2780,6 +3285,24 @@ export default function ControlScreen({ navigation }) {
               style={{ width: 56, height: 56 }}
             />
             <Text style={styles.popupText}>Saved Successfully!</Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete popup */}
+      <Modal
+        key="deletePopupModal"
+        visible={showDeletedPopup}
+        transparent
+        animationType="fade"
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.popupBox}>
+            <Image
+              source={require("../../../assets/logo.png")}
+              style={{ width: 56, height: 56 }}
+            />
+            <Text style={styles.popupText}>Deleted Successfully!</Text>
           </View>
         </View>
       </Modal>
@@ -2808,6 +3331,112 @@ export default function ControlScreen({ navigation }) {
             >
               <Text style={styles.motorWarningButtonText}>OK</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Error Modal */}
+      <Modal
+        visible={errorModal.visible}
+        transparent
+        animationType="none"
+      >
+        <View style={styles.popupBackground}>
+          <Animated.View style={[styles.errorModalBox, { transform: [{ scale: errorModalScale }] }]}>
+            <View style={styles.errorIconContainer}>
+              <Ionicons name="close-circle" size={50} color="#EF4444" />
+            </View>
+            <Text style={styles.errorModalTitle}>{errorModal.title}</Text>
+            <Text style={styles.errorModalMessage}>{errorModal.message}</Text>
+            <TouchableOpacity
+              style={styles.errorModalButton}
+              onPress={() => setErrorModal({ visible: false, title: '', message: '' })}
+            >
+              <Text style={styles.errorModalButtonText}>OK</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </Modal>
+
+      {/* Delete Options Modal */}
+      <Modal
+        visible={deleteOptionsModal}
+        transparent
+        animationType="fade"
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.deleteOptionsBox}>
+            <Text style={styles.deleteOptionsTitle}>Delete Feeds</Text>
+            <Text style={styles.deleteOptionsMessage}>Choose an option:</Text>
+            
+            <TouchableOpacity
+              style={styles.deleteOptionButton}
+              onPress={async () => {
+                setDeleteOptionsModal(false);
+                await handleDeleteAllFeeds();
+              }}
+            >
+              <Ionicons name="trash" size={20} color="#FFF" style={{ marginRight: 8 }} />
+              <Text style={styles.deleteOptionButtonText}>Delete All Feeds</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.deleteOptionButton, styles.deleteOptionButtonSecondary]}
+              onPress={() => {
+                setDeleteOptionsModal(false);
+                setSelectMode(true);
+              }}
+            >
+              <Ionicons name="checkmark-circle" size={20} color={PRIMARY} style={{ marginRight: 8 }} />
+              <Text style={[styles.deleteOptionButtonText, styles.deleteOptionButtonTextSecondary]}>
+                Choose Feeds to Delete
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.deleteOptionCancelButton}
+              onPress={() => setDeleteOptionsModal(false)}
+            >
+              <Text style={styles.deleteOptionCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Confirm Delete Selected Modal */}
+      <Modal
+        visible={confirmDeleteSelectedModal}
+        transparent
+        animationType="fade"
+      >
+        <View style={styles.popupBackground}>
+          <View style={styles.confirmDeleteBox}>
+            <View style={styles.confirmDeleteIconContainer}>
+              <Ionicons name="warning" size={40} color="#EF4444" />
+            </View>
+            <Text style={styles.confirmDeleteTitle}>Confirm Deletion</Text>
+            <Text style={styles.confirmDeleteMessage}>
+              Are you sure you want to delete the selected feeds? This action cannot be undone.
+            </Text>
+            
+            <View style={styles.confirmDeleteButtons}>
+              <TouchableOpacity
+                style={styles.confirmDeleteCancelButton}
+                onPress={() => setConfirmDeleteSelectedModal(false)}
+              >
+                <Text style={styles.confirmDeleteCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.confirmDeleteConfirmButton}
+                onPress={async () => {
+                  setConfirmDeleteSelectedModal(false);
+                  await handleDeleteSelected();
+                }}
+              >
+                <Text style={styles.confirmDeleteConfirmText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -2954,9 +3583,26 @@ const styles = StyleSheet.create({
 
   cameraBox: {
     marginTop: 10,
-    height: 200,
+    minHeight: 200,
     borderRadius: 8,
     overflow: "hidden",
+  },
+  cameraPreviewBox: {
+    marginTop: 10,
+    height: 150,
+    borderRadius: 8,
+    backgroundColor: '#f0f4f8',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: PRIMARY,
+    borderStyle: 'dashed',
+  },
+  cameraPreviewText: {
+    marginTop: 12,
+    fontSize: 14,
+    fontWeight: '600',
+    color: PRIMARY,
   },
 
   smallNote: { color: "#666", marginTop: 6 },
@@ -3205,7 +3851,7 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#e2e8f0",
+    borderColor: "#0D609C54",
     backgroundColor: "#eee",
     overflow: "hidden",
     marginTop: 8,
@@ -3255,6 +3901,167 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   motorWarningButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+
+  // Error Modal styles
+  errorModalBox: {
+    backgroundColor: "#fff",
+    padding: 24,
+    borderRadius: 16,
+    alignItems: "center",
+    width: "85%",
+    maxWidth: 340,
+  },
+  errorIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "#FEE2E2",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  errorModalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#333",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  errorModalMessage: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  errorModalButton: {
+    backgroundColor: "#EF4444",
+    paddingVertical: 12,
+    paddingHorizontal: 40,
+    borderRadius: 8,
+  },
+  errorModalButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+
+  // Delete Options Modal styles
+  deleteOptionsBox: {
+    backgroundColor: "#fff",
+    padding: 24,
+    borderRadius: 16,
+    width: "85%",
+    maxWidth: 340,
+  },
+  deleteOptionsTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#333",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  deleteOptionsMessage: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  deleteOptionButton: {
+    backgroundColor: "#EF4444",
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  deleteOptionButtonSecondary: {
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: PRIMARY,
+  },
+  deleteOptionButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  deleteOptionButtonTextSecondary: {
+    color: PRIMARY,
+  },
+  deleteOptionCancelButton: {
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  deleteOptionCancelText: {
+    color: "#666",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+
+  // Confirm Delete Selected Modal styles
+  confirmDeleteBox: {
+    backgroundColor: "#fff",
+    padding: 24,
+    borderRadius: 16,
+    width: "85%",
+    maxWidth: 340,
+  },
+  confirmDeleteIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "#FEE2E2",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+    alignSelf: "center",
+  },
+  confirmDeleteTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#333",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  confirmDeleteMessage: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  confirmDeleteButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  confirmDeleteCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: "#D1D5DB",
+    alignItems: "center",
+  },
+  confirmDeleteCancelText: {
+    color: "#666",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  confirmDeleteConfirmButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: "#EF4444",
+    alignItems: "center",
+  },
+  confirmDeleteConfirmText: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",

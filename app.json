@@ -11,7 +11,16 @@
           "isAccessMediaLocationEnabled": true
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true,
+            "networkSecurityConfig": "./network_security_config.xml"
+          }
+        }
+      ]
     ],
     "version": "1.0.0",
     "runtimeVersion": "1.0.0",
@@ -42,7 +51,9 @@
         "android.permission.ACCESS_MEDIA_LOCATION",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO"
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE"
       ]
     },
     "web": {
@@ -51,9 +62,8 @@
     "scheme": "internet-of-tsiken",
     "extra": {
       "eas": {
-        "projectId": "84f969ee-7b4d-47d6-8494-5d9a87e161fb"
+        "projectId": "5f21c14c-e4f5-467a-88a0-7b8ae699559b"
       }
-    },
-    "owner": "ailynmay"
+    }
   }
 }

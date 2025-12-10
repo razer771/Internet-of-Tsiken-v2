@@ -39,15 +39,20 @@ export default function ActivityLogsTable({ navigation }) {
       // Define all log sub-collection types
       const logTypes = [
         "addFeedSchedule_logs",
-        "editFeedSchedule_logs",
-        "deleteFeedSchedule_logs",
         "addWaterSchedule_logs",
-        "editWaterSchedule_logs",
+        "deleteFeedSchedule_logs",
         "deleteWaterSchedule_logs",
-        "wateringActivity_logs",
+        "editFeedSchedule_logs",
+        "editWaterSchedule_logs",
         "nightTime_logs",
         "report_logs",
         "session_logs",
+        "wateringActivity_logs",
+        "activity_logs",
+        "addBatch_logs",
+        "manualActivity_logs",
+        "feedingActivity_logs",
+        "verification_logs",
       ];
 
       // Fetch logs from each sub-collection
@@ -102,55 +107,31 @@ export default function ActivityLogsTable({ navigation }) {
     }
   };
 
-  /**
-   * Format SAVED timestamp to "DD-MMM-YYYY" format
-   * Uses the timestamp field that was saved to Firestore
-   */
-  const formatDate = (savedTimestamp) => {
+  // Format Firestore Timestamp, ISO string, or Date to DD-MMM-YYYY in GMT+8
+  const formatDateGMT8 = (savedTimestamp) => {
     if (!savedTimestamp) return "N/A";
-
-    const date = new Date(savedTimestamp);
+    // Handle Firestore Timestamp object
+    const date = savedTimestamp.toDate?.() || new Date(savedTimestamp);
     if (isNaN(date.getTime())) return "N/A";
-
-    const day = String(date.getDate()).padStart(2, "0");
-    const monthNames = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
-    const month = monthNames[date.getMonth()];
-    const year = date.getFullYear();
-
-    return `${day}-${month}-${year}`;
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Manila", // GMT+8
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }).format(date);
   };
 
-  /**
-   * Format SAVED timestamp to "hh:mm AM/PM" format with space
-   * Uses the timestamp field that was saved to Firestore
-   */
-  const formatTime = (savedTimestamp) => {
+  // Format Firestore Timestamp, ISO string, or Date to hh:mm AM/PM in GMT+8
+  const formatTimeGMT8 = (savedTimestamp) => {
     if (!savedTimestamp) return "N/A";
-
-    const date = new Date(savedTimestamp);
+    const date = savedTimestamp.toDate?.() || new Date(savedTimestamp);
     if (isNaN(date.getTime())) return "N/A";
-
-    // Convert to GMT+8
-    const gmt8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
-    const hours = gmt8Date.getUTCHours();
-    const minutes = gmt8Date.getUTCMinutes();
-    const ampm = hours >= 12 ? "PM" : "AM";
-    const hour12 = hours % 12 || 12;
-
-    return `${hour12}:${String(minutes).padStart(2, "0")} ${ampm}`;
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Manila", // GMT+8
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    }).format(date);
   };
 
   /**
@@ -273,12 +254,12 @@ export default function ActivityLogsTable({ navigation }) {
                       >
                         <View style={[styles.tableCell, styles.cellDate]}>
                           <Text style={styles.cellText}>
-                            {formatDate(log.savedTimestamp)}
+                            {formatDateGMT8(log.savedTimestamp)}
                           </Text>
                         </View>
                         <View style={[styles.tableCell, styles.cellTime]}>
                           <Text style={styles.cellText}>
-                            {formatTime(log.savedTimestamp)}
+                            {formatTimeGMT8(log.savedTimestamp)}
                           </Text>
                         </View>
                         <View style={[styles.tableCell, styles.cellUser]}>

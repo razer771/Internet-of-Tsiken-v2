@@ -271,10 +271,28 @@ export default function Login() {
       const user = userCredential.user;
       console.log("✅ Login successful! User ID:", user.uid);
 
+      // Clear logout flag on successful login to enable persistent login
+      await AsyncStorage.setItem("userLoggedOut", "false");
+
+      // Fetch user role from Firestore
+      const userDocRef = doc(db, "users", user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (userDocSnap.exists()) {
+        const userData = userDocSnap.data();
+
+        // Store admin password securely for account creation re-authentication
+        if (userData.role === "Admin") {
+          await AsyncStorage.setItem("adminPassword", password);
+          console.log("✅ Admin password stored for re-authentication");
+        }
+      }
+
       console.log("📝 Attempting to log session...");
-      // Log login event to session_logs collection (non-blocking with timeout)
+      // Define logPromise in outer scope for later use
+      let logPromise;
       try {
-        const logPromise = addDoc(collection(db, "session_logs"), {
+        logPromise = addDoc(collection(db, "session_logs"), {
           userId: user.uid,
           action: "Login",
           description: "Logged in",
@@ -291,6 +309,7 @@ export default function Login() {
         ]);
         console.log("📝 Login event logged to session_logs");
       } catch (logError) {
+        logPromise = Promise.resolve(); // fallback to resolved promise if logging fails
         console.log(
           "⚠️ Failed to log login event (non-critical):",
           logError.message
@@ -334,17 +353,6 @@ export default function Login() {
             if (userRole === "admin") {
               console.log("✅ Verified + Active + Admin → AdminDashboard");
 
-              // Log successful admin login (with timeout)
-              const logPromise = addDoc(collection(db, "session_logs"), {
-                userId: user.uid,
-                action: "login",
-                description: "Logged in",
-                timestamp: serverTimestamp(),
-                deviceInfo: Platform.OS,
-                email: email.trim(),
-                loginType: "admin",
-              });
-
               // Don't wait more than 2 seconds for logging
               Promise.race([
                 logPromise,
@@ -372,17 +380,6 @@ export default function Login() {
 
             if (userRole === "user") {
               console.log("✅ Verified + Active + User → Home");
-
-              // Log successful user login (with timeout)
-              const logPromise = addDoc(collection(db, "session_logs"), {
-                userId: user.uid,
-                action: "login",
-                description: "Logged in",
-                timestamp: serverTimestamp(),
-                deviceInfo: Platform.OS,
-                email: email.trim(),
-                loginType: "user",
-              });
 
               // Don't wait more than 2 seconds for logging
               Promise.race([
@@ -467,6 +464,7 @@ export default function Login() {
               loginType: userRole || "user",
             }).catch((e) => console.log("⚠️ Session log error:", e.message));
 
+            await AsyncStorage.setItem("userLoggedOut", "true");
             await auth.signOut();
             setLoading(false);
 
@@ -496,6 +494,7 @@ export default function Login() {
               loginType: userRole || "user",
             }).catch((e) => console.log("⚠️ Session log error:", e.message));
 
+            await AsyncStorage.setItem("userLoggedOut", "true");
             await auth.signOut();
             setLoading(false);
 
@@ -521,6 +520,7 @@ export default function Login() {
           // If no status is set, treat as inactive
           if (!accountStatus || accountStatus === "") {
             console.log("❌ No account status set → Blocking login");
+            await AsyncStorage.setItem("userLoggedOut", "true");
             await auth.signOut();
             setLoading(false);
 
@@ -534,6 +534,7 @@ export default function Login() {
           }
 
           // Final fallback - sign out and show error
+          await AsyncStorage.setItem("userLoggedOut", "true");
           await auth.signOut();
           setLoading(false);
 
@@ -546,6 +547,7 @@ export default function Login() {
           return;
         } else {
           console.log("❌ User document does not exist in Firestore");
+          await AsyncStorage.setItem("userLoggedOut", "true");
           await auth.signOut();
           setLoading(false);
 
@@ -557,6 +559,7 @@ export default function Login() {
         }
       } catch (firestoreError) {
         console.error("Firestore Error:", firestoreError);
+        await AsyncStorage.setItem("userLoggedOut", "true");
         await auth.signOut().catch((e) => console.log("Signout error:", e));
         setLoading(false);
 

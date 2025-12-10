@@ -9,12 +9,15 @@ import {
   StyleSheet,
   Image,
 } from "react-native";
+import { collection, query, where, getDocs, addDoc } from "firebase/firestore";
+import { db, auth } from "../../../config/firebaseconfig";
 
 export default function QuickSetupModal({
   visible,
   initialChicksCount = "",
   initialDaysCount = "",
   initialHarvestDays = "",
+  currentBatchId = null,
   onSaveChicksCount,
   onSaveDaysCount,
   onSaveHarvestDays,
@@ -24,22 +27,41 @@ export default function QuickSetupModal({
     String(initialChicksCount ?? "")
   );
   const [daysCount, setDaysCount] = useState(String(initialDaysCount ?? ""));
-  const [harvestDays, setHarvestDays] = useState(String(initialHarvestDays ?? ""));
+  const [harvestDays, setHarvestDays] = useState(
+    String(initialHarvestDays ?? "")
+  );
   const [showSuccess, setShowSuccess] = useState(false);
   const [chicksError, setChicksError] = useState("");
   const [daysError, setDaysError] = useState("");
   const [harvestError, setHarvestError] = useState("");
 
+  // Helper function to format timestamp to GMT+8 readable string
+  const formatReadableGMT8 = (date) => {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Manila",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    }).format(date);
+  };
+
   // Check if all fields are valid and filled
-  const isFormValid = chicksCount.trim() !== "" && 
-                      daysCount.trim() !== "" && 
-                      harvestDays.trim() !== "" &&
-                      !chicksError &&
-                      !daysError &&
-                      !harvestError &&
-                      parseInt(chicksCount) > 0 &&
-                      parseInt(daysCount) > 0 &&
-                      parseInt(harvestDays) > 0;
+  const isFormValid =
+    chicksCount.trim() !== "" &&
+    daysCount.trim() !== "" &&
+    harvestDays.trim() !== "" &&
+    !chicksError &&
+    !daysError &&
+    !harvestError &&
+    parseInt(chicksCount) > 0 &&
+    parseInt(chicksCount) < 100 &&
+    parseInt(daysCount) >= 0 &&
+    parseInt(daysCount) <= 50 &&
+    parseInt(harvestDays) > 0 &&
+    parseInt(harvestDays) <= 365;
 
   useEffect(() => {
     setChicksCount(String(initialChicksCount ?? ""));
@@ -52,67 +74,177 @@ export default function QuickSetupModal({
   }, [initialChicksCount, initialDaysCount, initialHarvestDays, visible]);
 
   const handleChicksChange = (text) => {
-    // Only allow numeric input, max 100
-    const numericText = text.replace(/[^0-9]/g, '');
+    // Only allow numeric input, max 99
+    const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
-    
-    if (numericText === '') {
+
+    if (numericText === "") {
       setChicksCount(numericText);
       setChicksError("");
-    } else if (numValue >= 0 && numValue <= 100) {
+    } else if (numValue > 0 && numValue < 100) {
       setChicksCount(numericText);
       setChicksError("");
     } else {
-      setChicksError("Number of chicks cannot exceed 100");
+      setChicksError("Number of chicks must be between 1 and 99");
     }
   };
 
   const handleDaysChange = (text) => {
-    // Only allow numeric input, max 365
-    const numericText = text.replace(/[^0-9]/g, '');
+    // Only allow numeric input, min 0, max 50
+    const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
-    
-    if (numericText === '') {
+
+    if (numericText === "") {
       setDaysCount(numericText);
       setDaysError("");
-    } else if (numValue >= 0 && numValue <= 365) {
+    } else if (numValue >= 0 && numValue <= 50) {
       setDaysCount(numericText);
       setDaysError("");
     } else {
-      setDaysError("Number of days cannot exceed 365");
+      setDaysCount(numericText);
+      setDaysError("Number of days must be between 0 and 50");
     }
   };
 
   const handleHarvestChange = (text) => {
-    // Only allow numeric input, max 365
-    const numericText = text.replace(/[^0-9]/g, '');
+    // Only allow numeric input, min 1, max 365
+    const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
-    
-    if (numericText === '') {
+
+    if (numericText === "") {
       setHarvestDays(numericText);
       setHarvestError("");
-    } else if (numValue >= 0 && numValue <= 365) {
+    } else if (numValue > 0 && numValue <= 365) {
       setHarvestDays(numericText);
       setHarvestError("");
     } else {
-      setHarvestError("Expected harvest days cannot exceed 365");
+      // Allow input but show error
+      setHarvestDays(numericText);
+      setHarvestError("Expected harvest days must be between 1 and 365");
     }
   };
 
-  const handleSave = () => {
-    onSaveChicksCount?.(chicksCount.trim());
-    onSaveDaysCount?.(daysCount.trim());
-    onSaveHarvestDays?.(harvestDays.trim());
-    
-    // Show success modal
-    setShowSuccess(true);
-    
-    // Close after 2 seconds without clearing the form
-    // Form will be populated with saved values when reopened
-    setTimeout(() => {
-      setShowSuccess(false);
-      onClose();
-    }, 2000);
+  const handleSave = async () => {
+    // Additional validation
+    const chicksNum = parseInt(chicksCount);
+    const daysNum = parseInt(daysCount);
+    const harvestNum = parseInt(harvestDays);
+
+    if (chicksNum >= 100) {
+      setChicksError("Number of chicks must be less than 100");
+      return;
+    }
+    if (daysNum > 50) {
+      setDaysError("Number of days must be less than 50");
+      return;
+    }
+    if (harvestNum <= 0) {
+      setHarvestError("Expected harvest days must be greater than 0");
+      return;
+    }
+
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        alert("User not authenticated");
+        return;
+      }
+      const userId = currentUser.uid;
+
+      // Fetch user data
+      const userDoc = await getDocs(
+        query(collection(db, "users"), where("uid", "==", userId))
+      );
+      if (userDoc.empty) {
+        alert("User data not found");
+        return;
+      }
+      const userData = userDoc.docs[0].data();
+      const firstName = userData.firstName || "";
+      const lastName = userData.lastName || "";
+
+      // Create GMT+8 timestamp
+      const now = new Date();
+      const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+      const gmt8 = new Date(utc + 8 * 60 * 60000);
+      const timestampGMT8 = gmt8.toISOString();
+
+      if (currentBatchId) {
+        // Always update the existing batch document
+        const { updateDoc, doc, getDoc } = await import("firebase/firestore");
+        // Fetch current batch to keep batchId, batchNumber, createdAt
+        const batchDocSnap = await getDoc(
+          doc(db, "brooderInfo", currentBatchId)
+        );
+        if (!batchDocSnap.exists()) {
+          alert("Batch not found");
+          return;
+        }
+        const batchData = batchDocSnap.data();
+        const batchId = batchData.batchId;
+        const batchNumber = batchData.batchNumber;
+        // Only update allowed fields, keep createdAt unchanged
+        await updateDoc(doc(db, "brooderInfo", currentBatchId), {
+          batchId,
+          batchNumber,
+          chicksCount: chicksNum,
+          daysCount: daysNum,
+          harvestDays: harvestNum,
+          userId,
+          firstName,
+          lastName,
+          updatedAt: new Date(),
+          updatedAtGMT8: timestampGMT8,
+        });
+      } else {
+        // Only create new batch if currentBatchId is null
+        // Find max batchId for this user
+        const brooderQuery = query(
+          collection(db, "brooderInfo"),
+          where("userId", "==", userId)
+        );
+        const brooderSnapshot = await getDocs(brooderQuery);
+        let maxBatchId = 0;
+        brooderSnapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data.batchId && data.batchId > maxBatchId)
+            maxBatchId = data.batchId;
+        });
+        const nextBatchId = maxBatchId + 1;
+        const batchNumber = `Batch ${nextBatchId}`;
+        await addDoc(collection(db, "brooderInfo"), {
+          batchId: nextBatchId,
+          batchNumber,
+          chicksCount: chicksNum,
+          daysCount: daysNum,
+          harvestDays: harvestNum,
+          userId,
+          firstName,
+          lastName,
+          createdAt: new Date(),
+          createdAtGMT8: timestampGMT8,
+          updatedAt: new Date(),
+          updatedAtGMT8: timestampGMT8,
+        });
+      }
+
+      // Call the original save callbacks
+      onSaveChicksCount?.(chicksCount.trim());
+      onSaveDaysCount?.(daysCount.trim());
+      onSaveHarvestDays?.(harvestDays.trim());
+
+      // Show success modal
+      setShowSuccess(true);
+
+      // Close after 2 seconds without clearing the form
+      setTimeout(() => {
+        setShowSuccess(false);
+        onClose();
+      }, 2000);
+    } catch (error) {
+      console.error("Error saving brooder info:", error);
+      alert("Failed to save. Please try again.");
+    }
   };
 
   const handleClose = () => {
@@ -126,8 +258,8 @@ export default function QuickSetupModal({
       transparent
       onRequestClose={handleClose}
     >
-      <Pressable 
-        style={styles.backdrop} 
+      <Pressable
+        style={styles.backdrop}
         onPress={handleClose}
         activeOpacity={1}
       >
@@ -149,20 +281,24 @@ export default function QuickSetupModal({
               onChangeText={handleChicksChange}
               keyboardType="numeric"
             />
-            {chicksError ? <Text style={styles.errorText}>{chicksError}</Text> : null}
+            {chicksError ? (
+              <Text style={styles.errorText}>{chicksError}</Text>
+            ) : null}
           </View>
 
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Number of Days</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter number of days (-45)"
+              placeholder="Enter number of days"
               placeholderTextColor="#9ca3af"
               value={daysCount}
               onChangeText={handleDaysChange}
               keyboardType="numeric"
             />
-            {daysError ? <Text style={styles.errorText}>{daysError}</Text> : null}
+            {daysError ? (
+              <Text style={styles.errorText}>{daysError}</Text>
+            ) : null}
           </View>
 
           <View style={styles.inputGroup}>
@@ -175,16 +311,28 @@ export default function QuickSetupModal({
               onChangeText={handleHarvestChange}
               keyboardType="numeric"
             />
-            {harvestError ? <Text style={styles.errorText}>{harvestError}</Text> : null}
+            {harvestError ? (
+              <Text style={styles.errorText}>{harvestError}</Text>
+            ) : null}
           </View>
 
           <TouchableOpacity
-            style={[styles.saveButton, !isFormValid && styles.saveButtonDisabled]}
+            style={[
+              styles.saveButton,
+              !isFormValid && styles.saveButtonDisabled,
+            ]}
             activeOpacity={0.9}
             onPress={handleSave}
             disabled={!isFormValid}
           >
-            <Text style={[styles.saveButtonText, !isFormValid && styles.saveButtonTextDisabled]}>Save</Text>
+            <Text
+              style={[
+                styles.saveButtonText,
+                !isFormValid && styles.saveButtonTextDisabled,
+              ]}
+            >
+              Save
+            </Text>
           </TouchableOpacity>
         </Pressable>
 
@@ -192,9 +340,11 @@ export default function QuickSetupModal({
         <Modal visible={showSuccess} transparent animationType="fade">
           <View style={styles.successModalOverlay}>
             <View style={styles.successModalCard}>
-              <Image 
-                source={{ uri: 'https://img.icons8.com/color/96/checked--v1.png' }} 
-                style={styles.successIcon} 
+              <Image
+                source={{
+                  uri: "https://img.icons8.com/color/96/checked--v1.png",
+                }}
+                style={styles.successIcon}
               />
               <Text style={styles.successTitle}>Successfully Saved!</Text>
             </View>

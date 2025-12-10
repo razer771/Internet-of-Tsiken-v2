@@ -11,102 +11,74 @@ import {
   Platform,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import CalendarModal from "../../navigation/CalendarModal";
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { db } from "../../../config/firebaseconfig";
+import { getAuth } from "firebase/auth";
 
 const Icon = Feather;
 
-export default function GenerateReportModal({ visible, onClose, onGenerate, existingBatches = [] }) {
-  const BROODER_CAPACITY = 10; // Maximum chicks allowed
-  const MAX_DAYS_AGO = 30; // Start date cannot be older than 30 days
-
+export default function GenerateReportModal({
+  visible,
+  onClose,
+  onGenerate,
+  existingBatches = [],
+}) {
   const [batchNumber, setBatchNumber] = useState("");
-  const [numberOfChicks, setNumberOfChicks] = useState("");
-  const [batchStartDate, setBatchStartDate] = useState(null);
-  const [expectedHarvestDays, setExpectedHarvestDays] = useState("");
-  const [expectedDate, setExpectedDate] = useState(null);
-  const [showHarvestDaysDropdown, setShowHarvestDaysDropdown] = useState(false);
-  
-  const [showStartDateCalendar, setShowStartDateCalendar] = useState(false);
-  const [isValidatePressed, setIsValidatePressed] = useState(false);
+  const [reportType, setReportType] = useState("");
+  const [availableBatches, setAvailableBatches] = useState([]);
+  const [showBatchDropdown, setShowBatchDropdown] = useState(false);
+  const [showReportTypeDropdown, setShowReportTypeDropdown] = useState(false);
+  const [isGeneratePressed, setIsGeneratePressed] = useState(false);
 
   const [errors, setErrors] = useState({
     batchNumber: "",
-    numberOfChicks: "",
-    batchStartDate: "",
-    expectedHarvestDays: "",
+    reportType: "",
   });
 
-  const [warnings, setWarnings] = useState({
-    numberOfChicks: "",
-    batchStartDate: "",
-  });
+  const [warnings, setWarnings] = useState({});
 
   const [duplicateBatchError, setDuplicateBatchError] = useState("");
 
-  // Generate array of harvest days from 30 to 60
-  const harvestDaysOptions = Array.from({ length: 31 }, (_, i) => 30 + i);
-
-  // Auto-calculate expected date
+  // Fetch available batches from brooderInfo collection
   useEffect(() => {
-    if (batchStartDate && expectedHarvestDays) {
-      const days = parseInt(expectedHarvestDays);
-      if (days >= 30 && days <= 60) {
-        const calculatedDate = new Date(batchStartDate);
-        calculatedDate.setDate(calculatedDate.getDate() + days);
-        setExpectedDate(calculatedDate);
+    const fetchAvailableBatches = async () => {
+      try {
+        const auth = getAuth();
+        const currentUser = auth.currentUser;
+        if (!currentUser) return;
+
+        const userId = currentUser.uid;
+        const q = query(
+          collection(db, "brooderInfo"),
+          where("userId", "==", userId)
+        );
+        const querySnapshot = await getDocs(q);
+
+        const batches = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          batches.push({
+            id: doc.id,
+            batchId: data.batchId,
+            batchNumber: data.batchNumber,
+          });
+        });
+
+        setAvailableBatches(batches);
+      } catch (error) {
+        console.error("Error fetching batches:", error);
       }
+    };
+
+    if (visible) {
+      fetchAvailableBatches();
     }
-  }, [batchStartDate, expectedHarvestDays]);
-
-  const formatDate = (date) => {
-    if (!date) return "";
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  };
-
-  const checkBatchDuplicate = (batch) => {
-    const trimmedBatch = batch.trim().toLowerCase();
-    const isDuplicate = existingBatches.some(existingBatch => {
-      // Check if input matches the batch exactly, or matches the number part
-      const lowerExisting = existingBatch.toLowerCase();
-      
-      // Check exact match
-      if (lowerExisting === trimmedBatch) return true;
-      
-      // Check if input is just the number (e.g., "3" should match "Batch #3")
-      if (lowerExisting === `batch #${trimmedBatch}`) return true;
-      if (lowerExisting === `batch#${trimmedBatch}`) return true;
-      
-      // Extract number from existing batch (e.g., "Batch #3" -> "3")
-      const numberMatch = lowerExisting.match(/batch\s*#?(\d+)/);
-      if (numberMatch && numberMatch[1] === trimmedBatch) return true;
-      
-      return false;
-    });
-    return isDuplicate;
-  };
-
-  const checkStartDateAge = (date) => {
-    const today = new Date();
-    const diffTime = today - date;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays > MAX_DAYS_AGO;
-  };
+  }, [visible]);
 
   const validateForm = () => {
     const newErrors = {
       batchNumber: "",
-      numberOfChicks: "",
-      batchStartDate: "",
-      expectedHarvestDays: "",
-    };
-
-    const newWarnings = {
-      numberOfChicks: "",
-      batchStartDate: "",
+      reportType: "",
     };
 
     let isValid = true;
@@ -114,57 +86,29 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
 
     // Validate Batch Number
     if (!batchNumber.trim()) {
-      newErrors.batchNumber = "Enter a batch number";
-      isValid = false;
-    } else if (checkBatchDuplicate(batchNumber)) {
-      setDuplicateBatchError("Batch number already in use");
+      newErrors.batchNumber = "Select a batch";
       isValid = false;
     }
 
-    // Validate Number of Chicks
-    const chicksNum = parseInt(numberOfChicks);
-    if (!numberOfChicks || chicksNum <= 0) {
-      newErrors.numberOfChicks = "Enter a valid number of chicks";
-      isValid = false;
-    } else if (chicksNum > BROODER_CAPACITY) {
-      newWarnings.numberOfChicks = "Exceeds brooder capacity";
-    }
-
-    // Validate Batch Start Date
-    if (!batchStartDate) {
-      newErrors.batchStartDate = "Select a start date";
-      isValid = false;
-    } else if (checkStartDateAge(batchStartDate)) {
-      newWarnings.batchStartDate = "Start date is too old. Select a recent date.";
+    // Validate Report Type
+    if (!reportType.trim()) {
+      newErrors.reportType = "Select a report type";
       isValid = false;
     }
-
-    // Validate Expected Harvest Days
-    const harvestDays = parseInt(expectedHarvestDays);
-    if (!expectedHarvestDays || harvestDays < 30 || harvestDays > 60) {
-      newErrors.expectedHarvestDays = "Expected harvest days must be between 30-60";
-      isValid = false;
-    }
-
-    // No validation for Expected Date - it's auto-calculated
 
     setErrors(newErrors);
-    setWarnings(newWarnings);
     return isValid;
   };
 
-  const handleValidate = () => {
+  const handleGenerate = () => {
     if (validateForm()) {
       const reportData = {
         batchNumber: batchNumber.trim(),
-        numberOfChicks: parseInt(numberOfChicks),
-        batchStartDate,
-        expectedHarvestDays: parseInt(expectedHarvestDays),
-        expectedDate,
+        reportType: reportType.trim(),
       };
 
-      console.log("Report validated:", reportData);
-      
+      console.log("Report generated:", reportData);
+
       // Call parent callback to add report to table
       if (onGenerate) {
         onGenerate(reportData);
@@ -177,51 +121,26 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
 
   const handleClose = () => {
     setBatchNumber("");
-    setNumberOfChicks("");
-    setBatchStartDate(null);
-    setExpectedHarvestDays("");
-    setExpectedDate(null);
+    setReportType("");
+    setAvailableBatches([]);
     setErrors({
       batchNumber: "",
-      numberOfChicks: "",
-      batchStartDate: "",
-      expectedHarvestDays: "",
-    });
-    setWarnings({
-      numberOfChicks: "",
-      batchStartDate: "",
+      reportType: "",
     });
     setDuplicateBatchError("");
-    setShowHarvestDaysDropdown(false);
-    setIsValidatePressed(false);
+    setShowBatchDropdown(false);
+    setShowReportTypeDropdown(false);
+    setIsGeneratePressed(false);
     onClose();
   };
 
-  // Check batch duplicate in real-time as user types
-  useEffect(() => {
-    if (batchNumber.trim()) {
-      if (checkBatchDuplicate(batchNumber)) {
-        setDuplicateBatchError("Batch number already in use");
-      } else {
-        setDuplicateBatchError("");
-      }
-    } else {
-      setDuplicateBatchError("");
-    }
-  }, [batchNumber, existingBatches]);
-
-  // Also check number of chicks in real-time
-  useEffect(() => {
-    const chicksNum = parseInt(numberOfChicks);
-    if (numberOfChicks && chicksNum > BROODER_CAPACITY) {
-      setWarnings({ ...warnings, numberOfChicks: "Exceeds brooder capacity" });
-    } else {
-      setWarnings({ ...warnings, numberOfChicks: "" });
-    }
-  }, [numberOfChicks]);
-
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={handleClose}
+    >
       <View style={styles.backdrop}>
         <View style={styles.container}>
           {/* Header */}
@@ -234,154 +153,150 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
           </View>
 
           {/* Form */}
-          <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.scrollView}
+            showsVerticalScrollIndicator={false}
+          >
             <View style={styles.form}>
-              {/* Batch Number */}
+              {/* Batch Number - Dropdown */}
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Batch Number</Text>
-                <TextInput
-                  style={[styles.input, errors.batchNumber && styles.inputError]}
-                  placeholder="Enter a batch number"
-                  placeholderTextColor="#9ca3af"
-                  value={batchNumber}
-                  onChangeText={(text) => {
-                    setBatchNumber(text);
-                    setErrors({ ...errors, batchNumber: "" });
-                    setDuplicateBatchError("");
-                  }}
-                />
-                {errors.batchNumber ? (
-                  <Text style={styles.errorText}>{errors.batchNumber}</Text>
-                ) : null}
-              </View>
-
-              {/* Number of Chicks */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Number of Chicks</Text>
-                <TextInput
-                  style={[styles.input, errors.numberOfChicks && styles.inputError]}
-                  placeholder={`e.g., ${BROODER_CAPACITY}`}
-                  placeholderTextColor="#9ca3af"
-                  value={numberOfChicks}
-                  onChangeText={(text) => {
-                    setNumberOfChicks(text);
-                    setErrors({ ...errors, numberOfChicks: "" });
-                  }}
-                  keyboardType="numeric"
-                />
-                {errors.numberOfChicks ? (
-                  <Text style={styles.errorText}>{errors.numberOfChicks}</Text>
-                ) : warnings.numberOfChicks ? (
-                  <Text style={styles.errorText}>{warnings.numberOfChicks}</Text>
-                ) : null}
-              </View>
-
-              {/* Batch Start Date */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Batch Start Date</Text>
                 <TouchableOpacity
-                  style={[styles.dateInput, (errors.batchStartDate || warnings.batchStartDate) && styles.inputError]}
-                  onPress={() => setShowStartDateCalendar(true)}
+                  style={[
+                    styles.dropdownButton,
+                    errors.batchNumber && styles.inputError,
+                  ]}
+                  onPress={() => setShowBatchDropdown(!showBatchDropdown)}
                 >
-                  <Icon name="calendar" size={16} color="#64748b" />
-                  <Text style={[styles.dateText, !batchStartDate && styles.placeholderText]}>
-                    {batchStartDate ? formatDate(batchStartDate) : "Select a start date"}
-                  </Text>
-                </TouchableOpacity>
-                {errors.batchStartDate ? (
-                  <Text style={styles.errorText}>{errors.batchStartDate}</Text>
-                ) : warnings.batchStartDate ? (
-                  <Text style={styles.errorText}>{warnings.batchStartDate}</Text>
-                ) : null}
-              </View>
-
-              {/* Expected Harvest Days - Dropdown */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Expected Harvest Days (30-60)</Text>
-                <TouchableOpacity
-                  style={[styles.dropdownButton, errors.expectedHarvestDays && styles.inputError]}
-                  onPress={() => setShowHarvestDaysDropdown(!showHarvestDaysDropdown)}
-                >
-                  <Text style={[styles.dropdownText, !expectedHarvestDays && styles.placeholderText]}>
-                    {expectedHarvestDays ? `${expectedHarvestDays} days` : "Select harvest days"}
+                  <Text
+                    style={[
+                      styles.dropdownText,
+                      !batchNumber && styles.placeholderText,
+                    ]}
+                  >
+                    {batchNumber ? `${batchNumber}` : "Select a batch"}
                   </Text>
                   <Icon name="chevron-down" size={16} color="#64748b" />
                 </TouchableOpacity>
-                
-                {showHarvestDaysDropdown && (
+
+                {showBatchDropdown && (
                   <View style={styles.dropdownList}>
-                    <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                      {harvestDaysOptions.map((days) => (
+                    <ScrollView
+                      style={styles.dropdownScroll}
+                      nestedScrollEnabled
+                    >
+                      {availableBatches.map((batch) => (
                         <TouchableOpacity
-                          key={days}
+                          key={batch.id}
                           style={styles.dropdownItem}
                           onPress={() => {
-                            setExpectedHarvestDays(String(days));
-                            setShowHarvestDaysDropdown(false);
-                            setErrors({ ...errors, expectedHarvestDays: "" });
+                            setBatchNumber(batch.batchNumber);
+                            setShowBatchDropdown(false);
+                            setErrors({ ...errors, batchNumber: "" });
+                            setDuplicateBatchError("");
                           }}
                         >
-                          <Text style={[
-                            styles.dropdownItemText,
-                            expectedHarvestDays === String(days) && styles.dropdownItemTextActive
-                          ]}>
-                            {days} days
+                          <Text style={[styles.dropdownItemText]}>
+                            {batch.batchNumber}
                           </Text>
                         </TouchableOpacity>
                       ))}
                     </ScrollView>
                   </View>
                 )}
-                
-                {errors.expectedHarvestDays ? (
-                  <Text style={styles.errorText}>{errors.expectedHarvestDays}</Text>
+
+                {errors.batchNumber ? (
+                  <Text style={styles.errorText}>{errors.batchNumber}</Text>
                 ) : null}
               </View>
 
-              {/* Expected Date */}
+              {/* Report Type - Dropdown */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Expected Date</Text>
-                <View style={styles.dateInputReadOnly}>
-                  <Icon name="calendar" size={16} color="#64748b" />
-                  <Text style={styles.dateText}>
-                    {expectedDate ? formatDate(expectedDate) : ""}
+                <Text style={styles.label}>Report Type</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.dropdownButton,
+                    errors.reportType && styles.inputError,
+                  ]}
+                  onPress={() =>
+                    setShowReportTypeDropdown(!showReportTypeDropdown)
+                  }
+                >
+                  <Text
+                    style={[
+                      styles.dropdownText,
+                      !reportType && styles.placeholderText,
+                    ]}
+                  >
+                    {reportType || "Select report type"}
                   </Text>
-                </View>
+                  <Icon name="chevron-down" size={16} color="#64748b" />
+                </TouchableOpacity>
+
+                {showReportTypeDropdown && (
+                  <View style={styles.dropdownList}>
+                    <ScrollView
+                      style={styles.dropdownScroll}
+                      nestedScrollEnabled
+                    >
+                      {["Daily Report", "Weekly Report", "Batch Summary"].map(
+                        (type) => (
+                          <TouchableOpacity
+                            key={type}
+                            style={styles.dropdownItem}
+                            onPress={() => {
+                              setReportType(type);
+                              setShowReportTypeDropdown(false);
+                              setErrors({ ...errors, reportType: "" });
+                            }}
+                          >
+                            <Text style={[styles.dropdownItemText]}>
+                              {type}
+                            </Text>
+                          </TouchableOpacity>
+                        )
+                      )}
+                    </ScrollView>
+                  </View>
+                )}
+
+                {errors.reportType ? (
+                  <Text style={styles.errorText}>{errors.reportType}</Text>
+                ) : null}
               </View>
 
               {/* Duplicate Batch Error - Bottom of form */}
               {duplicateBatchError ? (
                 <View style={styles.duplicateErrorContainer}>
                   <Icon name="alert-circle" size={16} color="#ef4444" />
-                  <Text style={styles.duplicateErrorText}>{duplicateBatchError}</Text>
+                  <Text style={styles.duplicateErrorText}>
+                    {duplicateBatchError}
+                  </Text>
                 </View>
               ) : null}
 
-              {/* Validate Button */}
+              {/* Generate Button */}
               <TouchableOpacity
-                style={[styles.validateButton, isValidatePressed && styles.validateButtonPressed]}
-                onPress={handleValidate}
-                onPressIn={() => setIsValidatePressed(true)}
-                onPressOut={() => setIsValidatePressed(false)}
+                style={[
+                  styles.validateButton,
+                  isGeneratePressed && styles.validateButtonPressed,
+                ]}
+                onPress={handleGenerate}
+                onPressIn={() => setIsGeneratePressed(true)}
+                onPressOut={() => setIsGeneratePressed(false)}
                 activeOpacity={1}
               >
-                <Text style={[styles.validateButtonText, isValidatePressed && styles.validateButtonTextPressed]}>
-                  Validate
+                <Text
+                  style={[
+                    styles.validateButtonText,
+                    isGeneratePressed && styles.validateButtonTextPressed,
+                  ]}
+                >
+                  Generate
                 </Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
-
-          {/* Calendar Modals */}
-          <CalendarModal
-            visible={showStartDateCalendar}
-            onClose={() => setShowStartDateCalendar(false)}
-            onSelectDate={(date) => {
-              setBatchStartDate(date);
-              setErrors({ ...errors, batchStartDate: "" });
-              setWarnings({ ...warnings, batchStartDate: "" });
-            }}
-          />
         </View>
       </View>
     </Modal>

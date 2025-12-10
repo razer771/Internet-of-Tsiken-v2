@@ -1,0 +1,6 @@
+names:
+- snake
+- rodent
+nc: 2
+train: /home/g1rpi2025/Internet-of-Tsiken-v2/yolo object detection/combined_predators/train/images
+val: /home/g1rpi2025/Internet-of-Tsiken-v2/yolo object detection/combined_predators/valid/images

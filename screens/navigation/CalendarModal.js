@@ -11,19 +11,37 @@ import { Feather } from "@expo/vector-icons";
 
 const Icon = Feather;
 
-export default function CalendarModal({ visible, onClose, onSelectDate }) {
+export default function CalendarModal({
+  visible,
+  onClose,
+  onSelectDate,
+  minimumDate,
+  maximumDate,
+}) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
-  const monthNames = ["January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"];
+  const monthNames = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
 
   const getDaysInMonth = (date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
     const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    
+
     const days = [];
     for (let i = 0; i < firstDay; i++) {
       days.push(null);
@@ -35,11 +53,48 @@ export default function CalendarModal({ visible, onClose, onSelectDate }) {
   };
 
   const handlePrevMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
+    const prevMonth = new Date(
+      currentMonth.getFullYear(),
+      currentMonth.getMonth() - 1
+    );
+    // Check if the previous month has any valid dates
+    if (minimumDate) {
+      const lastDayOfPrevMonth = new Date(
+        prevMonth.getFullYear(),
+        prevMonth.getMonth() + 1,
+        0
+      );
+      if (lastDayOfPrevMonth < minimumDate) {
+        return; // Don't allow navigation to months before minimum date
+      }
+    }
+    setCurrentMonth(prevMonth);
   };
 
   const handleNextMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
+    const nextMonth = new Date(
+      currentMonth.getFullYear(),
+      currentMonth.getMonth() + 1
+    );
+    // Check if the next month has any valid dates
+    if (maximumDate) {
+      const firstDayOfNextMonth = new Date(
+        nextMonth.getFullYear(),
+        nextMonth.getMonth(),
+        1
+      );
+      if (firstDayOfNextMonth > maximumDate) {
+        return; // Don't allow navigation to months after maximum date
+      }
+    }
+    setCurrentMonth(nextMonth);
+  };
+
+  const isDateDisabled = (date) => {
+    if (!date) return true;
+    if (minimumDate && date < minimumDate) return true;
+    if (maximumDate && date > maximumDate) return true;
+    return false;
   };
 
   const handleSelectDate = (date) => {
@@ -60,7 +115,12 @@ export default function CalendarModal({ visible, onClose, onSelectDate }) {
   const days = getDaysInMonth(currentMonth);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
       <View style={styles.backdrop}>
         <View style={styles.calendarContainer}>
           <View style={styles.header}>
@@ -71,20 +131,28 @@ export default function CalendarModal({ visible, onClose, onSelectDate }) {
           </View>
 
           <View style={styles.monthSelector}>
-            <TouchableOpacity onPress={handlePrevMonth} style={styles.arrowButton}>
+            <TouchableOpacity
+              onPress={handlePrevMonth}
+              style={styles.arrowButton}
+            >
               <Icon name="chevron-left" size={24} color="#1a1a1a" />
             </TouchableOpacity>
             <Text style={styles.monthText}>
               {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
             </Text>
-            <TouchableOpacity onPress={handleNextMonth} style={styles.arrowButton}>
+            <TouchableOpacity
+              onPress={handleNextMonth}
+              style={styles.arrowButton}
+            >
               <Icon name="chevron-right" size={24} color="#1a1a1a" />
             </TouchableOpacity>
           </View>
 
           <View style={styles.weekDays}>
             {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day, index) => (
-              <Text key={index} style={styles.weekDayText}>{day}</Text>
+              <Text key={index} style={styles.weekDayText}>
+                {day}
+              </Text>
             ))}
           </View>
 
@@ -97,16 +165,22 @@ export default function CalendarModal({ visible, onClose, onSelectDate }) {
                   !date && styles.emptyDay,
                   date && isToday(date) && styles.todayButton,
                   date && isSelected(date) && styles.selectedButton,
+                  date && isDateDisabled(date) && styles.disabledButton,
                 ]}
-                onPress={() => date && handleSelectDate(date)}
-                disabled={!date}
+                onPress={() =>
+                  date && !isDateDisabled(date) && handleSelectDate(date)
+                }
+                disabled={!date || isDateDisabled(date)}
               >
                 {date && (
-                  <Text style={[
-                    styles.dayText,
-                    isToday(date) && styles.todayText,
-                    isSelected(date) && styles.selectedText,
-                  ]}>
+                  <Text
+                    style={[
+                      styles.dayText,
+                      isToday(date) && styles.todayText,
+                      isSelected(date) && styles.selectedText,
+                      isDateDisabled(date) && styles.disabledText,
+                    ]}
+                  >
                     {date.getDate()}
                   </Text>
                 )}
@@ -206,5 +280,13 @@ const styles = StyleSheet.create({
   selectedText: {
     color: "#ffffff",
     fontWeight: "700",
+  },
+  disabledButton: {
+    backgroundColor: "#f3f4f6",
+    borderRadius: 8,
+  },
+  disabledText: {
+    color: "#9ca3af",
+    fontWeight: "400",
   },
 });
