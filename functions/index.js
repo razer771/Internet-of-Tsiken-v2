@@ -27,11 +27,10 @@ const { getDatabase } = require("firebase-admin/database");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const nodemailer = require("nodemailer");
 
-// Initialize Twilio
-const accountSid = "ACcc5a4257b42b456747083860b3a61773";
-const authToken = "8448f54ce691e603a6e074d437c90031";
-const twilioClient = require("twilio")(accountSid, authToken);
-const verifyServiceSid = "VAf81f3e93faa06bb33bd946e3a7fb1da5";
+// Twilio credentials (will be initialized lazily)
+const TWILIO_ACCOUNT_SID = "ACcc5a4257b42b456747083860b3a61773";
+const TWILIO_AUTH_TOKEN = "8448f54ce691e603a6e074d437c90031";
+const TWILIO_VERIFY_SERVICE_SID = "VAf81f3e93faa06bb33bd946e3a7fb1da5";
 
 // Initialize Firebase Admin
 initializeApp();
@@ -43,7 +42,7 @@ const rtdb = getDatabase();
  * Send SMS OTP using Twilio Verify API
  * Sends a verification code via SMS to the provided phone number
  */
-exports.sendSMSOTP = onCall(async (request) => {
+exports.sendSMSOTP = onCall({ invoker: "all" }, async (request) => {
   try {
     const { phone } = request.data;
 
@@ -71,9 +70,15 @@ exports.sendSMSOTP = onCall(async (request) => {
 
     console.log(`✅ Phone number found in database: ${phone}`);
 
+    // Initialize Twilio client (lazy loading)
+    const twilioClient = require("twilio")(
+      TWILIO_ACCOUNT_SID,
+      TWILIO_AUTH_TOKEN
+    );
+
     // Send verification code using Twilio Verify
     const verification = await twilioClient.verify.v2
-      .services(verifyServiceSid)
+      .services(TWILIO_VERIFY_SERVICE_SID)
       .verifications.create({
         to: phone,
         channel: "sms",
@@ -103,7 +108,7 @@ exports.sendSMSOTP = onCall(async (request) => {
  * Verify SMS OTP using Twilio Verify API
  * Verifies the OTP code entered by the user
  */
-exports.verifySMSOTP = onCall(async (request) => {
+exports.verifySMSOTP = onCall({ invoker: "all" }, async (request) => {
   try {
     const { phone, otp } = request.data;
 
@@ -117,9 +122,15 @@ exports.verifySMSOTP = onCall(async (request) => {
 
     console.log(`🔐 Verifying OTP for: ${phone}`);
 
+    // Initialize Twilio client (lazy loading)
+    const twilioClient = require("twilio")(
+      TWILIO_ACCOUNT_SID,
+      TWILIO_AUTH_TOKEN
+    );
+
     // Verify the OTP code using Twilio Verify
     const verificationCheck = await twilioClient.verify.v2
-      .services(verifyServiceSid)
+      .services(TWILIO_VERIFY_SERVICE_SID)
       .verificationChecks.create({
         to: phone,
         code: otp,

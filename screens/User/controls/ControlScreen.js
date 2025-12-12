@@ -438,6 +438,7 @@ export default function ControlScreen({ navigation }) {
     "http://rpi5desktop.local:5000"
   );
   const [showServerInput, setShowServerInput] = useState(false);
+  const [isCameraConnected, setIsCameraConnected] = useState(false);
 
   // Callback when camera server is auto-discovered
   const handleServerDiscovered = (discoveredUrl) => {
@@ -720,7 +721,8 @@ export default function ControlScreen({ navigation }) {
     });
   };
 
-  const [confirmDeleteSelectedModal, setConfirmDeleteSelectedModal] = useState(false);
+  const [confirmDeleteSelectedModal, setConfirmDeleteSelectedModal] =
+    useState(false);
 
   const deleteSelected = () => {
     if (selectedToDelete.length === 0) {
@@ -734,74 +736,69 @@ export default function ControlScreen({ navigation }) {
     setConfirmDeleteSelectedModal(true);
   };
 
-            // Prevent duplicate submissions
-            if (isSubmitting) {
-              console.warn(
-                "Submit already in progress, ignoring duplicate click"
-              );
-              return;
-            }
+  const confirmDeleteSelected = async () => {
+    // Prevent duplicate submissions
+    if (isSubmitting) {
+      console.warn("Submit already in progress, ignoring duplicate click");
+      return;
+    }
 
-            setIsSubmitting(true);
+    setIsSubmitting(true);
 
-            try {
-              const user = auth.currentUser;
-              if (user) {
-                // Delete selected feed documents from Firestore
-                const deletePromises = selectedToDelete.map((feedId) =>
-                  deleteDoc(doc(db, "feeds", `${user.uid}_${feedId}`))
-                );
-                await Promise.all(deletePromises);
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        // Delete selected feed documents from Firestore
+        const deletePromises = selectedToDelete.map((feedId) =>
+          deleteDoc(doc(db, "feeds", `${user.uid}_${feedId}`))
+        );
+        await Promise.all(deletePromises);
 
-                console.log(
-                  `✅ Deleted ${selectedToDelete.length} selected feeding schedules`
-                );
+        console.log(
+          `✅ Deleted ${selectedToDelete.length} selected feeding schedules`
+        );
 
-                // Get deleted feed times for notification
-                const deletedFeeds = feeds.filter((f) =>
-                  selectedToDelete.includes(f.id)
-                );
-                const deletedTimes = deletedFeeds.map((f) => f.time).join(", ");
+        // Get deleted feed times for notification
+        const deletedFeeds = feeds.filter((f) =>
+          selectedToDelete.includes(f.id)
+        );
+        const deletedTimes = deletedFeeds.map((f) => f.time).join(", ");
 
-                // Add user notification
-                addUserNotification({
-                  category: "IoT: Internet of Tsiken",
-                  title: "Feeding schedules deleted",
-                  description: `Removed ${selectedToDelete.length} feeding schedule(s)`,
-                });
+        // Add user notification
+        addUserNotification({
+          category: "IoT: Internet of Tsiken",
+          title: "Feeding schedules deleted",
+          description: `Removed ${selectedToDelete.length} feeding schedule(s)`,
+        });
 
-                // Add admin notification
-                addNotification({
-                  category: "Schedule Management",
-                  title: "Feeding schedules deleted",
-                  description: `${user.displayName || user.email} deleted ${selectedToDelete.length} feeding schedule(s): ${deletedTimes}`,
-                  type: "schedule",
-                });
-              }
-            } catch (err) {
-              console.error("Failed to delete selected feeds:", err);
-              Alert.alert(
-                "Error",
-                "Failed to delete selected schedules: " + err.message
-              );
-              setIsSubmitting(false);
-              return;
-            }
+        // Add admin notification
+        addNotification({
+          category: "Schedule Management",
+          title: "Feeding schedules deleted",
+          description: `${user.displayName || user.email} deleted ${selectedToDelete.length} feeding schedule(s): ${deletedTimes}`,
+          type: "schedule",
+        });
+      }
+    } catch (err) {
+      console.error("Failed to delete selected feeds:", err);
+      Alert.alert(
+        "Error",
+        "Failed to delete selected schedules: " + err.message
+      );
+      setIsSubmitting(false);
+      return;
+    }
 
-            // Update local state
-            setFeeds((s) => s.filter((f) => !selectedToDelete.includes(f.id)));
-            setDeleteMode(false);
-            setSelectedToDelete([]);
-            setIsSubmitting(false);
+    // Update local state
+    setFeeds((s) => s.filter((f) => !selectedToDelete.includes(f.id)));
+    setDeleteMode(false);
+    setSelectedToDelete([]);
+    setIsSubmitting(false);
+    setConfirmDeleteSelectedModal(false);
 
-            // Show success popup
-            setShowDeletedPopup(true);
-            setTimeout(() => setShowDeletedPopup(false), 1200);
-          },
-        },
-      ],
-      { cancelable: true }
-    );
+    // Show success popup
+    setShowDeletedPopup(true);
+    setTimeout(() => setShowDeletedPopup(false), 1200);
   };
 
   const beginSaveFlow = () => {
@@ -1074,7 +1071,7 @@ export default function ControlScreen({ navigation }) {
     title: "",
     message: "",
   });
-  
+
   // Error modal state
   const [errorModal, setErrorModal] = useState({
     visible: false,
@@ -2090,7 +2087,7 @@ export default function ControlScreen({ navigation }) {
               persistConnection={isCameraConnected}
               autoConnect={true}
             />
-          </View>
+          </TouchableOpacity>
         </View>
 
         {/* Night Schedule */}
@@ -2440,11 +2437,13 @@ export default function ControlScreen({ navigation }) {
         <View style={{ marginHorizontal: 14, marginTop: 14 }}>
           <TouchableOpacity
             style={[styles.continueBtn]}
-            onPress={() => setErrorModal({
-              visible: true,
-              title: "Continue",
-              message: "Continue operations",
-            })}
+            onPress={() =>
+              setErrorModal({
+                visible: true,
+                title: "Continue",
+                message: "Continue operations",
+              })
+            }
           >
             <Text style={{ color: "#fff", fontWeight: "700" }}>
               Continue Operations
@@ -2453,11 +2452,13 @@ export default function ControlScreen({ navigation }) {
 
           <TouchableOpacity
             style={[styles.pauseBtn]}
-            onPress={() => setErrorModal({
-              visible: true,
-              title: "Pause",
-              message: "Paused non-critical tasks",
-            })}
+            onPress={() =>
+              setErrorModal({
+                visible: true,
+                title: "Pause",
+                message: "Paused non-critical tasks",
+              })
+            }
           >
             <Text style={{ fontWeight: "700" }}>Pause non-critical tasks</Text>
           </TouchableOpacity>
@@ -3256,13 +3257,14 @@ export default function ControlScreen({ navigation }) {
       </Modal>
 
       {/* Error Modal */}
-      <Modal
-        visible={errorModal.visible}
-        transparent
-        animationType="none"
-      >
+      <Modal visible={errorModal.visible} transparent animationType="none">
         <View style={styles.popupBackground}>
-          <Animated.View style={[styles.errorModalBox, { transform: [{ scale: errorModalScale }] }]}>
+          <Animated.View
+            style={[
+              styles.errorModalBox,
+              { transform: [{ scale: errorModalScale }] },
+            ]}
+          >
             <View style={styles.errorIconContainer}>
               <Ionicons name="close-circle" size={50} color="#EF4444" />
             </View>
@@ -3270,7 +3272,9 @@ export default function ControlScreen({ navigation }) {
             <Text style={styles.errorModalMessage}>{errorModal.message}</Text>
             <TouchableOpacity
               style={styles.errorModalButton}
-              onPress={() => setErrorModal({ visible: false, title: '', message: '' })}
+              onPress={() =>
+                setErrorModal({ visible: false, title: "", message: "" })
+              }
             >
               <Text style={styles.errorModalButtonText}>OK</Text>
             </TouchableOpacity>
@@ -3279,16 +3283,12 @@ export default function ControlScreen({ navigation }) {
       </Modal>
 
       {/* Delete Options Modal */}
-      <Modal
-        visible={deleteOptionsModal}
-        transparent
-        animationType="fade"
-      >
+      <Modal visible={deleteOptionsModal} transparent animationType="fade">
         <View style={styles.popupBackground}>
           <View style={styles.deleteOptionsBox}>
             <Text style={styles.deleteOptionsTitle}>Delete Feeds</Text>
             <Text style={styles.deleteOptionsMessage}>Choose an option:</Text>
-            
+
             <TouchableOpacity
               style={styles.deleteOptionButton}
               onPress={async () => {
@@ -3296,19 +3296,39 @@ export default function ControlScreen({ navigation }) {
                 await handleDeleteAllFeeds();
               }}
             >
-              <Ionicons name="trash" size={20} color="#FFF" style={{ marginRight: 8 }} />
-              <Text style={styles.deleteOptionButtonText}>Delete All Feeds</Text>
+              <Ionicons
+                name="trash"
+                size={20}
+                color="#FFF"
+                style={{ marginRight: 8 }}
+              />
+              <Text style={styles.deleteOptionButtonText}>
+                Delete All Feeds
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.deleteOptionButton, styles.deleteOptionButtonSecondary]}
+              style={[
+                styles.deleteOptionButton,
+                styles.deleteOptionButtonSecondary,
+              ]}
               onPress={() => {
                 setDeleteOptionsModal(false);
                 setSelectMode(true);
               }}
             >
-              <Ionicons name="checkmark-circle" size={20} color={PRIMARY} style={{ marginRight: 8 }} />
-              <Text style={[styles.deleteOptionButtonText, styles.deleteOptionButtonTextSecondary]}>
+              <Ionicons
+                name="checkmark-circle"
+                size={20}
+                color={PRIMARY}
+                style={{ marginRight: 8 }}
+              />
+              <Text
+                style={[
+                  styles.deleteOptionButtonText,
+                  styles.deleteOptionButtonTextSecondary,
+                ]}
+              >
                 Choose Feeds to Delete
               </Text>
             </TouchableOpacity>
@@ -3336,9 +3356,10 @@ export default function ControlScreen({ navigation }) {
             </View>
             <Text style={styles.confirmDeleteTitle}>Confirm Deletion</Text>
             <Text style={styles.confirmDeleteMessage}>
-              Are you sure you want to delete the selected feeds? This action cannot be undone.
+              Are you sure you want to delete the selected feeds? This action
+              cannot be undone.
             </Text>
-            
+
             <View style={styles.confirmDeleteButtons}>
               <TouchableOpacity
                 style={styles.confirmDeleteCancelButton}
@@ -3351,7 +3372,7 @@ export default function ControlScreen({ navigation }) {
                 style={styles.confirmDeleteConfirmButton}
                 onPress={async () => {
                   setConfirmDeleteSelectedModal(false);
-                  await handleDeleteSelected();
+                  await confirmDeleteSelected();
                 }}
               >
                 <Text style={styles.confirmDeleteConfirmText}>Delete</Text>
@@ -3511,17 +3532,17 @@ const styles = StyleSheet.create({
     marginTop: 10,
     height: 150,
     borderRadius: 8,
-    backgroundColor: '#f0f4f8',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#f0f4f8",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 2,
     borderColor: PRIMARY,
-    borderStyle: 'dashed',
+    borderStyle: "dashed",
   },
   cameraPreviewText: {
     marginTop: 12,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
     color: PRIMARY,
   },
 
