@@ -2041,25 +2041,6 @@ export default function ControlScreen({ navigation }) {
             </View>
           </View>
         </View>
-
-        {/* Continue / Pause */}
-        <View style={{ marginHorizontal: 14, marginTop: 14 }}>
-          <TouchableOpacity
-            style={[styles.continueBtn]}
-            onPress={() => Alert.alert("Continue", "Continue operations")}
-          >
-            <Text style={{ color: "#fff", fontWeight: "700" }}>
-              Continue Operations
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.pauseBtn]}
-            onPress={() => Alert.alert("Pause", "Paused non-critical tasks")}
-          >
-            <Text style={{ fontWeight: "700" }}>Pause non-critical tasks</Text>
-          </TouchableOpacity>
-        </View>
       </ScrollView>
 
       {/* Date / Time Pickers */}
@@ -3044,20 +3025,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   smallActionText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-
-  continueBtn: {
-    backgroundColor: GREEN,
-    padding: 12,
-    borderRadius: 10,
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  pauseBtn: {
-    backgroundColor: "#BDCBE421",
-    padding: 12,
-    borderRadius: 10,
-    alignItems: "center",
-  },
 
   logItem: {
     backgroundColor: "#BDCBE421",
