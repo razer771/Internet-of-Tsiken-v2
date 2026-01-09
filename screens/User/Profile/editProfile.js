@@ -31,7 +31,6 @@ export default function EditProfile({ navigation }) {
   const [fullname, setFullname] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [role, setRole] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -54,7 +53,6 @@ export default function EditProfile({ navigation }) {
         setFullname("Admin");
         setEmail("admin@example.com");
         setPhone("");
-        setRole("Admin");
         setLoading(false);
         return;
       }
@@ -69,10 +67,8 @@ export default function EditProfile({ navigation }) {
           setFullname(data.fullname || data.name || "");
           setEmail(data.email || currentUser.email || "");
           setPhone(data.phone || "");
-          setRole(data.role || "User");
         } else {
           setEmail(currentUser.email || "");
-          setRole("User");
         }
       }
     } catch (error) {
@@ -137,7 +133,6 @@ export default function EditProfile({ navigation }) {
       await updateDoc(doc(db, "users", currentUser.uid), {
         fullname: fullname.trim(),
         phone: phone.trim(),
-        role: role,
         updatedAt: new Date(),
       });
 
@@ -239,15 +234,6 @@ export default function EditProfile({ navigation }) {
               placeholder="Enter full name"
               value={fullname}
               onChangeText={setFullname}
-            />
-
-            {/* Role */}
-            <Text style={styles.label}>Role</Text>
-            <TextInput 
-              style={[styles.input, styles.disabledInput]} 
-              placeholder="Role"
-              value={role}
-              editable={false}
             />
 
             {/* Email */}
