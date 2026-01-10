@@ -171,41 +171,6 @@ export default function ControlScreen({ navigation }) {
   // Lighting control
   const [lightOn, setLightOn] = useState(false);
 
-  // Handler to sync incandescent light toggle with Firestore
-  const handleLightToggle = async (newValue) => {
-    try {
-      // Update local state immediately for responsive UI
-      setLightOn(newValue);
-
-      // Convert boolean to string for Firestore
-      const lightStatus = newValue ? "On" : "Off";
-
-      // Update Firestore sensor data
-      const sensorDocRef = doc(db, "sensors", "current");
-      await updateDoc(sensorDocRef, {
-        lightStatus: lightStatus,
-        updatedAt: new Date().toISOString(),
-      });
-
-      // Log the activity
-      await logActivity("lightToggle_logs", {
-        action: `Incandescent Light ${lightStatus}`,
-        description: `User toggled incandescent light ${lightStatus}`,
-        status: lightStatus,
-      });
-
-      console.log(`[Light Control] Toggled light ${lightStatus} and updated Firestore`);
-    } catch (error) {
-      console.error("[Light Control] Error updating light status:", error);
-      // Revert state on error
-      setLightOn(!newValue);
-      Alert.alert(
-        "Error",
-        "Failed to update light status. Please try again."
-      );
-    }
-  };
-
   // night schedule (time)
   const [nightStart, setNightStart] = useState(new Date());
   const [showNightPicker, setShowNightPicker] = useState(false);
@@ -266,11 +231,46 @@ export default function ControlScreen({ navigation }) {
 
     initSensors();
 
+    // Start solar power polling (every 10 seconds)
+    const solarPollInterval = setInterval(async () => {
+      try {
+        // TODO: Replace with actual ESP32 IP:port from your setup
+        const ESP32_URL = "http://192.168.1.100:8080"; // Update with your ESP32 IP
+        const response = await fetch(`${ESP32_URL}/solar/level`, {
+          method: "GET",
+          timeout: 5000,
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const powerLevel = Math.min(100, Math.max(0, data.level || 62));
+          setSolarPowerLevel(powerLevel);
+          setIsSolarSimulated(false);
+          console.log("[Solar] Real-time power update:", powerLevel + "%");
+
+          // Check threshold and send alerts if needed
+          checkPowerThreshold(powerLevel);
+        } else {
+          throw new Error("ESP32 responded with error");
+        }
+      } catch (error) {
+        console.warn(
+          "[Solar] Failed to fetch from ESP32, using simulated data:",
+          error.message
+        );
+        setSolarPowerLevel(30); // Fallback to simulated
+        setIsSolarSimulated(true);
+      } finally {
+        setSolarPowerLoading(false);
+      }
+    }, 10000);
+
     // Cleanup polling on unmount
     return () => {
       if (stopPolling) {
         stopPolling();
       }
+      clearInterval(solarPollInterval);
     };
   }, []);
 
@@ -450,10 +450,13 @@ export default function ControlScreen({ navigation }) {
     // Don't show settings - it worked automatically!
   };
 
-  // power schedule
+  // power schedule - real-time solar monitoring
   const [solarPowerLevel, setSolarPowerLevel] = useState(62);
+  const [solarPowerLoading, setSolarPowerLoading] = useState(true);
   const [alertThreshold, setAlertThreshold] = useState(30);
   const [autoPower, setAutoPower] = useState(false);
+  const [lastAlertTime, setLastAlertTime] = useState(null);
+  const [isSolarSimulated, setIsSolarSimulated] = useState(true);
 
   // bottom active
   const [activeTab, setActiveTab] = useState("Control");
@@ -490,6 +493,80 @@ export default function ControlScreen({ navigation }) {
     console.log("📄 [ACTION] User clicked Add Feed Schedule button");
     // Open time picker for user to select feeding time
     setShowFeedAddPicker(true);
+  };
+
+  // Handle light toggle with Firestore sync
+  const handleLightToggle = async (newValue) => {
+    const lightStatus = newValue ? "On" : "Off";
+    setLightOn(newValue);
+
+    try {
+      const sensorsRef = doc(db, "sensors", "current");
+      await updateDoc(sensorsRef, { lightStatus });
+      await logActivity("lightToggle", {
+        status: lightStatus,
+        timestamp: new Date().toISOString(),
+      });
+      console.log("[Light] Toggle synced with Firestore:", lightStatus);
+    } catch (error) {
+      console.error("[Light] Error syncing with Firestore:", error);
+      setLightOn(!newValue); // Revert on error
+    }
+  };
+
+  // Check solar power threshold and send alerts if needed
+  const checkPowerThreshold = (powerLevel) => {
+    const now = Date.now();
+    const thirtyMinInMs = 30 * 60 * 1000;
+
+    // Only alert if below threshold AND 30 minutes have passed since last alert
+    if (
+      powerLevel <= alertThreshold &&
+      (!lastAlertTime || now - lastAlertTime > thirtyMinInMs)
+    ) {
+      // Send user notification
+      if (addUserNotification) {
+        addUserNotification({
+          type: "warning",
+          title: "⚠️ Low Solar Power Alert",
+          message: `Solar power is at ${powerLevel}% (threshold: ${alertThreshold}%)`,
+          duration: 5000,
+        });
+      }
+
+      // Send admin notification
+      if (addNotification) {
+        addNotification({
+          type: "warning",
+          title: "⚠️ Low Solar Power Detected",
+          message: `System solar power dropped to ${powerLevel}% (threshold: ${alertThreshold}%)`,
+          userId: currentUser?.uid,
+        });
+      }
+
+      // Log to activity logs
+      logActivity("powerAlert_logs", {
+        powerLevel,
+        threshold: alertThreshold,
+        timestamp: new Date().toISOString(),
+        userId: currentUser?.uid,
+      });
+
+      setLastAlertTime(now);
+      console.log(
+        "[Solar] Alert sent - Power:",
+        powerLevel + "%",
+        "Threshold:",
+        alertThreshold + "%"
+      );
+    }
+  };
+
+  // Handle threshold slider change (reset cooldown)
+  const handleThresholdChange = (newValue) => {
+    setAlertThreshold(newValue);
+    setLastAlertTime(null); // Reset cooldown when user adjusts threshold
+    console.log("[Solar] Threshold changed to:", newValue + "%");
   };
 
   // Convert time string "hh:mm AM/PM" or "hh:mmAM/PM" to minutes since midnight for sorting
@@ -2085,37 +2162,97 @@ export default function ControlScreen({ navigation }) {
           <CardHeader
             icon="flash-outline"
             title="Power Schedule"
-            rightText={"62%"}
+            rightText={`${solarPowerLevel}%`}
           />
 
+          {/* Simulation warning banner */}
+          {isSolarSimulated && (
+            <View
+              style={{
+                backgroundColor: "#FFF3CD",
+                borderRadius: 6,
+                padding: 10,
+                marginTop: 8,
+                borderLeftWidth: 4,
+                borderLeftColor: YELLOW,
+              }}
+            >
+              <Text
+                style={{ fontSize: 12, color: "#856404", fontWeight: "600" }}
+              >
+                ⚠️ Using simulated data - ESP32 offline
+              </Text>
+            </View>
+          )}
+
           <View style={{ marginTop: 8 }}>
+            {/* Power level display */}
             <Text style={styles.smallLabel}>
               Solar power level: {solarPowerLevel}%
             </Text>
 
-            {/* Horizontal bar container (looks like the requested layout) */}
+            {/* Dynamic status text based on power level */}
+            <Text
+              style={{
+                fontSize: 12,
+                marginBottom: 8,
+                fontWeight: "600",
+                color:
+                  solarPowerLevel > 75
+                    ? GREEN
+                    : solarPowerLevel > 50
+                      ? YELLOW
+                      : solarPowerLevel > 30
+                        ? "#FF9800"
+                        : RED,
+              }}
+            >
+              {solarPowerLevel > 75
+                ? "✅ Excellent Power"
+                : solarPowerLevel > 50
+                  ? "🟡 Good Power"
+                  : solarPowerLevel > 30
+                    ? "🟠 Moderate Power"
+                    : "🔴 Low Power"}
+            </Text>
+
+            {/* Horizontal bar container with threshold indicator */}
             <View style={styles.powerBarContainer}>
+              {/* Threshold indicator line */}
+              <View
+                style={{
+                  position: "absolute",
+                  left: `${alertThreshold}%`,
+                  top: 0,
+                  bottom: 0,
+                  width: 3,
+                  backgroundColor: RED,
+                  zIndex: 2,
+                }}
+              />
+              {/* Power bar fill with dynamic color */}
               <View
                 style={[
                   styles.powerBarFill,
-                  { width: powerBarWidth(solarPowerLevel) },
+                  {
+                    width: `${Math.min(solarPowerLevel, 100)}%`,
+                    backgroundColor:
+                      solarPowerLevel <= alertThreshold ? RED : YELLOW,
+                  },
                 ]}
               />
             </View>
 
-            <Text style={[styles.smallNote, { marginTop: 8 }]}>
-              Moderate Power - Monitor closely
-            </Text>
-
+            {/* Threshold percentage label */}
             <Text style={[styles.smallLabel, { marginTop: 12 }]}>
-              Alert threshold (%) {alertThreshold}%
+              Alert threshold: {alertThreshold}%
             </Text>
             <Slider
               minimumValue={0}
               maximumValue={100}
               step={1}
               value={alertThreshold}
-              onValueChange={setAlertThreshold}
+              onValueChange={handleThresholdChange}
               minimumTrackTintColor={YELLOW}
             />
 
