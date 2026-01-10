@@ -12,7 +12,8 @@ import {
 } from "react-native";
 import QuickSetupModal from "./QuickSetupModal";
 import { auth, db } from "../../../config/firebaseconfig";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { db as firestoreDb } from "../../../config/firebaseconfig";
 
 // Replace static import with a dynamic require + in-memory fallback.
 // This avoids a crash when @react-native-async-storage/async-storage is not installed.
@@ -79,10 +80,20 @@ export default function QuickOverviewSetup({ navigation }) {
   const [hasBatchData, setHasBatchData] = useState(false);
   const [userName, setUserName] = useState("User");
 
+  // Firestore brooder info state
+  const [brooderInfo, setBrooderInfo] = useState({
+    chicksCount: 0,
+    daysCount: 0,
+    harvestDays: 0,
+  });
+  const [loadingBrooderInfo, setLoadingBrooderInfo] = useState(true);
+  const [brooderInfoError, setBrooderInfoError] = useState(null);
+
   // Load saved data when component mounts
   useEffect(() => {
     loadSavedData();
     fetchUserName();
+    fetchBrooderInfoFromFirestore();
 
     // Set today's date
     const today = new Date();
@@ -95,41 +106,183 @@ export default function QuickOverviewSetup({ navigation }) {
     setTodayDate(formattedDate);
 
     console.log("[App] Mounted");
-    
+
     // Update days count every minute to keep it in sync with real-time
     const interval = setInterval(() => {
       loadSavedData();
     }, 60000); // Update every 60 seconds
-    
+
     return () => clearInterval(interval);
   }, []);
 
   const fetchUserName = async () => {
     try {
       // Check if admin bypass
-      const isAdminBypass = await AsyncStorage.getItem('isAdminBypass');
-      const adminEmail = await AsyncStorage.getItem('adminEmail');
-      
-      if (isAdminBypass === 'true' && adminEmail === 'admin@example.com') {
+      const isAdminBypass = await AsyncStorage.getItem("isAdminBypass");
+      const adminEmail = await AsyncStorage.getItem("adminEmail");
+
+      if (isAdminBypass === "true" && adminEmail === "admin@example.com") {
         setUserName("Admin");
         return;
       }
 
       const currentUser = auth.currentUser;
-      
+
       if (currentUser) {
         const userDoc = await getDoc(doc(db, "users", currentUser.uid));
-        
+
         if (userDoc.exists()) {
           const data = userDoc.data();
           // Get first name only for greeting
-          const fullName = data.fullname || data.name || data.firstName || "User";
-          const firstName = fullName.split(' ')[0];
+          const fullName =
+            data.fullname || data.name || data.firstName || "User";
+          const firstName = fullName.split(" ")[0];
           setUserName(firstName);
         }
       }
     } catch (error) {
       console.error("Error fetching user name:", error);
+    }
+  };
+
+  const fetchBrooderInfoFromFirestore = async () => {
+    try {
+      setLoadingBrooderInfo(true);
+      setBrooderInfoError(null);
+
+      const docRef = doc(firestoreDb, "brooderInfo", "batch1");
+      const docSnap = await getDoc(docRef);
+
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+
+        // Convert values to strings for UI display
+        const fetchedChicksCount = String(data.chicksCount || 0);
+        const fetchedDaysCount = String(data.daysCount || 0);
+        const fetchedHarvestDays = String(data.harvestDays || 0);
+
+        // Update UI states - make Firestore the source of truth
+        setChicksCount(fetchedChicksCount);
+        setDaysCount(fetchedDaysCount);
+        setHarvestDays(fetchedHarvestDays);
+
+        // Also update the brooderInfo state
+        setBrooderInfo({
+          chicksCount: data.chicksCount || 0,
+          daysCount: data.daysCount || 0,
+          harvestDays: data.harvestDays || 0,
+        });
+
+        // Sync fetched data to AsyncStorage for offline caching
+        try {
+          await AsyncStorage.setItem("chicksCount", fetchedChicksCount);
+          await AsyncStorage.setItem("daysCount", fetchedDaysCount);
+          await AsyncStorage.setItem("harvestDays", fetchedHarvestDays);
+        } catch (storageError) {
+          console.warn(
+            "Could not sync Firestore data to AsyncStorage:",
+            storageError
+          );
+        }
+
+        console.log(
+          "Brooder info fetched from Firestore and UI updated:",
+          data
+        );
+
+        // Check and perform daily age auto-increment
+        const daysNum = parseInt(fetchedDaysCount);
+        if (!isNaN(daysNum)) {
+          await checkAndIncrementDailyAge(daysNum);
+        }
+      } else {
+        console.log("No brooder info document found in Firestore");
+        setBrooderInfoError("No brooder information available");
+      }
+    } catch (error) {
+      console.error("Error fetching brooder info from Firestore:", error);
+      setBrooderInfoError(error.message);
+    } finally {
+      setLoadingBrooderInfo(false);
+    }
+  };
+
+  const updateBrooderInfoInFirestore = async (updates) => {
+    try {
+      const docRef = doc(firestoreDb, "brooderInfo", "batch1");
+
+      // Prepare update object with timestamp
+      const updateData = {
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      };
+
+      // Use updateDoc to update only the specified fields
+      await updateDoc(docRef, updateData);
+
+      console.log("Brooder info updated in Firestore:", updateData);
+      return true;
+    } catch (error) {
+      console.error("Error updating brooder info in Firestore:", error);
+      Alert.alert("Error", "Failed to update brooder information in database");
+      return false;
+    }
+  };
+
+  const getTodayDateGMT8 = () => {
+    // Get current date in GMT+8 timezone (YYYY-MM-DD format)
+    const now = new Date();
+    // Create date string in GMT+8
+    const utcDate = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
+    const gmt8Date = new Date(utcDate.getTime() + 8 * 60 * 60000);
+
+    const year = gmt8Date.getFullYear();
+    const month = String(gmt8Date.getMonth() + 1).padStart(2, "0");
+    const day = String(gmt8Date.getDate()).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+  };
+
+  const checkAndIncrementDailyAge = async (currentDaysCount) => {
+    try {
+      const todayGMT8 = getTodayDateGMT8();
+      const lastUpdateDate = await AsyncStorage.getItem("lastUpdateDate");
+
+      console.log(
+        `[DailyAge] Today: ${todayGMT8}, Last Update: ${lastUpdateDate}`
+      );
+
+      // If today's date is different from last update date, increment age
+      if (lastUpdateDate !== todayGMT8) {
+        const newDaysCount = currentDaysCount + 1;
+        const newDaysCountStr = String(newDaysCount);
+
+        console.log(
+          `[DailyAge] Incrementing age from ${currentDaysCount} to ${newDaysCount}`
+        );
+
+        // Update React state
+        setDaysCount(newDaysCountStr);
+
+        // Update AsyncStorage
+        await AsyncStorage.setItem("daysCount", newDaysCountStr);
+
+        // Update Firestore
+        await updateBrooderInfoInFirestore({
+          daysCount: newDaysCount,
+        });
+
+        // Save today as the last update date
+        await AsyncStorage.setItem("lastUpdateDate", todayGMT8);
+
+        console.log(
+          `[DailyAge] Age incremented and saved. Last update date set to ${todayGMT8}`
+        );
+      } else {
+        console.log("[DailyAge] Age already incremented today, skipping");
+      }
+    } catch (error) {
+      console.error("Error checking and incrementing daily age:", error);
     }
   };
 
@@ -147,22 +300,24 @@ export default function QuickOverviewSetup({ navigation }) {
       if (savedChicks !== null) {
         setChicksCount(savedChicks);
       }
-      
+
       if (savedDays !== null && savedStartDate !== null) {
         // Calculate days passed since batch started
         const startDate = new Date(savedStartDate);
         const currentDate = new Date();
-        const daysPassed = Math.floor((currentDate - startDate) / (1000 * 60 * 60 * 24));
-        
+        const daysPassed = Math.floor(
+          (currentDate - startDate) / (1000 * 60 * 60 * 24)
+        );
+
         // Calculate remaining days
         const initialDays = parseInt(savedDays);
         const remainingDays = Math.max(0, initialDays - daysPassed);
-        
+
         setDaysCount(remainingDays.toString());
       } else if (savedDays !== null) {
         setDaysCount(savedDays);
       }
-      
+
       if (savedHarvest !== null) {
         setHarvestDays(savedHarvest);
       }
@@ -214,7 +369,7 @@ export default function QuickOverviewSetup({ navigation }) {
       const savedChicks = await AsyncStorage.getItem("chicksCount");
       const savedDays = await AsyncStorage.getItem("daysCount");
       const savedHarvest = await AsyncStorage.getItem("harvestDays");
-      
+
       // If any data exists, show confirmation modal
       if (savedChicks || savedDays || savedHarvest) {
         setShowConfirmReplace(true);
@@ -244,6 +399,14 @@ export default function QuickOverviewSetup({ navigation }) {
     setHasBatchData(true);
     try {
       await AsyncStorage.setItem("chicksCount", value);
+
+      // Update Firestore with new chicks count (convert string to number)
+      const chicksNum = parseInt(value);
+      if (!isNaN(chicksNum)) {
+        await updateBrooderInfoInFirestore({
+          chicksCount: chicksNum,
+        });
+      }
     } catch (error) {
       console.error("Error saving chicks count:", error);
     }
@@ -257,6 +420,14 @@ export default function QuickOverviewSetup({ navigation }) {
       // Save the start date when batch is created/updated
       const startDate = new Date().toISOString();
       await AsyncStorage.setItem("batchStartDate", startDate);
+
+      // Update Firestore with new days count (convert string to number)
+      const daysNum = parseInt(value);
+      if (!isNaN(daysNum)) {
+        await updateBrooderInfoInFirestore({
+          daysCount: daysNum,
+        });
+      }
     } catch (error) {
       console.error("Error saving days count:", error);
     }
@@ -267,6 +438,14 @@ export default function QuickOverviewSetup({ navigation }) {
     setHasBatchData(true);
     try {
       await AsyncStorage.setItem("harvestDays", value);
+
+      // Update Firestore with new harvest days (convert string to number)
+      const harvestNum = parseInt(value);
+      if (!isNaN(harvestNum)) {
+        await updateBrooderInfoInFirestore({
+          harvestDays: harvestNum,
+        });
+      }
     } catch (error) {
       console.error("Error saving harvest days:", error);
     }
@@ -278,7 +457,10 @@ export default function QuickOverviewSetup({ navigation }) {
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (evt, gestureState) => {
         // Only respond to horizontal swipes (not vertical scrolling)
-        return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 20;
+        return (
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) &&
+          Math.abs(gestureState.dx) > 20
+        );
       },
       onPanResponderRelease: (evt, gestureState) => {
         // Swipe left (negative dx) to go to Control
@@ -298,155 +480,169 @@ export default function QuickOverviewSetup({ navigation }) {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.container}>
-          {/* Welcome Section */}
-          <View style={styles.welcomeSection}>
-            <Text style={styles.greeting}>Hello, {userName}! 👋</Text>
-            <Text style={styles.date}>{todayDate}</Text>
-          </View>
-
-          {/* System Status Card */}
-          <View style={styles.statusCard}>
-            <View style={styles.statusHeader}>
-              <View>
-                <Text style={styles.statusLabel}>System Status</Text>
-                <Text style={styles.statusText}>All Systems Normal</Text>
-              </View>
-              <View style={styles.statusIconContainer}>
-                <Text style={styles.statusIcon}>⚡</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Brooder Information Card */}
-          <Text style={styles.sectionTitle}>Brooder Information</Text>
-          <View style={styles.brooderCard}>
-            <View style={styles.brooderRow}>
-              <View style={styles.brooderIconContainer}>
-                <Text style={styles.brooderIconText}>🐣</Text>
-              </View>
-              <View style={styles.brooderTextContainer}>
-                <Text style={styles.brooderLabel}>Total Chicks</Text>
-                <Text style={styles.brooderValue}>
-                  {chicksCount || "0"}
-                </Text>
-              </View>
+            {/* Welcome Section */}
+            <View style={styles.welcomeSection}>
+              <Text style={styles.greeting}>Hello, {userName}! 👋</Text>
+              <Text style={styles.date}>{todayDate}</Text>
             </View>
 
-            <View style={styles.brooderDivider} />
-
-            <View style={styles.brooderRow}>
-              <View style={styles.brooderIconContainer}>
-                <Text style={styles.brooderIconText}>📅</Text>
-              </View>
-              <View style={styles.brooderTextContainer}>
-                <Text style={styles.brooderLabel}>Age</Text>
-                <Text style={styles.brooderValue}>
-                  {daysCount ? `${daysCount} days` : "0 days"}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.brooderDivider} />
-
-            <View style={styles.brooderRow}>
-              <View style={styles.brooderIconContainer}>
-                <Text style={styles.brooderIconText}>🎯</Text>
-              </View>
-              <View style={styles.brooderTextContainer}>
-                <Text style={styles.brooderLabel}>Expected Harvest</Text>
-                <Text style={styles.brooderValue}>
-                  {harvestDays ? `${harvestDays} days` : "0 days"}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Big CTA button styled similar to the screenshot */}
-          <TouchableOpacity
-            style={styles.ctaWrapper}
-            activeOpacity={0.9}
-            onPress={openQuickSetup}
-          >
-            <View style={styles.ctaButton}>
-              <Text style={styles.ctaText}>
-                {hasBatchData ? "Edit Batch" : "Add Batch"}
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Sensor Monitoring Grid */}
-          <Text style={styles.sectionTitle}>Live Monitoring</Text>
-          <View style={styles.sensorGrid}>
-
-            {/* Water Level Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>💧</Text>
-              <Text style={styles.sensorLabel}>Water Level</Text>
-              <Text style={styles.sensorValue}>85%</Text>
-            </View>
-
-            {/* Feed Level Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>🍴</Text>
-              <Text style={styles.sensorLabel}>Feed Level</Text>
-              <Text style={styles.sensorValue}>62%</Text>
-            </View>
-
-            {/* Solar Charge Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>☀️</Text>
-              <Text style={styles.sensorLabel}>Solar Charge</Text>
-              <Text style={styles.sensorValue}>62%</Text>
-            </View>
-
-            {/* Light Status Card */}
-            <View style={styles.sensorCard}>
-              <Text style={styles.sensorIcon}>💡</Text>
-              <Text style={styles.sensorLabel}>Light Status</Text>
-              <Text style={styles.sensorValue}>On</Text>
-            </View>
-          </View>
-
-          <QuickSetupModal
-            visible={showQuickSetup}
-            initialChicksCount={chicksCount}
-            initialDaysCount={daysCount}
-            initialHarvestDays={harvestDays}
-            onSaveChicksCount={handleSaveChicksCountModal}
-            onSaveDaysCount={handleSaveDaysCountModal}
-            onSaveHarvestDays={handleSaveHarvestDaysModal}
-            onClose={closeQuickSetup}
-          />
-
-          {/* Confirmation Modal */}
-          <Modal visible={showConfirmReplace} transparent animationType="fade">
-            <View style={styles.confirmModalOverlay}>
-              <View style={styles.confirmModalCard}>
-                <Text style={styles.confirmModalTitle}>Edit Existing Batch?</Text>
-                <Text style={styles.confirmModalMessage}>
-                  You already have an active batch. Do you want to edit it with new values?
-                </Text>
-                <View style={styles.confirmModalButtons}>
-                  <TouchableOpacity
-                    style={[styles.confirmModalButton, styles.confirmModalButtonCancel]}
-                    onPress={handleReplaceCancel}
-                    activeOpacity={0.9}
-                  >
-                    <Text style={styles.confirmModalButtonCancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.confirmModalButton, styles.confirmModalButtonConfirm]}
-                    onPress={handleReplaceConfirm}
-                    activeOpacity={0.9}
-                  >
-                    <Text style={styles.confirmModalButtonConfirmText}>Edit</Text>
-                  </TouchableOpacity>
+            {/* System Status Card */}
+            <View style={styles.statusCard}>
+              <View style={styles.statusHeader}>
+                <View>
+                  <Text style={styles.statusLabel}>System Status</Text>
+                  <Text style={styles.statusText}>All Systems Normal</Text>
+                </View>
+                <View style={styles.statusIconContainer}>
+                  <Text style={styles.statusIcon}>⚡</Text>
                 </View>
               </View>
             </View>
-          </Modal>
-        </View>
-      </ScrollView>
+
+            {/* Brooder Information Card */}
+            <Text style={styles.sectionTitle}>Brooder Information</Text>
+            <View style={styles.brooderCard}>
+              <View style={styles.brooderRow}>
+                <View style={styles.brooderIconContainer}>
+                  <Text style={styles.brooderIconText}>🐣</Text>
+                </View>
+                <View style={styles.brooderTextContainer}>
+                  <Text style={styles.brooderLabel}>Total Chicks</Text>
+                  <Text style={styles.brooderValue}>{chicksCount || "0"}</Text>
+                </View>
+              </View>
+
+              <View style={styles.brooderDivider} />
+
+              <View style={styles.brooderRow}>
+                <View style={styles.brooderIconContainer}>
+                  <Text style={styles.brooderIconText}>📅</Text>
+                </View>
+                <View style={styles.brooderTextContainer}>
+                  <Text style={styles.brooderLabel}>Age</Text>
+                  <Text style={styles.brooderValue}>
+                    {daysCount ? `${daysCount} days` : "0 days"}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.brooderDivider} />
+
+              <View style={styles.brooderRow}>
+                <View style={styles.brooderIconContainer}>
+                  <Text style={styles.brooderIconText}>🎯</Text>
+                </View>
+                <View style={styles.brooderTextContainer}>
+                  <Text style={styles.brooderLabel}>Expected Harvest</Text>
+                  <Text style={styles.brooderValue}>
+                    {harvestDays ? `${harvestDays} days` : "10 days"}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Big CTA button styled similar to the screenshot */}
+            <TouchableOpacity
+              style={styles.ctaWrapper}
+              activeOpacity={0.9}
+              onPress={openQuickSetup}
+            >
+              <View style={styles.ctaButton}>
+                <Text style={styles.ctaText}>
+                  {hasBatchData ? "Edit Batch" : "Add Batch"}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Sensor Monitoring Grid */}
+            <Text style={styles.sectionTitle}>Live Monitoring</Text>
+            <View style={styles.sensorGrid}>
+              {/* Water Level Card */}
+              <View style={styles.sensorCard}>
+                <Text style={styles.sensorIcon}>💧</Text>
+                <Text style={styles.sensorLabel}>Water Level</Text>
+                <Text style={styles.sensorValue}>85%</Text>
+              </View>
+
+              {/* Feed Level Card */}
+              <View style={styles.sensorCard}>
+                <Text style={styles.sensorIcon}>🍴</Text>
+                <Text style={styles.sensorLabel}>Feed Level</Text>
+                <Text style={styles.sensorValue}>62%</Text>
+              </View>
+
+              {/* Solar Charge Card */}
+              <View style={styles.sensorCard}>
+                <Text style={styles.sensorIcon}>☀️</Text>
+                <Text style={styles.sensorLabel}>Solar Charge</Text>
+                <Text style={styles.sensorValue}>62%</Text>
+              </View>
+
+              {/* Light Status Card */}
+              <View style={styles.sensorCard}>
+                <Text style={styles.sensorIcon}>💡</Text>
+                <Text style={styles.sensorLabel}>Light Status</Text>
+                <Text style={styles.sensorValue}>On</Text>
+              </View>
+            </View>
+
+            <QuickSetupModal
+              visible={showQuickSetup}
+              initialChicksCount={chicksCount}
+              initialDaysCount={daysCount}
+              initialHarvestDays={harvestDays}
+              onSaveChicksCount={handleSaveChicksCountModal}
+              onSaveDaysCount={handleSaveDaysCountModal}
+              onSaveHarvestDays={handleSaveHarvestDaysModal}
+              onClose={closeQuickSetup}
+            />
+
+            {/* Confirmation Modal */}
+            <Modal
+              visible={showConfirmReplace}
+              transparent
+              animationType="fade"
+            >
+              <View style={styles.confirmModalOverlay}>
+                <View style={styles.confirmModalCard}>
+                  <Text style={styles.confirmModalTitle}>
+                    Edit Existing Batch?
+                  </Text>
+                  <Text style={styles.confirmModalMessage}>
+                    You already have an active batch. Do you want to edit it
+                    with new values?
+                  </Text>
+                  <View style={styles.confirmModalButtons}>
+                    <TouchableOpacity
+                      style={[
+                        styles.confirmModalButton,
+                        styles.confirmModalButtonCancel,
+                      ]}
+                      onPress={handleReplaceCancel}
+                      activeOpacity={0.9}
+                    >
+                      <Text style={styles.confirmModalButtonCancelText}>
+                        Cancel
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.confirmModalButton,
+                        styles.confirmModalButtonConfirm,
+                      ]}
+                      onPress={handleReplaceConfirm}
+                      activeOpacity={0.9}
+                    >
+                      <Text style={styles.confirmModalButtonConfirmText}>
+                        Edit
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            </Modal>
+          </View>
+        </ScrollView>
       </View>
     </ErrorBoundary>
   );

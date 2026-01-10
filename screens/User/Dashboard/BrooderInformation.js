@@ -12,12 +12,28 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import CalendarModal from "../../navigation/CalendarModal";
+import { getFirestore, doc, getDoc } from "firebase/firestore";
+import { db } from "../../../config/firebaseconfig";
 
 const Icon = Feather;
 
-export default function GenerateReportModal({ visible, onClose, onGenerate, existingBatches = [] }) {
+export default function GenerateReportModal({
+  visible,
+  onClose,
+  onGenerate,
+  existingBatches = [],
+}) {
   const BROODER_CAPACITY = 10; // Maximum chicks allowed
   const MAX_DAYS_AGO = 30; // Start date cannot be older than 30 days
+
+  // Firestore brooder info state
+  const [brooderInfo, setBrooderInfo] = useState({
+    chicksCount: 0,
+    daysCount: 0,
+    harvestDays: 0,
+  });
+  const [loadingBrooderInfo, setLoadingBrooderInfo] = useState(true);
+  const [brooderInfoError, setBrooderInfoError] = useState(null);
 
   const [batchNumber, setBatchNumber] = useState("");
   const [numberOfChicks, setNumberOfChicks] = useState("");
@@ -25,7 +41,7 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
   const [expectedHarvestDays, setExpectedHarvestDays] = useState("");
   const [expectedDate, setExpectedDate] = useState(null);
   const [showHarvestDaysDropdown, setShowHarvestDaysDropdown] = useState(false);
-  
+
   const [showStartDateCalendar, setShowStartDateCalendar] = useState(false);
   const [isValidatePressed, setIsValidatePressed] = useState(false);
 
@@ -42,6 +58,41 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
   });
 
   const [duplicateBatchError, setDuplicateBatchError] = useState("");
+
+  // Fetch brooder info from Firestore
+  useEffect(() => {
+    const fetchBrooderInfo = async () => {
+      try {
+        setLoadingBrooderInfo(true);
+        setBrooderInfoError(null);
+
+        const docRef = doc(db, "brooderInfo", "batch1");
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setBrooderInfo({
+            chicksCount: data.chicksCount || 0,
+            daysCount: data.daysCount || 0,
+            harvestDays: data.harvestDays || 0,
+          });
+          console.log("Brooder info fetched successfully:", data);
+        } else {
+          console.log("No brooder info document found");
+          setBrooderInfoError("No brooder information available");
+        }
+      } catch (error) {
+        console.error("Error fetching brooder info:", error);
+        setBrooderInfoError(error.message);
+      } finally {
+        setLoadingBrooderInfo(false);
+      }
+    };
+
+    if (visible) {
+      fetchBrooderInfo();
+    }
+  }, [visible]);
 
   // Generate array of harvest days from 30 to 60
   const harvestDaysOptions = Array.from({ length: 31 }, (_, i) => 30 + i);
@@ -69,21 +120,21 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
 
   const checkBatchDuplicate = (batch) => {
     const trimmedBatch = batch.trim().toLowerCase();
-    const isDuplicate = existingBatches.some(existingBatch => {
+    const isDuplicate = existingBatches.some((existingBatch) => {
       // Check if input matches the batch exactly, or matches the number part
       const lowerExisting = existingBatch.toLowerCase();
-      
+
       // Check exact match
       if (lowerExisting === trimmedBatch) return true;
-      
+
       // Check if input is just the number (e.g., "3" should match "Batch #3")
       if (lowerExisting === `batch #${trimmedBatch}`) return true;
       if (lowerExisting === `batch#${trimmedBatch}`) return true;
-      
+
       // Extract number from existing batch (e.g., "Batch #3" -> "3")
       const numberMatch = lowerExisting.match(/batch\s*#?(\d+)/);
       if (numberMatch && numberMatch[1] === trimmedBatch) return true;
-      
+
       return false;
     });
     return isDuplicate;
@@ -135,14 +186,16 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
       newErrors.batchStartDate = "Select a start date";
       isValid = false;
     } else if (checkStartDateAge(batchStartDate)) {
-      newWarnings.batchStartDate = "Start date is too old. Select a recent date.";
+      newWarnings.batchStartDate =
+        "Start date is too old. Select a recent date.";
       isValid = false;
     }
 
     // Validate Expected Harvest Days
     const harvestDays = parseInt(expectedHarvestDays);
     if (!expectedHarvestDays || harvestDays < 30 || harvestDays > 60) {
-      newErrors.expectedHarvestDays = "Expected harvest days must be between 30-60";
+      newErrors.expectedHarvestDays =
+        "Expected harvest days must be between 30-60";
       isValid = false;
     }
 
@@ -164,7 +217,7 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
       };
 
       console.log("Report validated:", reportData);
-      
+
       // Call parent callback to add report to table
       if (onGenerate) {
         onGenerate(reportData);
@@ -221,7 +274,12 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
   }, [numberOfChicks]);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={handleClose}
+    >
       <View style={styles.backdrop}>
         <View style={styles.container}>
           {/* Header */}
@@ -234,13 +292,19 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
           </View>
 
           {/* Form */}
-          <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.scrollView}
+            showsVerticalScrollIndicator={false}
+          >
             <View style={styles.form}>
               {/* Batch Number */}
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Batch Number</Text>
                 <TextInput
-                  style={[styles.input, errors.batchNumber && styles.inputError]}
+                  style={[
+                    styles.input,
+                    errors.batchNumber && styles.inputError,
+                  ]}
                   placeholder="Enter a batch number"
                   placeholderTextColor="#9ca3af"
                   value={batchNumber}
@@ -259,7 +323,10 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Number of Chicks</Text>
                 <TextInput
-                  style={[styles.input, errors.numberOfChicks && styles.inputError]}
+                  style={[
+                    styles.input,
+                    errors.numberOfChicks && styles.inputError,
+                  ]}
                   placeholder={`e.g., ${BROODER_CAPACITY}`}
                   placeholderTextColor="#9ca3af"
                   value={numberOfChicks}
@@ -272,7 +339,9 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
                 {errors.numberOfChicks ? (
                   <Text style={styles.errorText}>{errors.numberOfChicks}</Text>
                 ) : warnings.numberOfChicks ? (
-                  <Text style={styles.errorText}>{warnings.numberOfChicks}</Text>
+                  <Text style={styles.errorText}>
+                    {warnings.numberOfChicks}
+                  </Text>
                 ) : null}
               </View>
 
@@ -280,18 +349,31 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Batch Start Date</Text>
                 <TouchableOpacity
-                  style={[styles.dateInput, (errors.batchStartDate || warnings.batchStartDate) && styles.inputError]}
+                  style={[
+                    styles.dateInput,
+                    (errors.batchStartDate || warnings.batchStartDate) &&
+                      styles.inputError,
+                  ]}
                   onPress={() => setShowStartDateCalendar(true)}
                 >
                   <Icon name="calendar" size={16} color="#64748b" />
-                  <Text style={[styles.dateText, !batchStartDate && styles.placeholderText]}>
-                    {batchStartDate ? formatDate(batchStartDate) : "Select a start date"}
+                  <Text
+                    style={[
+                      styles.dateText,
+                      !batchStartDate && styles.placeholderText,
+                    ]}
+                  >
+                    {batchStartDate
+                      ? formatDate(batchStartDate)
+                      : "Select a start date"}
                   </Text>
                 </TouchableOpacity>
                 {errors.batchStartDate ? (
                   <Text style={styles.errorText}>{errors.batchStartDate}</Text>
                 ) : warnings.batchStartDate ? (
-                  <Text style={styles.errorText}>{warnings.batchStartDate}</Text>
+                  <Text style={styles.errorText}>
+                    {warnings.batchStartDate}
+                  </Text>
                 ) : null}
               </View>
 
@@ -299,18 +381,33 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Expected Harvest Days (30-60)</Text>
                 <TouchableOpacity
-                  style={[styles.dropdownButton, errors.expectedHarvestDays && styles.inputError]}
-                  onPress={() => setShowHarvestDaysDropdown(!showHarvestDaysDropdown)}
+                  style={[
+                    styles.dropdownButton,
+                    errors.expectedHarvestDays && styles.inputError,
+                  ]}
+                  onPress={() =>
+                    setShowHarvestDaysDropdown(!showHarvestDaysDropdown)
+                  }
                 >
-                  <Text style={[styles.dropdownText, !expectedHarvestDays && styles.placeholderText]}>
-                    {expectedHarvestDays ? `${expectedHarvestDays} days` : "Select harvest days"}
+                  <Text
+                    style={[
+                      styles.dropdownText,
+                      !expectedHarvestDays && styles.placeholderText,
+                    ]}
+                  >
+                    {expectedHarvestDays
+                      ? `${expectedHarvestDays} days`
+                      : "Select harvest days"}
                   </Text>
                   <Icon name="chevron-down" size={16} color="#64748b" />
                 </TouchableOpacity>
-                
+
                 {showHarvestDaysDropdown && (
                   <View style={styles.dropdownList}>
-                    <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                    <ScrollView
+                      style={styles.dropdownScroll}
+                      nestedScrollEnabled
+                    >
                       {harvestDaysOptions.map((days) => (
                         <TouchableOpacity
                           key={days}
@@ -321,10 +418,13 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
                             setErrors({ ...errors, expectedHarvestDays: "" });
                           }}
                         >
-                          <Text style={[
-                            styles.dropdownItemText,
-                            expectedHarvestDays === String(days) && styles.dropdownItemTextActive
-                          ]}>
+                          <Text
+                            style={[
+                              styles.dropdownItemText,
+                              expectedHarvestDays === String(days) &&
+                                styles.dropdownItemTextActive,
+                            ]}
+                          >
                             {days} days
                           </Text>
                         </TouchableOpacity>
@@ -332,9 +432,11 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
                     </ScrollView>
                   </View>
                 )}
-                
+
                 {errors.expectedHarvestDays ? (
-                  <Text style={styles.errorText}>{errors.expectedHarvestDays}</Text>
+                  <Text style={styles.errorText}>
+                    {errors.expectedHarvestDays}
+                  </Text>
                 ) : null}
               </View>
 
@@ -353,19 +455,29 @@ export default function GenerateReportModal({ visible, onClose, onGenerate, exis
               {duplicateBatchError ? (
                 <View style={styles.duplicateErrorContainer}>
                   <Icon name="alert-circle" size={16} color="#ef4444" />
-                  <Text style={styles.duplicateErrorText}>{duplicateBatchError}</Text>
+                  <Text style={styles.duplicateErrorText}>
+                    {duplicateBatchError}
+                  </Text>
                 </View>
               ) : null}
 
               {/* Validate Button */}
               <TouchableOpacity
-                style={[styles.validateButton, isValidatePressed && styles.validateButtonPressed]}
+                style={[
+                  styles.validateButton,
+                  isValidatePressed && styles.validateButtonPressed,
+                ]}
                 onPress={handleValidate}
                 onPressIn={() => setIsValidatePressed(true)}
                 onPressOut={() => setIsValidatePressed(false)}
                 activeOpacity={1}
               >
-                <Text style={[styles.validateButtonText, isValidatePressed && styles.validateButtonTextPressed]}>
+                <Text
+                  style={[
+                    styles.validateButtonText,
+                    isValidatePressed && styles.validateButtonTextPressed,
+                  ]}
+                >
                   Validate
                 </Text>
               </TouchableOpacity>

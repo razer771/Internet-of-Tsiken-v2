@@ -20,6 +20,7 @@ import {
   PanResponder,
   ActivityIndicator,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import Slider from "@react-native-community/slider";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
@@ -34,7 +35,11 @@ import {
   query,
   where,
   getDoc,
+  onSnapshot,
+  enableNetwork,
+  disableNetwork,
 } from "firebase/firestore";
+import { enableIndexedDbPersistence } from "firebase/firestore";
 import {
   initializeSensors,
   getAllSensorReadings,
@@ -166,6 +171,15 @@ export default function ControlScreen({ navigation }) {
   const [sensorLoading, setSensorLoading] = useState(true);
   const [sensorError, setSensorError] = useState(null);
   const [isSimulated, setIsSimulated] = useState(true);
+
+  // Firestore live sensor data
+  const [waterLevel, setWaterLevel] = useState(null);
+  const [feedLevel, setFeedLevel] = useState(null);
+  const [solarCharge, setSolarCharge] = useState(null);
+  const [lightStatus, setLightStatus] = useState(null);
+  const [firestoreSensorLoading, setFirestoreSensorLoading] = useState(true);
+  const [isOffline, setIsOffline] = useState(false);
+  const unsubscribeFirestoreRef = useRef(null);
 
   // Lighting control
   const [lightOn, setLightOn] = useState(false);
