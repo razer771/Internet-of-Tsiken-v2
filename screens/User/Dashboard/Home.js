@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import QuickSetupModal from "./QuickSetupModal";
 import { auth, db } from "../../../config/firebaseconfig";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, onSnapshot } from "firebase/firestore";
 import { db as firestoreDb } from "../../../config/firebaseconfig";
 
 // Replace static import with a dynamic require + in-memory fallback.
@@ -89,11 +89,25 @@ export default function QuickOverviewSetup({ navigation }) {
   const [loadingBrooderInfo, setLoadingBrooderInfo] = useState(true);
   const [brooderInfoError, setBrooderInfoError] = useState(null);
 
+  // Live sensor monitoring state
+  const [sensorData, setSensorData] = useState({
+    waterLevel: 0,
+    feedLevel: 0,
+    solarCharge: 0,
+    lightStatus: "Off",
+  });
+  const [loadingSensorData, setLoadingSensorData] = useState(true);
+  const [sensorDataError, setSensorDataError] = useState(null);
+
+  // Keep track of Firestore listener unsubscribe function
+  const sensorListenerRef = React.useRef(null);
+
   // Load saved data when component mounts
   useEffect(() => {
     loadSavedData();
     fetchUserName();
     fetchBrooderInfoFromFirestore();
+    setupSensorMonitoring();
 
     // Set today's date
     const today = new Date();
@@ -112,7 +126,13 @@ export default function QuickOverviewSetup({ navigation }) {
       loadSavedData();
     }, 60000); // Update every 60 seconds
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      // Unsubscribe from Firestore listener on unmount
+      if (sensorListenerRef.current) {
+        sensorListenerRef.current();
+      }
+    };
   }, []);
 
   const fetchUserName = async () => {
@@ -283,6 +303,126 @@ export default function QuickOverviewSetup({ navigation }) {
       }
     } catch (error) {
       console.error("Error checking and incrementing daily age:", error);
+    }
+  };
+
+  const setupSensorMonitoring = async () => {
+    try {
+      setLoadingSensorData(true);
+      setSensorDataError(null);
+
+      // First, load cached data from AsyncStorage
+      const hasCachedData = await loadCachedSensorData();
+
+      const docRef = doc(firestoreDb, "sensors", "current");
+
+      // Set up real-time listener with onSnapshot
+      const unsubscribe = onSnapshot(
+        docRef,
+        async (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+
+            // Extract sensor values with defaults
+            const newSensorData = {
+              waterLevel:
+                typeof data.waterLevel === "number" ? data.waterLevel : 0,
+              feedLevel:
+                typeof data.feedLevel === "number" ? data.feedLevel : 0,
+              solarCharge:
+                typeof data.solarCharge === "number" ? data.solarCharge : 0,
+              lightStatus: data.lightStatus ? String(data.lightStatus) : "Off",
+            };
+
+            // Update state with Firestore data
+            setSensorData(newSensorData);
+
+            // Cache the new data to AsyncStorage
+            await cacheSensorData(newSensorData);
+
+            console.log("[SensorData] Updated from Firestore:", newSensorData);
+          } else {
+            console.log(
+              "[SensorData] No sensor data document found in Firestore"
+            );
+            setSensorDataError("No sensor data available");
+          }
+
+          setLoadingSensorData(false);
+        },
+        (error) => {
+          console.error("[SensorData] Firestore listener error:", error);
+          setSensorDataError(error.message);
+          setLoadingSensorData(false);
+        }
+      );
+
+      // Store the unsubscribe function for cleanup
+      sensorListenerRef.current = unsubscribe;
+
+      console.log("[SensorData] Real-time listener set up");
+    } catch (error) {
+      console.error("Error setting up sensor monitoring:", error);
+      setSensorDataError(error.message);
+      setLoadingSensorData(false);
+    }
+  };
+
+  const loadCachedSensorData = async () => {
+    try {
+      const cachedWaterLevel = await AsyncStorage.getItem("sensorWaterLevel");
+      const cachedFeedLevel = await AsyncStorage.getItem("sensorFeedLevel");
+      const cachedSolarCharge = await AsyncStorage.getItem("sensorSolarCharge");
+      const cachedLightStatus = await AsyncStorage.getItem("sensorLightStatus");
+
+      if (
+        cachedWaterLevel ||
+        cachedFeedLevel ||
+        cachedSolarCharge ||
+        cachedLightStatus
+      ) {
+        setSensorData({
+          waterLevel: cachedWaterLevel ? parseInt(cachedWaterLevel) : 0,
+          feedLevel: cachedFeedLevel ? parseInt(cachedFeedLevel) : 0,
+          solarCharge: cachedSolarCharge ? parseInt(cachedSolarCharge) : 0,
+          lightStatus: cachedLightStatus || "Off",
+        });
+
+        console.log("[SensorData] Loaded from AsyncStorage cache");
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error("Error loading cached sensor data:", error);
+      return false;
+    }
+  };
+
+  const cacheSensorData = async (data) => {
+    try {
+      if (data.waterLevel !== undefined) {
+        await AsyncStorage.setItem("sensorWaterLevel", String(data.waterLevel));
+      }
+      if (data.feedLevel !== undefined) {
+        await AsyncStorage.setItem("sensorFeedLevel", String(data.feedLevel));
+      }
+      if (data.solarCharge !== undefined) {
+        await AsyncStorage.setItem(
+          "sensorSolarCharge",
+          String(data.solarCharge)
+        );
+      }
+      if (data.lightStatus !== undefined) {
+        await AsyncStorage.setItem(
+          "sensorLightStatus",
+          String(data.lightStatus)
+        );
+      }
+
+      console.log("[SensorData] Cached to AsyncStorage");
+    } catch (error) {
+      console.error("Error caching sensor data:", error);
     }
   };
 
@@ -561,28 +701,36 @@ export default function QuickOverviewSetup({ navigation }) {
               <View style={styles.sensorCard}>
                 <Text style={styles.sensorIcon}>💧</Text>
                 <Text style={styles.sensorLabel}>Water Level</Text>
-                <Text style={styles.sensorValue}>85%</Text>
+                <Text style={styles.sensorValue}>
+                  {loadingSensorData ? "..." : `${sensorData.waterLevel}%`}
+                </Text>
               </View>
 
               {/* Feed Level Card */}
               <View style={styles.sensorCard}>
                 <Text style={styles.sensorIcon}>🍴</Text>
                 <Text style={styles.sensorLabel}>Feed Level</Text>
-                <Text style={styles.sensorValue}>62%</Text>
+                <Text style={styles.sensorValue}>
+                  {loadingSensorData ? "..." : `${sensorData.feedLevel}%`}
+                </Text>
               </View>
 
               {/* Solar Charge Card */}
               <View style={styles.sensorCard}>
                 <Text style={styles.sensorIcon}>☀️</Text>
                 <Text style={styles.sensorLabel}>Solar Charge</Text>
-                <Text style={styles.sensorValue}>62%</Text>
+                <Text style={styles.sensorValue}>
+                  {loadingSensorData ? "..." : `${sensorData.solarCharge}%`}
+                </Text>
               </View>
 
               {/* Light Status Card */}
               <View style={styles.sensorCard}>
                 <Text style={styles.sensorIcon}>💡</Text>
                 <Text style={styles.sensorLabel}>Light Status</Text>
-                <Text style={styles.sensorValue}>On</Text>
+                <Text style={styles.sensorValue}>
+                  {loadingSensorData ? "..." : sensorData.lightStatus}
+                </Text>
               </View>
             </View>
 

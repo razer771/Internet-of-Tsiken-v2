@@ -20,7 +20,6 @@ import {
   PanResponder,
   ActivityIndicator,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import Slider from "@react-native-community/slider";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
@@ -35,11 +34,8 @@ import {
   query,
   where,
   getDoc,
-  onSnapshot,
-  enableNetwork,
-  disableNetwork,
+  updateDoc,
 } from "firebase/firestore";
-import { enableIndexedDbPersistence } from "firebase/firestore";
 import {
   initializeSensors,
   getAllSensorReadings,
@@ -172,17 +168,43 @@ export default function ControlScreen({ navigation }) {
   const [sensorError, setSensorError] = useState(null);
   const [isSimulated, setIsSimulated] = useState(true);
 
-  // Firestore live sensor data
-  const [waterLevel, setWaterLevel] = useState(null);
-  const [feedLevel, setFeedLevel] = useState(null);
-  const [solarCharge, setSolarCharge] = useState(null);
-  const [lightStatus, setLightStatus] = useState(null);
-  const [firestoreSensorLoading, setFirestoreSensorLoading] = useState(true);
-  const [isOffline, setIsOffline] = useState(false);
-  const unsubscribeFirestoreRef = useRef(null);
-
   // Lighting control
   const [lightOn, setLightOn] = useState(false);
+
+  // Handler to sync incandescent light toggle with Firestore
+  const handleLightToggle = async (newValue) => {
+    try {
+      // Update local state immediately for responsive UI
+      setLightOn(newValue);
+
+      // Convert boolean to string for Firestore
+      const lightStatus = newValue ? "On" : "Off";
+
+      // Update Firestore sensor data
+      const sensorDocRef = doc(db, "sensors", "current");
+      await updateDoc(sensorDocRef, {
+        lightStatus: lightStatus,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Log the activity
+      await logActivity("lightToggle_logs", {
+        action: `Incandescent Light ${lightStatus}`,
+        description: `User toggled incandescent light ${lightStatus}`,
+        status: lightStatus,
+      });
+
+      console.log(`[Light Control] Toggled light ${lightStatus} and updated Firestore`);
+    } catch (error) {
+      console.error("[Light Control] Error updating light status:", error);
+      // Revert state on error
+      setLightOn(!newValue);
+      Alert.alert(
+        "Error",
+        "Failed to update light status. Please try again."
+      );
+    }
+  };
 
   // night schedule (time)
   const [nightStart, setNightStart] = useState(new Date());
@@ -216,7 +238,9 @@ export default function ControlScreen({ navigation }) {
         // Configure ESP32 with user ID for scheduled watering
         const user = auth.currentUser;
         if (user) {
-          console.log("📡 Configuring ESP32 with user ID for scheduled watering...");
+          console.log(
+            "📡 Configuring ESP32 with user ID for scheduled watering..."
+          );
           await configureWaterSystemUserId(user.uid);
         }
 
@@ -327,20 +351,22 @@ export default function ControlScreen({ navigation }) {
     try {
       const user = auth.currentUser;
       if (!user) return;
-      
+
       const wateringSnapshot = await getDocs(
         collection(db, "wateringSchedules")
       );
-      
+
       const loadedWaterings = [];
       const seenIds = new Set();
-      
+
       wateringSnapshot.forEach((doc) => {
         const data = doc.data();
         if (data.userId === user.uid) {
           // Skip duplicates based on wateringId
           if (seenIds.has(data.wateringId)) {
-            console.warn(`Duplicate wateringId ${data.wateringId} found, skipping`);
+            console.warn(
+              `Duplicate wateringId ${data.wateringId} found, skipping`
+            );
             return;
           }
           seenIds.add(data.wateringId);
@@ -354,7 +380,9 @@ export default function ControlScreen({ navigation }) {
       });
 
       // Sort by time
-      loadedWaterings.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+      loadedWaterings.sort(
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+      );
       setWaterings(loadedWaterings);
       console.log("💧 [SORT] Watering schedules loaded and sorted:");
       loadedWaterings.forEach((w) => {
@@ -389,12 +417,17 @@ export default function ControlScreen({ navigation }) {
 
   // watering schedule: mirror feeding schedule
   const [waterings, setWaterings] = useState([]);
-  const [waterEdit, setWaterEdit] = useState({ open: false, idx: null, timeDate: new Date() });
+  const [waterEdit, setWaterEdit] = useState({
+    open: false,
+    idx: null,
+    timeDate: new Date(),
+  });
   const [showWaterAddPicker, setShowWaterAddPicker] = useState(false);
   const [pendingWaterTime, setPendingWaterTime] = useState(null);
   const [confirmWaterAddVisible, setConfirmWaterAddVisible] = useState(false);
   const [showDuplicateWaterModal, setShowDuplicateWaterModal] = useState(false);
-  const [confirmDeleteWaterVisible, setConfirmDeleteWaterVisible] = useState(false);
+  const [confirmDeleteWaterVisible, setConfirmDeleteWaterVisible] =
+    useState(false);
   const [pendingDeleteWaterId, setPendingDeleteWaterId] = useState(null);
   const [showWaterTimePicker, setShowWaterTimePicker] = useState(false);
 
@@ -1186,8 +1219,11 @@ export default function ControlScreen({ navigation }) {
 
     setIsSubmitting(true);
 
-    const formattedTime = pendingWaterTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    
+    const formattedTime = pendingWaterTime.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
     // Double-check for duplicates (in case of race condition)
     const isDuplicate = waterings.some((w) => w.time === formattedTime);
     if (isDuplicate) {
@@ -1199,7 +1235,9 @@ export default function ControlScreen({ navigation }) {
       return;
     }
 
-    const nextId = waterings.length ? Math.max(...waterings.map((w) => w.id)) + 1 : 1;
+    const nextId = waterings.length
+      ? Math.max(...waterings.map((w) => w.id)) + 1
+      : 1;
     const label = `Schedule ${nextId}`;
     const newWater = { id: nextId, label, time: formattedTime };
 
@@ -1269,7 +1307,9 @@ export default function ControlScreen({ navigation }) {
 
     setWaterings((s) => {
       const updated = [...s, newWater];
-      return updated.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+      return updated.sort(
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+      );
     });
 
     setConfirmWaterAddVisible(false);
@@ -1305,12 +1345,17 @@ export default function ControlScreen({ navigation }) {
       setWaterEdit({ open: false, idx: null, timeDate: new Date() });
       return;
     }
-    const newTime = waterEdit.timeDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const newTime = waterEdit.timeDate.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
     const oldTime = waterings[waterEdit.idx].time;
     const wateringId = waterings[waterEdit.idx].id;
 
     // Check for duplicate time (excluding current schedule being edited)
-    const isDuplicate = waterings.some((w, i) => w.time === newTime && i !== waterEdit.idx);
+    const isDuplicate = waterings.some(
+      (w, i) => w.time === newTime && i !== waterEdit.idx
+    );
     if (isDuplicate) {
       setConfirmEditVisible(false);
       setWaterEdit({ open: false, idx: null, timeDate: new Date() });
@@ -1335,14 +1380,17 @@ export default function ControlScreen({ navigation }) {
           console.error("Failed to fetch user data:", fetchErr);
         }
 
-        await setDoc(doc(db, "wateringSchedules", `${user.uid}_${wateringId}`), {
-          wateringId,
-          label: waterings[waterEdit.idx].label,
-          time: newTime,
-          duration: 15,
-          userId: user.uid,
-          timestamp: new Date().toISOString(),
-        });
+        await setDoc(
+          doc(db, "wateringSchedules", `${user.uid}_${wateringId}`),
+          {
+            wateringId,
+            label: waterings[waterEdit.idx].label,
+            time: newTime,
+            duration: 15,
+            userId: user.uid,
+            timestamp: new Date().toISOString(),
+          }
+        );
 
         await addDoc(collection(db, "editWaterSchedule_logs"), {
           wateringId,
@@ -1379,9 +1427,9 @@ export default function ControlScreen({ navigation }) {
     }
 
     setWaterings((s) =>
-      s.map((w, i) =>
-        i === waterEdit.idx ? { ...w, time: newTime } : w
-      ).sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time))
+      s
+        .map((w, i) => (i === waterEdit.idx ? { ...w, time: newTime } : w))
+        .sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time))
     );
 
     setConfirmEditVisible(false);
@@ -1403,14 +1451,17 @@ export default function ControlScreen({ navigation }) {
     }
     const waterToDelete = waterings.find((w) => w.id === pendingDeleteWaterId);
     if (!waterToDelete) {
-      console.warn("❌ Water schedule not found in list:", pendingDeleteWaterId);
+      console.warn(
+        "❌ Water schedule not found in list:",
+        pendingDeleteWaterId
+      );
       setConfirmDeleteWaterVisible(false);
       setPendingDeleteWaterId(null);
       return;
     }
-    
+
     console.log("🗑️ Deleting water schedule:", waterToDelete);
-    
+
     try {
       const user = auth.currentUser;
       if (user) {
@@ -1429,8 +1480,10 @@ export default function ControlScreen({ navigation }) {
         }
 
         console.log("🔥 Deleting from Firestore...");
-        await deleteDoc(doc(db, "wateringSchedules", `${user.uid}_${pendingDeleteWaterId}`));
-        
+        await deleteDoc(
+          doc(db, "wateringSchedules", `${user.uid}_${pendingDeleteWaterId}`)
+        );
+
         console.log("📝 Adding delete log...");
         await addDoc(collection(db, "deleteWaterSchedule_logs"), {
           wateringId: pendingDeleteWaterId,
@@ -1458,7 +1511,7 @@ export default function ControlScreen({ navigation }) {
           description: `${user.displayName || user.email} deleted watering schedule at ${waterToDelete.time}`,
           type: "schedule",
         });
-        
+
         console.log("✅ Successfully deleted from Firestore");
       }
     } catch (err) {
@@ -1865,7 +1918,13 @@ export default function ControlScreen({ navigation }) {
         {/* Water Scheduling (like Feeding) */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader icon="water-outline" title="Watering Schedule" />
-          <View style={{ flexDirection: "row", justifyContent: "flex-end", marginBottom: 8 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "flex-end",
+              marginBottom: 8,
+            }}
+          >
             <TouchableOpacity
               style={[styles.smallActionBtn, { backgroundColor: GREEN }]}
               onPress={addWaterSchedule}
@@ -1885,27 +1944,46 @@ export default function ControlScreen({ navigation }) {
                   {deleteMode ? (
                     <TouchableOpacity
                       onPress={() => toggleSelectToDelete(w.id)}
-                      style={[styles.checkbox, selectedToDelete.includes(w.id) && styles.checkboxChecked]}
+                      style={[
+                        styles.checkbox,
+                        selectedToDelete.includes(w.id) &&
+                          styles.checkboxChecked,
+                      ]}
                     >
                       {selectedToDelete.includes(w.id) && (
                         <Text style={{ color: "#fff" }}>✓</Text>
                       )}
                     </TouchableOpacity>
                   ) : (
-                    <Ionicons name="time-outline" size={16} color={PRIMARY} style={{ marginRight: 8 }} />
+                    <Ionicons
+                      name="time-outline"
+                      size={16}
+                      color={PRIMARY}
+                      style={{ marginRight: 8 }}
+                    />
                   )}
 
                   <Text style={styles.feedTimeText}>{w.time}</Text>
                 </View>
 
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <TouchableOpacity style={styles.editBtn} onPress={() => openEditWater(idx)}>
+                  <TouchableOpacity
+                    style={styles.editBtn}
+                    onPress={() => openEditWater(idx)}
+                  >
                     <Text style={styles.editText}>Edit</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.editBtn, { backgroundColor: RED, marginLeft: 6 }]}
+                    style={[
+                      styles.editBtn,
+                      { backgroundColor: RED, marginLeft: 6 },
+                    ]}
                     onPress={() => {
-                      console.log("🗑️ [ACTION] Delete button clicked for water schedule:", w.id, w.time);
+                      console.log(
+                        "🗑️ [ACTION] Delete button clicked for water schedule:",
+                        w.id,
+                        w.time
+                      );
                       setPendingDeleteWaterId(w.id);
                       setConfirmDeleteWaterVisible(true);
                       console.log("✅ Set pendingDeleteWaterId to:", w.id);
@@ -1995,7 +2073,7 @@ export default function ControlScreen({ navigation }) {
             </View>
             <Switch
               value={lightOn}
-              onValueChange={setLightOn}
+              onValueChange={handleLightToggle}
               trackColor={{ false: "#B0B0B0", true: PRIMARY }}
               ios_backgroundColor="#B0B0B0"
               thumbColor="#fff"
@@ -2011,7 +2089,9 @@ export default function ControlScreen({ navigation }) {
           />
 
           <View style={{ marginTop: 8 }}>
-            <Text style={styles.smallLabel}>Solar power level: {solarPowerLevel}%</Text>
+            <Text style={styles.smallLabel}>
+              Solar power level: {solarPowerLevel}%
+            </Text>
 
             {/* Horizontal bar container (looks like the requested layout) */}
             <View style={styles.powerBarContainer}>
@@ -2060,12 +2140,13 @@ export default function ControlScreen({ navigation }) {
       {/* Date / Time Pickers */}
       {showWaterTimePicker && (
         <DateTimePicker
-          value={waterEdit.open ? (waterEdit.timeDate || new Date()) : new Date()}
+          value={waterEdit.open ? waterEdit.timeDate || new Date() : new Date()}
           mode="time"
           display="default"
           onChange={(_, selected) => {
             setShowWaterTimePicker(false);
-            if (selected) setWaterEdit((prev) => ({ ...prev, timeDate: selected }));
+            if (selected)
+              setWaterEdit((prev) => ({ ...prev, timeDate: selected }));
           }}
         />
       )}
@@ -2076,12 +2157,18 @@ export default function ControlScreen({ navigation }) {
           display="default"
           onChange={(event, selected) => {
             setShowWaterAddPicker(false);
-            const confirmed = (event?.type === "set" || !event?.type) && selected;
+            const confirmed =
+              (event?.type === "set" || !event?.type) && selected;
             if (confirmed) {
               // Check for duplicate time BEFORE showing confirmation
-              const formattedTime = selected.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-              const isDuplicate = waterings.some((w) => w.time === formattedTime);
-              
+              const formattedTime = selected.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+              const isDuplicate = waterings.some(
+                (w) => w.time === formattedTime
+              );
+
               if (isDuplicate) {
                 setShowDuplicateWaterModal(true);
               } else {
@@ -2229,7 +2316,11 @@ export default function ControlScreen({ navigation }) {
                 if (feedEdit.open) {
                   setFeedEdit({ open: false, idx: null, timeDate: new Date() });
                 } else if (waterEdit.open) {
-                  setWaterEdit({ open: false, idx: null, timeDate: new Date() });
+                  setWaterEdit({
+                    open: false,
+                    idx: null,
+                    timeDate: new Date(),
+                  });
                 }
               }}
             >
@@ -2666,7 +2757,10 @@ export default function ControlScreen({ navigation }) {
                 <Text style={styles.smallActionText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: RED, marginLeft: 8 }]}
+                style={[
+                  styles.smallActionBtn,
+                  { backgroundColor: RED, marginLeft: 8 },
+                ]}
                 onPress={confirmDeleteWater}
               >
                 <Text style={styles.smallActionText}>Delete</Text>
@@ -2676,9 +2770,6 @@ export default function ControlScreen({ navigation }) {
         </View>
       </Modal>
 
-      
-
-      
       {/* Duplicate Watering Time Modal */}
       <Modal
         key="duplicateWaterTimeModal"
@@ -2722,7 +2813,9 @@ export default function ControlScreen({ navigation }) {
               Save watering time?
             </Text>
             <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
-              Are you sure you want to save {pendingWaterTime ? fmtTime(pendingWaterTime) : ""} as a watering schedule?
+              Are you sure you want to save{" "}
+              {pendingWaterTime ? fmtTime(pendingWaterTime) : ""} as a watering
+              schedule?
             </Text>
             <View style={{ flexDirection: "row", marginTop: 12 }}>
               <TouchableOpacity
@@ -2735,7 +2828,10 @@ export default function ControlScreen({ navigation }) {
                 <Text style={styles.smallActionText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: PRIMARY, marginLeft: 8 }]}
+                style={[
+                  styles.smallActionBtn,
+                  { backgroundColor: PRIMARY, marginLeft: 8 },
+                ]}
                 onPress={confirmAddWater}
               >
                 <Text style={styles.smallActionText}>Yes, Save</Text>

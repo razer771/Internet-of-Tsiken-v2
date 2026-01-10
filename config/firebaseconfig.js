@@ -23,10 +23,15 @@ export const auth = initializeAuth(app, {
   persistence: getReactNativePersistence(ReactNativeAsyncStorage),
 });
 
-// Initialize Firestore WITHOUT persistence (React Native doesn't support IndexedDB)
-// This prevents the "IndexedDB persistence is only available on platforms that support LocalStorage" error
+// Initialize Firestore with offline persistence support
+// Using AsyncStorage for React Native offline persistence
 export const db = initializeFirestore(app, {
-  // No localCache configuration for React Native - uses in-memory cache by default
+  localCache: {
+    kind: "persistent",
+    tabManager: {
+      kind: "shared",
+    },
+  },
 });
 
 // Conditionally initialize Analytics to fix the other warning
