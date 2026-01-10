@@ -1658,6 +1658,10 @@ export default function ControlScreen({ navigation }) {
     return (percent / 100) * max;
   };
 
+  // Test Lighting modal state
+  const [testLightingModalVisible, setTestLightingModalVisible] = useState(false);
+  const [testBrightness, setTestBrightness] = useState(50);
+
   return (
     <View style={styles.page} {...panResponder.panHandlers}>
       <ScrollView
@@ -1815,7 +1819,7 @@ export default function ControlScreen({ navigation }) {
                 </View>
               </View>
             ))
-          )}
+         ) }
 
           {/* If deleteMode active show Delete Selected button */}
           {deleteMode && (
@@ -1902,7 +1906,7 @@ export default function ControlScreen({ navigation }) {
                 </View>
               </View>
             ))
-          )}
+         ) }
         </View>
 
         {/* Test Devices */}
@@ -1958,6 +1962,17 @@ export default function ControlScreen({ navigation }) {
                 Test Hydro Defense Mechanism
               </Text>
             )}
+          </TouchableOpacity>
+
+          {/* New Test Lighting Button */}
+          <TouchableOpacity
+            style={[
+              styles.testBtn,
+              { marginTop: 10 },
+            ]}
+            onPress={() => setTestLightingModalVisible(true)}
+          >
+            <Text style={styles.testBtnText}>Test Lighting</Text>
           </TouchableOpacity>
         </View>
 
@@ -2177,6 +2192,7 @@ export default function ControlScreen({ navigation }) {
           <TouchableOpacity
             style={[styles.timeInput, { marginTop: 6 }]}
             onPress={() => {
+             
               if (feedEdit.open) setShowFeedTimePicker(true);
               else setShowWaterTimePicker(true);
             }}
@@ -2681,9 +2697,6 @@ export default function ControlScreen({ navigation }) {
         </View>
       </Modal>
 
-      
-
-      
       {/* Duplicate Watering Time Modal */}
       <Modal
         key="duplicateWaterTimeModal"
@@ -2791,6 +2804,47 @@ export default function ControlScreen({ navigation }) {
               onPress={hideMotorWarning}
             >
               <Text style={styles.motorWarningButtonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Test Lighting Modal */}
+      <Modal
+        key="testLightingModal"
+        visible={testLightingModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTestLightingModalVisible(false)}
+      >
+        <View style={styles.popupBackground}>
+          <View style={[styles.popupBox, { width: 320, alignItems: "stretch" }]}>
+            <Text style={{ fontWeight: "700", fontSize: 16, textAlign: "center" }}>
+              Test Lighting
+            </Text>
+            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+              Adjust the brightness to test the lighting.
+            </Text>
+            <View style={{ marginVertical: 18 }}>
+              <Text style={{ fontWeight: "600", marginBottom: 6, textAlign: "center" }}>
+                Brightness: {testBrightness}%
+              </Text>
+              <Slider
+                minimumValue={0}
+                maximumValue={100}
+                step={1}
+                value={testBrightness}
+                onValueChange={setTestBrightness}
+                minimumTrackTintColor={PRIMARY}
+                maximumTrackTintColor="#e2e8f0"
+                thumbTintColor={PRIMARY}
+              />
+            </View>
+            <TouchableOpacity
+              style={[styles.primaryBtn, { marginTop: 10 }]}
+              onPress={() => setTestLightingModalVisible(false)}
+            >
+              <Text style={styles.primaryBtnText}>Close</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -3243,7 +3297,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-
-  // small helpers
-  dateText: { fontWeight: "700" },
 });
