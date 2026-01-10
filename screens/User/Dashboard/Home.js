@@ -78,6 +78,8 @@ export default function QuickOverviewSetup({ navigation }) {
   const [showConfirmReplace, setShowConfirmReplace] = useState(false);
   const [hasBatchData, setHasBatchData] = useState(false);
   const [userName, setUserName] = useState("User");
+  const [showBatchesModal, setShowBatchesModal] = useState(false);
+  const [batches, setBatches] = useState([]);
 
   // Load saved data when component mounts
   useEffect(() => {
@@ -239,17 +241,62 @@ export default function QuickOverviewSetup({ navigation }) {
     setShowConfirmReplace(false);
   };
 
+  const handleViewAllBatches = async () => {
+    await loadAllBatches();
+    setShowBatchesModal(true);
+  };
+
+  const loadAllBatches = async () => {
+    try {
+      // For demo, assume batches are stored as JSON array under "batches"
+      const batchesJson = await AsyncStorage.getItem("batches");
+      if (batchesJson) {
+        setBatches(JSON.parse(batchesJson));
+      } else {
+        setBatches([]);
+      }
+    } catch (error) {
+      setBatches([]);
+    }
+  };
+
+  const handleDeleteBatch = async (index) => {
+    const updated = batches.filter((_, i) => i !== index);
+    setBatches(updated);
+    await AsyncStorage.setItem("batches", JSON.stringify(updated));
+  };
+
   const handleSaveChicksCountModal = async (value) => {
     setChicksCount(value);
     setHasBatchData(true);
     try {
       await AsyncStorage.setItem("chicksCount", value);
+      // Save the start date when batch is created/updated
+      const startDate = new Date().toISOString();
+      await AsyncStorage.setItem("batchStartDate", startDate);
+
+      // Save batch to batches array
+      const batchesJson = await AsyncStorage.getItem("batches");
+      let batchArr = batchesJson ? JSON.parse(batchesJson) : [];
+      batchArr.push({
+        chicksCount: value,
+        daysCount,
+        harvestDays,
+        startDate: new Date().toISOString()
+      });
+      await AsyncStorage.setItem("batches", JSON.stringify(batchArr));
     } catch (error) {
       console.error("Error saving chicks count:", error);
     }
   };
 
   const handleSaveDaysCountModal = async (value) => {
+    // Allow up to 365 days
+    const days = parseInt(value);
+    if (!value || days < 1 || days > 365) {
+      Alert.alert("Invalid Input", "Please enter a number between 1 and 365");
+      return;
+    }
     setDaysCount(value);
     setHasBatchData(true);
     try {
@@ -263,6 +310,12 @@ export default function QuickOverviewSetup({ navigation }) {
   };
 
   const handleSaveHarvestDaysModal = async (value) => {
+    // Allow up to 365 days
+    const days = parseInt(value);
+    if (!value || days < 1 || days > 365) {
+      Alert.alert("Invalid Input", "Please enter a number between 1 and 365");
+      return;
+    }
     setHarvestDays(value);
     setHasBatchData(true);
     try {
@@ -374,6 +427,15 @@ export default function QuickOverviewSetup({ navigation }) {
             </View>
           </TouchableOpacity>
 
+          {/* VIEW ALL BATCHES BUTTON */}
+          <TouchableOpacity
+            style={styles.viewAllBatchesBtn}
+            activeOpacity={0.9}
+            onPress={handleViewAllBatches}
+          >
+            <Text style={styles.viewAllBatchesText}>VIEW ALL BATCHES</Text>
+          </TouchableOpacity>
+
           {/* Sensor Monitoring Grid */}
           <Text style={styles.sectionTitle}>Live Monitoring</Text>
           <View style={styles.sensorGrid}>
@@ -442,6 +504,43 @@ export default function QuickOverviewSetup({ navigation }) {
                     <Text style={styles.confirmModalButtonConfirmText}>Edit</Text>
                   </TouchableOpacity>
                 </View>
+              </View>
+            </View>
+          </Modal>
+
+          {/* Batches Modal */}
+          <Modal visible={showBatchesModal} transparent animationType="fade">
+            <View style={styles.batchesModalOverlay}>
+              <View style={styles.batchesModalCard}>
+                <Text style={styles.batchesModalTitle}>All Batches</Text>
+                <ScrollView style={{ maxHeight: 350 }}>
+                  {batches.length === 0 ? (
+                    <Text style={{ textAlign: "center", color: "#666", marginTop: 24 }}>No batches found.</Text>
+                  ) : (
+                    batches.map((batch, idx) => (
+                      <View key={idx} style={styles.batchItem}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.batchLabel}>Chicks: <Text style={styles.batchValue}>{batch.chicksCount}</Text></Text>
+                          <Text style={styles.batchLabel}>Days: <Text style={styles.batchValue}>{batch.daysCount}</Text></Text>
+                          <Text style={styles.batchLabel}>Harvest: <Text style={styles.batchValue}>{batch.harvestDays}</Text></Text>
+                          <Text style={styles.batchLabel}>Start: <Text style={styles.batchValue}>{batch.startDate ? new Date(batch.startDate).toLocaleDateString() : ""}</Text></Text>
+                        </View>
+                        <TouchableOpacity
+                          style={styles.deleteBatchBtn}
+                          onPress={() => handleDeleteBatch(idx)}
+                        >
+                          <Text style={styles.deleteBatchText}>Delete</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))
+                  )}
+                </ScrollView>
+                <TouchableOpacity
+                  style={styles.closeBatchesBtn}
+                  onPress={() => setShowBatchesModal(false)}
+                >
+                  <Text style={styles.closeBatchesText}>Close</Text>
+                </TouchableOpacity>
               </View>
             </View>
           </Modal>
@@ -738,5 +837,87 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "600",
     fontSize: 15,
+  },
+  viewAllBatchesBtn: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: "center",
+    alignSelf: "stretch",
+    marginHorizontal: 8,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "#154b99",
+  },
+  viewAllBatchesText: {
+    color: "#154b99",
+    fontWeight: "700",
+    fontSize: 16,
+    letterSpacing: 1,
+  },
+  batchesModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  batchesModalCard: {
+    width: "90%",
+    maxWidth: 400,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+  batchesModalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1e293b",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  batchItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e7eb",
+  },
+  batchLabel: {
+    fontSize: 14,
+    color: "#64748b",
+  },
+  batchValue: {
+    fontWeight: "700",
+    color: "#1e293b",
+  },
+  deleteBatchBtn: {
+    backgroundColor: "#ef4444",
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginLeft: 12,
+  },
+  deleteBatchText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  closeBatchesBtn: {
+    backgroundColor: "#154b99",
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 16,
+  },
+  closeBatchesText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });
