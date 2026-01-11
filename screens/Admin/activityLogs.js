@@ -920,7 +920,7 @@ export default function ActivityLogs({ navigation }) {
                   pressedBtn === "generate" && { color: "#fff" },
                 ]}
               >
-                Generate Log Report
+                Download
               </Text>
             </TouchableOpacity>
           </View>
