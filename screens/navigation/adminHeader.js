@@ -130,7 +130,7 @@ export default function Header2() {
             {unreadCount > 0 && (
               <View style={styles.notificationBadge}>
                 <Text style={styles.notificationBadgeText}>
-                  {unreadCount > 9 ? '9+' : unreadCount}
+                  {unreadCount > 9 ? '9+' : String(unreadCount)}
                 </Text>
               </View>
             )}

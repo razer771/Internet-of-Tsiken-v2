@@ -104,7 +104,7 @@ export default function Header2() {
               <Icon name="bell" size={22} color="#1a1a1a" />
               {unreadCount > 0 && (
                 <View style={styles.notificationBadge}>
-                  <Text style={styles.notificationBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
+                  <Text style={styles.notificationBadgeText}>{unreadCount > 99 ? "99+" : String(unreadCount)}</Text>
                 </View>
               )}
             </TouchableOpacity>

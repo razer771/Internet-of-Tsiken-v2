@@ -63,28 +63,7 @@ export default function SideNavigation({ visible, onClose, navigation }) {
     console.log("[SideNavigation] Navigation object exists:", !!navigation);
     onClose();
 
-    if (item === "Reports" && navigation) {
-      console.log("[SideNavigation] Attempting to navigate to Reports screen");
-      try {
-        navigation.reset({
-          index: 0,
-          routes: [{ name: "Reports" }],
-        });
-        console.log("[SideNavigation] Navigate successful");
-      } catch (error) {
-        console.error("[SideNavigation] Navigation error:", error);
-      }
-    } else if (item === "Activity Logs" && navigation) {
-      console.log(
-        "[SideNavigation] Attempting to navigate to Activity Logs screen"
-      );
-      try {
-        navigation.navigate("ActivityLogs");
-        console.log("[SideNavigation] Navigate to Activity Logs successful");
-      } catch (error) {
-        console.error("[SideNavigation] Navigation error:", error);
-      }
-    } else if (item === "User Profile" && navigation) {
+    if (item === "User Profile" && navigation) {
       console.log(
         "[SideNavigation] Attempting to navigate to UserProfile screen"
       );
@@ -218,62 +197,6 @@ export default function SideNavigation({ visible, onClose, navigation }) {
                     ]}
                   >
                     User Profile
-                  </Text>
-                </View>
-              )}
-            </Pressable>
-
-            <Pressable
-              style={styles.menuItem}
-              onPress={() => handleMenuItemPress("Activity Logs")}
-            >
-              {({ pressed }) => (
-                <View
-                  style={[
-                    styles.menuItemInner,
-                    pressed && styles.menuItemPressed,
-                  ]}
-                >
-                  <Icon
-                    name="activity"
-                    size={20}
-                    color={pressed ? "#ffffff" : "#1a1a1a"}
-                  />
-                  <Text
-                    style={[
-                      styles.menuItemText,
-                      pressed && styles.menuItemTextPressed,
-                    ]}
-                  >
-                    Activity Logs
-                  </Text>
-                </View>
-              )}
-            </Pressable>
-
-            <Pressable
-              style={styles.menuItem}
-              onPress={() => handleMenuItemPress("Reports")}
-            >
-              {({ pressed }) => (
-                <View
-                  style={[
-                    styles.menuItemInner,
-                    pressed && styles.menuItemPressed,
-                  ]}
-                >
-                  <Icon
-                    name="file-text"
-                    size={20}
-                    color={pressed ? "#ffffff" : "#1a1a1a"}
-                  />
-                  <Text
-                    style={[
-                      styles.menuItemText,
-                      pressed && styles.menuItemTextPressed,
-                    ]}
-                  >
-                    Reports
                   </Text>
                 </View>
               )}
