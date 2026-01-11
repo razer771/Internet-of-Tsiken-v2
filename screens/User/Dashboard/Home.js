@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Modal,
 } from "react-native";
 import QuickSetupModal from "./QuickSetupModal";
+import ViewAllBatchesModal from "./viewallbatchesModal";
 import { auth, db } from "../../../config/firebaseconfig";
 import { doc, getDoc, updateDoc, onSnapshot } from "firebase/firestore";
 import { db as firestoreDb } from "../../../config/firebaseconfig";
@@ -79,28 +80,25 @@ export default function QuickOverviewSetup({ navigation }) {
   const [showConfirmReplace, setShowConfirmReplace] = useState(false);
   const [hasBatchData, setHasBatchData] = useState(false);
   const [userName, setUserName] = useState("User");
-
-  // Firestore brooder info state
-  const [brooderInfo, setBrooderInfo] = useState({
-    chicksCount: 0,
-    daysCount: 0,
-    harvestDays: 0,
-  });
-  const [loadingBrooderInfo, setLoadingBrooderInfo] = useState(true);
-  const [brooderInfoError, setBrooderInfoError] = useState(null);
-
-  // Live sensor monitoring state
+  const [showBatchesModal, setShowBatchesModal] = useState(false);
+  const [batches, setBatches] = useState([]);
+  const [selectedBatchIndex, setSelectedBatchIndex] = useState(null);
   const [sensorData, setSensorData] = useState({
     waterLevel: 0,
     feedLevel: 0,
     solarCharge: 0,
     lightStatus: "Off",
   });
-  const [loadingSensorData, setLoadingSensorData] = useState(true);
+  const [loadingSensorData, setLoadingSensorData] = useState(false);
   const [sensorDataError, setSensorDataError] = useState(null);
-
-  // Keep track of Firestore listener unsubscribe function
-  const sensorListenerRef = React.useRef(null);
+  const [brooderInfo, setBrooderInfo] = useState({
+    chicksCount: 0,
+    daysCount: 0,
+    harvestDays: 0,
+  });
+  const [loadingBrooderInfo, setLoadingBrooderInfo] = useState(false);
+  const [brooderInfoError, setBrooderInfoError] = useState(null);
+  const sensorListenerRef = useRef(null);
 
   // Load saved data when component mounts
   useEffect(() => {
@@ -339,21 +337,7 @@ export default function QuickOverviewSetup({ navigation }) {
 
             // Cache the new data to AsyncStorage
             await cacheSensorData(newSensorData);
-
-            console.log("[SensorData] Updated from Firestore:", newSensorData);
-          } else {
-            console.log(
-              "[SensorData] No sensor data document found in Firestore"
-            );
-            setSensorDataError("No sensor data available");
           }
-
-          setLoadingSensorData(false);
-        },
-        (error) => {
-          console.error("[SensorData] Firestore listener error:", error);
-          setSensorDataError(error.message);
-          setLoadingSensorData(false);
         }
       );
 
@@ -504,21 +488,10 @@ export default function QuickOverviewSetup({ navigation }) {
   };
 
   const openQuickSetup = async () => {
-    // Check if there's existing batch data
-    try {
-      const savedChicks = await AsyncStorage.getItem("chicksCount");
-      const savedDays = await AsyncStorage.getItem("daysCount");
-      const savedHarvest = await AsyncStorage.getItem("harvestDays");
-
-      // If any data exists, show confirmation modal
-      if (savedChicks || savedDays || savedHarvest) {
-        setShowConfirmReplace(true);
-      } else {
-        // No existing data, open modal directly
-        setShowQuickSetup(true);
-      }
-    } catch (error) {
-      console.error("Error checking existing data:", error);
+    // Only allow edit if a batch is selected and shown
+    if (hasBatchData && selectedBatchIndex !== null && batches[selectedBatchIndex]) {
+      setShowConfirmReplace(true);
+    } else {
       setShowQuickSetup(true);
     }
   };
@@ -534,58 +507,187 @@ export default function QuickOverviewSetup({ navigation }) {
     setShowConfirmReplace(false);
   };
 
-  const handleSaveChicksCountModal = async (value) => {
-    setChicksCount(value);
-    setHasBatchData(true);
-    try {
-      await AsyncStorage.setItem("chicksCount", value);
+  const handleViewAllBatches = async () => {
+    await loadAllBatches();
+    setShowBatchesModal(true);
+  };
 
-      // Update Firestore with new chicks count (convert string to number)
-      const chicksNum = parseInt(value);
-      if (!isNaN(chicksNum)) {
-        await updateBrooderInfoInFirestore({
-          chicksCount: chicksNum,
-        });
+  const loadAllBatches = async () => {
+    try {
+      const batchesJson = await AsyncStorage.getItem("batches");
+      if (batchesJson) {
+        const parsedBatches = JSON.parse(batchesJson);
+        setBatches(parsedBatches);
+      } else {
+        setBatches([]);
       }
+    } catch (error) {
+      console.error("Error loading batches:", error);
+      setBatches([]);
+    }
+  };
+
+  const handleDeleteBatch = async (index) => {
+    const updated = batches.filter((_, i) => i !== index);
+    setBatches(updated);
+    await AsyncStorage.setItem("batches", JSON.stringify(updated));
+    // If deleted batch is selected, reset brooder info
+    if (selectedBatchIndex === index) {
+      setSelectedBatchIndex(null);
+      setChicksCount("0");
+      setDaysCount("0");
+      setHarvestDays("0");
+      setHasBatchData(false);
+      await AsyncStorage.removeItem("chicksCount");
+      await AsyncStorage.removeItem("daysCount");
+      await AsyncStorage.removeItem("harvestDays");
+      await AsyncStorage.removeItem("batchStartDate");
+      await AsyncStorage.removeItem("selectedBatchIndex");
+    } else if (selectedBatchIndex !== null && selectedBatchIndex > index) {
+      // Adjust selected index if needed
+      setSelectedBatchIndex(selectedBatchIndex - 1);
+      await AsyncStorage.setItem("selectedBatchIndex", String(selectedBatchIndex - 1));
+    }
+  };
+
+  const handleSelectBatch = async (index) => {
+    setSelectedBatchIndex(index);
+    const batch = batches[index];
+    const chicksVal = batch.chicksCount ? String(batch.chicksCount) : "";
+    const daysVal = batch.daysCount ? String(batch.daysCount) : "";
+    const harvestVal = batch.harvestDays ? String(batch.harvestDays) : "";
+    
+    setChicksCount(chicksVal);
+    setDaysCount(daysVal);
+    setHarvestDays(harvestVal);
+    setHasBatchData(true);
+    
+    await AsyncStorage.setItem("selectedBatchIndex", String(index));
+    await AsyncStorage.setItem("chicksCount", chicksVal);
+    await AsyncStorage.setItem("daysCount", daysVal);
+    await AsyncStorage.setItem("harvestDays", harvestVal);
+    await AsyncStorage.setItem("batchStartDate", batch.startDate || "");
+    
+    setShowBatchesModal(false);
+  };
+
+  const handleSaveChicksCountModal = async (value) => {
+    try {
+      let batchArr = batches.slice();
+      let idx = selectedBatchIndex;
+
+      if (hasBatchData && idx !== null && batchArr[idx]) {
+        // Edit existing batch
+        batchArr[idx] = {
+          ...batchArr[idx],
+          chicksCount: String(value),
+          daysCount: String(daysCount || "0"),
+          harvestDays: String(harvestDays || "0"),
+          startDate: batchArr[idx].startDate || new Date().toISOString(),
+        };
+      } else {
+        // Add new batch
+        const newBatch = {
+          chicksCount: String(value),
+          daysCount: String(daysCount && daysCount !== "" ? daysCount : "0"),
+          harvestDays: String(harvestDays && harvestDays !== "" ? harvestDays : "0"),
+          startDate: new Date().toISOString(),
+        };
+        batchArr.push(newBatch);
+        idx = batchArr.length - 1;
+        setSelectedBatchIndex(idx);
+        await AsyncStorage.setItem("selectedBatchIndex", String(idx));
+      }
+
+      setBatches(batchArr);
+      setChicksCount(String(value));
+      setHasBatchData(true);
+      await AsyncStorage.setItem("batches", JSON.stringify(batchArr));
+      await AsyncStorage.setItem("chicksCount", String(value));
+      await AsyncStorage.setItem("batchStartDate", batchArr[idx].startDate);
     } catch (error) {
       console.error("Error saving chicks count:", error);
     }
   };
 
   const handleSaveDaysCountModal = async (value) => {
-    setDaysCount(value);
-    setHasBatchData(true);
+    const days = parseInt(value);
+    if (!value || days < 1 || days > 365) {
+      Alert.alert("Invalid Input", "Please enter a number between 1 and 365");
+      return;
+    }
     try {
-      await AsyncStorage.setItem("daysCount", value);
-      // Save the start date when batch is created/updated
-      const startDate = new Date().toISOString();
-      await AsyncStorage.setItem("batchStartDate", startDate);
+      let batchArr = batches.slice();
+      let idx = selectedBatchIndex;
 
-      // Update Firestore with new days count (convert string to number)
-      const daysNum = parseInt(value);
-      if (!isNaN(daysNum)) {
-        await updateBrooderInfoInFirestore({
-          daysCount: daysNum,
-        });
+      if (hasBatchData && idx !== null && batchArr[idx]) {
+        batchArr[idx] = {
+          ...batchArr[idx],
+          chicksCount: String(chicksCount || "0"),
+          daysCount: String(value),
+          harvestDays: String(harvestDays || "0"),
+          startDate: batchArr[idx].startDate || new Date().toISOString(),
+        };
+      } else {
+        const newBatch = {
+          chicksCount: String(chicksCount && chicksCount !== "" ? chicksCount : "0"),
+          daysCount: String(value),
+          harvestDays: String(harvestDays && harvestDays !== "" ? harvestDays : "0"),
+          startDate: new Date().toISOString(),
+        };
+        batchArr.push(newBatch);
+        idx = batchArr.length - 1;
+        setSelectedBatchIndex(idx);
+        await AsyncStorage.setItem("selectedBatchIndex", String(idx));
       }
+
+      setBatches(batchArr);
+      setDaysCount(String(value));
+      setHasBatchData(true);
+      await AsyncStorage.setItem("batches", JSON.stringify(batchArr));
+      await AsyncStorage.setItem("daysCount", String(value));
+      await AsyncStorage.setItem("batchStartDate", batchArr[idx].startDate);
     } catch (error) {
       console.error("Error saving days count:", error);
     }
   };
 
   const handleSaveHarvestDaysModal = async (value) => {
-    setHarvestDays(value);
-    setHasBatchData(true);
+    const days = parseInt(value);
+    if (!value || days < 1 || days > 365) {
+      Alert.alert("Invalid Input", "Please enter a number between 1 and 365");
+      return;
+    }
     try {
-      await AsyncStorage.setItem("harvestDays", value);
+      let batchArr = batches.slice();
+      let idx = selectedBatchIndex;
 
-      // Update Firestore with new harvest days (convert string to number)
-      const harvestNum = parseInt(value);
-      if (!isNaN(harvestNum)) {
-        await updateBrooderInfoInFirestore({
-          harvestDays: harvestNum,
-        });
+      if (hasBatchData && idx !== null && batchArr[idx]) {
+        batchArr[idx] = {
+          ...batchArr[idx],
+          chicksCount: String(chicksCount || "0"),
+          daysCount: String(daysCount || "0"),
+          harvestDays: String(value),
+          startDate: batchArr[idx].startDate || new Date().toISOString(),
+        };
+      } else {
+        const newBatch = {
+          chicksCount: String(chicksCount && chicksCount !== "" ? chicksCount : "0"),
+          daysCount: String(daysCount && daysCount !== "" ? daysCount : "0"),
+          harvestDays: String(value),
+          startDate: new Date().toISOString(),
+        };
+        batchArr.push(newBatch);
+        idx = batchArr.length - 1;
+        setSelectedBatchIndex(idx);
+        await AsyncStorage.setItem("selectedBatchIndex", String(idx));
       }
+
+      setBatches(batchArr);
+      setHarvestDays(String(value));
+      setHasBatchData(true);
+      await AsyncStorage.setItem("batches", JSON.stringify(batchArr));
+      await AsyncStorage.setItem("harvestDays", String(value));
     } catch (error) {
       console.error("Error saving harvest days:", error);
     }
@@ -681,18 +783,27 @@ export default function QuickOverviewSetup({ navigation }) {
               </View>
             </View>
 
-            {/* Big CTA button styled similar to the screenshot */}
-            <TouchableOpacity
-              style={styles.ctaWrapper}
-              activeOpacity={0.9}
-              onPress={openQuickSetup}
-            >
-              <View style={styles.ctaButton}>
-                <Text style={styles.ctaText}>
-                  {hasBatchData ? "Edit Batch" : "Add Batch"}
-                </Text>
-              </View>
-            </TouchableOpacity>
+          {/* Big CTA button styled similar to the screenshot */}
+          <TouchableOpacity
+            style={styles.ctaWrapper}
+            activeOpacity={0.9}
+            onPress={openQuickSetup}
+          >
+            <View style={styles.ctaButton}>
+              <Text style={styles.ctaText}>
+                {hasBatchData ? "Edit Batch" : "Add Batch"}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* VIEW ALL BATCHES BUTTON */}
+          <TouchableOpacity
+            style={styles.viewAllBatchesBtn}
+            activeOpacity={0.9}
+            onPress={handleViewAllBatches}
+          >
+            <Text style={styles.viewAllBatchesText}>VIEW ALL BATCHES</Text>
+          </TouchableOpacity>
 
             {/* Sensor Monitoring Grid */}
             <Text style={styles.sectionTitle}>Live Monitoring</Text>
@@ -745,52 +856,87 @@ export default function QuickOverviewSetup({ navigation }) {
               onClose={closeQuickSetup}
             />
 
-            {/* Confirmation Modal */}
-            <Modal
-              visible={showConfirmReplace}
-              transparent
-              animationType="fade"
-            >
-              <View style={styles.confirmModalOverlay}>
-                <View style={styles.confirmModalCard}>
-                  <Text style={styles.confirmModalTitle}>
-                    Edit Existing Batch?
-                  </Text>
-                  <Text style={styles.confirmModalMessage}>
-                    You already have an active batch. Do you want to edit it
-                    with new values?
-                  </Text>
-                  <View style={styles.confirmModalButtons}>
-                    <TouchableOpacity
-                      style={[
-                        styles.confirmModalButton,
-                        styles.confirmModalButtonCancel,
-                      ]}
-                      onPress={handleReplaceCancel}
-                      activeOpacity={0.9}
-                    >
-                      <Text style={styles.confirmModalButtonCancelText}>
-                        Cancel
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.confirmModalButton,
-                        styles.confirmModalButtonConfirm,
-                      ]}
-                      onPress={handleReplaceConfirm}
-                      activeOpacity={0.9}
-                    >
-                      <Text style={styles.confirmModalButtonConfirmText}>
-                        Edit
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
+          {/* Confirmation Modal */}
+          <Modal visible={showConfirmReplace} transparent animationType="fade">
+            <View style={styles.confirmModalOverlay}>
+              <View style={styles.confirmModalCard}>
+                <Text style={styles.confirmModalTitle}>Edit Existing Batch?</Text>
+                <Text style={styles.confirmModalMessage}>
+                  You already have an active batch. Do you want to edit it with new values?
+                </Text>
+                <View style={styles.confirmModalButtons}>
+                  <TouchableOpacity
+                    style={[styles.confirmModalButton, styles.confirmModalButtonCancel]}
+                    onPress={handleReplaceCancel}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={styles.confirmModalButtonCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.confirmModalButton, styles.confirmModalButtonConfirm]}
+                    onPress={handleReplaceConfirm}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={styles.confirmModalButtonConfirmText}>Edit</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
-            </Modal>
-          </View>
-        </ScrollView>
+            </View>
+          </Modal>
+
+          {/* Batches Modal */}
+          <Modal visible={showBatchesModal} transparent animationType="fade">
+            <View style={styles.batchesModalOverlay}>
+              <View style={styles.batchesModalCard}>
+                <Text style={styles.batchesModalTitle}>All Batches</Text>
+                <ScrollView style={{ maxHeight: 350 }}>
+                  {batches.length === 0 ? (
+                    <Text style={{ textAlign: "center", color: "#666", marginTop: 24 }}>No batches found.</Text>
+                  ) : (
+                    batches.map((batch, idx) => {
+                      const displayChicks = batch.chicksCount ? String(batch.chicksCount) : "";
+                      const displayDays = batch.daysCount ? String(batch.daysCount) : "";
+                      const displayHarvest = batch.harvestDays ? String(batch.harvestDays) : "";
+                      return (
+                        <View key={idx} style={[
+                          styles.batchItem,
+                          idx === selectedBatchIndex ? { backgroundColor: "#e0e7ff" } : null
+                        ]}>
+                          <TouchableOpacity
+                            style={{ flex: 1 }}
+                            onPress={() => handleSelectBatch(idx)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.batchLabel}>Chicks: <Text style={styles.batchValue}>{displayChicks}</Text></Text>
+                            <Text style={styles.batchLabel}>Days: <Text style={styles.batchValue}>{displayDays}</Text></Text>
+                            <Text style={styles.batchLabel}>Harvest: <Text style={styles.batchValue}>{displayHarvest}</Text></Text>
+                            <Text style={styles.batchLabel}>Start: <Text style={styles.batchValue}>{batch.startDate ? new Date(batch.startDate).toLocaleDateString() : ""}</Text></Text>
+                            {idx === selectedBatchIndex && (
+                              <Text style={{ color: "#2563eb", fontWeight: "bold", marginTop: 4 }}>Selected</Text>
+                            )}
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.deleteBatchBtn}
+                            onPress={() => handleDeleteBatch(idx)}
+                          >
+                            <Text style={styles.deleteBatchText}>Delete</Text>
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })
+                  )}
+                </ScrollView>
+                <TouchableOpacity
+                  style={styles.closeBatchesBtn}
+                  onPress={() => setShowBatchesModal(false)}
+                >
+                  <Text style={styles.closeBatchesText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        </View>
+      </ScrollView>
       </View>
     </ErrorBoundary>
   );
@@ -1082,5 +1228,84 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "600",
     fontSize: 15,
+  },
+  viewAllBatchesBtn: {
+    backgroundColor: "#154b99",
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: "center",
+    alignSelf: "stretch",
+    marginHorizontal: 8,
+    marginBottom: 24,
+  },
+  viewAllBatchesText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+  batchesModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  batchesModalCard: {
+    width: "90%",
+    maxWidth: 400,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+  batchesModalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1e293b",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  batchItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e7eb",
+  },
+  batchLabel: {
+    fontSize: 14,
+    color: "#64748b",
+  },
+  batchValue: {
+    fontWeight: "700",
+    color: "#1e293b",
+  },
+  deleteBatchBtn: {
+    backgroundColor: "#ef4444",
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginLeft: 12,
+  },
+  deleteBatchText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  closeBatchesBtn: {
+    backgroundColor: "#154b99",
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 16,
+  },
+  closeBatchesText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });
