@@ -884,7 +884,12 @@ export default function QuickOverviewSetup({ navigation }) {
             </View>
 
             {/* Brooder Information Card */}
-            <Text style={styles.sectionTitle}>Brooder Information</Text>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Brooder Information</Text>
+              <TouchableOpacity onPress={handleViewAllBatches}>
+                <Text style={styles.viewAllLink}>View All</Text>
+              </TouchableOpacity>
+            </View>
             <View style={styles.brooderCard}>
               <View style={styles.brooderRow}>
                 <View style={styles.brooderIconContainer}>
@@ -940,19 +945,16 @@ export default function QuickOverviewSetup({ navigation }) {
             <TouchableOpacity
               style={styles.editBtn}
               activeOpacity={0.9}
-              onPress={handleViewAllBatches}
+              onPress={() => {
+                if (selectedBatchIndex !== null && selectedBatchIndex < batches.length) {
+                  handleEditBatch(selectedBatchIndex);
+                } else {
+                  Alert.alert("No Batch Selected", "Please select a batch to edit");
+                }
+              }}
+              disabled={selectedBatchIndex === null || batches.length === 0}
             >
               <Text style={styles.editBtnText}>Edit</Text>
-            </TouchableOpacity>
-
-            {/* DELETE Button - Red */}
-            <TouchableOpacity
-              style={styles.deleteBtn}
-              activeOpacity={0.9}
-              onPress={handleDeleteSelectedBatch}
-              disabled={!hasBatchData || selectedBatchIndex === null}
-            >
-              <Text style={styles.deleteBtnText}>Delete</Text>
             </TouchableOpacity>
           </View>
 
@@ -1099,6 +1101,18 @@ const styles = StyleSheet.create({
     color: "#1e293b",
     marginBottom: 12,
     marginTop: 8,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  viewAllLink: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#3b82f6",
   },
   statusCard: {
     backgroundColor: "#22c55e",
