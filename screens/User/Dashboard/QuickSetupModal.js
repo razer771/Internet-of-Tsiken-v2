@@ -20,11 +20,9 @@ export default function QuickSetupModal({
   onSaveHarvestDays,
   onClose,
 }) {
-  const [chicksCount, setChicksCount] = useState(
-    String(initialChicksCount ?? "")
-  );
-  const [daysCount, setDaysCount] = useState(String(initialDaysCount ?? ""));
-  const [harvestDays, setHarvestDays] = useState(String(initialHarvestDays ?? ""));
+  const [chicksCount, setChicksCount] = useState("");
+  const [daysCount, setDaysCount] = useState("");
+  const [harvestDays, setHarvestDays] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
   const [chicksError, setChicksError] = useState("");
   const [daysError, setDaysError] = useState("");
@@ -42,14 +40,20 @@ export default function QuickSetupModal({
                       parseInt(harvestDays) > 0;
 
   useEffect(() => {
-    setChicksCount(String(initialChicksCount ?? ""));
-    setDaysCount(String(initialDaysCount ?? ""));
-    setHarvestDays(String(initialHarvestDays ?? ""));
-    // Reset errors when modal opens/closes
-    setChicksError("");
-    setDaysError("");
-    setHarvestError("");
-  }, [initialChicksCount, initialDaysCount, initialHarvestDays, visible]);
+    if (visible) {
+      // Only populate fields if initialValues are not "0" or empty
+      const chicksVal = initialChicksCount && initialChicksCount !== "0" ? String(initialChicksCount) : "";
+      const daysVal = initialDaysCount && initialDaysCount !== "0" ? String(initialDaysCount) : "";
+      const harvestVal = initialHarvestDays && initialHarvestDays !== "0" ? String(initialHarvestDays) : "";
+      
+      setChicksCount(chicksVal);
+      setDaysCount(daysVal);
+      setHarvestDays(harvestVal);
+      setChicksError("");
+      setDaysError("");
+      setHarvestError("");
+    }
+  }, [visible, initialChicksCount, initialDaysCount, initialHarvestDays]);
 
   const handleChicksChange = (text) => {
     // Only allow numeric input, max 100
@@ -107,10 +111,15 @@ export default function QuickSetupModal({
     // Show success modal
     setShowSuccess(true);
     
-    // Close after 2 seconds without clearing the form
-    // Form will be populated with saved values when reopened
+    // Close after 2 seconds and clear the form
     setTimeout(() => {
       setShowSuccess(false);
+      setChicksCount("");
+      setDaysCount("");
+      setHarvestDays("");
+      setChicksError("");
+      setDaysError("");
+      setHarvestError("");
       onClose();
     }, 2000);
   };

@@ -80,6 +80,7 @@ export default function QuickOverviewSetup({ navigation }) {
   const [userName, setUserName] = useState("User");
   const [showBatchesModal, setShowBatchesModal] = useState(false);
   const [batches, setBatches] = useState([]);
+  const [selectedBatchIndex, setSelectedBatchIndex] = useState(null);
 
   // Load saved data when component mounts
   useEffect(() => {
@@ -211,21 +212,10 @@ export default function QuickOverviewSetup({ navigation }) {
   };
 
   const openQuickSetup = async () => {
-    // Check if there's existing batch data
-    try {
-      const savedChicks = await AsyncStorage.getItem("chicksCount");
-      const savedDays = await AsyncStorage.getItem("daysCount");
-      const savedHarvest = await AsyncStorage.getItem("harvestDays");
-      
-      // If any data exists, show confirmation modal
-      if (savedChicks || savedDays || savedHarvest) {
-        setShowConfirmReplace(true);
-      } else {
-        // No existing data, open modal directly
-        setShowQuickSetup(true);
-      }
-    } catch (error) {
-      console.error("Error checking existing data:", error);
+    // Only allow edit if a batch is selected and shown
+    if (hasBatchData && selectedBatchIndex !== null && batches[selectedBatchIndex]) {
+      setShowConfirmReplace(true);
+    } else {
       setShowQuickSetup(true);
     }
   };
@@ -248,14 +238,15 @@ export default function QuickOverviewSetup({ navigation }) {
 
   const loadAllBatches = async () => {
     try {
-      // For demo, assume batches are stored as JSON array under "batches"
       const batchesJson = await AsyncStorage.getItem("batches");
       if (batchesJson) {
-        setBatches(JSON.parse(batchesJson));
+        const parsedBatches = JSON.parse(batchesJson);
+        setBatches(parsedBatches);
       } else {
         setBatches([]);
       }
     } catch (error) {
+      console.error("Error loading batches:", error);
       setBatches([]);
     }
   };
@@ -264,62 +255,163 @@ export default function QuickOverviewSetup({ navigation }) {
     const updated = batches.filter((_, i) => i !== index);
     setBatches(updated);
     await AsyncStorage.setItem("batches", JSON.stringify(updated));
+    // If deleted batch is selected, reset brooder info
+    if (selectedBatchIndex === index) {
+      setSelectedBatchIndex(null);
+      setChicksCount("0");
+      setDaysCount("0");
+      setHarvestDays("0");
+      setHasBatchData(false);
+      await AsyncStorage.removeItem("chicksCount");
+      await AsyncStorage.removeItem("daysCount");
+      await AsyncStorage.removeItem("harvestDays");
+      await AsyncStorage.removeItem("batchStartDate");
+      await AsyncStorage.removeItem("selectedBatchIndex");
+    } else if (selectedBatchIndex !== null && selectedBatchIndex > index) {
+      // Adjust selected index if needed
+      setSelectedBatchIndex(selectedBatchIndex - 1);
+      await AsyncStorage.setItem("selectedBatchIndex", String(selectedBatchIndex - 1));
+    }
+  };
+
+  const handleSelectBatch = async (index) => {
+    setSelectedBatchIndex(index);
+    const batch = batches[index];
+    const chicksVal = batch.chicksCount ? String(batch.chicksCount) : "";
+    const daysVal = batch.daysCount ? String(batch.daysCount) : "";
+    const harvestVal = batch.harvestDays ? String(batch.harvestDays) : "";
+    
+    setChicksCount(chicksVal);
+    setDaysCount(daysVal);
+    setHarvestDays(harvestVal);
+    setHasBatchData(true);
+    
+    await AsyncStorage.setItem("selectedBatchIndex", String(index));
+    await AsyncStorage.setItem("chicksCount", chicksVal);
+    await AsyncStorage.setItem("daysCount", daysVal);
+    await AsyncStorage.setItem("harvestDays", harvestVal);
+    await AsyncStorage.setItem("batchStartDate", batch.startDate || "");
+    
+    setShowBatchesModal(false);
   };
 
   const handleSaveChicksCountModal = async (value) => {
-    setChicksCount(value);
-    setHasBatchData(true);
     try {
-      await AsyncStorage.setItem("chicksCount", value);
-      // Save the start date when batch is created/updated
-      const startDate = new Date().toISOString();
-      await AsyncStorage.setItem("batchStartDate", startDate);
+      let batchArr = batches.slice();
+      let idx = selectedBatchIndex;
 
-      // Save batch to batches array
-      const batchesJson = await AsyncStorage.getItem("batches");
-      let batchArr = batchesJson ? JSON.parse(batchesJson) : [];
-      batchArr.push({
-        chicksCount: value,
-        daysCount,
-        harvestDays,
-        startDate: new Date().toISOString()
-      });
+      if (hasBatchData && idx !== null && batchArr[idx]) {
+        // Edit existing batch
+        batchArr[idx] = {
+          ...batchArr[idx],
+          chicksCount: String(value),
+          daysCount: String(daysCount || "0"),
+          harvestDays: String(harvestDays || "0"),
+          startDate: batchArr[idx].startDate || new Date().toISOString(),
+        };
+      } else {
+        // Add new batch
+        const newBatch = {
+          chicksCount: String(value),
+          daysCount: String(daysCount && daysCount !== "" ? daysCount : "0"),
+          harvestDays: String(harvestDays && harvestDays !== "" ? harvestDays : "0"),
+          startDate: new Date().toISOString(),
+        };
+        batchArr.push(newBatch);
+        idx = batchArr.length - 1;
+        setSelectedBatchIndex(idx);
+        await AsyncStorage.setItem("selectedBatchIndex", String(idx));
+      }
+
+      setBatches(batchArr);
+      setChicksCount(String(value));
+      setHasBatchData(true);
       await AsyncStorage.setItem("batches", JSON.stringify(batchArr));
+      await AsyncStorage.setItem("chicksCount", String(value));
+      await AsyncStorage.setItem("batchStartDate", batchArr[idx].startDate);
     } catch (error) {
       console.error("Error saving chicks count:", error);
     }
   };
 
   const handleSaveDaysCountModal = async (value) => {
-    // Allow up to 365 days
     const days = parseInt(value);
     if (!value || days < 1 || days > 365) {
       Alert.alert("Invalid Input", "Please enter a number between 1 and 365");
       return;
     }
-    setDaysCount(value);
-    setHasBatchData(true);
     try {
-      await AsyncStorage.setItem("daysCount", value);
-      // Save the start date when batch is created/updated
-      const startDate = new Date().toISOString();
-      await AsyncStorage.setItem("batchStartDate", startDate);
+      let batchArr = batches.slice();
+      let idx = selectedBatchIndex;
+
+      if (hasBatchData && idx !== null && batchArr[idx]) {
+        batchArr[idx] = {
+          ...batchArr[idx],
+          chicksCount: String(chicksCount || "0"),
+          daysCount: String(value),
+          harvestDays: String(harvestDays || "0"),
+          startDate: batchArr[idx].startDate || new Date().toISOString(),
+        };
+      } else {
+        const newBatch = {
+          chicksCount: String(chicksCount && chicksCount !== "" ? chicksCount : "0"),
+          daysCount: String(value),
+          harvestDays: String(harvestDays && harvestDays !== "" ? harvestDays : "0"),
+          startDate: new Date().toISOString(),
+        };
+        batchArr.push(newBatch);
+        idx = batchArr.length - 1;
+        setSelectedBatchIndex(idx);
+        await AsyncStorage.setItem("selectedBatchIndex", String(idx));
+      }
+
+      setBatches(batchArr);
+      setDaysCount(String(value));
+      setHasBatchData(true);
+      await AsyncStorage.setItem("batches", JSON.stringify(batchArr));
+      await AsyncStorage.setItem("daysCount", String(value));
+      await AsyncStorage.setItem("batchStartDate", batchArr[idx].startDate);
     } catch (error) {
       console.error("Error saving days count:", error);
     }
   };
 
   const handleSaveHarvestDaysModal = async (value) => {
-    // Allow up to 365 days
     const days = parseInt(value);
     if (!value || days < 1 || days > 365) {
       Alert.alert("Invalid Input", "Please enter a number between 1 and 365");
       return;
     }
-    setHarvestDays(value);
-    setHasBatchData(true);
     try {
-      await AsyncStorage.setItem("harvestDays", value);
+      let batchArr = batches.slice();
+      let idx = selectedBatchIndex;
+
+      if (hasBatchData && idx !== null && batchArr[idx]) {
+        batchArr[idx] = {
+          ...batchArr[idx],
+          chicksCount: String(chicksCount || "0"),
+          daysCount: String(daysCount || "0"),
+          harvestDays: String(value),
+          startDate: batchArr[idx].startDate || new Date().toISOString(),
+        };
+      } else {
+        const newBatch = {
+          chicksCount: String(chicksCount && chicksCount !== "" ? chicksCount : "0"),
+          daysCount: String(daysCount && daysCount !== "" ? daysCount : "0"),
+          harvestDays: String(value),
+          startDate: new Date().toISOString(),
+        };
+        batchArr.push(newBatch);
+        idx = batchArr.length - 1;
+        setSelectedBatchIndex(idx);
+        await AsyncStorage.setItem("selectedBatchIndex", String(idx));
+      }
+
+      setBatches(batchArr);
+      setHarvestDays(String(value));
+      setHasBatchData(true);
+      await AsyncStorage.setItem("batches", JSON.stringify(batchArr));
+      await AsyncStorage.setItem("harvestDays", String(value));
     } catch (error) {
       console.error("Error saving harvest days:", error);
     }
@@ -517,22 +609,37 @@ export default function QuickOverviewSetup({ navigation }) {
                   {batches.length === 0 ? (
                     <Text style={{ textAlign: "center", color: "#666", marginTop: 24 }}>No batches found.</Text>
                   ) : (
-                    batches.map((batch, idx) => (
-                      <View key={idx} style={styles.batchItem}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.batchLabel}>Chicks: <Text style={styles.batchValue}>{batch.chicksCount}</Text></Text>
-                          <Text style={styles.batchLabel}>Days: <Text style={styles.batchValue}>{batch.daysCount}</Text></Text>
-                          <Text style={styles.batchLabel}>Harvest: <Text style={styles.batchValue}>{batch.harvestDays}</Text></Text>
-                          <Text style={styles.batchLabel}>Start: <Text style={styles.batchValue}>{batch.startDate ? new Date(batch.startDate).toLocaleDateString() : ""}</Text></Text>
+                    batches.map((batch, idx) => {
+                      const displayChicks = batch.chicksCount ? String(batch.chicksCount) : "";
+                      const displayDays = batch.daysCount ? String(batch.daysCount) : "";
+                      const displayHarvest = batch.harvestDays ? String(batch.harvestDays) : "";
+                      return (
+                        <View key={idx} style={[
+                          styles.batchItem,
+                          idx === selectedBatchIndex ? { backgroundColor: "#e0e7ff" } : null
+                        ]}>
+                          <TouchableOpacity
+                            style={{ flex: 1 }}
+                            onPress={() => handleSelectBatch(idx)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.batchLabel}>Chicks: <Text style={styles.batchValue}>{displayChicks}</Text></Text>
+                            <Text style={styles.batchLabel}>Days: <Text style={styles.batchValue}>{displayDays}</Text></Text>
+                            <Text style={styles.batchLabel}>Harvest: <Text style={styles.batchValue}>{displayHarvest}</Text></Text>
+                            <Text style={styles.batchLabel}>Start: <Text style={styles.batchValue}>{batch.startDate ? new Date(batch.startDate).toLocaleDateString() : ""}</Text></Text>
+                            {idx === selectedBatchIndex && (
+                              <Text style={{ color: "#2563eb", fontWeight: "bold", marginTop: 4 }}>Selected</Text>
+                            )}
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.deleteBatchBtn}
+                            onPress={() => handleDeleteBatch(idx)}
+                          >
+                            <Text style={styles.deleteBatchText}>Delete</Text>
+                          </TouchableOpacity>
                         </View>
-                        <TouchableOpacity
-                          style={styles.deleteBatchBtn}
-                          onPress={() => handleDeleteBatch(idx)}
-                        >
-                          <Text style={styles.deleteBatchText}>Delete</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ))
+                      );
+                    })
                   )}
                 </ScrollView>
                 <TouchableOpacity
