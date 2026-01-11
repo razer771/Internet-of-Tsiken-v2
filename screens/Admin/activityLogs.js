@@ -20,23 +20,25 @@ import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
 
 const COLUMN_WIDTHS = {
-  date: 120,
-  time: 100,
-  name: 150,
-  role: 110,
-  action: 120,
-  description: 220,
+  date: 150,
+  time: 120,
+  name: 200,
+  action: 200,
 };
 const TABLE_WIDTH =
   COLUMN_WIDTHS.date +
   COLUMN_WIDTHS.time +
   COLUMN_WIDTHS.name +
-  COLUMN_WIDTHS.role +
-  COLUMN_WIDTHS.action +
-  COLUMN_WIDTHS.description;
+  COLUMN_WIDTHS.action;
 
 const LOGS_PER_PAGE = 10;
 const EXPORT_ENTRIES_PER_PAGE = 50;
+
+// Month names for date formatting
+const monthNamesShort = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+];
 
 const LOG_COLLECTIONS = [
   "addFeedSchedule_logs",
@@ -52,11 +54,7 @@ const LOG_COLLECTIONS = [
 ];
 
 export default function ActivityLogs({ navigation }) {
-  // Make sure navigation prop is here
   const [pressedBtn, setPressedBtn] = useState(null);
-  const [calendarVisible, setCalendarVisible] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(null);
-  const [currentMonth, setCurrentMonth] = useState(new Date());
 
   // Data state
   const [allLogs, setAllLogs] = useState([]);
@@ -67,42 +65,56 @@ export default function ActivityLogs({ navigation }) {
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Filter state
-  const [nameFilter, setNameFilter] = useState("");
-  const [startDate, setStartDate] = useState(null);
-  const [endDate, setEndDate] = useState(null);
-  const [dateRangeModalVisible, setDateRangeModalVisible] = useState(false);
-  const [selectingStartDate, setSelectingStartDate] = useState(true);
+  // Sort state - make sure these are the ONLY sort state declarations
+  const [sortBy, setSortBy] = useState("Date");
+  const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
+  const sortOptions = ["Date", "Name", "Action"];
 
-  const monthNames = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-  ];
-  const monthNamesShort = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-  const dayNames = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+  // Apply sorting - SINGLE useEffect
+  useEffect(() => {
+    console.log(`🔄 Sorting logs by: ${sortBy}`);
+    console.log(`📊 Total logs before sorting: ${allLogs.length}`);
+    
+    let sorted = [...allLogs];
+
+    // Apply sorting
+    switch (sortBy) {
+      case "Date":
+        sorted.sort((a, b) => {
+          const timeA = a.timestamp.getTime();
+          const timeB = b.timestamp.getTime();
+          return timeB - timeA; // Newest first
+        });
+        console.log(`✅ Sorted by Date (newest first)`);
+        console.log(`First 3 dates: ${sorted.slice(0, 3).map(log => formatDateGMT8(log.timestamp)).join(', ')}`);
+        break;
+      case "Name":
+        sorted.sort((a, b) => {
+          const nameA = a.userName.toLowerCase();
+          const nameB = b.userName.toLowerCase();
+          return nameA.localeCompare(nameB); // A-Z
+        });
+        console.log(`✅ Sorted by Name (A-Z)`);
+        console.log(`First 3 names: ${sorted.slice(0, 3).map(log => log.userName).join(', ')}`);
+        break;
+      case "Action":
+        sorted.sort((a, b) => {
+          const actionA = a.action.toLowerCase();
+          const actionB = b.action.toLowerCase();
+          return actionA.localeCompare(actionB); // A-Z
+        });
+        console.log(`✅ Sorted by Action (A-Z)`);
+        console.log(`First 3 actions: ${sorted.slice(0, 3).map(log => log.action).join(', ')}`);
+        break;
+      default:
+        console.log(`⚠️ Unknown sort option: ${sortBy}`);
+        break;
+    }
+
+    console.log(`📊 Total logs after sorting: ${sorted.length}`);
+    setFilteredLogs(sorted);
+    setCurrentPage(1); // Reset to first page when sorting changes
+  }, [allLogs, sortBy]);
 
   // Prevent duplicate fetches (React StrictMode protection)
   const hasFetchedRef = useRef(false);
@@ -118,11 +130,6 @@ export default function ActivityLogs({ navigation }) {
     hasFetchedRef.current = true;
     fetchAllLogs();
   }, []);
-
-  // Apply filters whenever dependencies change
-  useEffect(() => {
-    applyFilters();
-  }, [allLogs, nameFilter, startDate, endDate]);
 
   const fetchAllLogs = async () => {
     try {
@@ -220,7 +227,7 @@ export default function ActivityLogs({ navigation }) {
                 timestamp = logData.timestamp;
               } else {
                 console.warn(
-                  "⚠️ Unknown timestamp format for log:",
+                  "⚠️  Unknown timestamp format for log:",
                   logDoc.id,
                   logData.timestamp
                 );
@@ -230,7 +237,7 @@ export default function ActivityLogs({ navigation }) {
               // Validate the timestamp
               if (isNaN(timestamp.getTime())) {
                 console.warn(
-                  "⚠️ Invalid timestamp for log:",
+                  "⚠️  Invalid timestamp for log:",
                   logDoc.id,
                   "Using epoch"
                 );
@@ -238,7 +245,7 @@ export default function ActivityLogs({ navigation }) {
               }
             } catch (error) {
               console.warn(
-                "⚠️ Error converting timestamp for log:",
+                "⚠️  Error converting timestamp for log:",
                 logDoc.id,
                 error
               );
@@ -309,71 +316,18 @@ export default function ActivityLogs({ navigation }) {
     return `${hours}:${minutes}${ampm}`; // No space between minutes and AM/PM
   };
 
-  const applyFilters = () => {
-    console.log("🔍 Applying filters...");
-    let filtered = [...allLogs];
-
-    // Filter by name
-    if (nameFilter.trim()) {
-      const searchTerm = nameFilter.toLowerCase();
-      filtered = filtered.filter((log) =>
-        log.userName.toLowerCase().includes(searchTerm)
-      );
-      console.log(
-        `📝 Filter by name="${nameFilter}": ${filtered.length} results`
-      );
-    }
-
-    // Filter by date range
-    if (startDate || endDate) {
-      filtered = filtered.filter((log) => {
-        const logDate = log.timestamp;
-        const start = startDate
-          ? new Date(startDate.setHours(0, 0, 0, 0))
-          : null;
-        const end = endDate
-          ? new Date(endDate.setHours(23, 59, 59, 999))
-          : null;
-
-        if (start && end) {
-          return logDate >= start && logDate <= end;
-        } else if (start) {
-          return logDate >= start;
-        } else if (end) {
-          return logDate <= end;
-        }
-        return true;
-      });
-      console.log(`📅 Filter by date range: ${filtered.length} results`);
-    }
-
-    setFilteredLogs(filtered);
-    setCurrentPage(1); // Reset to first page when filters change
-    console.log(`✅ Total filtered logs: ${filtered.length}`);
-  };
-
-  const clearFilters = () => {
-    setNameFilter("");
-    setStartDate(null);
-    setEndDate(null);
-    console.log("🗑️ Filters cleared");
-  };
-
   const handleGenerateReport = async () => {
     try {
       console.log("📊 Generate Report button pressed");
-      console.log(
-        `📋 Current filters - Name: "${nameFilter}", Start: ${startDate ? formatDateGMT8(startDate) : "None"}, End: ${endDate ? formatDateGMT8(endDate) : "None"}`
-      );
+      console.log(`📤 Exporting ${filteredLogs.length} filtered logs`);
 
       const logsToExport = filteredLogs;
-      console.log(`📤 Exporting ${logsToExport.length} filtered logs`);
 
       if (logsToExport.length === 0) {
         console.log("⚠️ No logs to export");
         Alert.alert(
           "No Data",
-          "No logs to export. Please adjust your filters."
+          "No logs to export."
         );
         return;
       }
@@ -401,9 +355,7 @@ export default function ActivityLogs({ navigation }) {
           Date: formatDateGMT8(log.timestamp),
           Time: formatTimeGMT8(log.timestamp),
           Name: log.userName,
-          Role: log.role,
           Action: log.action,
-          Description: log.description,
         }));
 
         exportPages.push({
@@ -424,15 +376,12 @@ export default function ActivityLogs({ navigation }) {
         exportData: exportPages,
         totalLogs: logsToExport.length,
         filters: {
-          name: nameFilter || "All",
-          startDate: startDate ? formatDateGMT8(startDate) : "None",
-          endDate: endDate ? formatDateGMT8(endDate) : "None",
+          name: "All",
+          sortBy: sortBy,
         },
         onExportPDF: async () => {
           await generatePDF(exportPages, {
-            name: nameFilter || "All",
-            startDate: startDate ? formatDateGMT8(startDate) : "None",
-            endDate: endDate ? formatDateGMT8(endDate) : "None",
+            sortBy: sortBy,
           });
         },
       });
@@ -523,7 +472,7 @@ export default function ActivityLogs({ navigation }) {
             <div class="company-name">Smart Brooder Systems Inc.</div>
             <div class="report-title">Activity Logs Report</div>
             <div class="filter-info">
-              Filter: Name: ${filters.name} | Date Range: ${filters.startDate} - ${filters.endDate}
+              Sorted by: ${filters.sortBy}
             </div>
           </div>
         `;
@@ -533,13 +482,11 @@ export default function ActivityLogs({ navigation }) {
           <table>
             <thead>
               <tr>
-                <th style="width: 5%;">No</th>
-                <th style="width: 12%;">Date</th>
-                <th style="width: 10%;">Time</th>
-                <th style="width: 15%;">Name</th>
-                <th style="width: 10%;">Role</th>
-                <th style="width: 15%;">Action</th>
-                <th style="width: 33%;">Description</th>
+                <th style="width: 8%;">No</th>
+                <th style="width: 20%;">Date</th>
+                <th style="width: 15%;">Time</th>
+                <th style="width: 30%;">Name</th>
+                <th style="width: 27%;">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -553,9 +500,7 @@ export default function ActivityLogs({ navigation }) {
               <td>${entry.Date}</td>
               <td>${entry.Time}</td>
               <td>${entry.Name}</td>
-              <td>${entry.Role}</td>
               <td>${entry.Action}</td>
-              <td>${entry.Description}</td>
             </tr>
           `;
         });
@@ -617,258 +562,6 @@ export default function ActivityLogs({ navigation }) {
     }
   };
 
-  const getDaysInMonth = (date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    return { firstDay, daysInMonth };
-  };
-
-  const handlePrevMonth = () => {
-    setCurrentMonth(
-      new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
-    );
-  };
-
-  const handleNextMonth = () => {
-    setCurrentMonth(
-      new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
-    );
-  };
-
-  const handleDateSelect = (day) => {
-    const selected = new Date(
-      currentMonth.getFullYear(),
-      currentMonth.getMonth(),
-      day
-    );
-
-    // Normalize to start of day for comparison
-    const normalizedSelected = new Date(
-      selected.getFullYear(),
-      selected.getMonth(),
-      selected.getDate()
-    );
-    const today = new Date();
-    const normalizedToday = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate()
-    );
-
-    // Validation 1: Prevent future date selection
-    if (normalizedSelected > normalizedToday) {
-      Alert.alert(
-        "Invalid Date",
-        "Cannot select a future date. Please select today or an earlier date.",
-        [{ text: "OK" }]
-      );
-      console.log("❌ Future date blocked:", selected);
-      return;
-    }
-
-    if (dateRangeModalVisible) {
-      if (selectingStartDate) {
-        setStartDate(selected);
-        setSelectingStartDate(false);
-        console.log("📅 Start date selected:", selected);
-      } else {
-        // Validation 2: End date must not be before start date
-        if (startDate) {
-          const normalizedStart = new Date(
-            startDate.getFullYear(),
-            startDate.getMonth(),
-            startDate.getDate()
-          );
-          if (normalizedSelected < normalizedStart) {
-            Alert.alert(
-              "Invalid Date Range",
-              "End date cannot be earlier than the start date. Please select a date on or after " +
-                formatDateGMT8(startDate) +
-                ".",
-              [{ text: "OK" }]
-            );
-            console.log("❌ End date before start date blocked:", selected);
-            return;
-          }
-        }
-        setEndDate(selected);
-        setDateRangeModalVisible(false);
-        setSelectingStartDate(true);
-        console.log("📅 End date selected:", selected);
-      }
-    } else {
-      setSelectedDate(selected);
-      setCalendarVisible(false);
-    }
-  };
-
-  const openDateRangeModal = () => {
-    setSelectingStartDate(true);
-    setDateRangeModalVisible(true);
-  };
-
-  const handleQuickSelect = (type) => {
-    const today = new Date();
-    if (type === "today") {
-      setSelectedDate(today);
-      setCurrentMonth(new Date(today.getFullYear(), today.getMonth(), 1));
-    } else if (type === "tomorrow") {
-      // Tomorrow is a future date - show alert instead
-      Alert.alert(
-        "Invalid Date",
-        "Cannot select a future date. Please select today or an earlier date.",
-        [{ text: "OK" }]
-      );
-      console.log("❌ Quick select 'Tomorrow' blocked (future date)");
-    } else if (type === "week") {
-      // Next week is a future date - show alert instead
-      Alert.alert(
-        "Invalid Date",
-        "Cannot select a future date. Please select today or an earlier date.",
-        [{ text: "OK" }]
-      );
-      console.log("❌ Quick select 'Next Week' blocked (future date)");
-    }
-  };
-
-  const renderCalendar = () => {
-    const { firstDay, daysInMonth } = getDaysInMonth(currentMonth);
-    const days = [];
-    const today = new Date();
-    const normalizedToday = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate()
-    );
-
-    const isToday = (day) =>
-      currentMonth.getMonth() === today.getMonth() &&
-      currentMonth.getFullYear() === today.getFullYear() &&
-      day === today.getDate();
-
-    const isSelected = (day) =>
-      selectedDate &&
-      currentMonth.getMonth() === selectedDate.getMonth() &&
-      currentMonth.getFullYear() === selectedDate.getFullYear() &&
-      day === selectedDate.getDate();
-
-    // Check if date is in the future (disabled)
-    const isFutureDate = (day) => {
-      const dateToCheck = new Date(
-        currentMonth.getFullYear(),
-        currentMonth.getMonth(),
-        day
-      );
-      return dateToCheck > normalizedToday;
-    };
-
-    // Check if date is before start date (disabled when selecting end date)
-    const isBeforeStartDate = (day) => {
-      if (!dateRangeModalVisible || selectingStartDate || !startDate)
-        return false;
-      const dateToCheck = new Date(
-        currentMonth.getFullYear(),
-        currentMonth.getMonth(),
-        day
-      );
-      const normalizedStart = new Date(
-        startDate.getFullYear(),
-        startDate.getMonth(),
-        startDate.getDate()
-      );
-      return dateToCheck < normalizedStart;
-    };
-
-    // Check if date is in the selected range
-    const isInRange = (day) => {
-      if (!dateRangeModalVisible || !startDate || !endDate) return false;
-      const dateToCheck = new Date(
-        currentMonth.getFullYear(),
-        currentMonth.getMonth(),
-        day
-      );
-      const normalizedStart = new Date(
-        startDate.getFullYear(),
-        startDate.getMonth(),
-        startDate.getDate()
-      );
-      const normalizedEnd = new Date(
-        endDate.getFullYear(),
-        endDate.getMonth(),
-        endDate.getDate()
-      );
-      return dateToCheck >= normalizedStart && dateToCheck <= normalizedEnd;
-    };
-
-    // Check if date is the start or end date
-    const isStartDate = (day) => {
-      if (!startDate) return false;
-      return (
-        currentMonth.getMonth() === startDate.getMonth() &&
-        currentMonth.getFullYear() === startDate.getFullYear() &&
-        day === startDate.getDate()
-      );
-    };
-
-    const isEndDate = (day) => {
-      if (!endDate) return false;
-      return (
-        currentMonth.getMonth() === endDate.getMonth() &&
-        currentMonth.getFullYear() === endDate.getFullYear() &&
-        day === endDate.getDate()
-      );
-    };
-
-    // Empty cells before first day
-    for (let i = 0; i < firstDay; i++) {
-      days.push(<View key={`empty-${i}`} style={styles.calendarDay} />);
-    }
-
-    // Days of the month
-    for (let day = 1; day <= daysInMonth; day++) {
-      const isFuture = isFutureDate(day);
-      const isBeforeStart = isBeforeStartDate(day);
-      const isDisabled = isFuture || isBeforeStart;
-
-      days.push(
-        <TouchableOpacity
-          key={day}
-          style={[
-            styles.calendarDay,
-            isToday(day) && !isDisabled && styles.calendarToday,
-            isSelected(day) && !isDisabled && styles.calendarSelected,
-            (isStartDate(day) || isEndDate(day)) && styles.calendarRangeEdge,
-            isInRange(day) &&
-              !isStartDate(day) &&
-              !isEndDate(day) &&
-              styles.calendarInRange,
-            isDisabled && styles.calendarDayDisabled,
-          ]}
-          onPress={() => handleDateSelect(day)}
-          disabled={isDisabled}
-        >
-          <Text
-            style={[
-              styles.calendarDayText,
-              (isToday(day) || isSelected(day)) &&
-                !isDisabled &&
-                styles.calendarTodayText,
-              (isStartDate(day) || isEndDate(day)) &&
-                styles.calendarRangeEdgeText,
-              isDisabled && styles.calendarDayTextDisabled,
-            ]}
-          >
-            {day}
-          </Text>
-        </TouchableOpacity>
-      );
-    }
-
-    return days;
-  };
-
   // Pagination calculations
   const totalPages = Math.ceil(filteredLogs.length / LOGS_PER_PAGE);
   const startIndex = (currentPage - 1) * LOGS_PER_PAGE;
@@ -892,13 +585,32 @@ export default function ActivityLogs({ navigation }) {
   return (
     <SafeAreaView style={styles.safe}>
       <Header2 />
+      
+      {/* Back Button */}
+      <View style={styles.backButtonContainer}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="arrow-left" size={24} color="#133E87" />
+          <Text style={styles.backButtonText}>Back</Text>
+        </TouchableOpacity>
+      </View>
+
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#234187" />
           <Text style={styles.loadingText}>Loading activity logs...</Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.pageContent}>
+        <ScrollView 
+          contentContainerStyle={styles.pageContent}
+          onScrollBeginDrag={() => {
+            console.log('📜 Scrolling - closing sort dropdown');
+            setSortDropdownOpen(false);
+          }}
+        >
           {/* Buttons Row */}
           <View style={styles.buttonsRow}>
             <TouchableOpacity
@@ -920,7 +632,7 @@ export default function ActivityLogs({ navigation }) {
                   pressedBtn === "generate" && { color: "#fff" },
                 ]}
               >
-                Generate Log Report
+                Download Report
               </Text>
             </TouchableOpacity>
           </View>
@@ -928,78 +640,127 @@ export default function ActivityLogs({ navigation }) {
           {/* Title */}
           <Text style={styles.title}>Activity Logs</Text>
 
-          {/* Filters */}
-          <View style={styles.filtersContainer}>
-            {/* Name Filter */}
-            <View style={styles.filterRow}>
-              <Text style={styles.filterLabel}>Search by Name:</Text>
-              <TextInput
-                style={styles.filterInput}
-                placeholder="Enter name..."
-                placeholderTextColor="#999"
-                value={nameFilter}
-                onChangeText={setNameFilter}
-              />
-            </View>
+          {/* Results Info */}
+          <View style={styles.resultsInfo}>
+            <Text style={styles.resultsText}>
+              Showing {currentLogs.length > 0 ? startIndex + 1 : 0}-
+              {Math.min(endIndex, filteredLogs.length)} of{" "}
+              {filteredLogs.length} logs
+            </Text>
+          </View>
 
-            {/* Date Range Filter */}
-            <View style={styles.filterRow}>
-              <Text style={styles.filterLabel}>Date Range:</Text>
+          {/* Sort By Dropdown */}
+          <View style={styles.sortContainer}>
+            <View style={styles.sortDropdownWrapper}>
               <TouchableOpacity
-                style={styles.dateRangeButton}
-                onPress={openDateRangeModal}
+                style={styles.sortButton}
+                onPress={() => {
+                  console.log(`🔘 Sort button clicked. Current state: ${sortDropdownOpen ? 'open' : 'closed'}`);
+                  setSortDropdownOpen(!sortDropdownOpen);
+                }}
+                activeOpacity={0.8}
               >
-                <Text style={styles.dateRangeButtonText}>
-                  {startDate && endDate
-                    ? `${formatDateGMT8(startDate)} - ${formatDateGMT8(endDate)}`
-                    : startDate
-                      ? `From ${formatDateGMT8(startDate)}`
-                      : "Select dates"}
-                </Text>
+                <MaterialCommunityIcons
+                  name="sort"
+                  size={18}
+                  color="#000"
+                  style={{ marginRight: 6 }}
+                />
+                <Text style={styles.sortButtonText}>Sort by: {sortBy}</Text>
+                <MaterialCommunityIcons
+                  name={sortDropdownOpen ? "chevron-up" : "chevron-down"}
+                  size={18}
+                  color="#000"
+                />
               </TouchableOpacity>
-              {(startDate || endDate) && (
-                <TouchableOpacity
-                  style={styles.clearFilterButton}
-                  onPress={clearFilters}
-                >
-                  <MaterialCommunityIcons
-                    name="close-circle"
-                    size={20}
-                    color="#c41e3a"
-                  />
-                </TouchableOpacity>
+
+              {sortDropdownOpen && (
+                <View style={styles.sortDropdown}>
+                  {sortOptions.map((option) => (
+                    <TouchableOpacity
+                      key={option}
+                      style={[
+                        styles.sortDropdownItem,
+                        sortBy === option && styles.sortDropdownItemActive,
+                      ]}
+                      onPress={() => {
+                        console.log(`✅ Sort option selected: ${option}`);
+                        console.log(`📝 Previous sortBy: ${sortBy}`);
+                        setSortBy(option);
+                        console.log(`📝 New sortBy will be: ${option}`);
+                        setSortDropdownOpen(false);
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.sortDropdownItemText,
+                          sortBy === option && styles.sortDropdownItemTextActive,
+                        ]}
+                      >
+                        {option}
+                      </Text>
+                      {sortBy === option && (
+                        <MaterialCommunityIcons
+                          name="check"
+                          size={18}
+                          color="#000"
+                        />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
               )}
             </View>
           </View>
 
-          {/* Loading Indicator */}
-          {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#133E87" />
-              <Text style={styles.loadingText}>Loading logs...</Text>
-            </View>
-          ) : (
-            <>
-              {/* Results Info */}
-              <View style={styles.resultsInfo}>
-                <Text style={styles.resultsText}>
-                  Showing {currentLogs.length > 0 ? startIndex + 1 : 0}-
-                  {Math.min(endIndex, filteredLogs.length)} of{" "}
-                  {filteredLogs.length} logs
-                </Text>
-              </View>
+          {/* Table */}
+          <View style={styles.tableCard}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator
+              style={styles.horizontalScroll}
+              contentContainerStyle={{ width: TABLE_WIDTH }}
+            >
+              <View style={[styles.table, { width: TABLE_WIDTH }]}>
+                {/* Header */}
+                <View style={[styles.row, styles.headerRow]}>
+                  <View
+                    style={[
+                      styles.cell,
+                      styles.leftCell,
+                      { width: COLUMN_WIDTHS.date },
+                    ]}
+                  >
+                    <Text style={styles.headerText}>Date</Text>
+                  </View>
+                  <View
+                    style={[styles.cell, { width: COLUMN_WIDTHS.time }]}
+                  >
+                    <Text style={styles.headerText}>Time</Text>
+                  </View>
+                  <View
+                    style={[styles.cell, { width: COLUMN_WIDTHS.name }]}
+                  >
+                    <Text style={styles.headerText}>Name</Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.cell,
+                      styles.rightCell,
+                      { width: COLUMN_WIDTHS.action },
+                    ]}
+                  >
+                    <Text style={styles.headerText}>Action</Text>
+                  </View>
+                </View>
 
-              {/* Table */}
-              <View style={styles.tableCard}>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator
-                  style={styles.horizontalScroll}
-                  contentContainerStyle={{ width: TABLE_WIDTH }}
-                >
-                  <View style={[styles.table, { width: TABLE_WIDTH }]}>
-                    {/* Header */}
-                    <View style={[styles.row, styles.headerRow]}>
+                {/* Body */}
+                {currentLogs.length > 0 ? (
+                  currentLogs.map((log, idx) => (
+                    <View
+                      key={`${log.collectionName}-${log.id}`}
+                      style={[styles.row, idx % 2 === 1 && styles.altRow]}
+                    >
                       <View
                         style={[
                           styles.cell,
@@ -1007,345 +768,117 @@ export default function ActivityLogs({ navigation }) {
                           { width: COLUMN_WIDTHS.date },
                         ]}
                       >
-                        <Text style={styles.headerText}>Date</Text>
+                        <Text style={[styles.cellText, styles.center]}>
+                          {formatDateGMT8(log.timestamp)}
+                        </Text>
                       </View>
                       <View
                         style={[styles.cell, { width: COLUMN_WIDTHS.time }]}
                       >
-                        <Text style={styles.headerText}>Time</Text>
+                        <Text style={[styles.cellText, styles.center]}>
+                          {formatTimeGMT8(log.timestamp)}
+                        </Text>
                       </View>
                       <View
                         style={[styles.cell, { width: COLUMN_WIDTHS.name }]}
                       >
-                        <Text style={styles.headerText}>Name</Text>
-                      </View>
-                      <View
-                        style={[styles.cell, { width: COLUMN_WIDTHS.role }]}
-                      >
-                        <Text style={styles.headerText}>Role</Text>
-                      </View>
-                      <View
-                        style={[styles.cell, { width: COLUMN_WIDTHS.action }]}
-                      >
-                        <Text style={styles.headerText}>Action</Text>
+                        <Text style={[styles.cellText, styles.center]}>
+                          {log.userName}
+                        </Text>
                       </View>
                       <View
                         style={[
                           styles.cell,
                           styles.rightCell,
-                          { width: COLUMN_WIDTHS.description },
+                          { width: COLUMN_WIDTHS.action },
                         ]}
                       >
-                        <Text style={styles.headerText}>Description</Text>
+                        <Text style={[styles.cellText, styles.center]}>
+                          {log.action}
+                        </Text>
                       </View>
                     </View>
-
-                    {/* Body */}
-                    {currentLogs.length > 0 ? (
-                      currentLogs.map((log, idx) => (
-                        <View
-                          key={`${log.collectionName}-${log.id}`}
-                          style={[styles.row, idx % 2 === 1 && styles.altRow]}
-                        >
-                          <View
-                            style={[
-                              styles.cell,
-                              styles.leftCell,
-                              { width: COLUMN_WIDTHS.date },
-                            ]}
-                          >
-                            <Text style={[styles.cellText, styles.center]}>
-                              {formatDateGMT8(log.timestamp)}
-                            </Text>
-                          </View>
-                          <View
-                            style={[styles.cell, { width: COLUMN_WIDTHS.time }]}
-                          >
-                            <Text style={[styles.cellText, styles.center]}>
-                              {formatTimeGMT8(log.timestamp)}
-                            </Text>
-                          </View>
-                          <View
-                            style={[styles.cell, { width: COLUMN_WIDTHS.name }]}
-                          >
-                            <Text style={[styles.cellText, styles.center]}>
-                              {log.userName}
-                            </Text>
-                          </View>
-                          <View
-                            style={[styles.cell, { width: COLUMN_WIDTHS.role }]}
-                          >
-                            <Text style={[styles.cellText, styles.center]}>
-                              {log.role}
-                            </Text>
-                          </View>
-                          <View
-                            style={[
-                              styles.cell,
-                              { width: COLUMN_WIDTHS.action },
-                            ]}
-                          >
-                            <Text style={[styles.cellText, styles.center]}>
-                              {log.action}
-                            </Text>
-                          </View>
-                          <View
-                            style={[
-                              styles.cell,
-                              styles.rightCell,
-                              { width: COLUMN_WIDTHS.description },
-                            ]}
-                          >
-                            <Text style={[styles.cellText, styles.center]}>
-                              {log.description}
-                            </Text>
-                          </View>
-                        </View>
-                      ))
-                    ) : (
-                      <View style={styles.noDataRow}>
-                        <Text style={styles.noDataText}>No logs found</Text>
-                      </View>
-                    )}
+                  ))
+                ) : (
+                  <View style={styles.noDataRow}>
+                    <Text style={styles.noDataText}>No logs found</Text>
                   </View>
-                </ScrollView>
+                )}
               </View>
+            </ScrollView>
+          </View>
 
-              {/* Pagination */}
-              {filteredLogs.length > LOGS_PER_PAGE && (
-                <View style={styles.paginationContainer}>
-                  <TouchableOpacity
-                    style={[
-                      styles.paginationButton,
-                      currentPage === 1 && styles.paginationButtonDisabled,
-                    ]}
-                    onPress={handlePrevPage}
-                    disabled={currentPage === 1}
-                  >
-                    <MaterialCommunityIcons
-                      name="chevron-left"
-                      size={24}
-                      color={currentPage === 1 ? "#ccc" : "#133E87"}
-                    />
-                    <Text
-                      style={[
-                        styles.paginationButtonText,
-                        currentPage === 1 &&
-                          styles.paginationButtonTextDisabled,
-                      ]}
-                    >
-                      Previous
-                    </Text>
-                  </TouchableOpacity>
+          {/* Pagination */}
+          {filteredLogs.length > LOGS_PER_PAGE && (
+            <View style={styles.paginationContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.paginationButton,
+                  currentPage === 1 && styles.paginationButtonDisabled,
+                ]}
+                onPress={handlePrevPage}
+                disabled={currentPage === 1}
+              >
+                <MaterialCommunityIcons
+                  name="chevron-left"
+                  size={24}
+                  color={currentPage === 1 ? "#ccc" : "#133E87"}
+                />
+                <Text
+                  style={[
+                    styles.paginationButtonText,
+                    currentPage === 1 &&
+                      styles.paginationButtonTextDisabled,
+                  ]}
+                >
+                  Previous
+                </Text>
+              </TouchableOpacity>
 
-                  <Text style={styles.paginationInfo}>
-                    Page {currentPage} of {totalPages}
-                  </Text>
+              <Text style={styles.paginationInfo}>
+                Page {currentPage} of {totalPages}
+              </Text>
 
-                  <TouchableOpacity
-                    style={[
-                      styles.paginationButton,
-                      currentPage === totalPages &&
-                        styles.paginationButtonDisabled,
-                    ]}
-                    onPress={handleNextPage}
-                    disabled={currentPage === totalPages}
-                  >
-                    <Text
-                      style={[
-                        styles.paginationButtonText,
-                        currentPage === totalPages &&
-                          styles.paginationButtonTextDisabled,
-                      ]}
-                    >
-                      Next
-                    </Text>
-                    <MaterialCommunityIcons
-                      name="chevron-right"
-                      size={24}
-                      color={currentPage === totalPages ? "#ccc" : "#133E87"}
-                    />
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {/* Bottom spacing to prevent overlap with device buttons */}
-              <View style={styles.bottomSpacing} />
-            </>
+              <TouchableOpacity
+                style={[
+                  styles.paginationButton,
+                  currentPage === totalPages &&
+                    styles.paginationButtonDisabled,
+                ]}
+                onPress={handleNextPage}
+                disabled={currentPage === totalPages}
+              >
+                <Text
+                  style={[
+                    styles.paginationButtonText,
+                    currentPage === totalPages &&
+                      styles.paginationButtonTextDisabled,
+                  ]}
+                >
+                  Next
+                </Text>
+                <MaterialCommunityIcons
+                  name="chevron-right"
+                  size={24}
+                  color={currentPage === totalPages ? "#ccc" : "#133E87"}
+                />
+              </TouchableOpacity>
+            </View>
           )}
+
+          {/* Bottom spacing to prevent overlap with device buttons */}
+          <View style={styles.bottomSpacing} />
         </ScrollView>
       )}
 
-      {/* Date Range Modal */}
-      <Modal
-        transparent
-        visible={dateRangeModalVisible}
-        animationType="fade"
-        onRequestClose={() => {
-          setDateRangeModalVisible(false);
-          setSelectingStartDate(true);
-        }}
-      >
+      {/* Close dropdown when tapping outside */}
+      {sortDropdownOpen && (
         <TouchableOpacity
-          style={styles.calendarOverlay}
+          style={styles.fullscreenDismiss}
           activeOpacity={1}
-          onPress={() => {
-            setDateRangeModalVisible(false);
-            setSelectingStartDate(true);
-          }}
-        >
-          <TouchableOpacity activeOpacity={1} style={styles.calendarModal}>
-            {/* Header */}
-            <View style={styles.calendarHeader}>
-              <TouchableOpacity
-                onPress={handlePrevMonth}
-                style={styles.calendarArrow}
-              >
-                <MaterialCommunityIcons
-                  name="chevron-left"
-                  size={24}
-                  color="#234187"
-                />
-              </TouchableOpacity>
-              <View style={{ alignItems: "center" }}>
-                <Text style={styles.calendarMonthYear}>
-                  {monthNames[currentMonth.getMonth()]}{" "}
-                  {currentMonth.getFullYear()}
-                </Text>
-                <Text style={styles.selectingDateLabel}>
-                  {selectingStartDate ? "Select Start Date" : "Select End Date"}
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={handleNextMonth}
-                style={styles.calendarArrow}
-              >
-                <MaterialCommunityIcons
-                  name="chevron-right"
-                  size={24}
-                  color="#234187"
-                />
-              </TouchableOpacity>
-            </View>
-
-            {/* Day names */}
-            <View style={styles.calendarWeekRow}>
-              {dayNames.map((day) => (
-                <View key={day} style={styles.calendarDayName}>
-                  <Text style={styles.calendarDayNameText}>{day}</Text>
-                </View>
-              ))}
-            </View>
-
-            {/* Days grid */}
-            <View style={styles.calendarGrid}>{renderCalendar()}</View>
-
-            {/* Selected dates display */}
-            <View style={styles.selectedDatesContainer}>
-              <Text style={styles.selectedDateText}>
-                Start: {startDate ? formatDateGMT8(startDate) : "Not selected"}
-              </Text>
-              <Text style={styles.selectedDateText}>
-                End: {endDate ? formatDateGMT8(endDate) : "Not selected"}
-              </Text>
-            </View>
-
-            {/* Validation info */}
-            <View style={styles.validationInfoContainer}>
-              <MaterialCommunityIcons
-                name="information"
-                size={16}
-                color="#666"
-              />
-              <Text style={styles.validationInfoText}>
-                {selectingStartDate
-                  ? "Future dates are disabled. Select today or earlier."
-                  : startDate
-                    ? `End date must be on or after ${formatDateGMT8(startDate)}.`
-                    : "Select a start date first."}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* Calendar Modal */}
-      <Modal
-        transparent
-        visible={calendarVisible}
-        animationType="fade"
-        onRequestClose={() => setCalendarVisible(false)}
-      >
-        <TouchableOpacity
-          style={styles.calendarOverlay}
-          activeOpacity={1}
-          onPress={() => setCalendarVisible(false)}
-        >
-          <TouchableOpacity activeOpacity={1} style={styles.calendarModal}>
-            {/* Header */}
-            <View style={styles.calendarHeader}>
-              <TouchableOpacity
-                onPress={handlePrevMonth}
-                style={styles.calendarArrow}
-              >
-                <MaterialCommunityIcons
-                  name="chevron-left"
-                  size={24}
-                  color="#234187"
-                />
-              </TouchableOpacity>
-              <Text style={styles.calendarMonthYear}>
-                {monthNames[currentMonth.getMonth()]}{" "}
-                {currentMonth.getFullYear()}
-              </Text>
-              <TouchableOpacity
-                onPress={handleNextMonth}
-                style={styles.calendarArrow}
-              >
-                <MaterialCommunityIcons
-                  name="chevron-right"
-                  size={24}
-                  color="#234187"
-                />
-              </TouchableOpacity>
-            </View>
-
-            {/* Day names */}
-            <View style={styles.calendarWeekRow}>
-              {dayNames.map((day) => (
-                <View key={day} style={styles.calendarDayName}>
-                  <Text style={styles.calendarDayNameText}>{day}</Text>
-                </View>
-              ))}
-            </View>
-
-            {/* Days grid */}
-            <View style={styles.calendarGrid}>{renderCalendar()}</View>
-
-            {/* Quick select buttons */}
-            <View style={styles.calendarQuickRow}>
-              <TouchableOpacity
-                style={styles.calendarQuickBtn}
-                onPress={() => handleQuickSelect("today")}
-              >
-                <Text style={styles.calendarQuickText}>Today</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.calendarQuickBtn}
-                onPress={() => handleQuickSelect("tomorrow")}
-              >
-                <Text style={styles.calendarQuickText}>Tomorrow</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.calendarQuickBtn}
-                onPress={() => handleQuickSelect("week")}
-              >
-                <Text style={styles.calendarQuickText}>+1 week</Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+          onPress={() => setSortDropdownOpen(false)}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -1354,6 +887,27 @@ const BORDER = "#E5E7EB";
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#ffffff" },
+  
+  // Back Button Styles
+  backButtonContainer: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    gap: 6,
+  },
+  backButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#133E87",
+  },
+  
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
@@ -1361,7 +915,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   loadingText: {
-    marginTop: 12,
+    marginTop: 20,
     fontSize: 16,
     color: "#666",
   },
@@ -1372,6 +926,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     gap: 8,
     marginBottom: 16,
+    marginTop: 12,
   },
   title: {
     fontSize: 24,
@@ -1413,7 +968,7 @@ const styles = StyleSheet.create({
   actionButton: {
     backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: "#234187",
     borderRadius: 20,
     paddingVertical: 8,
     paddingHorizontal: 14,
@@ -1496,170 +1051,6 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
   },
 
-  calendarOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.3)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  calendarModal: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 20,
-    width: "100%",
-    maxWidth: 400,
-  },
-  calendarHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  calendarArrow: {
-    padding: 8,
-  },
-  calendarMonthYear: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#000",
-  },
-  calendarWeekRow: {
-    flexDirection: "row",
-    marginBottom: 12,
-  },
-  calendarDayName: {
-    flex: 1,
-    alignItems: "center",
-  },
-  calendarDayNameText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#666",
-  },
-  calendarGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginBottom: 16, // reduced from 20 to 16
-  },
-  calendarDay: {
-    width: "14.28%",
-    aspectRatio: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 4, // reduced from 8 to 4 for tighter vertical spacing
-  },
-  calendarDayText: {
-    fontSize: 16,
-    color: "#333",
-  },
-  calendarToday: {
-    backgroundColor: "#234187",
-    borderRadius: 8,
-  },
-  calendarTodayText: {
-    color: "#fff",
-    fontWeight: "700",
-  },
-  calendarQuickRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 8,
-    marginTop: 4, // add small top margin for separation from calendar grid
-  },
-  calendarQuickBtn: {
-    flex: 1,
-    backgroundColor: "#F7F8FA",
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  calendarQuickText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#666",
-  },
-  calendarSelected: {
-    backgroundColor: "#133E87",
-    borderRadius: 8,
-  },
-  filtersContainer: {
-    backgroundColor: "#F7F8FA",
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  filterRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-    gap: 8,
-  },
-  filterLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-    minWidth: 100,
-  },
-  filterInput: {
-    flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 14,
-    color: "#000",
-  },
-  dateRangeButton: {
-    flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  dateRangeButtonText: {
-    fontSize: 14,
-    color: "#333",
-  },
-  clearFilterButton: {
-    padding: 8,
-  },
-  loadingContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 60,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: "#666",
-  },
-  resultsInfo: {
-    marginBottom: 12,
-  },
-  resultsText: {
-    fontSize: 14,
-    color: "#666",
-    textAlign: "center",
-  },
-  noDataRow: {
-    paddingVertical: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  noDataText: {
-    fontSize: 16,
-    color: "#999",
-    fontStyle: "italic",
-  },
   paginationContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1695,58 +1086,90 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#333",
   },
-  selectingDateLabel: {
-    fontSize: 12,
-    color: "#133E87",
-    marginTop: 4,
-    fontWeight: "500",
-  },
-  selectedDatesContainer: {
-    marginTop: 16,
-    padding: 12,
-    backgroundColor: "#F7F8FA",
-    borderRadius: 8,
-    gap: 6,
-  },
-  selectedDateText: {
-    fontSize: 14,
-    color: "#333",
-    fontWeight: "500",
-  },
-  calendarDayDisabled: {
-    backgroundColor: "#F9FAFB",
-    opacity: 0.5,
-  },
-  calendarDayTextDisabled: {
-    color: "#D1D5DB",
-    textDecorationLine: "line-through",
-  },
-  calendarRangeEdge: {
-    backgroundColor: "#133E87",
-    borderRadius: 8,
-  },
-  calendarRangeEdgeText: {
-    color: "#fff",
-    fontWeight: "700",
-  },
-  calendarInRange: {
-    backgroundColor: "#E0E7FF",
-    borderRadius: 0,
-  },
-  validationInfoContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 12,
-    paddingHorizontal: 8,
-    gap: 6,
-  },
-  validationInfoText: {
-    fontSize: 12,
-    color: "#666",
-    flex: 1,
-    fontStyle: "italic",
-  },
   bottomSpacing: {
     height: 80,
+  },
+  resultsInfo: {
+    marginBottom: 16,
+    alignItems: "center",
+  },
+  resultsText: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+  },
+
+  // Sort Styles
+  sortContainer: {
+    paddingHorizontal: 0,
+    marginBottom: 16,
+    marginLeft: 12,
+  },
+  sortDropdownWrapper: {
+    position: "relative",
+    alignSelf: "flex-start",
+    zIndex: 1000,
+  },
+  sortButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#000",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    gap: 4,
+  },
+  sortButtonText: {
+    fontSize: 14,
+    fontWeight: "400",
+    color: "#000",
+  },
+  sortDropdown: {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    marginTop: 4,
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E3E8EF",
+    minWidth: 150,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    zIndex: 1001,
+  },
+  sortDropdownItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  sortDropdownItemActive: {
+    backgroundColor: "#fff",
+  },
+  sortDropdownItemText: {
+    fontSize: 14,
+    fontWeight: "400",
+    color: "#000",
+  },
+  sortDropdownItemTextActive: {
+    fontWeight: "400",
+    color: "#000",
+  },
+  fullscreenDismiss: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 999,
   },
 });

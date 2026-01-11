@@ -244,13 +244,10 @@ export default function ActivityLogsTable({ navigation }) {
                       <Text style={styles.headerText}>Time</Text>
                     </View>
                     <View style={[styles.tableCell, styles.cellUser]}>
-                      <Text style={styles.headerText}>User</Text>
+                      <Text style={styles.headerText}>Name</Text>
                     </View>
                     <View style={[styles.tableCell, styles.cellAction]}>
                       <Text style={styles.headerText}>Action</Text>
-                    </View>
-                    <View style={[styles.tableCell, styles.cellDescription]}>
-                      <Text style={styles.headerText}>Description</Text>
                     </View>
                   </View>
                 </View>
@@ -291,13 +288,6 @@ export default function ActivityLogsTable({ navigation }) {
                         <View style={[styles.tableCell, styles.cellAction]}>
                           <Text style={styles.cellText}>
                             {log.action || "N/A"}
-                          </Text>
-                        </View>
-                        <View
-                          style={[styles.tableCell, styles.cellDescription]}
-                        >
-                          <Text style={styles.cellText}>
-                            {log.description || "N/A"}
                           </Text>
                         </View>
                       </View>
@@ -476,19 +466,16 @@ const styles = StyleSheet.create({
     borderRightColor: "#E5E7EB",
   },
   cellDate: {
-    width: 120,
+    width: 150,
   },
   cellTime: {
-    width: 100,
+    width: 120,
   },
   cellUser: {
-    width: 180,
+    width: 220,
   },
   cellAction: {
-    width: 200,
-  },
-  cellDescription: {
-    width: 300,
+    width: 250,
   },
   headerText: {
     color: "#fff",

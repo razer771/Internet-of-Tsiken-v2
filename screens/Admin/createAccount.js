@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import Header2 from "../navigation/adminHeader";
-import { getFunctions, httpsCallable } from "firebase/functions";
+// import { getFunctions, httpsCallable } from "firebase/functions";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,

@@ -20,7 +20,7 @@ import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityI
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { auth, db } from "../../config/firebaseconfig.js";
 import { doc, updateDoc } from "firebase/firestore";
-import { getFunctions, httpsCallable } from "firebase/functions";
+// import { getFunctions, httpsCallable } from "firebase/functions";
 // Removed Firebase phone-auth specific imports; using Twilio Verify exclusively
 import {
   checkOTPLockout,
@@ -32,7 +32,7 @@ import {
 const Logo = require("../../assets/logo.png");
 
 // Initialize Firebase Functions
-const functions = getFunctions(undefined, "us-central1");
+// const functions = getFunctions(undefined, "us-central1");
 
 // Reusable Branded Modal Component
 const BrandedModal = ({
