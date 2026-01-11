@@ -1661,6 +1661,7 @@ export default function ControlScreen({ navigation }) {
   // Test Lighting modal state
   const [testLightingModalVisible, setTestLightingModalVisible] = useState(false);
   const [testBrightness, setTestBrightness] = useState(50);
+  const [testLightOn, setTestLightOn] = useState(false);
 
   return (
     <View style={styles.page} {...panResponder.panHandlers}>
@@ -2100,6 +2101,7 @@ export default function ControlScreen({ navigation }) {
             if (confirmed) {
               // Check for duplicate time BEFORE showing confirmation
               const formattedTime = selected.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+              
               const isDuplicate = waterings.some((w) => w.time === formattedTime);
               
               if (isDuplicate) {
@@ -2823,9 +2825,23 @@ export default function ControlScreen({ navigation }) {
               Test Lighting
             </Text>
             <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
-              Adjust the brightness to test the lighting.
+              Adjust the brightness and toggle the light to test.
             </Text>
-            <View style={{ marginVertical: 18 }}>
+
+            {/* Light Toggle Switch */}
+            <View style={{ marginVertical: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ fontWeight: "600", fontSize: 14 }}>Light Status</Text>
+              <Switch
+                value={testLightOn}
+                onValueChange={setTestLightOn}
+                trackColor={{ false: "#B0B0B0", true: PRIMARY }}
+                ios_backgroundColor="#B0B0B0"
+                thumbColor="#fff"
+              />
+            </View>
+
+            {/* Brightness Slider */}
+            <View style={{ marginVertical: 12 }}>
               <Text style={{ fontWeight: "600", marginBottom: 6, textAlign: "center" }}>
                 Brightness: {testBrightness}%
               </Text>
@@ -2838,6 +2854,8 @@ export default function ControlScreen({ navigation }) {
                 minimumTrackTintColor={PRIMARY}
                 maximumTrackTintColor="#e2e8f0"
                 thumbTintColor={PRIMARY}
+                disabled={!testLightOn}
+                style={{ opacity: testLightOn ? 1 : 0.5}}
               />
             </View>
             <TouchableOpacity
