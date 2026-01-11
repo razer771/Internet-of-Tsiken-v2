@@ -371,14 +371,6 @@ export default function ActivityLogs({ navigation }) {
         );
       }
 
-<<<<<<< HEAD
-      // Generate PDF directly instead of navigating
-      console.log("📄 Generating PDF report...");
-      await generatePDF(exportPages, {
-        name: nameFilter || "All",
-        startDate: startDate ? formatDateGMT8(startDate) : "None",
-        endDate: endDate ? formatDateGMT8(endDate) : "None",
-=======
       // Navigate to preview screen with export data
       console.log("🚀 Navigating to GenerateLogReport preview screen");
       navigation.navigate("GenerateLogReport", {
@@ -393,7 +385,6 @@ export default function ActivityLogs({ navigation }) {
             sortBy: sortBy,
           });
         },
->>>>>>> jeromeees
       });
     } catch (error) {
       console.error("❌ Error generating report:", error);
@@ -614,19 +605,6 @@ export default function ActivityLogs({ navigation }) {
           <Text style={styles.loadingText}>Loading activity logs...</Text>
         </View>
       ) : (
-<<<<<<< HEAD
-        <ScrollView contentContainerStyle={styles.pageContent}>
-          {/* Back Button */}
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.navigate("AdminDashboard")}
-            activeOpacity={0.7}
-          >
-            <MaterialCommunityIcons name="arrow-left" size={24} color="#133E87" />
-            <Text style={styles.backButtonText}>Back to Dashboard</Text>
-          </TouchableOpacity>
-
-=======
         <ScrollView 
           contentContainerStyle={styles.pageContent}
           onScrollBeginDrag={() => {
@@ -634,7 +612,6 @@ export default function ActivityLogs({ navigation }) {
             setSortDropdownOpen(false);
           }}
         >
->>>>>>> jeromeees
           {/* Buttons Row */}
           <View style={styles.buttonsRow}>
             <TouchableOpacity
@@ -656,11 +633,7 @@ export default function ActivityLogs({ navigation }) {
                   pressedBtn === "generate" && { color: "#fff" },
                 ]}
               >
-<<<<<<< HEAD
-                Download
-=======
                 Download Report
->>>>>>> jeromeees
               </Text>
             </TouchableOpacity>
           </View>
