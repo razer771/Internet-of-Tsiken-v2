@@ -10,54 +10,50 @@ import {
   Image,
 } from "react-native";
 
-export default function QuickSetupModal({
+export default function EditBatchModal({
   visible,
-  initialChicksCount = "",
-  initialDaysCount = "",
-  initialHarvestDays = "",
-  onSaveChicksCount,
-  onSaveDaysCount,
-  onSaveHarvestDays,
-  onSaveBatch,
+  batchData = null,
+  onSaveChanges,
   onClose,
 }) {
-  const [chicksCount, setChicksCount] = useState(
-    String(initialChicksCount ?? "")
-  );
-  const [daysCount, setDaysCount] = useState(String(initialDaysCount ?? ""));
-  const [harvestDays, setHarvestDays] = useState(String(initialHarvestDays ?? ""));
+  const [chicksCount, setChicksCount] = useState("");
+  const [daysCount, setDaysCount] = useState("");
+  const [harvestDays, setHarvestDays] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
   const [chicksError, setChicksError] = useState("");
   const [daysError, setDaysError] = useState("");
   const [harvestError, setHarvestError] = useState("");
 
   // Check if all fields are valid and filled
-  const isFormValid = chicksCount.trim() !== "" && 
-                      daysCount.trim() !== "" && 
-                      harvestDays.trim() !== "" &&
-                      !chicksError &&
-                      !daysError &&
-                      !harvestError &&
-                      parseInt(chicksCount) > 0 &&
-                      parseInt(daysCount) > 0 &&
-                      parseInt(harvestDays) > 0;
+  const isFormValid =
+    chicksCount.trim() !== "" &&
+    daysCount.trim() !== "" &&
+    harvestDays.trim() !== "" &&
+    !chicksError &&
+    !daysError &&
+    !harvestError &&
+    parseInt(chicksCount) > 0 &&
+    parseInt(daysCount) > 0 &&
+    parseInt(harvestDays) > 0;
 
   useEffect(() => {
-    setChicksCount(String(initialChicksCount ?? ""));
-    setDaysCount(String(initialDaysCount ?? ""));
-    setHarvestDays(String(initialHarvestDays ?? ""));
-    // Reset errors when modal opens/closes
-    setChicksError("");
-    setDaysError("");
-    setHarvestError("");
-  }, [initialChicksCount, initialDaysCount, initialHarvestDays, visible]);
+    if (batchData && visible) {
+      setChicksCount(String(batchData.chicksCount ?? ""));
+      setDaysCount(String(batchData.daysCount ?? ""));
+      setHarvestDays(String(batchData.harvestDays ?? ""));
+      // Reset errors when modal opens
+      setChicksError("");
+      setDaysError("");
+      setHarvestError("");
+    }
+  }, [visible, batchData]);
 
   const handleChicksChange = (text) => {
     // Only allow numeric input, max 100
-    const numericText = text.replace(/[^0-9]/g, '');
+    const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
-    
-    if (numericText === '') {
+
+    if (numericText === "") {
       setChicksCount(numericText);
       setChicksError("");
     } else if (numValue >= 0 && numValue <= 100) {
@@ -70,10 +66,10 @@ export default function QuickSetupModal({
 
   const handleDaysChange = (text) => {
     // Only allow numeric input, max 365
-    const numericText = text.replace(/[^0-9]/g, '');
+    const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
-    
-    if (numericText === '') {
+
+    if (numericText === "") {
       setDaysCount(numericText);
       setDaysError("");
     } else if (numValue >= 0 && numValue <= 365) {
@@ -86,10 +82,10 @@ export default function QuickSetupModal({
 
   const handleHarvestChange = (text) => {
     // Only allow numeric input, max 365
-    const numericText = text.replace(/[^0-9]/g, '');
+    const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
-    
-    if (numericText === '') {
+
+    if (numericText === "") {
       setHarvestDays(numericText);
       setHarvestError("");
     } else if (numValue >= 0 && numValue <= 365) {
@@ -101,25 +97,19 @@ export default function QuickSetupModal({
   };
 
   const handleSave = () => {
-    // Use the new batch save callback if available
-    if (onSaveBatch) {
-      onSaveBatch({
-        chicksCount: chicksCount.trim(),
-        daysCount: daysCount.trim(),
-        harvestDays: harvestDays.trim(),
-      });
-    } else {
-      // Fallback to individual saves for backwards compatibility
-      onSaveChicksCount?.(chicksCount.trim());
-      onSaveDaysCount?.(daysCount.trim());
-      onSaveHarvestDays?.(harvestDays.trim());
-    }
-    
+    const updatedBatch = {
+      chicksCount: chicksCount.trim(),
+      daysCount: daysCount.trim(),
+      harvestDays: harvestDays.trim(),
+      startDate: batchData?.startDate || new Date().toISOString(),
+    };
+
+    onSaveChanges?.(updatedBatch);
+
     // Show success modal
     setShowSuccess(true);
-    
-    // Close after 2 seconds without clearing the form
-    // Form will be populated with saved values when reopened
+
+    // Close after 2 seconds
     setTimeout(() => {
       setShowSuccess(false);
       onClose();
@@ -137,8 +127,8 @@ export default function QuickSetupModal({
       transparent
       onRequestClose={handleClose}
     >
-      <Pressable 
-        style={styles.backdrop} 
+      <Pressable
+        style={styles.backdrop}
         onPress={handleClose}
         activeOpacity={1}
       >
@@ -148,10 +138,10 @@ export default function QuickSetupModal({
             <Text style={styles.closeButtonText}>✕</Text>
           </TouchableOpacity>
 
-          <Text style={styles.sectionTitle}>Quick Overview Setup</Text>
+          <Text style={styles.sectionTitle}>Edit Batch Details</Text>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Number of Chicks </Text>
+            <Text style={styles.inputLabel}>Number of Chicks</Text>
             <TextInput
               style={styles.input}
               placeholder="Enter number of chicks"
@@ -160,20 +150,24 @@ export default function QuickSetupModal({
               onChangeText={handleChicksChange}
               keyboardType="numeric"
             />
-            {chicksError ? <Text style={styles.errorText}>{chicksError}</Text> : null}
+            {chicksError ? (
+              <Text style={styles.errorText}>{chicksError}</Text>
+            ) : null}
           </View>
 
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Number of Days</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter number of days (-45)"
+              placeholder="Enter number of days"
               placeholderTextColor="#9ca3af"
               value={daysCount}
               onChangeText={handleDaysChange}
               keyboardType="numeric"
             />
-            {daysError ? <Text style={styles.errorText}>{daysError}</Text> : null}
+            {daysError ? (
+              <Text style={styles.errorText}>{daysError}</Text>
+            ) : null}
           </View>
 
           <View style={styles.inputGroup}>
@@ -186,7 +180,9 @@ export default function QuickSetupModal({
               onChangeText={handleHarvestChange}
               keyboardType="numeric"
             />
-            {harvestError ? <Text style={styles.errorText}>{harvestError}</Text> : null}
+            {harvestError ? (
+              <Text style={styles.errorText}>{harvestError}</Text>
+            ) : null}
           </View>
 
           <TouchableOpacity
@@ -195,7 +191,14 @@ export default function QuickSetupModal({
             onPress={handleSave}
             disabled={!isFormValid}
           >
-            <Text style={[styles.saveButtonText, !isFormValid && styles.saveButtonTextDisabled]}>Save</Text>
+            <Text
+              style={[
+                styles.saveButtonText,
+                !isFormValid && styles.saveButtonTextDisabled,
+              ]}
+            >
+              Save Changes
+            </Text>
           </TouchableOpacity>
         </Pressable>
 
@@ -203,11 +206,13 @@ export default function QuickSetupModal({
         <Modal visible={showSuccess} transparent animationType="fade">
           <View style={styles.successModalOverlay}>
             <View style={styles.successModalCard}>
-              <Image 
-                source={{ uri: 'https://img.icons8.com/color/96/checked--v1.png' }} 
-                style={styles.successIcon} 
+              <Image
+                source={{
+                  uri: "https://img.icons8.com/color/96/checked--v1.png",
+                }}
+                style={styles.successIcon}
               />
-              <Text style={styles.successTitle}>Successfully Saved!</Text>
+              <Text style={styles.successTitle}>Changes Saved!</Text>
             </View>
           </View>
         </Modal>

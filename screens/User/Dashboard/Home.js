@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import QuickSetupModal from "./QuickSetupModal";
 import ViewAllBatchesModal from "./viewallbatchesModal";
+import EditBatchModal from "./editbatchModal";
 import { auth, db } from "../../../config/firebaseconfig";
 import { doc, getDoc, updateDoc, onSnapshot } from "firebase/firestore";
 import { db as firestoreDb } from "../../../config/firebaseconfig";
@@ -81,6 +82,8 @@ export default function QuickOverviewSetup({ navigation }) {
   const [hasBatchData, setHasBatchData] = useState(false);
   const [userName, setUserName] = useState("User");
   const [showBatchesModal, setShowBatchesModal] = useState(false);
+  const [showEditBatchModal, setShowEditBatchModal] = useState(false);
+  const [editingBatchIndex, setEditingBatchIndex] = useState(null);
   const [batches, setBatches] = useState([]);
   const [selectedBatchIndex, setSelectedBatchIndex] = useState(null);
   const [sensorData, setSensorData] = useState({
@@ -488,15 +491,13 @@ export default function QuickOverviewSetup({ navigation }) {
   };
 
   const openQuickSetup = async () => {
-    // Only allow edit if a batch is selected and shown
-    if (hasBatchData && selectedBatchIndex !== null && batches[selectedBatchIndex]) {
-      setShowConfirmReplace(true);
-    } else {
-      setShowQuickSetup(true);
-    }
+    setShowQuickSetup(true);
   };
 
-  const closeQuickSetup = () => setShowQuickSetup(false);
+  const closeQuickSetup = async () => {
+    await loadAllBatches();
+    setShowQuickSetup(false);
+  };
 
   const handleReplaceConfirm = () => {
     setShowConfirmReplace(false);
@@ -571,6 +572,116 @@ export default function QuickOverviewSetup({ navigation }) {
     setShowBatchesModal(false);
   };
 
+  const handleDeleteSelectedBatch = async () => {
+    // Get the current selected batch
+    const currentIndex = selectedBatchIndex;
+    if (currentIndex === null || currentIndex >= batches.length) {
+      Alert.alert("Error", "No batch selected");
+      return;
+    }
+
+    Alert.alert(
+      "Delete Batch",
+      "Are you sure you want to delete this batch? This action cannot be undone.",
+      [
+        {
+          text: "Cancel",
+          onPress: () => {},
+          style: "cancel",
+        },
+        {
+          text: "Delete",
+          onPress: async () => {
+            try {
+              // Remove the batch
+              const updated = batches.filter((_, i) => i !== currentIndex);
+              setBatches(updated);
+              await AsyncStorage.setItem("batches", JSON.stringify(updated));
+
+              // If there are remaining batches, select the first one
+              if (updated.length > 0) {
+                const nextIndex = 0;
+                const nextBatch = updated[nextIndex];
+                setSelectedBatchIndex(nextIndex);
+                setChicksCount(String(nextBatch.chicksCount || "0"));
+                setDaysCount(String(nextBatch.daysCount || "0"));
+                setHarvestDays(String(nextBatch.harvestDays || "0"));
+                await AsyncStorage.setItem("selectedBatchIndex", "0");
+                await AsyncStorage.setItem("chicksCount", String(nextBatch.chicksCount || "0"));
+                await AsyncStorage.setItem("daysCount", String(nextBatch.daysCount || "0"));
+                await AsyncStorage.setItem("harvestDays", String(nextBatch.harvestDays || "0"));
+                await AsyncStorage.setItem("batchStartDate", nextBatch.startDate || "");
+              } else {
+                // No batches left, reset to zero
+                setSelectedBatchIndex(null);
+                setChicksCount("0");
+                setDaysCount("0");
+                setHarvestDays("0");
+                setHasBatchData(false);
+                await AsyncStorage.removeItem("chicksCount");
+                await AsyncStorage.removeItem("daysCount");
+                await AsyncStorage.removeItem("harvestDays");
+                await AsyncStorage.removeItem("batchStartDate");
+                await AsyncStorage.removeItem("selectedBatchIndex");
+              }
+
+              Alert.alert("Success", "Batch deleted successfully");
+            } catch (error) {
+              console.error("Error deleting batch:", error);
+              Alert.alert("Error", "Failed to delete batch");
+            }
+          },
+          style: "destructive",
+        },
+      ]
+    );
+  };
+
+  const handleEditBatch = (index) => {
+    setEditingBatchIndex(index);
+    setShowEditBatchModal(true);
+  };
+
+  const handleSaveEditBatch = async (updatedBatch) => {
+    try {
+      if (editingBatchIndex === null || editingBatchIndex >= batches.length) {
+        Alert.alert("Error", "Invalid batch index");
+        return;
+      }
+
+      const updatedBatches = batches.map((batch, idx) => {
+        if (idx === editingBatchIndex) {
+          return {
+            ...batch,
+            chicksCount: updatedBatch.chicksCount,
+            daysCount: updatedBatch.daysCount,
+            harvestDays: updatedBatch.harvestDays,
+          };
+        }
+        return batch;
+      });
+
+      setBatches(updatedBatches);
+      await AsyncStorage.setItem("batches", JSON.stringify(updatedBatches));
+
+      // Update the displayed data if the edited batch is the currently selected one
+      if (editingBatchIndex === selectedBatchIndex) {
+        setChicksCount(updatedBatch.chicksCount);
+        setDaysCount(updatedBatch.daysCount);
+        setHarvestDays(updatedBatch.harvestDays);
+        await AsyncStorage.setItem("chicksCount", updatedBatch.chicksCount);
+        await AsyncStorage.setItem("daysCount", updatedBatch.daysCount);
+        await AsyncStorage.setItem("harvestDays", updatedBatch.harvestDays);
+      }
+
+      setShowEditBatchModal(false);
+      setEditingBatchIndex(null);
+    } catch (error) {
+      console.error("Error saving edited batch:", error);
+      Alert.alert("Error", "Failed to save batch changes");
+    }
+  };
+
   const handleSaveChicksCountModal = async (value) => {
     try {
       let batchArr = batches.slice();
@@ -607,6 +718,37 @@ export default function QuickOverviewSetup({ navigation }) {
       await AsyncStorage.setItem("batchStartDate", batchArr[idx].startDate);
     } catch (error) {
       console.error("Error saving chicks count:", error);
+    }
+  };
+
+  const handleSaveBatch = async (batchData) => {
+    try {
+      const newBatch = {
+        chicksCount: batchData.chicksCount,
+        daysCount: batchData.daysCount,
+        harvestDays: batchData.harvestDays,
+        startDate: new Date().toISOString(),
+      };
+
+      let batchArr = batches.slice();
+      batchArr.push(newBatch);
+      const newIndex = batchArr.length - 1;
+
+      setBatches(batchArr);
+      setSelectedBatchIndex(newIndex);
+      setChicksCount(batchData.chicksCount);
+      setDaysCount(batchData.daysCount);
+      setHarvestDays(batchData.harvestDays);
+      setHasBatchData(true);
+
+      await AsyncStorage.setItem("batches", JSON.stringify(batchArr));
+      await AsyncStorage.setItem("selectedBatchIndex", String(newIndex));
+      await AsyncStorage.setItem("chicksCount", batchData.chicksCount);
+      await AsyncStorage.setItem("daysCount", batchData.daysCount);
+      await AsyncStorage.setItem("harvestDays", batchData.harvestDays);
+      await AsyncStorage.setItem("batchStartDate", newBatch.startDate);
+    } catch (error) {
+      console.error("Error saving batch:", error);
     }
   };
 
@@ -783,27 +925,36 @@ export default function QuickOverviewSetup({ navigation }) {
               </View>
             </View>
 
-          {/* Big CTA button styled similar to the screenshot */}
-          <TouchableOpacity
-            style={styles.ctaWrapper}
-            activeOpacity={0.9}
-            onPress={openQuickSetup}
-          >
-            <View style={styles.ctaButton}>
-              <Text style={styles.ctaText}>
-                {hasBatchData ? "Edit Batch" : "Add Batch"}
-              </Text>
-            </View>
-          </TouchableOpacity>
+          {/* Action Buttons Section */}
+          <View style={styles.buttonContainer}>
+            {/* ADD Button - Green */}
+            <TouchableOpacity
+              style={styles.addBtn}
+              activeOpacity={0.9}
+              onPress={openQuickSetup}
+            >
+              <Text style={styles.addBtnText}>Add</Text>
+            </TouchableOpacity>
 
-          {/* VIEW ALL BATCHES BUTTON */}
-          <TouchableOpacity
-            style={styles.viewAllBatchesBtn}
-            activeOpacity={0.9}
-            onPress={handleViewAllBatches}
-          >
-            <Text style={styles.viewAllBatchesText}>VIEW ALL BATCHES</Text>
-          </TouchableOpacity>
+            {/* EDIT Button - Blue */}
+            <TouchableOpacity
+              style={styles.editBtn}
+              activeOpacity={0.9}
+              onPress={handleViewAllBatches}
+            >
+              <Text style={styles.editBtnText}>Edit</Text>
+            </TouchableOpacity>
+
+            {/* DELETE Button - Red */}
+            <TouchableOpacity
+              style={styles.deleteBtn}
+              activeOpacity={0.9}
+              onPress={handleDeleteSelectedBatch}
+              disabled={!hasBatchData || selectedBatchIndex === null}
+            >
+              <Text style={styles.deleteBtnText}>Delete</Text>
+            </TouchableOpacity>
+          </View>
 
             {/* Sensor Monitoring Grid */}
             <Text style={styles.sectionTitle}>Live Monitoring</Text>
@@ -853,7 +1004,31 @@ export default function QuickOverviewSetup({ navigation }) {
               onSaveChicksCount={handleSaveChicksCountModal}
               onSaveDaysCount={handleSaveDaysCountModal}
               onSaveHarvestDays={handleSaveHarvestDaysModal}
+              onSaveBatch={handleSaveBatch}
               onClose={closeQuickSetup}
+            />
+
+            {/* View All Batches Modal */}
+            <ViewAllBatchesModal
+              visible={showBatchesModal}
+              batches={batches}
+              selectedBatchIndex={selectedBatchIndex}
+              onSelectBatch={handleSelectBatch}
+              onDeleteBatch={handleDeleteBatch}
+              onEditBatch={handleEditBatch}
+              onClose={() => setShowBatchesModal(false)}
+            />
+
+            {/* Edit Batch Modal */}
+            <EditBatchModal
+              visible={showEditBatchModal}
+              batchData={editingBatchIndex !== null && editingBatchIndex < batches.length ? batches[editingBatchIndex] : null}
+              onSaveChanges={handleSaveEditBatch}
+              onClose={async () => {
+                await loadAllBatches();
+                setShowEditBatchModal(false);
+                setEditingBatchIndex(null);
+              }}
             />
 
           {/* Confirmation Modal */}
@@ -880,58 +1055,6 @@ export default function QuickOverviewSetup({ navigation }) {
                     <Text style={styles.confirmModalButtonConfirmText}>Edit</Text>
                   </TouchableOpacity>
                 </View>
-              </View>
-            </View>
-          </Modal>
-
-          {/* Batches Modal */}
-          <Modal visible={showBatchesModal} transparent animationType="fade">
-            <View style={styles.batchesModalOverlay}>
-              <View style={styles.batchesModalCard}>
-                <Text style={styles.batchesModalTitle}>All Batches</Text>
-                <ScrollView style={{ maxHeight: 350 }}>
-                  {batches.length === 0 ? (
-                    <Text style={{ textAlign: "center", color: "#666", marginTop: 24 }}>No batches found.</Text>
-                  ) : (
-                    batches.map((batch, idx) => {
-                      const displayChicks = batch.chicksCount ? String(batch.chicksCount) : "";
-                      const displayDays = batch.daysCount ? String(batch.daysCount) : "";
-                      const displayHarvest = batch.harvestDays ? String(batch.harvestDays) : "";
-                      return (
-                        <View key={idx} style={[
-                          styles.batchItem,
-                          idx === selectedBatchIndex ? { backgroundColor: "#e0e7ff" } : null
-                        ]}>
-                          <TouchableOpacity
-                            style={{ flex: 1 }}
-                            onPress={() => handleSelectBatch(idx)}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={styles.batchLabel}>Chicks: <Text style={styles.batchValue}>{displayChicks}</Text></Text>
-                            <Text style={styles.batchLabel}>Days: <Text style={styles.batchValue}>{displayDays}</Text></Text>
-                            <Text style={styles.batchLabel}>Harvest: <Text style={styles.batchValue}>{displayHarvest}</Text></Text>
-                            <Text style={styles.batchLabel}>Start: <Text style={styles.batchValue}>{batch.startDate ? new Date(batch.startDate).toLocaleDateString() : ""}</Text></Text>
-                            {idx === selectedBatchIndex && (
-                              <Text style={{ color: "#2563eb", fontWeight: "bold", marginTop: 4 }}>Selected</Text>
-                            )}
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={styles.deleteBatchBtn}
-                            onPress={() => handleDeleteBatch(idx)}
-                          >
-                            <Text style={styles.deleteBatchText}>Delete</Text>
-                          </TouchableOpacity>
-                        </View>
-                      );
-                    })
-                  )}
-                </ScrollView>
-                <TouchableOpacity
-                  style={styles.closeBatchesBtn}
-                  onPress={() => setShowBatchesModal(false)}
-                >
-                  <Text style={styles.closeBatchesText}>Close</Text>
-                </TouchableOpacity>
               </View>
             </View>
           </Modal>
@@ -1155,19 +1278,63 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "#e2e8f0",
   },
-  ctaWrapper: {
+  buttonContainer: {
+    flexDirection: "row",
+    gap: 12,
+    marginHorizontal: 8,
+    marginBottom: 24,
+  },
+  addBtn: {
+    flex: 1,
+    backgroundColor: "#22c55e",
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: "center",
+    shadowColor: "#22c55e",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  addBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+  editBtn: {
+    flex: 1,
     backgroundColor: "#154b99",
     borderRadius: 16,
     paddingVertical: 14,
     alignItems: "center",
-    alignSelf: "stretch",
-    marginHorizontal: 8,
-    marginBottom: 24,
+    shadowColor: "#154b99",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  ctaButton: {
+  editBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+  deleteBtn: {
+    flex: 1,
+    backgroundColor: "#ef4444",
+    borderRadius: 16,
+    paddingVertical: 14,
     alignItems: "center",
+    shadowColor: "#ef4444",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  ctaText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  deleteBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 16,
+  },
   confirmModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
@@ -1228,20 +1395,6 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "600",
     fontSize: 15,
-  },
-  viewAllBatchesBtn: {
-    backgroundColor: "#154b99",
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: "center",
-    alignSelf: "stretch",
-    marginHorizontal: 8,
-    marginBottom: 24,
-  },
-  viewAllBatchesText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 16,
   },
   batchesModalOverlay: {
     flex: 1,

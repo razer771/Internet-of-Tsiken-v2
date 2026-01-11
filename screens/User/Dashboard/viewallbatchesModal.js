@@ -15,6 +15,7 @@ export default function ViewAllBatchesModal({
   selectedBatchIndex,
   onSelectBatch,
   onDeleteBatch,
+  onEditBatch,
   onClose,
 }) {
   const handleDeletePress = (index) => {
@@ -86,13 +87,15 @@ export default function ViewAllBatchesModal({
                       )}
                     </TouchableOpacity>
                     
-                    <TouchableOpacity
-                      style={styles.deleteButton}
-                      onPress={() => handleDeletePress(idx)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.deleteButtonText}>Delete</Text>
-                    </TouchableOpacity>
+                    <View style={styles.actionButtons}>
+                      <TouchableOpacity
+                        style={styles.editButton}
+                        onPress={() => onEditBatch?.(idx)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.editButtonText}>Edit</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 );
               })
@@ -141,8 +144,9 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   batchesContainer: {
-    maxHeight: 350,
+    maxHeight: 450,
     marginBottom: 16,
+    flexGrow: 0,
   },
   emptyMessage: {
     textAlign: "center",
@@ -184,16 +188,20 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 13,
   },
-  deleteButton: {
-    backgroundColor: "#ef4444",
+  actionButtons: {
+    flexDirection: "column",
+    gap: 8,
+    marginLeft: 12,
+  },
+  editButton: {
+    backgroundColor: "#154b99",
     borderRadius: 8,
     paddingVertical: 8,
     paddingHorizontal: 12,
-    marginLeft: 12,
     justifyContent: "center",
     alignItems: "center",
   },
-  deleteButtonText: {
+  editButtonText: {
     color: "#fff",
     fontWeight: "700",
     fontSize: 12,
