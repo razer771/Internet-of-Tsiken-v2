@@ -18,6 +18,8 @@ import {
   where,
   doc,
   getDoc,
+  orderBy,
+  limit,
 } from "firebase/firestore";
 import { db, auth } from "../../config/firebaseconfig";
 
@@ -25,11 +27,12 @@ export default function AdminDashboard() {
   const navigation = useNavigation();
   const [pressedBtn, setPressedBtn] = useState(null);
   const [firstName, setFirstName] = useState("Administrator");
+  const [mortalityRate, setMortalityRate] = useState(0);
+  const [totalChicks, setTotalChicks] = useState(0);
+  const [totalBatches, setTotalBatches] = useState(0);
   const [totalUsers, setTotalUsers] = useState(0);
-  const [usersThisMonth, setUsersThisMonth] = useState(0);
-  const [activeSessions, setActiveSessions] = useState(0);
-  const [activePercentage, setActivePercentage] = useState(0);
-  const [reportsThisWeek, setReportsThisWeek] = useState(0);
+  const [predatorDetections, setPredatorDetections] = useState(0);
+  const [lastDetectionTime, setLastDetectionTime] = useState(null);
   const [recentLogs, setRecentLogs] = useState([]);
 
   // Prevent duplicate fetches (React StrictMode protection)
@@ -43,10 +46,10 @@ export default function AdminDashboard() {
     }
 
     hasFetchedRef.current = true;
-    console.log("Create Account card removed from dashboard");
+    console.log("Admin dashboard loading farm analytics");
     fetchAdminName();
-    fetchUserMetrics();
-    fetchReportMetrics();
+    fetchFarmMetrics();
+    fetchPredatorDetections();
     fetchActivityLogs();
   }, []);
 
@@ -66,136 +69,141 @@ export default function AdminDashboard() {
     }
   };
 
-  const fetchUserMetrics = async () => {
+  const fetchFarmMetrics = async () => {
     try {
-      console.log("Fetching user metrics from Firestore...");
+      console.log("Fetching farm metrics from Firestore...");
 
-      // Fetch all users
+      // Fetch all users (farmers)
       const usersRef = collection(db, "users");
       const usersSnapshot = await getDocs(usersRef);
       const total = usersSnapshot.size;
       setTotalUsers(total);
       console.log("Total users:", total);
 
-      // Calculate users created this month
-      const now = new Date();
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      firstDayOfMonth.setHours(0, 0, 0, 0);
+      // Fetch brooder batches to calculate mortality rate
+      let totalInitialChicks = 0;
+      let totalCurrentChicks = 0;
+      let batchCount = 0;
 
-      console.log(
-        "Filtering users created since:",
-        firstDayOfMonth.toISOString()
-      );
-
-      let monthCount = 0;
-      let activeCount = 0;
-
-      usersSnapshot.forEach((doc) => {
-        const userData = doc.data();
-
-        // Count users created this month
-        if (userData.createdAt) {
-          // Handle Firestore Timestamp
-          let createdDate;
-          if (userData.createdAt.toDate) {
-            // Firestore Timestamp object
-            createdDate = userData.createdAt.toDate();
-          } else if (userData.createdAt.seconds) {
-            // Firestore Timestamp in serialized format
-            createdDate = new Date(userData.createdAt.seconds * 1000);
-          } else if (userData.createdAt instanceof Date) {
-            // Already a Date object
-            createdDate = userData.createdAt;
-          }
-
-          if (createdDate && createdDate >= firstDayOfMonth) {
-            monthCount++;
-          }
-        }
-
-        // Count active sessions
-        // Check if user has isActiveSession field or recent lastLogin (within last 30 minutes)
-        if (userData.isActiveSession === true) {
-          activeCount++;
-        } else if (userData.lastLogin) {
-          let lastLoginDate;
-          if (userData.lastLogin.toDate) {
-            lastLoginDate = userData.lastLogin.toDate();
-          } else if (userData.lastLogin.seconds) {
-            lastLoginDate = new Date(userData.lastLogin.seconds * 1000);
-          } else if (userData.lastLogin instanceof Date) {
-            lastLoginDate = userData.lastLogin;
-          }
-
-          // Consider active if logged in within last 30 minutes
-          const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
-          if (lastLoginDate && lastLoginDate >= thirtyMinutesAgo) {
-            activeCount++;
-          }
-        }
+      // Get all brooder info documents
+      const brooderRef = collection(db, "brooderInfo");
+      const brooderSnapshot = await getDocs(brooderRef);
+      
+      brooderSnapshot.forEach((doc) => {
+        const data = doc.data();
+        batchCount++;
+        
+        // Calculate mortality based on initial vs current chick count
+        const initialChicks = data.initialChicksCount || data.chicksCount || 0;
+        const currentChicks = data.chicksCount || 0;
+        
+        totalInitialChicks += initialChicks;
+        totalCurrentChicks += currentChicks;
       });
 
-      setUsersThisMonth(monthCount);
-      console.log("Users created this month:", monthCount);
+      setTotalBatches(batchCount);
+      setTotalChicks(totalCurrentChicks);
 
-      setActiveSessions(activeCount);
-      console.log("Active users:", activeCount);
-
-      // Calculate percentage of active sessions
-      const percentage =
-        total > 0 ? Math.round((activeCount / total) * 100) : 0;
-      setActivePercentage(percentage);
-      console.log("Percentage online:", percentage + "%");
+      // Calculate mortality rate: (initial - current) / initial * 100
+      let mortality = 0;
+      if (totalInitialChicks > 0) {
+        const deaths = totalInitialChicks - totalCurrentChicks;
+        mortality = Math.round((deaths / totalInitialChicks) * 100);
+        mortality = Math.max(0, mortality); // Ensure non-negative
+      }
+      
+      setMortalityRate(mortality);
+      console.log("Mortality rate:", mortality + "%");
+      console.log("Total batches:", batchCount);
     } catch (error) {
-      console.error("Error fetching user metrics:", error);
+      console.error("Error fetching farm metrics:", error);
     }
   };
 
-  const fetchReportMetrics = async () => {
+  const fetchPredatorDetections = async () => {
     try {
-      console.log("Fetching report metrics from Firestore...");
+      console.log("Fetching predator detections from Firestore...");
 
-      // Fetch all report logs
-      const reportsRef = collection(db, "report_logs");
-      const reportsSnapshot = await getDocs(reportsRef);
-
-      // Calculate reports generated this week
+      // Get detections from the last 7 days
       const now = new Date();
-      const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-      const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Days since last Monday
-      const firstDayOfWeek = new Date(now);
-      firstDayOfWeek.setDate(now.getDate() - daysToMonday);
-      firstDayOfWeek.setHours(0, 0, 0, 0);
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-      console.log(
-        "Filtering reports generated since:",
-        firstDayOfWeek.toISOString()
-      );
+      let detectionCount = 0;
+      let latestDetection = null;
 
-      let weekCount = 0;
+      // Try to fetch from predator_detections or detection_logs collection
+      try {
+        const detectionsRef = collection(db, "predator_detections");
+        const detectionsSnapshot = await getDocs(detectionsRef);
 
-      reportsSnapshot.forEach((doc) => {
-        const reportData = doc.data();
-        if (reportData.timestamp) {
-          let reportDate;
-          if (reportData.timestamp.toDate) {
-            reportDate = reportData.timestamp.toDate();
-          } else if (reportData.timestamp.seconds) {
-            reportDate = new Date(reportData.timestamp.seconds * 1000);
-          } else if (reportData.timestamp instanceof Date) {
-            reportDate = reportData.timestamp;
+        detectionsSnapshot.forEach((doc) => {
+          const data = doc.data();
+          let detectionDate;
+
+          if (data.timestamp) {
+            if (data.timestamp.toDate) {
+              detectionDate = data.timestamp.toDate();
+            } else if (data.timestamp.seconds) {
+              detectionDate = new Date(data.timestamp.seconds * 1000);
+            } else if (data.timestamp instanceof Date) {
+              detectionDate = data.timestamp;
+            }
+
+            if (detectionDate && detectionDate >= sevenDaysAgo) {
+              detectionCount++;
+
+              // Track the most recent detection
+              if (!latestDetection || detectionDate > latestDetection) {
+                latestDetection = detectionDate;
+              }
+            }
           }
+        });
+      } catch (e) {
+        console.log("No predator_detections collection found, trying camera_logs...");
+        
+        // Fallback: try camera_logs or object_detection_logs
+        try {
+          const cameraLogsRef = collection(db, "camera_logs");
+          const cameraQuery = query(
+            cameraLogsRef,
+            where("type", "==", "predator_detected")
+          );
+          const cameraSnapshot = await getDocs(cameraQuery);
 
-          if (reportDate && reportDate >= firstDayOfWeek) {
-            weekCount++;
-          }
+          cameraSnapshot.forEach((doc) => {
+            const data = doc.data();
+            let detectionDate;
+
+            if (data.timestamp) {
+              if (data.timestamp.toDate) {
+                detectionDate = data.timestamp.toDate();
+              } else if (data.timestamp.seconds) {
+                detectionDate = new Date(data.timestamp.seconds * 1000);
+              }
+
+              if (detectionDate && detectionDate >= sevenDaysAgo) {
+                detectionCount++;
+                if (!latestDetection || detectionDate > latestDetection) {
+                  latestDetection = detectionDate;
+                }
+              }
+            }
+          });
+        } catch (err) {
+          console.log("No camera_logs collection found either");
         }
-      });
+      }
 
-      setReportsThisWeek(weekCount);
-      console.log("Reports generated this week:", weekCount);
+      setPredatorDetections(detectionCount);
+      setLastDetectionTime(latestDetection);
+      
+      console.log("Predator detections (last 7 days):", detectionCount);
+      if (latestDetection) {
+        console.log("Last detection:", latestDetection.toLocaleString());
+      }
     } catch (error) {
-      console.error("Error fetching report metrics:", error);
+      console.error("Error fetching predator detections:", error);
     }
   };
 
@@ -358,83 +366,50 @@ export default function AdminDashboard() {
         showsVerticalScrollIndicator={false}
       >
         {/* Welcome Card */}
-        <View
-          style={[
-            styles.welcomeCard,
-            {
-              backgroundColor: "transparent",
-              overflow: "hidden",
-            },
-          ]}
-        >
-          <View
-            style={{
-              ...StyleSheet.absoluteFillObject,
-              zIndex: 0,
-              borderRadius: 16,
-              // Simulate the gradient background using a linear gradient library if available
-              // If not, fallback to a solid color similar to the gradient
-              backgroundColor: "#EBF2F8",
-            }}
-          />
-          <Text style={styles.welcomeTitle}>Welcome, {firstName}!</Text>
-          <Text style={styles.welcomeSubtitle}>
-            Manage users, view system activity,{"\n"}
-            and generate comprehensive analytics reports.
-          </Text>
+        <View style={styles.welcomeCard}>
+          <Text style={styles.welcomeTitle}>Welcome, {firstName || "Administrator"}!</Text>
         </View>
 
         {/* Metrics Row */}
         <View style={styles.metricsRow}>
-          <View style={[styles.metricCard, { marginRight: 12 }]}>
+          <View style={styles.metricCard}>
             <View style={styles.metricHeader}>
               <View style={styles.metricCircleIcon}>
                 <MaterialCommunityIcons
-                  name="account-group-outline"
+                  name="alert-circle-outline"
                   size={22}
-                  color="#234187"
+                  color={mortalityRate > 10 ? "#ef4444" : "#234187"}
                 />
               </View>
               <Text style={[styles.metricTitle, { marginLeft: -8 }]}>
-                Total Users
+                Mortality Rate
               </Text>
             </View>
-            <Text style={styles.metricValue}>{totalUsers}</Text>
-            <Text style={styles.metricSub}>+{usersThisMonth} this month</Text>
-          </View>
-          <View style={styles.metricCard}>
-            <View style={styles.metricHeader}>
-              <View style={[styles.metricCircleIcon, { marginRight: 6 }]}>
-                <MaterialCommunityIcons
-                  name="chart-timeline-variant"
-                  size={22}
-                  color="#234187"
-                />
-              </View>
-              <Text
-                style={[styles.metricTitle, { marginLeft: -8, lineHeight: 18 }]}
-                numberOfLines={2}
-              >
-                Active Sessions
-              </Text>
-            </View>
-            <Text style={styles.metricValue}>{activeSessions}</Text>
-            <Text style={styles.metricSub}>{activePercentage}% online</Text>
+            <Text style={[styles.metricValue, mortalityRate > 10 && { color: "#ef4444" }]}>{mortalityRate}%</Text>
+            <Text style={styles.metricSub}>{totalChicks} chicks active</Text>
           </View>
         </View>
 
-        {/* Reports Generated */}
-        <View style={styles.reportCard}>
+        {/* Predator Detection */}
+        <View style={[styles.reportCard, predatorDetections > 0 && { borderColor: "#f97316", borderWidth: 2 }]}>
           <View style={styles.reportLeft}>
-            <Text style={styles.reportTitle}>Reports Generated</Text>
-            <Text style={styles.reportValue}>{reportsThisWeek}</Text>
-            <Text style={styles.reportSub}>This week</Text>
+            <Text style={styles.reportTitle}>Predator Detection</Text>
+            <Text style={[styles.reportValue, predatorDetections > 0 && { color: "#f97316" }]}>
+              {predatorDetections}
+            </Text>
+            <Text style={styles.reportSub}>
+              {predatorDetections === 0 
+                ? "No threats detected" 
+                : lastDetectionTime 
+                  ? `Last: ${getRelativeTime(lastDetectionTime)}`
+                  : "Last 7 days"}
+            </Text>
           </View>
-          <View style={styles.reportCircleIcon}>
+          <View style={[styles.reportCircleIcon, predatorDetections > 0 && { backgroundColor: "#fff7ed" }]}>
             <MaterialCommunityIcons
-              name="presentation"
+              name="shield-alert"
               size={28}
-              color="#234187"
+              color={predatorDetections > 0 ? "#f97316" : "#234187"}
             />
           </View>
         </View>
@@ -572,12 +547,12 @@ export default function AdminDashboard() {
               >
                 <View>
                   <Text style={styles.activityUser}>
-                    {log.firstName} {log.lastName}
+                    {log.firstName || "Unknown"} {log.lastName || "User"}
                   </Text>
-                  <Text style={styles.activityDesc}>{log.description}</Text>
+                  <Text style={styles.activityDesc}>{log.description || "No description"}</Text>
                 </View>
                 <Text style={styles.activityTime}>
-                  {getRelativeTime(log.timestamp)}
+                  {log.timestamp ? getRelativeTime(log.timestamp) : "Unknown time"}
                 </Text>
               </View>
             ))
@@ -599,16 +574,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   welcomeCard: {
-    backgroundColor: "#EBF2F8", // fallback color
+    backgroundColor: "#E3F2FD", // light blue color
     borderRadius: 16,
     padding: 20,
     marginBottom: 24,
     marginTop: 8,
+    borderWidth: 1,
+    borderColor: "#90CAF9",
     shadowColor: "#000",
     shadowOpacity: 0.04,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
-    position: "relative",
   },
   welcomeTitle: {
     fontSize: 22,

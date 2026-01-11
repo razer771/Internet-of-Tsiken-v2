@@ -132,7 +132,7 @@ function DownloadBadge({ size = 32, bg = "#133E87", iconColor = "#fff", style })
   );
 }
 
-export default function AdminAnalytics() {
+export default function AdminAnalytics({ navigation }) {
   const [range, setRange] = useState("Last 7 Days");
   const [LineChartComp, setLineChartComp] = useState(null);
   const [chartError, setChartError] = useState(null);
@@ -199,6 +199,16 @@ export default function AdminAnalytics() {
     <SafeAreaView style={styles.safe}>
       <Header2 /> {/* Add the header at the top */}
       <ScrollView contentContainerStyle={styles.container}>
+        {/* Back Button */}
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.navigate("AdminDashboard")}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="arrow-left" size={24} color="#133E87" />
+          <Text style={styles.backButtonText}>Back to Dashboard</Text>
+        </TouchableOpacity>
+
         <View style={styles.pickerRow}>
           <Text style={styles.pickerLabel}>Select Date Range:</Text>
           <DateRangePicker
@@ -926,6 +936,19 @@ function MetricCard({ icon = "chart-line", title, value, subtitle }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#ffff" },
   container: { padding: 16, alignItems: "center" },
+  backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    paddingVertical: 4,
+    alignSelf: "flex-start",
+  },
+  backButtonText: {
+    fontSize: 16,
+    color: "#133E87",
+    fontWeight: "500",
+    marginLeft: 8,
+  },
 
   pickerRow: {
     width: "100%", backgroundColor: "#ffffff", borderRadius: 12, borderWidth: 1.5, borderColor: "#d9e9f6",

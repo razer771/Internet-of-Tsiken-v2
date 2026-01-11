@@ -17,7 +17,7 @@ import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import { db } from "../../config/firebaseconfig";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 
 const COLUMN_WIDTHS = {
   date: 120,
@@ -39,6 +39,7 @@ const LOGS_PER_PAGE = 10;
 const EXPORT_ENTRIES_PER_PAGE = 50;
 
 const LOG_COLLECTIONS = [
+  "activity_logs", // Unified activity logs collection
   "addFeedSchedule_logs",
   "addWaterSchedule_logs",
   "deleteFeedSchedule_logs",
@@ -418,23 +419,12 @@ export default function ActivityLogs({ navigation }) {
         );
       }
 
-      // Navigate to preview screen with export data
-      console.log("🚀 Navigating to GenerateLogReport preview screen");
-      navigation.navigate("GenerateLogReport", {
-        exportData: exportPages,
-        totalLogs: logsToExport.length,
-        filters: {
-          name: nameFilter || "All",
-          startDate: startDate ? formatDateGMT8(startDate) : "None",
-          endDate: endDate ? formatDateGMT8(endDate) : "None",
-        },
-        onExportPDF: async () => {
-          await generatePDF(exportPages, {
-            name: nameFilter || "All",
-            startDate: startDate ? formatDateGMT8(startDate) : "None",
-            endDate: endDate ? formatDateGMT8(endDate) : "None",
-          });
-        },
+      // Generate PDF directly instead of navigating
+      console.log("📄 Generating PDF report...");
+      await generatePDF(exportPages, {
+        name: nameFilter || "All",
+        startDate: startDate ? formatDateGMT8(startDate) : "None",
+        endDate: endDate ? formatDateGMT8(endDate) : "None",
       });
     } catch (error) {
       console.error("❌ Error generating report:", error);
@@ -899,6 +889,16 @@ export default function ActivityLogs({ navigation }) {
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.pageContent}>
+          {/* Back Button */}
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.navigate("AdminDashboard")}
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons name="arrow-left" size={24} color="#133E87" />
+            <Text style={styles.backButtonText}>Back to Dashboard</Text>
+          </TouchableOpacity>
+
           {/* Buttons Row */}
           <View style={styles.buttonsRow}>
             <TouchableOpacity
@@ -1366,6 +1366,18 @@ const styles = StyleSheet.create({
     color: "#666",
   },
   pageContent: { paddingVertical: 16, paddingHorizontal: 12 },
+  backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    paddingVertical: 4,
+  },
+  backButtonText: {
+    fontSize: 16,
+    color: "#133E87",
+    fontWeight: "500",
+    marginLeft: 8,
+  },
   buttonsRow: {
     flexDirection: "row",
     alignItems: "center",
