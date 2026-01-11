@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import Icon from "react-native-vector-icons/Feather";
 import Header2 from "../navigation/adminHeader";
+import { Calendar } from 'react-native-calendars';
 import {
   doc,
   collection,
@@ -81,16 +82,24 @@ const roleTextColors = {
 };
 
 export default function UserManagement({ navigation }) {
+  const horizontalScrollRef = useRef(null);
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState("");
-  const [selectedRole, setSelectedRole] = useState("All Roles");
+  const [selectedRole, setSelectedRole] = useState("Roles");
   const [roleFilterOpen, setRoleFilterOpen] = useState(false);
-  const roleFilterOptions = ["All Roles", "Admin", "User"];
-  const [selectedStatus, setSelectedStatus] = useState("All Status");
+  const roleFilterOptions = ["Roles", "Admin", "User"];
+  const [selectedStatus, setSelectedStatus] = useState("Status");
   const [statusFilterOpen, setStatusFilterOpen] = useState(false);
-  const statusFilterOptions = ["All Status", "Active", "Inactive"];
-
+  const statusFilterOptions = ["Status", "Active", "Inactive"];
+  const [calendarVisible, setCalendarVisible] = useState(false);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState('');
   const [pressedRow, setPressedRow] = useState(null);
+  
+  // Add scroll indicator states
+  const [scrollIndicatorLeft, setScrollIndicatorLeft] = useState(0);
+  const [scrollIndicatorWidth, setScrollIndicatorWidth] = useState(100);
+  const [showScrollIndicator, setShowScrollIndicator] = useState(false);
+
   const [editUser, setEditUser] = useState({
     id: "",
     firstName: "",
@@ -120,8 +129,7 @@ export default function UserManagement({ navigation }) {
   const [forcePasswordVisible, setForcePasswordVisible] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [confirmBtnPressed, setConfirmBtnPressed] = useState(false);
-  const [cancelPasswordBtnPressed, setCancelPasswordBtnPressed] =
-    useState(false);
+  const [cancelPasswordBtnPressed, setCancelPasswordBtnPressed] = useState(false);
   const [passwordResetSuccessVisible, setPasswordResetSuccessVisible] =
     useState(false);
 
@@ -245,14 +253,18 @@ export default function UserManagement({ navigation }) {
   const filteredUsers = users.filter((u) => {
     // role filter
     const roleOk =
-      selectedRole === "All Roles" ||
+      selectedRole === "Roles" ||
       u.role.toLowerCase() === selectedRole.toLowerCase();
 
-    // status filter
-    const statusOk =
-      selectedStatus === "All Status" ||
-      (u.accountStatus &&
-        u.accountStatus.toLowerCase() === selectedStatus.toLowerCase());
+    // status filter - Modified to exclude inactive by default
+    let statusOk;
+    if (selectedStatus === "Status") {
+      // Default: only show active accounts
+      statusOk = u.accountStatus && u.accountStatus.toLowerCase() === "active";
+    } else {
+      // When a specific status is selected, filter by that status
+      statusOk = u.accountStatus && u.accountStatus.toLowerCase() === selectedStatus.toLowerCase();
+    }
 
     // search filter (name or email)
     const q = search.trim().toLowerCase();
@@ -262,6 +274,77 @@ export default function UserManagement({ navigation }) {
 
     return roleOk && statusOk && searchOk;
   });
+
+  // Sort by date - always show newest first by default
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    console.log(`Sorting users - comparing ${a.firstName} (${a.created}) with ${b.firstName} (${b.created})`);
+    
+    if (a.created === "N/A" && b.created === "N/A") return 0;
+    if (a.created === "N/A") return 1; // Push N/A to the end
+    if (b.created === "N/A") return -1;
+
+    // Parse dates in format "YYYY-MMM-DD"
+    const parseDate = (dateStr) => {
+      const parts = dateStr.split('-');
+      if (parts.length !== 3) return new Date(0);
+      
+      const year = parseInt(parts[0]);
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthIndex = monthNames.indexOf(parts[1]);
+      const day = parseInt(parts[2]);
+      
+      if (monthIndex === -1) return new Date(0);
+      return new Date(year, monthIndex, day);
+    };
+
+    const dateA = parseDate(a.created);
+    const dateB = parseDate(b.created);
+    
+    console.log(`  Date A: ${dateA.toDateString()} (${dateA.getTime()})`);
+    console.log(`  Date B: ${dateB.toDateString()} (${dateB.getTime()})`);
+    console.log(`  Result: ${dateB - dateA} (${dateB > dateA ? 'B is newer' : 'A is newer'})`);
+    
+    return dateB - dateA; // Most recent first (larger timestamp comes first)
+});
+
+console.log('Sorted users order:');
+sortedUsers.forEach((user, index) => {
+  console.log(`  ${index + 1}. ${user.firstName} ${user.lastName} - Created: ${user.created}`);
+});
+  // Filter by selected calendar date
+  const filteredByDate = selectedCalendarDate
+    ? sortedUsers.filter(user => {
+        if (user.created === "N/A") return false;
+        
+        // Parse the created date which is in format "YYYY-MMM-DD"
+        const createdParts = user.created.split('-');
+        if (createdParts.length !== 3) return false;
+        
+        const year = createdParts[0];
+        const monthStr = createdParts[1]; // e.g., "Dec"
+        const day = createdParts[2];
+        
+        // Convert month name to number
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const monthIndex = monthNames.indexOf(monthStr);
+        
+        if (monthIndex === -1) return false;
+        
+        // Create date object from user's created date
+        const userDate = new Date(parseInt(year), monthIndex, parseInt(day));
+        
+        // Create date object from selected calendar date
+        const filterDate = new Date(selectedCalendarDate);
+        
+        console.log(`Comparing user date: ${user.created} (${userDate.toISOString()}) with filter date: ${selectedCalendarDate} (${filterDate.toISOString()})`);
+        
+        return (
+          userDate.getFullYear() === filterDate.getFullYear() &&
+          userDate.getMonth() === filterDate.getMonth() &&
+          userDate.getDate() === filterDate.getDate()
+        );
+      })
+    : sortedUsers;
 
   const handleEditUser = (user) => {
     console.log(
@@ -518,6 +601,36 @@ export default function UserManagement({ navigation }) {
     }
   };
 
+  const closeModal = () => {
+    setEditModalVisible(false);
+    setForcePasswordVisible(false);
+    setDeleteUserVisible(false);
+    setSavedVisible(false);
+    setPasswordResetSuccessVisible(false);
+    setAlertVisible(false);
+  };
+
+  const handleScroll = (event) => {
+    const { contentOffset, layoutMeasurement, contentSize } = event.nativeEvent;
+    
+    if (contentSize.width > layoutMeasurement.width) {
+      setShowScrollIndicator(true);
+      
+      // Calculate indicator position and width
+      const scrollPercentage = contentOffset.x / (contentSize.width - layoutMeasurement.width);
+      const indicatorWidth = (layoutMeasurement.width / contentSize.width) * 100;
+      const indicatorLeft = scrollPercentage * (100 - indicatorWidth);
+      
+      setScrollIndicatorWidth(indicatorWidth);
+      setScrollIndicatorLeft(indicatorLeft);
+    } else {
+      setShowScrollIndicator(false);
+    }
+  };
+
+  // Removed: scrollProgress calculation
+  // Removed: indicatorWidth calculation
+
   return (
     <SafeAreaView style={styles.safe}>
       <Header2 />
@@ -683,6 +796,36 @@ export default function UserManagement({ navigation }) {
               </View>
             )}
           </View>
+
+          {/* Date calendar button - flex: 1 with proper text truncation */}
+          <TouchableOpacity
+            style={[styles.filterButton, { flex: 1, minWidth: 0 }]}
+            onPress={() => {
+              setCalendarVisible(true);
+              setRoleFilterOpen(false);
+              setStatusFilterOpen(false);
+            }}
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons
+              name="calendar-blank-outline"
+              size={18}
+              color="#000"
+              style={{ marginRight: 6, flexShrink: 0 }}
+            />
+            <Text 
+              style={[styles.filterText, { flex: 1 }]} 
+              numberOfLines={1}
+            >
+              {selectedCalendarDate 
+                ? new Date(selectedCalendarDate).toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric' 
+                  })
+                : "Date"}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -706,18 +849,34 @@ export default function UserManagement({ navigation }) {
           setStatusFilterOpen(false);
         }}
       >
-        <ScrollView
-          horizontal
-          style={styles.horizontalScroll}
-          showsHorizontalScrollIndicator
-          onScrollBeginDrag={() => {
-            setRoleFilterOpen(false);
-            setStatusFilterOpen(false);
-          }}
+        {/* Custom Scroll Indicator at Top */}
+        {showScrollIndicator && (
+          <View style={styles.customScrollIndicatorContainer}>
+            <View style={styles.customScrollIndicatorTrack}>
+              <View
+                style={[
+                  styles.customScrollIndicatorThumb,
+                  {
+                    width: `${scrollIndicatorWidth}%`,
+                    left: `${scrollIndicatorLeft}%`,
+                  },
+                ]}
+              />
+            </View>
+          </View>
+        )}
+
+        <ScrollView 
+          ref={horizontalScrollRef}
+          horizontal 
+          style={styles.horizontalScroll} 
+          showsHorizontalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
         >
           <View style={styles.userListCard}>
             <Text style={styles.userListTitle}>
-              User List ({filteredUsers.length} users)
+              User List ({filteredByDate.length} users)
             </Text>
             <View style={styles.userListHeader}>
               <View style={styles.nameColHeader}>
@@ -755,7 +914,7 @@ export default function UserManagement({ navigation }) {
                 </Text>
               </View>
             </View>
-            {filteredUsers.map((user) => {
+            {filteredByDate.map((user) => {
               console.log(
                 `Rendering user row: ${user.firstName} ${user.lastName}`
               );
@@ -1186,8 +1345,7 @@ export default function UserManagement({ navigation }) {
               <Text
                 style={[
                   styles.cancelPasswordButtonText,
-                  cancelPasswordBtnPressed &&
-                    styles.cancelPasswordButtonTextPressed,
+                  cancelPasswordBtnPressed && styles.cancelPasswordButtonTextPressed,
                 ]}
               >
                 Cancel
@@ -1202,6 +1360,7 @@ export default function UserManagement({ navigation }) {
         transparent
         visible={passwordResetSuccessVisible}
         animationType="fade"
+        onRequestClose={() => setPasswordResetSuccessVisible(false)}
       >
         <View style={styles.overlay}>
           <View style={styles.passwordResetSuccessModal}>
@@ -1212,7 +1371,7 @@ export default function UserManagement({ navigation }) {
               Force Password Reset
             </Text>
 
-            <Text style={styles.passwordResetSuccessLoading}>
+            <Text style={styles.passwordResetSuccessSubtitle}>
               User will be prompted to change password on next login.
             </Text>
           </View>
@@ -1310,41 +1469,95 @@ export default function UserManagement({ navigation }) {
         message={alertMessage}
         onClose={closeAlert}
       />
+
+      {/* Calendar Modal */}
+      <Modal
+        transparent
+        visible={calendarVisible}
+        animationType="fade"
+        onRequestClose={() => setCalendarVisible(false)}
+      >
+        <View style={styles.calendarOverlay}>
+          <View style={styles.calendarModal}>
+            <Calendar
+              onDayPress={(day) => {
+                console.log('Selected date:', day.dateString);
+                setSelectedCalendarDate(day.dateString);
+                setCalendarVisible(false);
+              }}
+              markedDates={{
+                [selectedCalendarDate]: {
+                  selected: true,
+                  selectedColor: '#133E87',
+                },
+              }}
+              theme={{
+                backgroundColor: '#ffffff',
+                calendarBackground: '#ffffff',
+                textSectionTitleColor: '#000',
+                selectedDayBackgroundColor: '#133E87',
+                selectedDayTextColor: '#ffffff',
+                todayTextColor: '#133E87',
+                dayTextColor: '#000',
+                textDisabledColor: '#d9e1e8',
+                monthTextColor: '#000',
+                textMonthFontWeight: 'bold',
+                textDayFontSize: 16,
+                textMonthFontSize: 20,
+                textDayHeaderFontSize: 14,
+              }}
+            />
+            
+            <View style={styles.calendarButtonRow}>
+              <TouchableOpacity
+                style={styles.clearDateButton}
+                onPress={() => {
+                  setSelectedCalendarDate('');
+                  setCalendarVisible(false);
+                }}
+              >
+                <Text style={styles.clearDateButtonText}>Clear Filter</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.closeCalendarButton}
+                onPress={() => setCalendarVisible(false)}
+              >
+                <Text style={styles.closeCalendarButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-const COLUMN_PADDING = 12;
+const COLUMN_PADDING = 8;
 
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#fff",
-  },
-  searchFiltersWrapper: {
-    backgroundColor: "#fff",
-    paddingHorizontal: 18,
-    paddingTop: 0,
-    paddingBottom: 12,
-    zIndex: 10,
+    backgroundColor: "#f9fafb",
   },
   container: {
     flex: 1,
-    backgroundColor: "#fff",
     paddingHorizontal: 18,
+  },
+  searchFiltersWrapper: {
+    paddingHorizontal: 18,
+    marginBottom: 4,
   },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F7F9FB",
+    backgroundColor: "#fff",
     borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
     borderWidth: 1,
     borderColor: "#E3E8EF",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     marginBottom: 10,
-    width: "100%",
-    zIndex: 2,
   },
   searchInput: {
     flex: 1,
@@ -1368,7 +1581,6 @@ const styles = StyleSheet.create({
     borderColor: "#E3E8EF",
     paddingVertical: 8,
     paddingHorizontal: 16,
-    marginRight: 10,
   },
   filterText: {
     color: "#000",
@@ -2021,7 +2233,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   createAccountButton: {
-    width: "100%",
+    width: "115%", 
     backgroundColor: "#fff",
     borderRadius: 16,
     paddingVertical: 12,
@@ -2029,6 +2241,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
     borderWidth: 1.5,
     borderColor: "#234187",
+    alignSelf: "flex-start", // Changed from "center" to "flex-start" to align left
+    marginLeft: -43, // Added negative margin to move it slightly to the left
   },
   createAccountButtonText: {
     color: "#000",
@@ -2087,5 +2301,70 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     textAlign: "center",
+  },
+  // Calendar Modal Styles
+  calendarOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  calendarModal: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    width: '90%',
+    maxWidth: 400,
+  },
+  calendarButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    gap: 12,
+  },
+  clearDateButton: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  clearDateButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+  },
+  closeCalendarButton: {
+    flex: 1,
+    backgroundColor: '#133E87',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  closeCalendarButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  // Custom Scroll Indicator Styles
+  customScrollIndicatorContainer: {
+    width: '100%',
+    paddingHorizontal: 18,
+    marginBottom: 8,
+  },
+  customScrollIndicatorTrack: {
+    height: 4,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 2,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  customScrollIndicatorThumb: {
+    position: 'absolute',
+    height: '100%',
+    backgroundColor: '#9CA3AF',
+    borderRadius: 2,
   },
 });

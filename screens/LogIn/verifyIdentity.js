@@ -15,10 +15,10 @@ import { useNavigation } from "@react-navigation/native";
 import { auth, db } from "../../config/firebaseconfig.js";
 import { doc, updateDoc, getDoc } from "firebase/firestore";
 // TODO: Re-enable Firebase Functions after fixing build issues
-import { getFunctions, httpsCallable } from "firebase/functions";
+// import { getFunctions, httpsCallable } from "firebase/functions";
 
 // Initialize Firebase Functions
-const functions = getFunctions(undefined, "us-central1");
+// const functions = getFunctions(undefined, "us-central1");
 
 export default function VerifyIdentityScreen() {
   const [selectedOption, setSelectedOption] = useState("mobile");
