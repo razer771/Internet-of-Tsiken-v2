@@ -494,27 +494,6 @@ export default function Analytics() {
         )}
       </View>
 
-      {/* Stats Row */}
-      <View style={styles.statsRow}>
-        <View style={styles.statsCard}>
-          <View style={styles.statsHeader}>
-            <Ionicons name="analytics-outline" size={18} color="#333" />
-            <Text style={styles.statsLabel}>Avg Temp</Text>
-          </View>
-          <Text style={styles.statsValue}>31.8°C</Text>
-          <Text style={styles.statsSub}>+0.5° from target</Text>
-        </View>
-
-        <View style={styles.statsCard}>
-          <View style={styles.statsHeader}>
-            <Ionicons name="analytics-outline" size={18} color="#333" />
-            <Text style={styles.statsLabel}>Accuracy</Text>
-          </View>
-          <Text style={styles.statsValue}>99.8%</Text>
-          <Text style={styles.statsSubGray}>Last 7 days</Text>
-        </View>
-      </View>
-
       {/* Tabs */}
       <View style={styles.tabContainer}>
         {["Feeding", "Water", "Energy"].map((tab, i) => (
@@ -788,31 +767,6 @@ export default function Analytics() {
           </View>
         </>
       )}
-
-      {/* ----------------- DATA TABLE ----------------- */}
-      <View style={[styles.tableCard, { width: cardWidth }]}>
-        <Text style={styles.tableTitle}>Data Table Summary</Text>
-
-        <View style={styles.tableHeader}>
-          <Text style={styles.col1Header}>Batch ID</Text>
-          <Text style={styles.col2Header}>Days</Text>
-          <Text style={styles.col3Header}>
-            <Text>{"AVG\nTemp"}</Text>
-          </Text>
-          <Text style={styles.col4Header}>Humidity</Text>
-          <Text style={styles.col5Header}>Success</Text>
-        </View>
-
-        {tableData.map((row, index) => (
-          <View key={index} style={styles.tableRow}>
-            <Text style={styles.col1Link}>{row.id}</Text>
-            <Text style={styles.col2Row}>{row.days}</Text>
-            <Text style={styles.col3Row}>{row.avg}</Text>
-            <Text style={styles.col4Row}>{row.hum}</Text>
-            <Text style={styles.col5Row}>{row.success}</Text>
-          </View>
-        ))}
-      </View>
     </ScrollView>
   );
 }
