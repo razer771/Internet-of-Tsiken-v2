@@ -813,6 +813,7 @@ const resetBrooderUI = async () => {
   const handleSaveBatch = async (batchData) => {
     try {
       const newBatch = {
+        batchNo: batchData.batchNo || "-",
         chicksCount: batchData.chicksCount,
         daysCount: batchData.daysCount,
         harvestDays: batchData.harvestDays,
@@ -1105,6 +1106,7 @@ const resetBrooderUI = async () => {
               onSaveHarvestDays={handleSaveHarvestDaysModal}
               onSaveBatch={handleSaveBatch}
               onClose={closeQuickSetup}
+              batches={batches}
             />
 
             {/* View All Batches Modal */}
