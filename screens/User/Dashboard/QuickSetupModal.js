@@ -12,29 +12,36 @@ import {
 
 export default function QuickSetupModal({
   visible,
-  initialChicksCount = "",
-  initialDaysCount = "",
-  initialHarvestDays = "",
   onSaveChicksCount,
   onSaveDaysCount,
   onSaveHarvestDays,
   onSaveBatch,
   onClose,
+  batches = [], // Pass batches from Home.js
 }) {
-  const [chicksCount, setChicksCount] = useState(
-    String(initialChicksCount ?? "")
-  );
-  const [daysCount, setDaysCount] = useState(String(initialDaysCount ?? ""));
-  const [harvestDays, setHarvestDays] = useState(String(initialHarvestDays ?? ""));
+  // Never show '0' in the textbox, only show placeholder if value is empty or zero
+  const sanitizeInput = (val) => {
+    if (val === null || val === undefined) return "";
+    if (typeof val === "number" && val === 0) return "";
+    if (typeof val === "string" && (val.trim() === "0" || val.trim() === "")) return "";
+    return String(val);
+  };
+  const [batchNo, setBatchNo] = useState("");
+  const [batchNoError, setBatchNoError] = useState("");
+  const [chicksCount, setChicksCount] = useState("");
+  const [daysCount, setDaysCount] = useState("");
+  const [harvestDays, setHarvestDays] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
   const [chicksError, setChicksError] = useState("");
   const [daysError, setDaysError] = useState("");
   const [harvestError, setHarvestError] = useState("");
 
   // Check if all fields are valid and filled
-  const isFormValid = chicksCount.trim() !== "" && 
+  const isFormValid = batchNo.trim() !== "" &&
+                      chicksCount.trim() !== "" && 
                       daysCount.trim() !== "" && 
                       harvestDays.trim() !== "" &&
+                      !batchNoError &&
                       !chicksError &&
                       !daysError &&
                       !harvestError &&
@@ -43,24 +50,52 @@ export default function QuickSetupModal({
                       parseInt(harvestDays) > 0;
 
   useEffect(() => {
-    setChicksCount(String(initialChicksCount ?? ""));
-    setDaysCount(String(initialDaysCount ?? ""));
-    setHarvestDays(String(initialHarvestDays ?? ""));
-    // Reset errors when modal opens/closes
-    setChicksError("");
-    setDaysError("");
-    setHarvestError("");
-  }, [initialChicksCount, initialDaysCount, initialHarvestDays, visible]);
+    if (visible) {
+      setBatchNo("");
+      setBatchNoError("");
+      setChicksCount("");
+      setDaysCount("");
+      setHarvestDays("");
+      setChicksError("");
+      setDaysError("");
+      setHarvestError("");
+    }
+  }, [visible]);
+  const handleBatchNoChange = (text) => {
+    // Only allow numeric input, max value 100, must be next available, no duplicates
+    let cleanText = text.replace(/[^0-9]/g, '');
+    if (cleanText !== "") {
+      let num = parseInt(cleanText, 10);
+      if (num > 100) {
+        cleanText = "100";
+        setBatchNoError("Batch number cannot exceed 100");
+      } else {
+        // Get all existing batch numbers as numbers
+        const existingBatchNos = batches.map(b => parseInt(b.batchNo, 10)).filter(n => !isNaN(n));
+        const maxBatchNo = existingBatchNos.length > 0 ? Math.max(...existingBatchNos) : 0;
+        // Check for duplicate
+        if (existingBatchNos.includes(num)) {
+          setBatchNoError("Batch number already exists");
+        } else if (num !== maxBatchNo + 1) {
+          setBatchNoError(`Batch number must be ${maxBatchNo + 1}`);
+        } else {
+          setBatchNoError("");
+        }
+      }
+    } else {
+      setBatchNoError("Batch number is required");
+    }
+    setBatchNo(cleanText);
+  };
 
   const handleChicksChange = (text) => {
-    // Only allow numeric input, max 100
+    // Only allow numeric input, max 100, never show '0'
     const numericText = text.replace(/[^0-9]/g, '');
     const numValue = parseInt(numericText);
-    
-    if (numericText === '') {
-      setChicksCount(numericText);
+    if (numericText === '' || numericText === '0') {
+      setChicksCount("");
       setChicksError("");
-    } else if (numValue >= 0 && numValue <= 100) {
+    } else if (numValue > 0 && numValue <= 100) {
       setChicksCount(numericText);
       setChicksError("");
     } else {
@@ -69,14 +104,13 @@ export default function QuickSetupModal({
   };
 
   const handleDaysChange = (text) => {
-    // Only allow numeric input, max 365
+    // Only allow numeric input, max 365, never show '0'
     const numericText = text.replace(/[^0-9]/g, '');
     const numValue = parseInt(numericText);
-    
-    if (numericText === '') {
-      setDaysCount(numericText);
+    if (numericText === '' || numericText === '0') {
+      setDaysCount("");
       setDaysError("");
-    } else if (numValue >= 0 && numValue <= 365) {
+    } else if (numValue > 0 && numValue <= 365) {
       setDaysCount(numericText);
       setDaysError("");
     } else {
@@ -85,14 +119,13 @@ export default function QuickSetupModal({
   };
 
   const handleHarvestChange = (text) => {
-    // Only allow numeric input, max 365
+    // Only allow numeric input, max 365, never show '0'
     const numericText = text.replace(/[^0-9]/g, '');
     const numValue = parseInt(numericText);
-    
-    if (numericText === '') {
-      setHarvestDays(numericText);
+    if (numericText === '' || numericText === '0') {
+      setHarvestDays("");
       setHarvestError("");
-    } else if (numValue >= 0 && numValue <= 365) {
+    } else if (numValue > 0 && numValue <= 365) {
       setHarvestDays(numericText);
       setHarvestError("");
     } else {
@@ -104,6 +137,7 @@ export default function QuickSetupModal({
     // Use the new batch save callback if available
     if (onSaveBatch) {
       onSaveBatch({
+        batchNo: batchNo.trim(),
         chicksCount: chicksCount.trim(),
         daysCount: daysCount.trim(),
         harvestDays: harvestDays.trim(),
@@ -114,12 +148,18 @@ export default function QuickSetupModal({
       onSaveDaysCount?.(daysCount.trim());
       onSaveHarvestDays?.(harvestDays.trim());
     }
-    
     // Show success modal
     setShowSuccess(true);
-    
-    // Close after 2 seconds without clearing the form
-    // Form will be populated with saved values when reopened
+    // Reset all fields after save
+    setBatchNo("");
+    setBatchNoError("");
+    setChicksCount("");
+    setChicksError("");
+    setDaysCount("");
+    setDaysError("");
+    setHarvestDays("");
+    setHarvestError("");
+    // Close after 2 seconds
     setTimeout(() => {
       setShowSuccess(false);
       onClose();
@@ -151,12 +191,26 @@ export default function QuickSetupModal({
           <Text style={styles.sectionTitle}>Quick Overview Setup</Text>
 
           <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Batch No.</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter Batch Number"
+              placeholderTextColor="#9ca3af"
+              value={batchNo}
+              onChangeText={handleBatchNoChange}
+              keyboardType="numeric"
+              maxLength={10}
+            />
+            {batchNoError ? <Text style={styles.errorText}>{batchNoError}</Text> : null}
+          </View>
+
+          <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Number of Chicks </Text>
             <TextInput
               style={styles.input}
               placeholder="Enter number of chicks"
               placeholderTextColor="#9ca3af"
-              value={chicksCount}
+              value={sanitizeInput(chicksCount)}
               onChangeText={handleChicksChange}
               keyboardType="numeric"
             />
@@ -169,7 +223,7 @@ export default function QuickSetupModal({
               style={styles.input}
               placeholder="Enter number of days (-45)"
               placeholderTextColor="#9ca3af"
-              value={daysCount}
+              value={sanitizeInput(daysCount)}
               onChangeText={handleDaysChange}
               keyboardType="numeric"
             />
@@ -182,7 +236,7 @@ export default function QuickSetupModal({
               style={styles.input}
               placeholder="Enter harvest days"
               placeholderTextColor="#9ca3af"
-              value={harvestDays}
+              value={sanitizeInput(harvestDays)}
               onChangeText={handleHarvestChange}
               keyboardType="numeric"
             />

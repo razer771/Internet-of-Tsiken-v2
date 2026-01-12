@@ -58,6 +58,7 @@ export default function ViewAllBatchesModal({
                 <Text style={styles.emptyMessage}>No batches found.</Text>
               ) : (
                 batches.map((batch, idx) => {
+                  const displayBatchNo = (batch.batchNo !== undefined && batch.batchNo !== null && batch.batchNo !== "") ? String(batch.batchNo) : "";
                   const displayChicks = batch.chicksCount ? String(batch.chicksCount) : "0";
                   const displayDays = batch.daysCount ? String(batch.daysCount) : "0";
                   const displayHarvest = batch.harvestDays ? String(batch.harvestDays) : "0";
@@ -78,6 +79,9 @@ export default function ViewAllBatchesModal({
                         activeOpacity={0.7}
                       >
                         <Text style={styles.batchLabel}>
+                          Batch No.: <Text style={styles.batchValue}>{displayBatchNo}</Text>
+                        </Text>
+                        <Text style={styles.batchLabel}>
                           Chicks: <Text style={styles.batchValue}>{displayChicks}</Text>
                         </Text>
                         <Text style={styles.batchLabel}>
@@ -93,7 +97,6 @@ export default function ViewAllBatchesModal({
                           <Text style={styles.selectedBadge}>✓ Selected</Text>
                         )}
                       </TouchableOpacity>
-                      
                       <View style={styles.actionButtons}>
                         <TouchableOpacity
                           style={styles.deleteButton}
