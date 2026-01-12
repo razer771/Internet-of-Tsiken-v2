@@ -59,6 +59,152 @@ const RED = "#D70E11";
 const YELLOW = "#DFB118";
 const BORDER_OVERLAY = "#e2e8f0";
 
+// ==================== HELPER FUNCTIONS ====================
+
+/**
+ * Fetch Night Time schedule from Firestore
+ * Retrieves document "1" from "nightTime" collection
+ * @returns {Promise<Object|null>} Night time data or null if not found
+ */
+const fetchNightTimeSchedule = async () => {
+  try {
+    console.log("[FetchNightTime] Fetching night time schedule...");
+
+    const docRef = doc(db, "nightTime", "1");
+    const docSnap = await getDoc(docRef);
+
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      console.log("[FetchNightTime] Night time schedule loaded:", data);
+      return data;
+    } else {
+      console.warn("[FetchNightTime] Night time document not found");
+      return null;
+    }
+  } catch (error) {
+    console.error(
+      "[FetchNightTime] Error fetching night time schedule:",
+      error
+    );
+    return null;
+  }
+};
+
+/**
+ * Format time to GMT+8
+ * @param {Date|string} dateTime - Date object or ISO string
+ * @returns {string} Formatted time in GMT+8 (e.g., "7:00 PM")
+ */
+const formatTimeGMT8 = (dateTime) => {
+  try {
+    if (!dateTime) return "N/A";
+
+    const date = dateTime instanceof Date ? dateTime : new Date(dateTime);
+    const gmt8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+
+    return gmt8Date.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: "UTC", // Already adjusted to GMT+8
+    });
+  } catch (error) {
+    console.error("[FormatTimeGMT8] Error formatting time:", error);
+    return "N/A";
+  }
+};
+
+/**
+ * Update Night Time Schedule in Firestore
+ * @param {string|number} newTime - New time value (e.g., "19:00" or ISO timestamp)
+ * @param {string} userId - Current user ID
+ * @param {string} firstName - User's first name
+ * @param {string} lastName - User's last name
+ * @returns {Promise<{success: boolean, message: string, oldTime?: any, newTime?: any}>}
+ */
+const updateNightTimeSchedule = async (
+  newTime,
+  userId,
+  firstName,
+  lastName
+) => {
+  try {
+    console.log("[UpdateNightTime] Updating night time schedule...");
+
+    if (!newTime || !userId) {
+      throw new Error("New time and user ID are required");
+    }
+
+    // Fetch current schedule to get old value
+    const currentData = await fetchNightTimeSchedule();
+    const oldTime = currentData?.nightTime || currentData?.time || null;
+
+    // Format the new time for display
+    const newTimeFormatted = formatTimeGMT8(newTime);
+
+    // Update the document
+    const docRef = doc(db, "nightTime", "1");
+    await setDoc(
+      docRef,
+      {
+        nightTime: newTime,
+        time: newTime,
+        selectedTimeGMT8Formatted: newTimeFormatted,
+        updatedAt: new Date().toISOString(),
+        updatedBy: userId,
+      },
+      { merge: true }
+    );
+
+    console.log("[UpdateNightTime] Night time schedule updated successfully");
+
+    // Log the activity
+    try {
+      const selectedTime = new Date(newTime).toISOString();
+      const oldTimeFormatted = oldTime ? formatTimeGMT8(oldTime) : "N/A";
+
+      const logEntry = {
+        action: "Set Night Time",
+        description: `Night time starts at ${newTimeFormatted}`,
+        firstName: firstName,
+        lastName: lastName,
+        newTime: newTimeFormatted,
+        oldTime: oldTimeFormatted,
+        selectedTime: selectedTime,
+        selectedTimeGMT8: newTimeFormatted,
+        timestamp: new Date().toISOString(),
+        userId: userId,
+      };
+
+      await addDoc(
+        collection(db, "activity_logs", "nightTime_logs", "events"),
+        logEntry
+      );
+
+      console.log("[UpdateNightTime] Activity logged successfully");
+    } catch (logError) {
+      console.warn("[UpdateNightTime] Failed to log activity:", logError);
+      // Don't throw - logging failure shouldn't block the update
+    }
+
+    return {
+      success: true,
+      message: "Night time schedule updated successfully",
+      oldTime: oldTime,
+      newTime: newTime,
+    };
+  } catch (error) {
+    console.error(
+      "[UpdateNightTime] Error updating night time schedule:",
+      error
+    );
+    return {
+      success: false,
+      message: error.message || "Failed to update night time schedule",
+    };
+  }
+};
+
 export default function ControlScreen({ navigation }) {
   // Admin notifications
   const { addNotification } = useAdminNotifications();
@@ -274,6 +420,46 @@ export default function ControlScreen({ navigation }) {
     };
   }, []);
 
+  // Fetch night time schedule from Firestore on mount
+  useEffect(() => {
+    const loadNightTimeSchedule = async () => {
+      try {
+        console.log(
+          "[NightTime] Loading night time schedule from Firestore..."
+        );
+        const nightTimeData = await fetchNightTimeSchedule();
+
+        if (nightTimeData) {
+          // Get the time value - try multiple field names for compatibility
+          const timeValue = nightTimeData.nightTime || nightTimeData.time;
+
+          if (timeValue) {
+            // Convert ISO string or timestamp to Date object
+            const timeDate =
+              timeValue instanceof Date ? timeValue : new Date(timeValue);
+
+            setNightStart(timeDate);
+            console.log(
+              "[NightTime] Night time loaded successfully:",
+              fmtTime(timeDate)
+            );
+          } else {
+            console.warn("[NightTime] No time value found in document");
+          }
+        } else {
+          console.warn(
+            "[NightTime] Night time document not found, using default time"
+          );
+        }
+      } catch (error) {
+        console.error("[NightTime] Error loading night time schedule:", error);
+        // Keep default time on error
+      }
+    };
+
+    loadNightTimeSchedule();
+  }, []);
+
   // Update sensor values from readings
   const updateSensorValues = useCallback((readings) => {
     if (readings) {
@@ -308,35 +494,50 @@ export default function ControlScreen({ navigation }) {
 
   const loadFeedsFromFirestore = async () => {
     try {
-      const user = auth.currentUser;
-      if (!user) return;
-
+      console.log("[FetchFeeds] Fetching all feeds from Firestore...");
       const feedsSnapshot = await getDocs(collection(db, "feeds"));
       const loadedFeeds = [];
       const seenIds = new Set();
 
       feedsSnapshot.forEach((doc) => {
         const data = doc.data();
-        if (data.userId === user.uid) {
-          // Skip duplicates based on feedId
-          if (seenIds.has(data.feedId)) {
-            console.warn(`Duplicate feedId ${data.feedId} found, skipping`);
-            return;
-          }
-          seenIds.add(data.feedId);
 
-          loadedFeeds.push({
-            id: data.feedId,
-            label: data.label,
-            time: data.time,
-          });
+        // Skip duplicates based on feedId (regardless of creator)
+        if (seenIds.has(data.feedId)) {
+          console.warn(`Duplicate feedId ${data.feedId} found, skipping`);
+          return;
         }
+        seenIds.add(data.feedId);
+
+        // Get the time - could be ISO string or formatted string
+        const rawTime = data.time || data.timestamp;
+
+        // Convert to GMT+8 if it's an ISO timestamp
+        let timeGMT8 = rawTime;
+        if (rawTime && (rawTime.includes("T") || rawTime instanceof Date)) {
+          // It's an ISO string or Date - convert to GMT+8 formatted time
+          timeGMT8 = formatTimeGMT8(rawTime);
+        }
+
+        loadedFeeds.push({
+          id: data.feedId,
+          label: data.label,
+          time: timeGMT8,
+          timeGMT8Formatted: timeGMT8,
+          originalTime: rawTime,
+          userId: data.userId, // Include userId for reference
+        });
       });
 
-      // Sort by time
+      // Sort by time in ascending order
       loadedFeeds.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+
       setFeeds(loadedFeeds);
-      console.log("📋 [SORT] Feeds loaded and sorted:");
+
+      console.log("[FetchFeeds] Total feeds fetched:", loadedFeeds.length);
+      console.log(
+        "📋 [SORT] Feeds loaded and sorted in ascending order (GMT+8):"
+      );
       loadedFeeds.forEach((f) => {
         console.log(
           `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`
@@ -349,9 +550,7 @@ export default function ControlScreen({ navigation }) {
 
   const loadWateringScheduleFromFirestore = async () => {
     try {
-      const user = auth.currentUser;
-      if (!user) return;
-
+      // Fetch ALL watering schedules from "wateringSchedules" collection (no userId filter)
       const wateringSnapshot = await getDocs(
         collection(db, "wateringSchedules")
       );
@@ -361,30 +560,38 @@ export default function ControlScreen({ navigation }) {
 
       wateringSnapshot.forEach((doc) => {
         const data = doc.data();
-        if (data.userId === user.uid) {
-          // Skip duplicates based on wateringId
-          if (seenIds.has(data.wateringId)) {
-            console.warn(
-              `Duplicate wateringId ${data.wateringId} found, skipping`
-            );
-            return;
-          }
-          seenIds.add(data.wateringId);
-
-          loadedWaterings.push({
-            id: data.wateringId,
-            label: data.label,
-            time: data.time,
-          });
+        // Skip duplicates based on wateringId
+        if (seenIds.has(data.wateringId)) {
+          console.warn(
+            `Duplicate wateringId ${data.wateringId} found, skipping`
+          );
+          return;
         }
+        seenIds.add(data.wateringId);
+
+        // Convert time to GMT+8 format
+        let timeGMT8 = data.time; // Default to stored time
+        if (data.selectedTimeGMT8Formatted) {
+          timeGMT8 = data.selectedTimeGMT8Formatted;
+        }
+
+        loadedWaterings.push({
+          id: data.wateringId,
+          label: data.label,
+          time: timeGMT8,
+          timeGMT8Formatted: timeGMT8,
+          originalTime: data.time,
+          userId: data.userId,
+        });
       });
 
-      // Sort by time
+      // Sort by time in ascending order (earliest to latest)
       loadedWaterings.sort(
         (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
       );
       setWaterings(loadedWaterings);
-      console.log("💧 [SORT] Watering schedules loaded and sorted:");
+      console.log(`💧 [LOAD] Watering schedules loaded from database: ${loadedWaterings.length} total`);
+      console.log("💧 [SORT] Watering schedules sorted:");
       loadedWaterings.forEach((w) => {
         console.log(
           `  - ${w.time} (${w.label}) = ${timeToMinutes(w.time)} minutes`
@@ -665,12 +872,12 @@ export default function ControlScreen({ navigation }) {
         console.log("📋 [LOGGING DISABLED] Would log feed schedule add:", {
           feedId: nextId,
           time: formattedTime,
-          action: "Add new feeding schedule",
+          action: "Add a feeding schedule",
         });
 
         // Log activity to Firestore
         await logActivity("addFeedSchedule_logs", {
-          action: "Add new feeding schedule",
+          action: "Feeding schedule added",
           description: `Added ${formattedTime}`,
           feedId: nextId,
           newTime: formattedTime,
@@ -1296,10 +1503,8 @@ export default function ControlScreen({ navigation }) {
 
     setIsSubmitting(true);
 
-    const formattedTime = pendingWaterTime.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    // Convert to GMT+8 format
+    const formattedTime = formatTimeGMT8(pendingWaterTime);
 
     // Double-check for duplicates (in case of race condition)
     const isDuplicate = waterings.some((w) => w.time === formattedTime);
@@ -1339,6 +1544,8 @@ export default function ControlScreen({ navigation }) {
           wateringId: nextId,
           label: label,
           time: formattedTime,
+          selectedTimeGMT8Formatted: formattedTime,
+          selectedTime: pendingWaterTime.toISOString(),
           duration: 15,
           userId: user.uid,
           timestamp: new Date().toISOString(),
@@ -1771,27 +1978,33 @@ export default function ControlScreen({ navigation }) {
       const selectedTimeGMT8Formatted = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}, ${monthNames[gmt8Time.getUTCMonth()]} ${gmt8Time.getUTCDate()}, ${gmt8Time.getUTCFullYear()}`;
       const timeOnly = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}`;
 
-      // LOGGING REMOVED - Log to nightTime_logs collection
-      console.log("📋 [LOGGING DISABLED] Would log night schedule change:", {
-        time: timeOnly,
-        action: "Set the night time",
-      });
+      // Save to Firestore nightTime collection
+      console.log(
+        "💾 [DATABASE] Saving night time to Firestore nightTime/1..."
+      );
+      const updateResult = await updateNightTimeSchedule(
+        time.toISOString(),
+        user.uid,
+        firstName,
+        lastName
+      );
 
-      // Log activity to Firestore
-      await logActivity("nightTime_logs", {
-        action: "Set the night time",
-        description: `Night mode scheduled at ${timeOnly}`,
-        newTime: timeOnly,
-        selectedTime: time.toISOString(),
-        nightModeEnabled: true,
-      });
+      if (!updateResult.success) {
+        throw new Error(updateResult.message || "Failed to save night time");
+      }
+
+      console.log("✅ [DATABASE] Night time saved successfully:", updateResult);
+
+      // Activity logging is handled in updateNightTimeSchedule function
+      // Logging to activity_logs/nightTime_logs/events
 
       setIsSubmitting(false);
       setShowSavedPopup(true);
       setTimeout(() => setShowSavedPopup(false), 1400);
     } catch (err) {
       setIsSubmitting(false);
-      Alert.alert("Error", err.message);
+      console.error("❌ [ERROR] Failed to save night time:", err);
+      Alert.alert("Error", err.message || "Failed to save night time");
     }
   };
 
@@ -1803,7 +2016,8 @@ export default function ControlScreen({ navigation }) {
   };
 
   // Test Lighting modal state
-  const [testLightingModalVisible, setTestLightingModalVisible] = useState(false);
+  const [testLightingModalVisible, setTestLightingModalVisible] =
+    useState(false);
   const [testBrightness, setTestBrightness] = useState(50);
   const [testLightOn, setTestLightOn] = useState(false);
 
@@ -1964,7 +2178,7 @@ export default function ControlScreen({ navigation }) {
                 </View>
               </View>
             ))
-         ) }
+          )}
 
           {/* If deleteMode active show Delete Selected button */}
           {deleteMode && (
@@ -2076,7 +2290,7 @@ export default function ControlScreen({ navigation }) {
                 </View>
               </View>
             ))
-         ) }
+          )}
         </View>
 
         {/* Test Devices */}
@@ -2136,10 +2350,7 @@ export default function ControlScreen({ navigation }) {
 
           {/* New Test Lighting Button */}
           <TouchableOpacity
-            style={[
-              styles.testBtn,
-              { marginTop: 10 },
-            ]}
+            style={[styles.testBtn, { marginTop: 10 }]}
             onPress={() => setTestLightingModalVisible(true)}
           >
             <Text style={styles.testBtnText}>Test Lighting</Text>
@@ -2314,9 +2525,14 @@ export default function ControlScreen({ navigation }) {
               (event?.type === "set" || !event?.type) && selected;
             if (confirmed) {
               // Check for duplicate time BEFORE showing confirmation
-              const formattedTime = selected.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-              const isDuplicate = waterings.some((w) => w.time === formattedTime);
-              
+              const formattedTime = selected.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+              const isDuplicate = waterings.some(
+                (w) => w.time === formattedTime
+              );
+
               if (isDuplicate) {
                 setShowDuplicateWaterModal(true);
               } else {
@@ -2407,7 +2623,6 @@ export default function ControlScreen({ navigation }) {
           <TouchableOpacity
             style={[styles.timeInput, { marginTop: 6 }]}
             onPress={() => {
-             
               if (feedEdit.open) setShowFeedTimePicker(true);
               else setShowWaterTimePicker(true);
             }}
@@ -3045,8 +3260,12 @@ export default function ControlScreen({ navigation }) {
         onRequestClose={() => setTestLightingModalVisible(false)}
       >
         <View style={styles.popupBackground}>
-          <View style={[styles.popupBox, { width: 320, alignItems: "stretch" }]}>
-            <Text style={{ fontWeight: "700", fontSize: 16, textAlign: "center" }}>
+          <View
+            style={[styles.popupBox, { width: 320, alignItems: "stretch" }]}
+          >
+            <Text
+              style={{ fontWeight: "700", fontSize: 16, textAlign: "center" }}
+            >
               Test Lighting
             </Text>
             <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
@@ -3054,8 +3273,17 @@ export default function ControlScreen({ navigation }) {
             </Text>
 
             {/* Light Toggle Switch */}
-            <View style={{ marginVertical: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={{ fontWeight: "600", fontSize: 14 }}>Light Status</Text>
+            <View
+              style={{
+                marginVertical: 16,
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ fontWeight: "600", fontSize: 14 }}>
+                Light Status
+              </Text>
               <Switch
                 value={testLightOn}
                 onValueChange={setTestLightOn}
@@ -3067,7 +3295,13 @@ export default function ControlScreen({ navigation }) {
 
             {/* Brightness Slider */}
             <View style={{ marginVertical: 12 }}>
-              <Text style={{ fontWeight: "600", marginBottom: 6, textAlign: "center" }}>
+              <Text
+                style={{
+                  fontWeight: "600",
+                  marginBottom: 6,
+                  textAlign: "center",
+                }}
+              >
                 Brightness: {testBrightness}%
               </Text>
               <Slider
@@ -3080,7 +3314,7 @@ export default function ControlScreen({ navigation }) {
                 maximumTrackTintColor="#e2e8f0"
                 thumbTintColor={PRIMARY}
                 disabled={!testLightOn}
-                style={{ opacity: testLightOn ? 1 : 0.5}}
+                style={{ opacity: testLightOn ? 1 : 0.5 }}
               />
             </View>
             <TouchableOpacity

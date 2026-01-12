@@ -8,7 +8,181 @@ import {
   Pressable,
   StyleSheet,
   Image,
+  Alert,
+  Platform,
 } from "react-native";
+import { auth } from "../../../config/firebaseconfig";
+import { db as firestoreDb } from "../../../config/firebaseconfig";
+import {
+  collection,
+  query,
+  orderBy,
+  getDocs,
+  doc,
+  setDoc,
+  getDoc,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
+
+/**
+ * Get user information from Firestore
+ * Retrieves firstName and lastName from users collection
+ * Document ID in users collection matches the userId (uid)
+ */
+const getUserInfo = async (userId) => {
+  try {
+    const userDocRef = doc(firestoreDb, "users", userId);
+    const userDocSnap = await getDoc(userDocRef);
+
+    if (userDocSnap.exists()) {
+      const userData = userDocSnap.data();
+      return {
+        firstname: userData.firstName || "Unknown",
+        lastname: userData.lastName || "Unknown",
+      };
+    } else {
+      console.warn("[GetUserInfo] User document not found for:", userId);
+      return {
+        firstname: "Unknown",
+        lastname: "Unknown",
+      };
+    }
+  } catch (error) {
+    console.error("[GetUserInfo] Error fetching user info:", error);
+    return {
+      firstname: "Unknown",
+      lastname: "Unknown",
+    };
+  }
+};
+
+/**
+ * Get the next auto-incremented batch number
+ * Queries existing batches and returns max + 1
+ */
+const getNextBatchNumber = async () => {
+  try {
+    const q = query(
+      collection(firestoreDb, "brooderInfo"),
+      orderBy("batchNumber", "desc")
+    );
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) {
+      return 1; // First batch starts at 1
+    }
+
+    const latestBatch = querySnapshot.docs[0].data();
+    const nextNumber = (latestBatch.batchNumber || 0) + 1;
+    return nextNumber;
+  } catch (error) {
+    console.error("[GetNextBatchNumber] Error:", error);
+    return 1; // Default to 1 if error
+  }
+};
+
+/**
+ * Format current timestamp in GMT+8
+ * Returns format: "December 18, 2025 at 2:33:15 PM UTC+8"
+ */
+const formatGMT8Timestamp = () => {
+  const now = new Date();
+
+  // Convert to GMT+8
+  const gmtPlus8 = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+
+  const options = {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  };
+
+  const formatted = gmtPlus8.toLocaleString("en-US", options);
+  return `${formatted} UTC+8`;
+};
+
+/**
+ * Save new batch to Firestore
+ * Auto-increments batch number and creates document
+ */
+const saveBatch = async ({
+  chicksCount,
+  daysCount,
+  harvestDays,
+  userId,
+  firstname,
+  lastname,
+}) => {
+  try {
+    // Get next batch number
+    const batchNumber = await getNextBatchNumber();
+    const documentId = `batch${batchNumber}`;
+
+    // Create batch data object
+    const batchData = {
+      batchNumber: batchNumber,
+      batchNo: batchNumber.toString(), // Store as string for backward compatibility
+      chicksCount: parseInt(chicksCount),
+      daysCount: parseInt(daysCount),
+      age: parseInt(daysCount), // Store as 'age' for backward compatibility
+      harvestDays: parseInt(harvestDays),
+      startDate: new Date(), // Store as Firestore Timestamp
+      startDateFormatted: formatGMT8Timestamp(), // Store formatted version for reference
+      userId: userId,
+      firstname: firstname,
+      lastname: lastname,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deleted: false, // Soft delete flag
+    };
+
+    // Save to Firestore
+    await setDoc(doc(firestoreDb, "brooderInfo", documentId), batchData);
+
+    console.log("[SaveBatch] Successfully saved batch:", documentId, batchData);
+    return { success: true, batchNumber, documentId, batchData };
+  } catch (error) {
+    console.error("[SaveBatch] Error saving batch:", error);
+    throw error;
+  }
+};
+
+/**
+ * Log event to activity_logs collection
+ * Records user actions for audit trail
+ * Stores in: activity_logs/addBatch_logs/events
+ */
+const logSessionEvent = async (userId, firstName, lastName) => {
+  try {
+    const eventData = {
+      userId: userId,
+      action: "Batch Added",
+      description: "New batch added",
+      timestamp: serverTimestamp(),
+      deviceInfo: Platform.OS,
+      firstName: firstName,
+      lastName: lastName,
+    };
+
+    // Add document to activity_logs/addBatch_logs/events subcollection
+    const docRef = await addDoc(
+      collection(firestoreDb, "activity_logs", "addBatch_logs", "events"),
+      eventData
+    );
+
+    console.log("[LogSessionEvent] Event logged successfully:", docRef.id);
+    return { success: true, logId: docRef.id };
+  } catch (error) {
+    console.error("[LogSessionEvent] Error logging event:", error);
+    // Don't throw - logging failure shouldn't block batch creation
+    return { success: false, error: error.message };
+  }
+};
 
 export default function QuickSetupModal({
   visible,
@@ -23,7 +197,8 @@ export default function QuickSetupModal({
   const sanitizeInput = (val) => {
     if (val === null || val === undefined) return "";
     if (typeof val === "number" && val === 0) return "";
-    if (typeof val === "string" && (val.trim() === "0" || val.trim() === "")) return "";
+    if (typeof val === "string" && (val.trim() === "0" || val.trim() === ""))
+      return "";
     return String(val);
   };
   const [batchNo, setBatchNo] = useState("");
@@ -37,17 +212,18 @@ export default function QuickSetupModal({
   const [harvestError, setHarvestError] = useState("");
 
   // Check if all fields are valid and filled
-  const isFormValid = batchNo.trim() !== "" &&
-                      chicksCount.trim() !== "" && 
-                      daysCount.trim() !== "" && 
-                      harvestDays.trim() !== "" &&
-                      !batchNoError &&
-                      !chicksError &&
-                      !daysError &&
-                      !harvestError &&
-                      parseInt(chicksCount) > 0 &&
-                      parseInt(daysCount) > 0 &&
-                      parseInt(harvestDays) > 0;
+  const isFormValid =
+    batchNo.trim() !== "" &&
+    chicksCount.trim() !== "" &&
+    daysCount.trim() !== "" &&
+    harvestDays.trim() !== "" &&
+    !batchNoError &&
+    !chicksError &&
+    !daysError &&
+    !harvestError &&
+    parseInt(chicksCount) > 0 &&
+    parseInt(daysCount) > 0 &&
+    parseInt(harvestDays) > 0;
 
   useEffect(() => {
     if (visible) {
@@ -63,7 +239,7 @@ export default function QuickSetupModal({
   }, [visible]);
   const handleBatchNoChange = (text) => {
     // Only allow numeric input, max value 100, must be next available, no duplicates
-    let cleanText = text.replace(/[^0-9]/g, '');
+    let cleanText = text.replace(/[^0-9]/g, "");
     if (cleanText !== "") {
       let num = parseInt(cleanText, 10);
       if (num > 100) {
@@ -71,8 +247,11 @@ export default function QuickSetupModal({
         setBatchNoError("Batch number cannot exceed 100");
       } else {
         // Get all existing batch numbers as numbers
-        const existingBatchNos = batches.map(b => parseInt(b.batchNo, 10)).filter(n => !isNaN(n));
-        const maxBatchNo = existingBatchNos.length > 0 ? Math.max(...existingBatchNos) : 0;
+        const existingBatchNos = batches
+          .map((b) => parseInt(b.batchNo, 10))
+          .filter((n) => !isNaN(n));
+        const maxBatchNo =
+          existingBatchNos.length > 0 ? Math.max(...existingBatchNos) : 0;
         // Check for duplicate
         if (existingBatchNos.includes(num)) {
           setBatchNoError("Batch number already exists");
@@ -90,9 +269,9 @@ export default function QuickSetupModal({
 
   const handleChicksChange = (text) => {
     // Only allow numeric input, max 100, never show '0'
-    const numericText = text.replace(/[^0-9]/g, '');
+    const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
-    if (numericText === '' || numericText === '0') {
+    if (numericText === "" || numericText === "0") {
       setChicksCount("");
       setChicksError("");
     } else if (numValue > 0 && numValue <= 100) {
@@ -105,9 +284,9 @@ export default function QuickSetupModal({
 
   const handleDaysChange = (text) => {
     // Only allow numeric input, max 365, never show '0'
-    const numericText = text.replace(/[^0-9]/g, '');
+    const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
-    if (numericText === '' || numericText === '0') {
+    if (numericText === "" || numericText === "0") {
       setDaysCount("");
       setDaysError("");
     } else if (numValue > 0 && numValue <= 365) {
@@ -120,9 +299,9 @@ export default function QuickSetupModal({
 
   const handleHarvestChange = (text) => {
     // Only allow numeric input, max 365, never show '0'
-    const numericText = text.replace(/[^0-9]/g, '');
+    const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
-    if (numericText === '' || numericText === '0') {
+    if (numericText === "" || numericText === "0") {
       setHarvestDays("");
       setHarvestError("");
     } else if (numValue > 0 && numValue <= 365) {
@@ -134,36 +313,77 @@ export default function QuickSetupModal({
   };
 
   const handleSave = () => {
-    // Use the new batch save callback if available
-    if (onSaveBatch) {
-      onSaveBatch({
-        batchNo: batchNo.trim(),
-        chicksCount: chicksCount.trim(),
-        daysCount: daysCount.trim(),
-        harvestDays: harvestDays.trim(),
-      });
-    } else {
-      // Fallback to individual saves for backwards compatibility
-      onSaveChicksCount?.(chicksCount.trim());
-      onSaveDaysCount?.(daysCount.trim());
-      onSaveHarvestDays?.(harvestDays.trim());
+    // Get current user info
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      Alert.alert("Error", "User not authenticated. Please log in.");
+      return;
     }
-    // Show success modal
-    setShowSuccess(true);
-    // Reset all fields after save
-    setBatchNo("");
-    setBatchNoError("");
-    setChicksCount("");
-    setChicksError("");
-    setDaysCount("");
-    setDaysError("");
-    setHarvestDays("");
-    setHarvestError("");
-    // Close after 2 seconds
-    setTimeout(() => {
-      setShowSuccess(false);
-      onClose();
-    }, 2000);
+
+    // Store userInfo in a variable so it's accessible in promise chain
+    let userInfo = null;
+
+    // Fetch user info from Firestore
+    getUserInfo(currentUser.uid)
+      .then((userInfoData) => {
+        // Store userInfo for later use
+        userInfo = userInfoData;
+
+        // Prepare batch data with Firestore user info
+        const batchData = {
+          chicksCount: chicksCount.trim(),
+          daysCount: daysCount.trim(),
+          harvestDays: harvestDays.trim(),
+          userId: currentUser.uid,
+          firstname: userInfo.firstname,
+          lastname: userInfo.lastname,
+        };
+
+        // Save to Firestore
+        return saveBatch(batchData);
+      })
+      .then((result) => {
+        console.log("[HandleSave] Batch saved to Firestore:", result);
+
+        // Log the event to session_logs
+        logSessionEvent(currentUser.uid, userInfo.firstname, userInfo.lastname);
+
+        // Call the original batch save callback for backward compatibility (AsyncStorage)
+        if (onSaveBatch) {
+          onSaveBatch({
+            batchNo: result.batchNumber.toString(),
+            chicksCount: chicksCount.trim(),
+            daysCount: daysCount.trim(),
+            harvestDays: harvestDays.trim(),
+          });
+        }
+
+        // Show success modal
+        setShowSuccess(true);
+
+        // Reset all fields after save
+        setBatchNo("");
+        setBatchNoError("");
+        setChicksCount("");
+        setChicksError("");
+        setDaysCount("");
+        setDaysError("");
+        setHarvestDays("");
+        setHarvestError("");
+
+        // Close after 2 seconds
+        setTimeout(() => {
+          setShowSuccess(false);
+          onClose();
+        }, 2000);
+      })
+      .catch((error) => {
+        console.error("[HandleSave] Error:", error);
+        Alert.alert(
+          "Error",
+          "Failed to save batch. Please try again.\n" + error.message
+        );
+      });
   };
 
   const handleClose = () => {
@@ -177,8 +397,8 @@ export default function QuickSetupModal({
       transparent
       onRequestClose={handleClose}
     >
-      <Pressable 
-        style={styles.backdrop} 
+      <Pressable
+        style={styles.backdrop}
         onPress={handleClose}
         activeOpacity={1}
       >
@@ -201,7 +421,9 @@ export default function QuickSetupModal({
               keyboardType="numeric"
               maxLength={10}
             />
-            {batchNoError ? <Text style={styles.errorText}>{batchNoError}</Text> : null}
+            {batchNoError ? (
+              <Text style={styles.errorText}>{batchNoError}</Text>
+            ) : null}
           </View>
 
           <View style={styles.inputGroup}>
@@ -214,7 +436,9 @@ export default function QuickSetupModal({
               onChangeText={handleChicksChange}
               keyboardType="numeric"
             />
-            {chicksError ? <Text style={styles.errorText}>{chicksError}</Text> : null}
+            {chicksError ? (
+              <Text style={styles.errorText}>{chicksError}</Text>
+            ) : null}
           </View>
 
           <View style={styles.inputGroup}>
@@ -227,7 +451,9 @@ export default function QuickSetupModal({
               onChangeText={handleDaysChange}
               keyboardType="numeric"
             />
-            {daysError ? <Text style={styles.errorText}>{daysError}</Text> : null}
+            {daysError ? (
+              <Text style={styles.errorText}>{daysError}</Text>
+            ) : null}
           </View>
 
           <View style={styles.inputGroup}>
@@ -240,16 +466,28 @@ export default function QuickSetupModal({
               onChangeText={handleHarvestChange}
               keyboardType="numeric"
             />
-            {harvestError ? <Text style={styles.errorText}>{harvestError}</Text> : null}
+            {harvestError ? (
+              <Text style={styles.errorText}>{harvestError}</Text>
+            ) : null}
           </View>
 
           <TouchableOpacity
-            style={[styles.saveButton, !isFormValid && styles.saveButtonDisabled]}
+            style={[
+              styles.saveButton,
+              !isFormValid && styles.saveButtonDisabled,
+            ]}
             activeOpacity={0.9}
             onPress={handleSave}
             disabled={!isFormValid}
           >
-            <Text style={[styles.saveButtonText, !isFormValid && styles.saveButtonTextDisabled]}>Save</Text>
+            <Text
+              style={[
+                styles.saveButtonText,
+                !isFormValid && styles.saveButtonTextDisabled,
+              ]}
+            >
+              Save
+            </Text>
           </TouchableOpacity>
         </Pressable>
 
@@ -257,9 +495,11 @@ export default function QuickSetupModal({
         <Modal visible={showSuccess} transparent animationType="fade">
           <View style={styles.successModalOverlay}>
             <View style={styles.successModalCard}>
-              <Image 
-                source={{ uri: 'https://img.icons8.com/color/96/checked--v1.png' }} 
-                style={styles.successIcon} 
+              <Image
+                source={{
+                  uri: "https://img.icons8.com/color/96/checked--v1.png",
+                }}
+                style={styles.successIcon}
               />
               <Text style={styles.successTitle}>Successfully Saved!</Text>
             </View>

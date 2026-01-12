@@ -7,6 +7,225 @@ import {
   ScrollView,
   StyleSheet,
 } from "react-native";
+import {
+  collection,
+  query,
+  orderBy,
+  getDocs,
+  deleteDoc,
+  doc,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
+import { db as firestoreDb } from "../../../config/firebaseconfig";
+import { auth } from "../../../config/firebaseconfig";
+import { Alert, Platform } from "react-native";
+
+/**
+ * Calculate brooder age dynamically
+ * Formula: (today - startDate in days) + daysCount
+ * @param {Date|Timestamp|string} startDate - Batch start date (multiple formats supported)
+ * @param {number} daysCount - Initial age when batch was created
+ * @returns {number} Calculated age in days
+ */
+export const calculateAge = (startDate, daysCount) => {
+  try {
+    if (!startDate || !daysCount) return 0;
+
+    let startDateObj;
+
+    // Handle Firestore Timestamp
+    if (startDate?.toDate) {
+      startDateObj = startDate.toDate();
+    }
+    // Handle Date object
+    else if (startDate instanceof Date) {
+      startDateObj = startDate;
+    }
+    // Handle ISO string
+    else if (typeof startDate === "string") {
+      startDateObj = new Date(startDate);
+    } else {
+      return parseInt(daysCount) || 0;
+    }
+
+    const today = new Date();
+    const daysDiff = Math.floor((today - startDateObj) / (1000 * 60 * 60 * 24));
+    const calculatedAge = daysDiff + parseInt(daysCount);
+
+    return Math.max(0, calculatedAge); // Prevent negative ages
+  } catch (error) {
+    console.error("[CalculateAge] Error calculating age:", error);
+    return parseInt(daysCount) || 0;
+  }
+};
+
+/**
+ * Delete a batch document from Firestore "brooderInfo" collection
+ * @param {string} batchId - The document ID of the batch to delete
+ * @returns {Promise<void>}
+ * @throws {Error} If Firestore delete fails
+ */
+export const deleteBatch = async (batchId) => {
+  try {
+    console.log("[DeleteBatch] Deleting batch:", batchId);
+
+    if (!batchId) {
+      throw new Error("Batch ID is required for deletion");
+    }
+
+    const batchDocRef = doc(firestoreDb, "brooderInfo", batchId);
+    await deleteDoc(batchDocRef);
+
+    console.log("[DeleteBatch] Batch successfully deleted:", batchId);
+  } catch (error) {
+    console.error("[DeleteBatch] Error deleting batch:", error);
+    throw error;
+  }
+};
+
+/**
+ * Log delete event to activity_logs collection
+ * Records batch deletion actions for audit trail
+ * Stores in: activity_logs/deleteBatch_logs/events
+ */
+const logDeleteEvent = async (
+  userId,
+  firstName,
+  lastName,
+  batchId,
+  batchNumber
+) => {
+  try {
+    const eventData = {
+      userId: userId,
+      batchId: batchId,
+      action: "Batch deleted",
+      description: `Batch ${batchNumber} deleted`,
+      timestamp: serverTimestamp(),
+      deviceInfo: Platform.OS,
+      firstName: firstName,
+      lastName: lastName,
+    };
+
+    // Add document to activity_logs/deleteBatch_logs/events subcollection
+    const docRef = await addDoc(
+      collection(firestoreDb, "activity_logs", "deleteBatch_logs", "events"),
+      eventData
+    );
+
+    console.log("[LogDeleteEvent] Event logged successfully:", docRef.id);
+    return { success: true, logId: docRef.id };
+  } catch (error) {
+    console.error("[LogDeleteEvent] Error logging event:", error);
+    // Don't throw - logging failure shouldn't block batch deletion
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Get user information from Firestore
+ */
+const getUserInfo = async (userId) => {
+  try {
+    const { getDoc } = require("firebase/firestore");
+    const userDocRef = doc(firestoreDb, "users", userId);
+    const userDocSnap = await getDoc(userDocRef);
+
+    if (userDocSnap.exists()) {
+      const userData = userDocSnap.data();
+      return {
+        firstname: userData.firstName || "Unknown",
+        lastname: userData.lastName || "Unknown",
+      };
+    } else {
+      console.warn("[GetUserInfo] User document not found for:", userId);
+      return {
+        firstname: "Unknown",
+        lastname: "Unknown",
+      };
+    }
+  } catch (error) {
+    console.error("[GetUserInfo] Error fetching user info:", error);
+    return {
+      firstname: "Unknown",
+      lastname: "Unknown",
+    };
+  }
+};
+
+/**
+ * Fetch all batch documents from Firestore "brooderInfo" collection with dynamic age calculation
+ *
+ * Maps Firestore document fields to expected format:
+ * - batchNo → batchNumber
+ * - chicksCount → chicksCount
+ * - startDate + daysCount → calculated daysCount (dynamic age)
+ * - harvestDays → harvestDays
+ * - startDate → startDate
+ * - id → id (document ID for reference)
+ *
+ * @returns {Promise<Array>} Array of batch objects with keys:
+ *          { id, batchNumber, chicksCount, daysCount, harvestDays, startDate }
+ * @throws {Error} If Firestore query fails
+ */
+export const fetchBatches = async () => {
+  try {
+    console.log("[FetchBatches] Starting to fetch batches from Firestore...");
+
+    // Query brooderInfo collection ordered by startDate descending
+    const q = query(
+      collection(firestoreDb, "brooderInfo"),
+      orderBy("startDate", "desc")
+    );
+
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) {
+      console.log("[FetchBatches] No batches found in Firestore");
+      return [];
+    }
+
+    // Map Firestore documents to batch array with dynamic age calculation
+    const batchesArray = querySnapshot.docs
+      .map((doc) => {
+        const data = doc.data();
+
+        // Skip deleted batches
+        if (data.deleted) {
+          return null;
+        }
+
+        // Auto-calculate daysCount using dynamic age calculation
+        const calculatedDaysCount = calculateAge(
+          data.startDate,
+          data.daysCount
+        );
+
+        return {
+          id: doc.id,
+          batchNumber: data.batchNo || data.batchNumber || "-",
+          chicksCount: data.chicksCount || 0,
+          daysCount: calculatedDaysCount, // Dynamically calculated age
+          age: calculatedDaysCount, // Also provide as 'age' for compatibility
+          harvestDays: data.harvestDays || 0,
+          startDate: data.startDate,
+          // Keep original data for reference
+          ...data,
+        };
+      })
+      .filter((batch) => batch !== null); // Remove deleted batches
+
+    console.log("[FetchBatches] Total batches fetched:", batchesArray.length);
+    return batchesArray;
+  } catch (error) {
+    console.error(
+      "[FetchBatches] Error fetching batches from Firestore:",
+      error
+    );
+    throw error;
+  }
+};
 
 export default function ViewAllBatchesModal({
   visible,
@@ -19,10 +238,17 @@ export default function ViewAllBatchesModal({
 }) {
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const [batchToDelete, setBatchToDelete] = useState(null);
+  const [showDeleteSuccess, setShowDeleteSuccess] = useState(false);
+  const [showDeleteError, setShowDeleteError] = useState(false);
+  const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
 
   // Auto-select the most recent batch if none is selected
   React.useEffect(() => {
-    if (visible && batches.length > 0 && (selectedBatchIndex === null || selectedBatchIndex >= batches.length)) {
+    if (
+      visible &&
+      batches.length > 0 &&
+      (selectedBatchIndex === null || selectedBatchIndex >= batches.length)
+    ) {
       // Select the last batch (most recent)
       onSelectBatch(batches.length - 1);
     }
@@ -33,11 +259,55 @@ export default function ViewAllBatchesModal({
     setDeleteConfirmVisible(true);
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (batchToDelete !== null) {
-      onDeleteBatch(batchToDelete);
-      setDeleteConfirmVisible(false);
-      setBatchToDelete(null);
+      try {
+        // Get the batch ID from the batches array
+        const batchId = batches[batchToDelete]?.id;
+        const batchNumber =
+          batches[batchToDelete]?.batchNumber ||
+          batches[batchToDelete]?.batchNo ||
+          "Unknown";
+
+        if (!batchId) {
+          setDeleteErrorMessage("Unable to identify batch for deletion");
+          setShowDeleteError(true);
+          return;
+        }
+
+        // Delete from Firestore first
+        await deleteBatch(batchId);
+
+        // Log the deletion event
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          const userInfo = await getUserInfo(currentUser.uid);
+          logDeleteEvent(
+            currentUser.uid,
+            userInfo.firstname,
+            userInfo.lastname,
+            batchId,
+            batchNumber
+          );
+        }
+
+        // Update local state after successful deletion
+        onDeleteBatch(batchToDelete);
+        setDeleteConfirmVisible(false);
+        setBatchToDelete(null);
+
+        // Show success modal and auto-close after 2 seconds
+        setShowDeleteSuccess(true);
+        setTimeout(() => {
+          setShowDeleteSuccess(false);
+        }, 2000);
+      } catch (error) {
+        console.error("[HandleConfirmDelete] Error:", error);
+        setDeleteErrorMessage(
+          error.message || "Failed to delete batch. Please try again."
+        );
+        setShowDeleteError(true);
+      }
     }
   };
 
@@ -52,17 +322,63 @@ export default function ViewAllBatchesModal({
         <View style={styles.overlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>All Batches</Text>
-            
+
             <ScrollView style={styles.batchesContainer}>
               {batches.length === 0 ? (
                 <Text style={styles.emptyMessage}>No batches found.</Text>
               ) : (
                 batches.map((batch, idx) => {
-                  const displayBatchNo = (batch.batchNo !== undefined && batch.batchNo !== null && batch.batchNo !== "") ? String(batch.batchNo) : "";
-                  const displayChicks = batch.chicksCount ? String(batch.chicksCount) : "0";
-                  const displayDays = batch.daysCount ? String(batch.daysCount) : "0";
-                  const displayHarvest = batch.harvestDays ? String(batch.harvestDays) : "0";
-                  const startDate = batch.startDate ? new Date(batch.startDate).toLocaleDateString() : "";
+                  // Map batch fields - support both old and new field names
+                  const displayBatchNo =
+                    batch.batchNumber !== undefined &&
+                    batch.batchNumber !== null &&
+                    batch.batchNumber !== ""
+                      ? String(batch.batchNumber)
+                      : batch.batchNo !== undefined &&
+                          batch.batchNo !== null &&
+                          batch.batchNo !== ""
+                        ? String(batch.batchNo)
+                        : "";
+
+                  const displayChicks = batch.chicksCount
+                    ? String(batch.chicksCount)
+                    : "0";
+
+                  // Support both daysCount and age fields
+                  const displayDays = batch.daysCount
+                    ? String(batch.daysCount)
+                    : batch.age
+                      ? String(batch.age)
+                      : "0";
+
+                  const displayHarvest = batch.harvestDays
+                    ? String(batch.harvestDays)
+                    : "0";
+
+                  // Handle both Firestore Timestamp and Date objects
+                  let startDate = "";
+                  if (batch.startDate) {
+                    try {
+                      if (batch.startDate.toDate) {
+                        // Firestore Timestamp object
+                        startDate = batch.startDate
+                          .toDate()
+                          .toLocaleDateString();
+                      } else if (typeof batch.startDate === "string") {
+                        // ISO string
+                        startDate = new Date(
+                          batch.startDate
+                        ).toLocaleDateString();
+                      } else if (batch.startDate instanceof Date) {
+                        // Date object
+                        startDate = batch.startDate.toLocaleDateString();
+                      }
+                    } catch (e) {
+                      console.warn("[ViewAllBatches] Error parsing date:", e);
+                      startDate = "";
+                    }
+                  }
+
                   const isSelected = idx === selectedBatchIndex;
 
                   return (
@@ -79,19 +395,28 @@ export default function ViewAllBatchesModal({
                         activeOpacity={0.7}
                       >
                         <Text style={styles.batchLabel}>
-                          Batch No.: <Text style={styles.batchValue}>{displayBatchNo}</Text>
+                          Batch No.:{" "}
+                          <Text style={styles.batchValue}>
+                            {displayBatchNo}
+                          </Text>
                         </Text>
                         <Text style={styles.batchLabel}>
-                          Chicks: <Text style={styles.batchValue}>{displayChicks}</Text>
+                          Chicks:{" "}
+                          <Text style={styles.batchValue}>{displayChicks}</Text>
                         </Text>
                         <Text style={styles.batchLabel}>
-                          Days: <Text style={styles.batchValue}>{displayDays}</Text>
+                          Days:{" "}
+                          <Text style={styles.batchValue}>{displayDays}</Text>
                         </Text>
                         <Text style={styles.batchLabel}>
-                          Harvest: <Text style={styles.batchValue}>{displayHarvest}</Text>
+                          Harvest:{" "}
+                          <Text style={styles.batchValue}>
+                            {displayHarvest}
+                          </Text>
                         </Text>
                         <Text style={styles.batchLabel}>
-                          Start: <Text style={styles.batchValue}>{startDate}</Text>
+                          Start:{" "}
+                          <Text style={styles.batchValue}>{startDate}</Text>
                         </Text>
                         {isSelected && (
                           <Text style={styles.selectedBadge}>✓ Selected</Text>
@@ -129,9 +454,10 @@ export default function ViewAllBatchesModal({
           <View style={styles.confirmModalCard}>
             <Text style={styles.confirmTitle}>Delete Batch</Text>
             <Text style={styles.confirmMessage}>
-              Are you sure you want to delete this batch? This action cannot be undone.
+              Are you sure you want to delete this batch? This action cannot be
+              undone.
             </Text>
-            
+
             <View style={styles.confirmButtons}>
               <TouchableOpacity
                 style={styles.cancelButton}
@@ -140,7 +466,7 @@ export default function ViewAllBatchesModal({
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 style={styles.confirmDeleteButton}
                 onPress={handleConfirmDelete}
@@ -149,6 +475,38 @@ export default function ViewAllBatchesModal({
                 <Text style={styles.confirmDeleteButtonText}>Delete</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Success Modal */}
+      <Modal visible={showDeleteSuccess} transparent animationType="fade">
+        <View style={styles.overlay}>
+          <View style={styles.successModalCard}>
+            <Text style={styles.successIcon}>✓</Text>
+            <Text style={styles.successTitle}>Deleted Successfully</Text>
+            <Text style={styles.successMessage}>
+              Batch has been removed from your records.
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Error Modal */}
+      <Modal visible={showDeleteError} transparent animationType="fade">
+        <View style={styles.overlay}>
+          <View style={styles.errorModalCard}>
+            <Text style={styles.errorIcon}>✕</Text>
+            <Text style={styles.errorTitle}>Deletion Failed</Text>
+            <Text style={styles.errorMessage}>{deleteErrorMessage}</Text>
+
+            <TouchableOpacity
+              style={styles.errorButton}
+              onPress={() => setShowDeleteError(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.errorButtonText}>OK</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -311,6 +669,85 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   confirmDeleteButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  // Success Modal Styles
+  successModalCard: {
+    width: "85%",
+    maxWidth: 320,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 32,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  successIcon: {
+    fontSize: 48,
+    color: "#10b981",
+    marginBottom: 12,
+    fontWeight: "bold",
+  },
+  successTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1e293b",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  successMessage: {
+    fontSize: 14,
+    color: "#64748b",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  // Error Modal Styles
+  errorModalCard: {
+    width: "85%",
+    maxWidth: 350,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  errorIcon: {
+    fontSize: 48,
+    color: "#ef4444",
+    marginBottom: 12,
+    fontWeight: "bold",
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1e293b",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  errorMessage: {
+    fontSize: 14,
+    color: "#64748b",
+    textAlign: "center",
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  errorButton: {
+    backgroundColor: "#ef4444",
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    alignItems: "center",
+  },
+  errorButtonText: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",

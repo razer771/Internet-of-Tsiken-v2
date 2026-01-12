@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
   Text,
@@ -11,12 +12,24 @@ import {
   Modal,
 } from "react-native";
 import QuickSetupModal from "./QuickSetupModal";
-import ViewAllBatchesModal from "./viewallbatchesModal";
+import ViewAllBatchesModal, {
+  fetchBatches,
+  calculateAge,
+} from "./viewallbatchesModal";
 import EditBatchModal from "./editbatchModal";
 import { auth, db } from "../../../config/firebaseconfig";
-import { doc, getDoc, updateDoc, onSnapshot } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  onSnapshot,
+  collection,
+  query,
+  orderBy,
+  limit,
+  getDocs,
+} from "firebase/firestore";
 import { db as firestoreDb } from "../../../config/firebaseconfig";
-
 // Replace static import with a dynamic require + in-memory fallback.
 // This avoids a crash when @react-native-async-storage/async-storage is not installed.
 let AsyncStorage;
@@ -48,6 +61,176 @@ try {
     },
   };
 }
+
+// ==================== HELPER FUNCTIONS FOR BATCH MANAGEMENT ====================
+
+/**
+ * Fetch the latest batch from Firestore
+ * Query: brooderInfo collection ordered by batchNumber DESC, limit 1
+ * @returns {Promise<Object|null>} Latest batch document with calculated age, or null
+ */
+const getLatestBatch = async () => {
+  try {
+    console.log("[GetLatestBatch] Fetching latest batch...");
+
+    const q = query(
+      collection(firestoreDb, "brooderInfo"),
+      orderBy("batchNumber", "desc"),
+      limit(1)
+    );
+
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) {
+      console.log("[GetLatestBatch] No batches found");
+      return null;
+    }
+
+    const doc = querySnapshot.docs[0];
+    const data = doc.data();
+
+    // Skip if deleted
+    if (data.deleted) {
+      console.log("[GetLatestBatch] Latest batch is deleted, skipping");
+      return null;
+    }
+
+    const batch = {
+      id: doc.id,
+      ...data,
+      daysCount: calculateAge(data.startDate, data.daysCount),
+    };
+
+    console.log("[GetLatestBatch] Latest batch found:", batch.id, batch);
+    return batch;
+  } catch (error) {
+    console.error("[GetLatestBatch] Error:", error);
+    return null;
+  }
+};
+
+/**
+ * Fetch a specific batch by document ID
+ * @param {string} batchId - Firestore document ID
+ * @returns {Promise<Object|null>} Batch document with calculated age, or null if not found or deleted
+ */
+const getBatchById = async (batchId) => {
+  try {
+    if (!batchId) {
+      console.log("[GetBatchById] No batchId provided");
+      return null;
+    }
+
+    console.log("[GetBatchById] Fetching batch:", batchId);
+
+    const docRef = doc(firestoreDb, "brooderInfo", batchId);
+    const docSnap = await getDoc(docRef);
+
+    if (!docSnap.exists()) {
+      console.log("[GetBatchById] Batch not found:", batchId);
+      return null;
+    }
+
+    const data = docSnap.data();
+
+    // Skip if deleted
+    if (data.deleted) {
+      console.log("[GetBatchById] Batch is deleted:", batchId);
+      return null;
+    }
+
+    const batch = {
+      id: docSnap.id,
+      ...data,
+      daysCount: calculateAge(data.startDate, data.daysCount),
+    };
+
+    console.log("[GetBatchById] Batch found:", batch.id, batch);
+    return batch;
+  } catch (error) {
+    console.error("[GetBatchById] Error fetching batch:", error);
+    return null;
+  }
+};
+
+/**
+ * Save selected batch ID to AsyncStorage
+ * @param {string} batchId - Firestore document ID to save
+ */
+const setSelectedBatch = async (batchId) => {
+  try {
+    if (!batchId) {
+      await AsyncStorage.removeItem("selectedBatchId");
+      console.log("[SetSelectedBatch] Cleared selected batch");
+      return;
+    }
+
+    await AsyncStorage.setItem("selectedBatchId", batchId);
+    console.log("[SetSelectedBatch] Saved selected batch:", batchId);
+  } catch (error) {
+    console.error("[SetSelectedBatch] Error:", error);
+  }
+};
+
+/**
+ * Retrieve selected batch ID from AsyncStorage
+ * @returns {Promise<string|null>} Selected batch ID, or null if none selected
+ */
+const getSelectedBatch = async () => {
+  try {
+    const selectedBatchId = await AsyncStorage.getItem("selectedBatchId");
+    console.log("[GetSelectedBatch] Retrieved:", selectedBatchId);
+    return selectedBatchId;
+  } catch (error) {
+    console.error("[GetSelectedBatch] Error:", error);
+    return null;
+  }
+};
+
+/**
+ * Update brooder card display with batch data
+ * @param {Object} batch - Batch document with id, chicksCount, daysCount, harvestDays
+ * @param {Function} setChicksCount - State setter for chicks count
+ * @param {Function} setDaysCount - State setter for days count
+ * @param {Function} setHarvestDays - State setter for harvest days
+ * @param {Function} setBrooderInfo - State setter for brooder info
+ * @param {Function} setHasBatchData - State setter for has batch data flag
+ */
+const updateBrooderCardFromBatch = (
+  batch,
+  setChicksCount,
+  setDaysCount,
+  setHarvestDays,
+  setBrooderInfo,
+  setHasBatchData
+) => {
+  try {
+    if (!batch) {
+      console.log("[UpdateBrooderCard] No batch provided");
+      return;
+    }
+
+    const chicksVal = String(batch.chicksCount || 0);
+    const ageVal = String(batch.daysCount || 0);
+    const harvestVal = String(batch.harvestDays || 0);
+
+    setChicksCount(chicksVal);
+    setDaysCount(ageVal);
+    setHarvestDays(harvestVal);
+
+    setBrooderInfo({
+      chicksCount: batch.chicksCount || 0,
+      daysCount: batch.daysCount || 0,
+      harvestDays: batch.harvestDays || 0,
+    });
+
+    setHasBatchData(true);
+
+    console.log("[UpdateBrooderCard] Updated card with batch:", batch.id);
+  } catch (error) {
+    console.error("[UpdateBrooderCard] Error:", error);
+  }
+};
 
 class ErrorBoundary extends React.Component {
   state = { hasError: false, err: null };
@@ -102,37 +285,36 @@ export default function QuickOverviewSetup({ navigation }) {
   const [loadingBrooderInfo, setLoadingBrooderInfo] = useState(false);
   const [brooderInfoError, setBrooderInfoError] = useState(null);
   const sensorListenerRef = useRef(null);
-const resetBrooderUI = async () => {
-  setChicksCount("0");
-  setDaysCount("0");
-  setHarvestDays("0");
-  setHasBatchData(false);
-  setSelectedBatchIndex(null);
+  const resetBrooderUI = async () => {
+    setChicksCount("0");
+    setDaysCount("0");
+    setHarvestDays("0");
+    setHasBatchData(false);
+    setSelectedBatchIndex(null);
 
-  
+    await AsyncStorage.multiRemove([
+      "chicksCount",
+      "daysCount",
+      "harvestDays",
+      "batchStartDate",
+      "selectedBatchIndex",
+    ]);
 
-  await AsyncStorage.multiRemove([
-    "chicksCount",
-    "daysCount",
-    "harvestDays",
-    "batchStartDate",
-    "selectedBatchIndex",
-  ]);
-
-  console.log("[Brooder] UI reset (no batches)");
-};
+    console.log("[Brooder] UI reset (no batches)");
+  };
 
   // Load saved data when component mounts
   useEffect(() => {
     loadSavedData();
     fetchUserName();
-    loadAllBatches().then(() => {
-  if (hasBatchData) {
-    fetchBrooderInfoFromFirestore();
-  } else {
-    resetBrooderUI();
-  }
-});
+
+    // Fetch latest batch and all batches from Firestore
+    const initializeBatches = async () => {
+      await fetchLatestBatch();
+      await fetchAllBatchesFromFirestore();
+    };
+
+    initializeBatches();
 
     setupSensorMonitoring();
 
@@ -152,7 +334,6 @@ const resetBrooderUI = async () => {
     const interval = setInterval(() => {
       loadSavedData();
     }, 60000); // Update every 60 seconds
-
     return () => {
       clearInterval(interval);
       // Unsubscribe from Firestore listener on unmount
@@ -162,29 +343,128 @@ const resetBrooderUI = async () => {
     };
   }, []);
 
-  // Add this effect after all state declarations
+  // ==================== SCREEN FOCUS EFFECT: REFRESH SELECTED BATCH ====================
+  /**
+   * When Home screen comes into focus, refresh the selected batch from Firestore
+   * This ensures data is always fresh when returning from other screens
+   */
+  useFocusEffect(
+    React.useCallback(() => {
+      console.log("[ScreenFocus] Home screen came into focus");
+
+      const refreshSelectedBatch = async () => {
+        try {
+          // Get selected batch ID from AsyncStorage
+          const selectedBatchId = await getSelectedBatch();
+
+          if (selectedBatchId) {
+            // Fetch fresh batch from Firestore
+            const freshBatch = await getBatchById(selectedBatchId);
+
+            if (freshBatch) {
+              // Batch exists, update display
+              updateBrooderCardFromBatch(
+                freshBatch,
+                setChicksCount,
+                setDaysCount,
+                setHarvestDays,
+                setBrooderInfo,
+                setHasBatchData
+              );
+
+              // Update batches array with fresh data
+              const updatedBatches = batches.map((batch) =>
+                batch.id === selectedBatchId ? freshBatch : batch
+              );
+              setBatches(updatedBatches);
+
+              console.log(
+                "[ScreenFocus] Refreshed selected batch:",
+                selectedBatchId
+              );
+            } else {
+              // Selected batch deleted, fallback to latest
+              console.log(
+                "[ScreenFocus] Selected batch not found, falling back to latest"
+              );
+              const latestBatch = await getLatestBatch();
+              if (latestBatch) {
+                await setSelectedBatch(latestBatch.id);
+                updateBrooderCardFromBatch(
+                  latestBatch,
+                  setChicksCount,
+                  setDaysCount,
+                  setHarvestDays,
+                  setBrooderInfo,
+                  setHasBatchData
+                );
+                const updatedBatches = batches.map((batch) =>
+                  batch.id === latestBatch.id ? latestBatch : batch
+                );
+                setBatches(updatedBatches);
+              }
+            }
+          } else {
+            // No selected batch, fetch latest
+            console.log("[ScreenFocus] No selected batch, fetching latest");
+            const latestBatch = await getLatestBatch();
+            if (latestBatch) {
+              await setSelectedBatch(latestBatch.id);
+              updateBrooderCardFromBatch(
+                latestBatch,
+                setChicksCount,
+                setDaysCount,
+                setHarvestDays,
+                setBrooderInfo,
+                setHasBatchData
+              );
+              const updatedBatches = batches.map((batch) =>
+                batch.id === latestBatch.id ? latestBatch : batch
+              );
+              setBatches(updatedBatches);
+            }
+          }
+        } catch (error) {
+          console.error("[ScreenFocus] Error refreshing batch:", error);
+        }
+      };
+
+      refreshSelectedBatch();
+    }, [batches])
+  );
+
+  // ==================== SYNC SELECTED BATCH INDEX ====================
+  /**
+   * After batches are fetched, find the index of the currently displayed batch
+   * This keeps selectedBatchIndex in sync with the actual batch ID being displayed
+   */
   useEffect(() => {
-    // Auto-sync brooder card with the most recent batch if batches or selectedBatchIndex changes
-    if (batches.length > 0 && selectedBatchIndex !== null && selectedBatchIndex >= 0 && selectedBatchIndex < batches.length) {
-      const batch = batches[selectedBatchIndex];
-      setChicksCount(batch.chicksCount ? String(batch.chicksCount) : "");
-      setDaysCount(batch.daysCount ? String(batch.daysCount) : "");
-      setHarvestDays(batch.harvestDays ? String(batch.harvestDays) : "");
-      setHasBatchData(true);
-    } else if (batches.length === 0) {
-      setChicksCount("0");
-      setDaysCount("0");
-      setHarvestDays("0");
-      setHasBatchData(false);
+    if (batches.length > 0 && chicksCount !== "0") {
+      // Find the batch that matches current display data
+      const currentBatchIndex = batches.findIndex(
+        (batch) =>
+          String(batch.chicksCount) === chicksCount &&
+          String(batch.daysCount) === daysCount &&
+          String(batch.harvestDays) === harvestDays
+      );
+
+      if (currentBatchIndex !== -1) {
+        console.log(
+          "[SyncIndex] Found batch at index",
+          currentBatchIndex,
+          "id:",
+          batches[currentBatchIndex].id
+        );
+        setSelectedBatchIndex(currentBatchIndex);
+      }
     }
-  }, [batches, selectedBatchIndex]);
+  }, [batches]);
 
   const handleLogout = async () => {
-  await AsyncStorage.clear();   // 🔥 important
-  await auth.signOut();
-  navigation.replace("Login");
-};
-
+    await AsyncStorage.clear(); // 🔥 important
+    await auth.signOut();
+    navigation.replace("Login");
+  };
 
   const fetchUserName = async () => {
     try {
@@ -213,6 +493,144 @@ const resetBrooderUI = async () => {
       }
     } catch (error) {
       console.error("Error fetching user name:", error);
+    }
+  };
+
+  // ==================== FIRESTORE BATCH FUNCTIONS ====================
+
+  /**
+   * Fetch the latest batch from Firestore and display on Brooder Card
+   * Uses the same fetchBatches function from ViewAllBatchesModal for consistency
+   */
+  const fetchLatestBatch = async () => {
+    try {
+      setLoadingBrooderInfo(true);
+      setBrooderInfoError(null);
+
+      // Fetch all batches using shared function
+      const allBatches = await fetchBatches();
+
+      if (allBatches.length > 0) {
+        // Get the first batch (most recent due to startDate DESC sorting)
+        const latestBatch = allBatches[0];
+
+        console.log(
+          "[FetchLatest] Latest batch found:",
+          latestBatch.id,
+          latestBatch
+        );
+
+        // Extract fields
+        const fetchedChicksCount = String(latestBatch.chicksCount || 0);
+        const fetchedAge = String(latestBatch.daysCount || 0);
+        const fetchedHarvestDays = String(latestBatch.harvestDays || 0);
+
+        // Update UI states
+        setChicksCount(fetchedChicksCount);
+        setDaysCount(fetchedAge);
+        setHarvestDays(fetchedHarvestDays);
+
+        // Update brooder info state
+        setBrooderInfo({
+          chicksCount: latestBatch.chicksCount || 0,
+          daysCount: latestBatch.daysCount || 0,
+          harvestDays: latestBatch.harvestDays || 0,
+        });
+
+        // Cache to AsyncStorage for offline
+        try {
+          await AsyncStorage.setItem("chicksCount", fetchedChicksCount);
+          await AsyncStorage.setItem("daysCount", fetchedAge);
+          await AsyncStorage.setItem("harvestDays", fetchedHarvestDays);
+          console.log("[FetchLatest] Cached to AsyncStorage");
+        } catch (storageError) {
+          console.warn(
+            "[FetchLatest] AsyncStorage cache failed:",
+            storageError
+          );
+        }
+
+        // Auto-increment daily age
+        const ageNum = parseInt(fetchedAge);
+        if (!isNaN(ageNum)) {
+          await checkAndIncrementDailyAge(ageNum);
+        }
+
+        setHasBatchData(true);
+      } else {
+        console.log("[FetchLatest] No batches found in brooderInfo collection");
+        setBrooderInfoError("No brooder information available");
+        setHasBatchData(false);
+        await resetBrooderUI();
+      }
+    } catch (error) {
+      console.error("[FetchLatest] Error fetching latest batch:", error);
+      setBrooderInfoError(error.message);
+      setHasBatchData(false);
+    } finally {
+      setLoadingBrooderInfo(false);
+    }
+  };
+
+  /**
+   * Fetch all batches from Firestore
+   * Uses the same fetchBatches function from ViewAllBatchesModal for consistency
+   * Returns array of batch documents with auto-calculated daysCount
+   */
+  const fetchAllBatchesFromFirestore = async () => {
+    try {
+      console.log("[FetchAll] Starting to fetch all batches from Firestore...");
+
+      // Use shared fetchBatches function for consistency with ViewAllBatchesModal
+      const allBatches = await fetchBatches();
+
+      console.log("[FetchAll] Total batches fetched:", allBatches.length);
+      setBatches(allBatches);
+      setHasBatchData(allBatches.length > 0);
+
+      return allBatches;
+    } catch (error) {
+      console.error("[FetchAll] Error fetching all batches:", error);
+      setBatches([]);
+      setHasBatchData(false);
+      return [];
+    }
+  };
+
+  /**
+   * Update Firestore with latest batch data
+   * Finds and updates the latest batch document by startDate
+   */
+  const updateLatestBatchInFirestore = async (updates) => {
+    try {
+      const q = query(
+        collection(firestoreDb, "brooderInfo"),
+        orderBy("startDate", "desc"),
+        limit(1)
+      );
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        const latestDoc = querySnapshot.docs[0];
+        const docRef = latestDoc.ref;
+
+        const updateData = {
+          ...updates,
+          updatedAt: new Date().toISOString(),
+        };
+
+        await updateDoc(docRef, updateData);
+        console.log("[UpdateLatest] Updated batch:", latestDoc.id, updateData);
+        return true;
+      } else {
+        console.error("[UpdateLatest] No batch found to update");
+        Alert.alert("Error", "No brooder batch found to update");
+        return false;
+      }
+    } catch (error) {
+      console.error("[UpdateLatest] Error updating batch:", error);
+      Alert.alert("Error", "Failed to update batch in database");
+      return false;
     }
   };
 
@@ -368,31 +786,27 @@ const resetBrooderUI = async () => {
       const docRef = doc(firestoreDb, "sensors", "current");
 
       // Set up real-time listener with onSnapshot
-      const unsubscribe = onSnapshot(
-        docRef,
-        async (docSnap) => {
-          if (docSnap.exists()) {
-            const data = docSnap.data();
+      const unsubscribe = onSnapshot(docRef, async (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
 
-            // Extract sensor values with defaults
-            const newSensorData = {
-              waterLevel:
-                typeof data.waterLevel === "number" ? data.waterLevel : 0,
-              feedLevel:
-                typeof data.feedLevel === "number" ? data.feedLevel : 0,
-              solarCharge:
-                typeof data.solarCharge === "number" ? data.solarCharge : 0,
-              lightStatus: data.lightStatus ? String(data.lightStatus) : "Off",
-            };
+          // Extract sensor values with defaults
+          const newSensorData = {
+            waterLevel:
+              typeof data.waterLevel === "number" ? data.waterLevel : 0,
+            feedLevel: typeof data.feedLevel === "number" ? data.feedLevel : 0,
+            solarCharge:
+              typeof data.solarCharge === "number" ? data.solarCharge : 0,
+            lightStatus: data.lightStatus ? String(data.lightStatus) : "Off",
+          };
 
-            // Update state with Firestore data
-            setSensorData(newSensorData);
+          // Update state with Firestore data
+          setSensorData(newSensorData);
 
-            // Cache the new data to AsyncStorage
-            await cacheSensorData(newSensorData);
-          }
+          // Cache the new data to AsyncStorage
+          await cacheSensorData(newSensorData);
         }
-      );
+      });
 
       // Store the unsubscribe function for cleanup
       sensorListenerRef.current = unsubscribe;
@@ -466,7 +880,13 @@ const resetBrooderUI = async () => {
   const loadSavedData = async () => {
     try {
       // Load all batches and selected index
-      const [batchesStr, savedBatchIndex, savedChicks, savedDays, savedHarvest] = await Promise.all([
+      const [
+        batchesStr,
+        savedBatchIndex,
+        savedChicks,
+        savedDays,
+        savedHarvest,
+      ] = await Promise.all([
         AsyncStorage.getItem("batches"),
         AsyncStorage.getItem("selectedBatchIndex"),
         AsyncStorage.getItem("chicksCount"),
@@ -484,8 +904,18 @@ const resetBrooderUI = async () => {
       }
       setBatches(parsedBatches);
 
-      let idx = savedBatchIndex !== null && savedBatchIndex !== undefined && savedBatchIndex !== "null" ? parseInt(savedBatchIndex, 10) : null;
-      if (parsedBatches.length > 0 && idx !== null && idx >= 0 && idx < parsedBatches.length) {
+      let idx =
+        savedBatchIndex !== null &&
+        savedBatchIndex !== undefined &&
+        savedBatchIndex !== "null"
+          ? parseInt(savedBatchIndex, 10)
+          : null;
+      if (
+        parsedBatches.length > 0 &&
+        idx !== null &&
+        idx >= 0 &&
+        idx < parsedBatches.length
+      ) {
         // Use batch data for all fields
         const batch = parsedBatches[idx];
         setChicksCount(batch.chicksCount ? String(batch.chicksCount) : "0");
@@ -560,8 +990,9 @@ const resetBrooderUI = async () => {
   };
 
   const closeQuickSetup = async () => {
-    await loadAllBatches();
-    setTimeout(() => loadSavedData(), 0); // Refresh brooder card after closing modal
+    // Refresh batches from Firestore after adding new batch
+    await fetchAllBatchesFromFirestore();
+    await fetchLatestBatch();
     setShowQuickSetup(false);
   };
 
@@ -575,90 +1006,102 @@ const resetBrooderUI = async () => {
   };
 
   const handleViewAllBatches = async () => {
-    await loadAllBatches();
-    setTimeout(() => loadSavedData(), 0); // Refresh brooder card after opening modal
-    setShowBatchesModal(true);
+    try {
+      // Refresh all batches from Firestore when opening modal
+      await fetchAllBatchesFromFirestore();
+      setShowBatchesModal(true);
+    } catch (error) {
+      console.error("[ViewAllBatches] Error:", error);
+      Alert.alert("Error", "Failed to load batches");
+    }
   };
 
   const loadAllBatches = async () => {
-  try {
-    const batchesJson = await AsyncStorage.getItem("batches");
-    if (batchesJson) {
-      const parsedBatches = JSON.parse(batchesJson);
-      if (parsedBatches.length === 0) {
-        setBatches([]);
-        await resetBrooderUI();
-      } else {
-        setBatches(parsedBatches);
-        // Auto-select the most recent batch if none is selected or index is invalid
-        const selectedIdxStr = await AsyncStorage.getItem("selectedBatchIndex");
-        let selectedIdx = selectedIdxStr !== null ? parseInt(selectedIdxStr) : null;
-        if (selectedIdx === null || selectedIdx >= parsedBatches.length) {
-          selectedIdx = parsedBatches.length - 1;
-          await AsyncStorage.setItem("selectedBatchIndex", String(selectedIdx));
-        }
-        // Synchronize brooder card with selected batch
-        const batch = parsedBatches[selectedIdx];
-        setSelectedBatchIndex(selectedIdx);
-        setChicksCount(batch.chicksCount ? String(batch.chicksCount) : "");
-        setDaysCount(batch.daysCount ? String(batch.daysCount) : "");
-        setHarvestDays(batch.harvestDays ? String(batch.harvestDays) : "");
-        setHasBatchData(true);
-      }
-    } else {
-      setBatches([]);
-      await resetBrooderUI();
+    // Deprecated: Use fetchAllBatchesFromFirestore() instead
+    // This function kept for backward compatibility
+    try {
+      const allBatches = await fetchAllBatchesFromFirestore();
+      return allBatches;
+    } catch (error) {
+      console.error("[LoadAllBatches] Error:", error);
+      return [];
     }
-  } catch (error) {
-    console.error("Error loading batches:", error);
-    setBatches([]);
-    await resetBrooderUI();
-  }
-};
-
+  };
 
   const handleDeleteBatch = async (index) => {
-    const updated = batches.filter((_, i) => i !== index);
-    setBatches(updated);
-    await AsyncStorage.setItem("batches", JSON.stringify(updated));
-    // If deleted batch is selected, reset brooder info
-    if (selectedBatchIndex === index) {
-      setSelectedBatchIndex(null);
-      setChicksCount("0");
-      setDaysCount("0");
-      setHarvestDays("0");
-      setHasBatchData(false);
-      await AsyncStorage.removeItem("chicksCount");
-      await AsyncStorage.removeItem("daysCount");
-      await AsyncStorage.removeItem("harvestDays");
-      await AsyncStorage.removeItem("batchStartDate");
-      await AsyncStorage.removeItem("selectedBatchIndex");
-    } else if (selectedBatchIndex !== null && selectedBatchIndex > index) {
-      // Adjust selected index if needed
-      setSelectedBatchIndex(selectedBatchIndex - 1);
-      await AsyncStorage.setItem("selectedBatchIndex", String(selectedBatchIndex - 1));
+    try {
+      if (index < 0 || index >= batches.length) {
+        console.error("[HandleDeleteBatch] Invalid batch index:", index);
+        return;
+      }
+
+      // Refresh batches from Firestore after deletion from ViewAllBatchesModal
+      // ViewAllBatchesModal handles deletion, confirmation modals, and success/error feedback
+      await fetchAllBatchesFromFirestore();
+
+      // If deleted batch was selected, fetch latest
+      if (selectedBatchIndex === index) {
+        await fetchLatestBatch();
+      }
+
+      console.log("[HandleDeleteBatch] Batches refreshed after deletion");
+    } catch (error) {
+      console.error("[HandleDeleteBatch] Error refreshing batches:", error);
     }
   };
 
   const handleSelectBatch = async (index) => {
-    setSelectedBatchIndex(index);
-    const batch = batches[index];
-    const chicksVal = batch.chicksCount ? String(batch.chicksCount) : "";
-    const daysVal = batch.daysCount ? String(batch.daysCount) : "";
-    const harvestVal = batch.harvestDays ? String(batch.harvestDays) : "";
-    setChicksCount(chicksVal);
-    setDaysCount(daysVal);
-    setHarvestDays(harvestVal);
-    setHasBatchData(true);
+    try {
+      if (index < 0 || index >= batches.length) {
+        Alert.alert("Error", "Invalid batch selection");
+        return;
+      }
 
-    await AsyncStorage.setItem("selectedBatchIndex", String(index));
-    await AsyncStorage.setItem("chicksCount", chicksVal);
-    await AsyncStorage.setItem("daysCount", daysVal);
-    await AsyncStorage.setItem("harvestDays", harvestVal);
-    await AsyncStorage.setItem("batchStartDate", batch.startDate || "");
+      // Get batch from array
+      const selectedBatchFromArray = batches[index];
 
-    setTimeout(() => loadSavedData(), 0); // Refresh brooder card after batch selection
-    setShowBatchesModal(false);
+      // Fetch fresh batch from Firestore using batch ID
+      const freshBatch = await getBatchById(selectedBatchFromArray.id);
+
+      if (!freshBatch) {
+        Alert.alert("Error", "Selected batch no longer exists");
+        return;
+      }
+
+      // Update selected batch ID in AsyncStorage
+      await setSelectedBatch(freshBatch.id);
+
+      // Update selected batch index
+      setSelectedBatchIndex(index);
+
+      // Update brooder card with fresh batch data
+      updateBrooderCardFromBatch(
+        freshBatch,
+        setChicksCount,
+        setDaysCount,
+        setHarvestDays,
+        setBrooderInfo,
+        setHasBatchData
+      );
+
+      // Update batches array with fresh data
+      const updatedBatches = batches.map((batch, idx) =>
+        idx === index ? freshBatch : batch
+      );
+      setBatches(updatedBatches);
+
+      console.log(
+        "[SelectBatch] Selected batch",
+        freshBatch.id,
+        "at index",
+        index
+      );
+
+      setShowBatchesModal(false);
+    } catch (error) {
+      console.error("[SelectBatch] Error selecting batch:", error);
+      Alert.alert("Error", "Failed to select batch");
+    }
   };
 
   const handleDeleteSelectedBatch = async () => {
@@ -696,10 +1139,22 @@ const resetBrooderUI = async () => {
                 setDaysCount(String(nextBatch.daysCount || "0"));
                 setHarvestDays(String(nextBatch.harvestDays || "0"));
                 await AsyncStorage.setItem("selectedBatchIndex", "0");
-                await AsyncStorage.setItem("chicksCount", String(nextBatch.chicksCount || "0"));
-                await AsyncStorage.setItem("daysCount", String(nextBatch.daysCount || "0"));
-                await AsyncStorage.setItem("harvestDays", String(nextBatch.harvestDays || "0"));
-                await AsyncStorage.setItem("batchStartDate", nextBatch.startDate || "");
+                await AsyncStorage.setItem(
+                  "chicksCount",
+                  String(nextBatch.chicksCount || "0")
+                );
+                await AsyncStorage.setItem(
+                  "daysCount",
+                  String(nextBatch.daysCount || "0")
+                );
+                await AsyncStorage.setItem(
+                  "harvestDays",
+                  String(nextBatch.harvestDays || "0")
+                );
+                await AsyncStorage.setItem(
+                  "batchStartDate",
+                  nextBatch.startDate || ""
+                );
               } else {
                 // No batches left, reset to zero
                 setSelectedBatchIndex(null);
@@ -790,7 +1245,9 @@ const resetBrooderUI = async () => {
         const newBatch = {
           chicksCount: String(value),
           daysCount: String(daysCount && daysCount !== "" ? daysCount : "0"),
-          harvestDays: String(harvestDays && harvestDays !== "" ? harvestDays : "0"),
+          harvestDays: String(
+            harvestDays && harvestDays !== "" ? harvestDays : "0"
+          ),
           startDate: new Date().toISOString(),
         };
         batchArr.push(newBatch);
@@ -862,9 +1319,13 @@ const resetBrooderUI = async () => {
         };
       } else {
         const newBatch = {
-          chicksCount: String(chicksCount && chicksCount !== "" ? chicksCount : "0"),
+          chicksCount: String(
+            chicksCount && chicksCount !== "" ? chicksCount : "0"
+          ),
           daysCount: String(value),
-          harvestDays: String(harvestDays && harvestDays !== "" ? harvestDays : "0"),
+          harvestDays: String(
+            harvestDays && harvestDays !== "" ? harvestDays : "0"
+          ),
           startDate: new Date().toISOString(),
         };
         batchArr.push(newBatch);
@@ -904,7 +1365,9 @@ const resetBrooderUI = async () => {
         };
       } else {
         const newBatch = {
-          chicksCount: String(chicksCount && chicksCount !== "" ? chicksCount : "0"),
+          chicksCount: String(
+            chicksCount && chicksCount !== "" ? chicksCount : "0"
+          ),
           daysCount: String(daysCount && daysCount !== "" ? daysCount : "0"),
           harvestDays: String(value),
           startDate: new Date().toISOString(),
@@ -1014,47 +1477,59 @@ const resetBrooderUI = async () => {
                 <View style={styles.brooderTextContainer}>
                   <Text style={styles.brooderLabel}>Expected Harvest</Text>
                   <Text style={styles.brooderValue}>
-                    {harvestDays && harvestDays !== "0" ? `${harvestDays} days` : "0 days"}
+                    {harvestDays && harvestDays !== "0"
+                      ? `${harvestDays} days`
+                      : "0 days"}
                   </Text>
                 </View>
               </View>
             </View>
 
-          {/* Action Buttons Section */}
-          <View style={styles.buttonContainer}>
-            {/* ADD Button - Green */}
-            <TouchableOpacity
-              style={styles.addBtn}
-              activeOpacity={0.9}
-              onPress={openQuickSetup}
-            >
-              <Text style={styles.addBtnText}>Add</Text>
-            </TouchableOpacity>
+            {/* Action Buttons Section */}
+            <View style={styles.buttonContainer}>
+              {/* ADD Button - Green */}
+              <TouchableOpacity
+                style={styles.addBtn}
+                activeOpacity={0.9}
+                onPress={openQuickSetup}
+              >
+                <Text style={styles.addBtnText}>Add</Text>
+              </TouchableOpacity>
 
-            {/* EDIT Button - Blue */}
-            <TouchableOpacity
-  style={[
-    styles.editBtn,
-    (selectedBatchIndex === null || batches.length === 0) && styles.editBtnDisabled
-  ]}
-  activeOpacity={0.9}
-  onPress={() => {
-    if (selectedBatchIndex !== null && selectedBatchIndex < batches.length) {
-      handleEditBatch(selectedBatchIndex);
-    } else {
-      Alert.alert("No Batch Selected", "Please select a batch to edit");
-    }
-  }}
-  disabled={selectedBatchIndex === null || batches.length === 0}
->
-  <Text style={[
-    styles.editBtnText,
-    (selectedBatchIndex === null || batches.length === 0) && styles.editBtnTextDisabled
-  ]}>
-    Edit
-  </Text>
-</TouchableOpacity>
-          </View>
+              {/* EDIT Button - Blue */}
+              <TouchableOpacity
+                style={[
+                  styles.editBtn,
+                  (selectedBatchIndex === null || batches.length === 0) &&
+                    styles.editBtnDisabled,
+                ]}
+                activeOpacity={0.9}
+                onPress={() => {
+                  if (
+                    selectedBatchIndex !== null &&
+                    selectedBatchIndex < batches.length
+                  ) {
+                    handleEditBatch(selectedBatchIndex);
+                  } else {
+                    Alert.alert(
+                      "No Batch Selected",
+                      "Please select a batch to edit"
+                    );
+                  }
+                }}
+                disabled={selectedBatchIndex === null || batches.length === 0}
+              >
+                <Text
+                  style={[
+                    styles.editBtnText,
+                    (selectedBatchIndex === null || batches.length === 0) &&
+                      styles.editBtnTextDisabled,
+                  ]}
+                >
+                  Edit
+                </Text>
+              </TouchableOpacity>
+            </View>
 
             {/* Sensor Monitoring Grid */}
             <Text style={styles.sectionTitle}>Live Monitoring</Text>
@@ -1123,8 +1598,38 @@ const resetBrooderUI = async () => {
             {/* Edit Batch Modal */}
             <EditBatchModal
               visible={showEditBatchModal}
-              batchData={editingBatchIndex !== null && editingBatchIndex < batches.length ? batches[editingBatchIndex] : null}
+              batchData={
+                editingBatchIndex !== null && editingBatchIndex < batches.length
+                  ? batches[editingBatchIndex]
+                  : null
+              }
               onSaveChanges={handleSaveEditBatch}
+              onBatchUpdated={async (freshBatch) => {
+                // Called when EditBatchModal successfully updates batch in Firestore
+                console.log(
+                  "[EditBatchCallback] Received fresh batch:",
+                  freshBatch.id
+                );
+
+                // Update display with fresh batch data
+                updateBrooderCardFromBatch(
+                  freshBatch,
+                  setChicksCount,
+                  setDaysCount,
+                  setHarvestDays,
+                  setBrooderInfo,
+                  setHasBatchData
+                );
+
+                // Update batches array with fresh data
+                const updatedBatches = batches.map((batch) =>
+                  batch.id === freshBatch.id ? freshBatch : batch
+                );
+                setBatches(updatedBatches);
+
+                // Reload all batches from Firestore
+                await loadAllBatches();
+              }}
               onClose={async () => {
                 await loadAllBatches();
                 setShowEditBatchModal(false);
@@ -1132,35 +1637,52 @@ const resetBrooderUI = async () => {
               }}
             />
 
-          {/* Confirmation Modal */}
-          <Modal visible={showConfirmReplace} transparent animationType="fade">
-            <View style={styles.confirmModalOverlay}>
-              <View style={styles.confirmModalCard}>
-                <Text style={styles.confirmModalTitle}>Edit Existing Batch?</Text>
-                <Text style={styles.confirmModalMessage}>
-                  You already have an active batch. Do you want to edit it with new values?
-                </Text>
-                <View style={styles.confirmModalButtons}>
-                  <TouchableOpacity
-                    style={[styles.confirmModalButton, styles.confirmModalButtonCancel]}
-                    onPress={handleReplaceCancel}
-                    activeOpacity={0.9}
-                  >
-                    <Text style={styles.confirmModalButtonCancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.confirmModalButton, styles.confirmModalButtonConfirm]}
-                    onPress={handleReplaceConfirm}
-                    activeOpacity={0.9}
-                  >
-                    <Text style={styles.confirmModalButtonConfirmText}>Edit</Text>
-                  </TouchableOpacity>
+            {/* Confirmation Modal */}
+            <Modal
+              visible={showConfirmReplace}
+              transparent
+              animationType="fade"
+            >
+              <View style={styles.confirmModalOverlay}>
+                <View style={styles.confirmModalCard}>
+                  <Text style={styles.confirmModalTitle}>
+                    Edit Existing Batch?
+                  </Text>
+                  <Text style={styles.confirmModalMessage}>
+                    You already have an active batch. Do you want to edit it
+                    with new values?
+                  </Text>
+                  <View style={styles.confirmModalButtons}>
+                    <TouchableOpacity
+                      style={[
+                        styles.confirmModalButton,
+                        styles.confirmModalButtonCancel,
+                      ]}
+                      onPress={handleReplaceCancel}
+                      activeOpacity={0.9}
+                    >
+                      <Text style={styles.confirmModalButtonCancelText}>
+                        Cancel
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.confirmModalButton,
+                        styles.confirmModalButtonConfirm,
+                      ]}
+                      onPress={handleReplaceConfirm}
+                      activeOpacity={0.9}
+                    >
+                      <Text style={styles.confirmModalButtonConfirmText}>
+                        Edit
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
-            </View>
-          </Modal>
-        </View>
-      </ScrollView>
+            </Modal>
+          </View>
+        </ScrollView>
       </View>
     </ErrorBoundary>
   );
@@ -1575,10 +2097,10 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   editBtnDisabled: {
-  backgroundColor: '#cccccc', // Grey background
-  opacity: 0.5,
-},
-editBtnTextDisabled: {
-  color: '#666666', // Grey text
-},
+    backgroundColor: "#cccccc", // Grey background
+    opacity: 0.5,
+  },
+  editBtnTextDisabled: {
+    color: "#666666", // Grey text
+  },
 });
