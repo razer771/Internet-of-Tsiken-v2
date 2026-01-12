@@ -20,6 +20,14 @@ export default function ViewAllBatchesModal({
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const [batchToDelete, setBatchToDelete] = useState(null);
 
+  // Auto-select the most recent batch if none is selected
+  React.useEffect(() => {
+    if (visible && batches.length > 0 && (selectedBatchIndex === null || selectedBatchIndex >= batches.length)) {
+      // Select the last batch (most recent)
+      onSelectBatch(batches.length - 1);
+    }
+  }, [visible, batches, selectedBatchIndex, onSelectBatch]);
+
   const handleDeletePress = (index) => {
     setBatchToDelete(index);
     setDeleteConfirmVisible(true);

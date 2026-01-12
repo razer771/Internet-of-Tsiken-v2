@@ -102,12 +102,38 @@ export default function QuickOverviewSetup({ navigation }) {
   const [loadingBrooderInfo, setLoadingBrooderInfo] = useState(false);
   const [brooderInfoError, setBrooderInfoError] = useState(null);
   const sensorListenerRef = useRef(null);
+const resetBrooderUI = async () => {
+  setChicksCount("0");
+  setDaysCount("0");
+  setHarvestDays("0");
+  setHasBatchData(false);
+  setSelectedBatchIndex(null);
+
+  
+
+  await AsyncStorage.multiRemove([
+    "chicksCount",
+    "daysCount",
+    "harvestDays",
+    "batchStartDate",
+    "selectedBatchIndex",
+  ]);
+
+  console.log("[Brooder] UI reset (no batches)");
+};
 
   // Load saved data when component mounts
   useEffect(() => {
     loadSavedData();
     fetchUserName();
+    loadAllBatches().then(() => {
+  if (hasBatchData) {
     fetchBrooderInfoFromFirestore();
+  } else {
+    resetBrooderUI();
+  }
+});
+
     setupSensorMonitoring();
 
     // Set today's date
@@ -135,6 +161,30 @@ export default function QuickOverviewSetup({ navigation }) {
       }
     };
   }, []);
+
+  // Add this effect after all state declarations
+  useEffect(() => {
+    // Auto-sync brooder card with the most recent batch if batches or selectedBatchIndex changes
+    if (batches.length > 0 && selectedBatchIndex !== null && selectedBatchIndex >= 0 && selectedBatchIndex < batches.length) {
+      const batch = batches[selectedBatchIndex];
+      setChicksCount(batch.chicksCount ? String(batch.chicksCount) : "");
+      setDaysCount(batch.daysCount ? String(batch.daysCount) : "");
+      setHarvestDays(batch.harvestDays ? String(batch.harvestDays) : "");
+      setHasBatchData(true);
+    } else if (batches.length === 0) {
+      setChicksCount("0");
+      setDaysCount("0");
+      setHarvestDays("0");
+      setHasBatchData(false);
+    }
+  }, [batches, selectedBatchIndex]);
+
+  const handleLogout = async () => {
+  await AsyncStorage.clear();   // 🔥 important
+  await auth.signOut();
+  navigation.replace("Login");
+};
+
 
   const fetchUserName = async () => {
     try {
@@ -415,38 +465,51 @@ export default function QuickOverviewSetup({ navigation }) {
 
   const loadSavedData = async () => {
     try {
-      const savedChicks = await AsyncStorage.getItem("chicksCount");
-      const savedDays = await AsyncStorage.getItem("daysCount");
-      const savedHarvest = await AsyncStorage.getItem("harvestDays");
-      const savedStartDate = await AsyncStorage.getItem("batchStartDate");
+      // Load all batches and selected index
+      const [batchesStr, savedBatchIndex, savedChicks, savedDays, savedHarvest] = await Promise.all([
+        AsyncStorage.getItem("batches"),
+        AsyncStorage.getItem("selectedBatchIndex"),
+        AsyncStorage.getItem("chicksCount"),
+        AsyncStorage.getItem("daysCount"),
+        AsyncStorage.getItem("harvestDays"),
+      ]);
 
-      // Check if there's any batch data
-      const hasData = !!(savedChicks || savedDays || savedHarvest);
-      setHasBatchData(hasData);
-
-      if (savedChicks !== null) {
-        setChicksCount(savedChicks);
+      let parsedBatches = [];
+      if (batchesStr) {
+        try {
+          parsedBatches = JSON.parse(batchesStr);
+        } catch (e) {
+          parsedBatches = [];
+        }
       }
+      setBatches(parsedBatches);
 
-      if (savedDays !== null && savedStartDate !== null) {
-        // Calculate days passed since batch started
-        const startDate = new Date(savedStartDate);
-        const currentDate = new Date();
-        const daysPassed = Math.floor(
-          (currentDate - startDate) / (1000 * 60 * 60 * 24)
-        );
-
-        // Calculate remaining days
-        const initialDays = parseInt(savedDays);
-        const remainingDays = Math.max(0, initialDays - daysPassed);
-
-        setDaysCount(remainingDays.toString());
-      } else if (savedDays !== null) {
-        setDaysCount(savedDays);
-      }
-
-      if (savedHarvest !== null) {
-        setHarvestDays(savedHarvest);
+      let idx = savedBatchIndex !== null && savedBatchIndex !== undefined && savedBatchIndex !== "null" ? parseInt(savedBatchIndex, 10) : null;
+      if (parsedBatches.length > 0 && idx !== null && idx >= 0 && idx < parsedBatches.length) {
+        // Use batch data for all fields
+        const batch = parsedBatches[idx];
+        setChicksCount(batch.chicksCount ? String(batch.chicksCount) : "0");
+        setDaysCount(batch.daysCount ? String(batch.daysCount) : "0");
+        setHarvestDays(batch.harvestDays ? String(batch.harvestDays) : "0");
+        setHasBatchData(true);
+        setSelectedBatchIndex(idx);
+      } else if (parsedBatches.length > 0) {
+        // Fallback: select most recent batch
+        const lastIdx = parsedBatches.length - 1;
+        const batch = parsedBatches[lastIdx];
+        setChicksCount(batch.chicksCount ? String(batch.chicksCount) : "0");
+        setDaysCount(batch.daysCount ? String(batch.daysCount) : "0");
+        setHarvestDays(batch.harvestDays ? String(batch.harvestDays) : "0");
+        setHasBatchData(true);
+        setSelectedBatchIndex(lastIdx);
+        await AsyncStorage.setItem("selectedBatchIndex", String(lastIdx));
+      } else {
+        // No batches, fallback to saved values or zero
+        setChicksCount(savedChicks ? String(savedChicks) : "0");
+        setDaysCount(savedDays ? String(savedDays) : "0");
+        setHarvestDays(savedHarvest ? String(savedHarvest) : "0");
+        setHasBatchData(false);
+        setSelectedBatchIndex(null);
       }
     } catch (error) {
       console.error("Error loading saved data:", error);
@@ -458,9 +521,10 @@ export default function QuickOverviewSetup({ navigation }) {
       Alert.alert("Invalid Input", "Please enter a valid number of chicks");
       return;
     }
-
     try {
       await AsyncStorage.setItem("chicksCount", chicksCount);
+      setChicksCount(chicksCount);
+      setHasBatchData(true);
       Alert.alert("Success", "Chicks count saved successfully");
       console.log("Saving chicks count:", chicksCount);
     } catch (error) {
@@ -475,9 +539,10 @@ export default function QuickOverviewSetup({ navigation }) {
       Alert.alert("Invalid Input", "Please enter a number between 1 and 45");
       return;
     }
-
     try {
       await AsyncStorage.setItem("daysCount", daysCount);
+      setDaysCount(daysCount);
+      setHasBatchData(true);
       Alert.alert("Success", "Days count saved successfully");
       console.log("Saving days count:", daysCount);
     } catch (error) {
@@ -496,6 +561,7 @@ export default function QuickOverviewSetup({ navigation }) {
 
   const closeQuickSetup = async () => {
     await loadAllBatches();
+    setTimeout(() => loadSavedData(), 0); // Refresh brooder card after closing modal
     setShowQuickSetup(false);
   };
 
@@ -510,23 +576,46 @@ export default function QuickOverviewSetup({ navigation }) {
 
   const handleViewAllBatches = async () => {
     await loadAllBatches();
+    setTimeout(() => loadSavedData(), 0); // Refresh brooder card after opening modal
     setShowBatchesModal(true);
   };
 
   const loadAllBatches = async () => {
-    try {
-      const batchesJson = await AsyncStorage.getItem("batches");
-      if (batchesJson) {
-        const parsedBatches = JSON.parse(batchesJson);
-        setBatches(parsedBatches);
-      } else {
+  try {
+    const batchesJson = await AsyncStorage.getItem("batches");
+    if (batchesJson) {
+      const parsedBatches = JSON.parse(batchesJson);
+      if (parsedBatches.length === 0) {
         setBatches([]);
+        await resetBrooderUI();
+      } else {
+        setBatches(parsedBatches);
+        // Auto-select the most recent batch if none is selected or index is invalid
+        const selectedIdxStr = await AsyncStorage.getItem("selectedBatchIndex");
+        let selectedIdx = selectedIdxStr !== null ? parseInt(selectedIdxStr) : null;
+        if (selectedIdx === null || selectedIdx >= parsedBatches.length) {
+          selectedIdx = parsedBatches.length - 1;
+          await AsyncStorage.setItem("selectedBatchIndex", String(selectedIdx));
+        }
+        // Synchronize brooder card with selected batch
+        const batch = parsedBatches[selectedIdx];
+        setSelectedBatchIndex(selectedIdx);
+        setChicksCount(batch.chicksCount ? String(batch.chicksCount) : "");
+        setDaysCount(batch.daysCount ? String(batch.daysCount) : "");
+        setHarvestDays(batch.harvestDays ? String(batch.harvestDays) : "");
+        setHasBatchData(true);
       }
-    } catch (error) {
-      console.error("Error loading batches:", error);
+    } else {
       setBatches([]);
+      await resetBrooderUI();
     }
-  };
+  } catch (error) {
+    console.error("Error loading batches:", error);
+    setBatches([]);
+    await resetBrooderUI();
+  }
+};
+
 
   const handleDeleteBatch = async (index) => {
     const updated = batches.filter((_, i) => i !== index);
@@ -557,18 +646,18 @@ export default function QuickOverviewSetup({ navigation }) {
     const chicksVal = batch.chicksCount ? String(batch.chicksCount) : "";
     const daysVal = batch.daysCount ? String(batch.daysCount) : "";
     const harvestVal = batch.harvestDays ? String(batch.harvestDays) : "";
-    
     setChicksCount(chicksVal);
     setDaysCount(daysVal);
     setHarvestDays(harvestVal);
     setHasBatchData(true);
-    
+
     await AsyncStorage.setItem("selectedBatchIndex", String(index));
     await AsyncStorage.setItem("chicksCount", chicksVal);
     await AsyncStorage.setItem("daysCount", daysVal);
     await AsyncStorage.setItem("harvestDays", harvestVal);
     await AsyncStorage.setItem("batchStartDate", batch.startDate || "");
-    
+
+    setTimeout(() => loadSavedData(), 0); // Refresh brooder card after batch selection
     setShowBatchesModal(false);
   };
 
@@ -924,7 +1013,7 @@ export default function QuickOverviewSetup({ navigation }) {
                 <View style={styles.brooderTextContainer}>
                   <Text style={styles.brooderLabel}>Expected Harvest</Text>
                   <Text style={styles.brooderValue}>
-                    {harvestDays ? `${harvestDays} days` : "10 days"}
+                    {harvestDays && harvestDays !== "0" ? `${harvestDays} days` : "0 days"}
                   </Text>
                 </View>
               </View>
@@ -943,19 +1032,27 @@ export default function QuickOverviewSetup({ navigation }) {
 
             {/* EDIT Button - Blue */}
             <TouchableOpacity
-              style={styles.editBtn}
-              activeOpacity={0.9}
-              onPress={() => {
-                if (selectedBatchIndex !== null && selectedBatchIndex < batches.length) {
-                  handleEditBatch(selectedBatchIndex);
-                } else {
-                  Alert.alert("No Batch Selected", "Please select a batch to edit");
-                }
-              }}
-              disabled={selectedBatchIndex === null || batches.length === 0}
-            >
-              <Text style={styles.editBtnText}>Edit</Text>
-            </TouchableOpacity>
+  style={[
+    styles.editBtn,
+    (selectedBatchIndex === null || batches.length === 0) && styles.editBtnDisabled
+  ]}
+  activeOpacity={0.9}
+  onPress={() => {
+    if (selectedBatchIndex !== null && selectedBatchIndex < batches.length) {
+      handleEditBatch(selectedBatchIndex);
+    } else {
+      Alert.alert("No Batch Selected", "Please select a batch to edit");
+    }
+  }}
+  disabled={selectedBatchIndex === null || batches.length === 0}
+>
+  <Text style={[
+    styles.editBtnText,
+    (selectedBatchIndex === null || batches.length === 0) && styles.editBtnTextDisabled
+  ]}>
+    Edit
+  </Text>
+</TouchableOpacity>
           </View>
 
             {/* Sensor Monitoring Grid */}
@@ -1475,4 +1572,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
+  editBtnDisabled: {
+  backgroundColor: '#cccccc', // Grey background
+  opacity: 0.5,
+},
+editBtnTextDisabled: {
+  color: '#666666', // Grey text
+},
 });
