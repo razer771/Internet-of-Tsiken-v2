@@ -121,7 +121,7 @@ const saveBatch = async ({
   try {
     // Get next batch number
     const batchNumber = await getNextBatchNumber();
-    const documentId = `batch${batchNumber}`;
+    const documentId = `Batch ${batchNumber}`;
 
     // Create batch data object
     const batchData = {

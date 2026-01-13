@@ -20,7 +20,7 @@ import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityI
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { auth, db } from "../../config/firebaseconfig.js";
 import { doc, updateDoc } from "firebase/firestore";
-// import { getFunctions, httpsCallable } from "firebase/functions";
+import { getFunctions, httpsCallable } from "firebase/functions";
 // Removed Firebase phone-auth specific imports; using Twilio Verify exclusively
 import {
   checkOTPLockout,
@@ -32,7 +32,7 @@ import {
 const Logo = require("../../assets/logo.png");
 
 // Initialize Firebase Functions
-// const functions = getFunctions(undefined, "us-central1");
+const functions = getFunctions(undefined, "us-central1");
 
 // Reusable Branded Modal Component
 const BrandedModal = ({
@@ -245,12 +245,24 @@ export default function OTPVerification() {
   // Twilio Verify only: send OTP
   const sendOTP = async () => {
     try {
-      console.log("Sending OTP via Twilio Verify to:", mobileNumber);
+      console.log("🔍 sendOTP called");
+      console.log("📱 mobileNumber:", mobileNumber);
+      console.log("🔧 functions object:", functions);
+      console.log("🔧 httpsCallable:", typeof httpsCallable);
+
+      if (!functions) {
+        throw new Error("Firebase Functions not initialized");
+      }
+
       const sendSMSOTP = httpsCallable(functions, "sendSMSOTP");
+      console.log("📞 Calling sendSMSOTP function...");
+
       const response = await sendSMSOTP({
         phone: mobileNumber,
         useRealSMS: true,
       });
+
+      console.log("✅ sendSMSOTP response:", response.data);
 
       if (!response.data || !response.data.success) {
         throw new Error("Failed to send Twilio Verify SMS");
@@ -274,11 +286,17 @@ export default function OTPVerification() {
       );
       return { success: true, verificationSid: response.data.verificationSid };
     } catch (error) {
-      console.error("Twilio Verify send error:", error);
+      console.error("❌ Twilio Verify send error:", error);
+      console.error("Error details:", {
+        message: error.message,
+        code: error.code,
+        name: error.name,
+        stack: error.stack,
+      });
       showModal(
         "error",
         "Error",
-        "Failed to send verification code. Please try again."
+        `Failed to send verification code: ${error.message}`
       );
       return { success: false, error: error.message };
     }

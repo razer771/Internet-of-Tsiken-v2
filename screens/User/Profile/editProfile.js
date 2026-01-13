@@ -16,8 +16,12 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "../../../config/firebaseconfig";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+} from "firebase/auth";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function EditProfile({ navigation }) {
   const [showPassword, setShowPassword] = useState(false);
@@ -28,30 +32,47 @@ export default function EditProfile({ navigation }) {
   const [isAdmin, setIsAdmin] = useState(false);
 
   // Form fields
-  const [fullname, setFullname] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [middleName, setMiddleName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
+  // Name error states
+  const [firstNameError, setFirstNameError] = useState("");
+  const [middleNameError, setMiddleNameError] = useState("");
+  const [lastNameError, setLastNameError] = useState("");
+
+  // Password error states
+  const [currentPasswordError, setCurrentPasswordError] = useState("");
+  const [newPasswordError, setNewPasswordError] = useState("");
+  const [confirmPasswordError, setConfirmPasswordError] = useState("");
+
   // Original values for change detection
-  const [originalFullname, setOriginalFullname] = useState("");
+  const [originalFirstName, setOriginalFirstName] = useState("");
+  const [originalMiddleName, setOriginalMiddleName] = useState("");
+  const [originalLastName, setOriginalLastName] = useState("");
   const [originalPhone, setOriginalPhone] = useState("");
 
   // Success popup state
   const [showSuccess, setShowSuccess] = useState(false);
-  const [successMessage, setSuccessMessage] = useState("Your profile has been updated");
-  
+  const [successMessage, setSuccessMessage] = useState(
+    "Your profile has been updated"
+  );
+
   // Unsaved changes modal state
   const [showUnsavedModal, setShowUnsavedModal] = useState(false);
   const [canExit, setCanExit] = useState(false);
   const navigationActionRef = useRef(null);
   const justSavedRef = useRef(false);
-  
+
   // Save confirmation modal state
   const [showSaveConfirmModal, setShowSaveConfirmModal] = useState(false);
-  const [showPasswordConfirmModal, setShowPasswordConfirmModal] = useState(false);
+  const [showPasswordConfirmModal, setShowPasswordConfirmModal] =
+    useState(false);
   const [showPasswordErrorModal, setShowPasswordErrorModal] = useState(false);
   const [passwordErrorMessage, setPasswordErrorMessage] = useState("");
 
@@ -61,26 +82,31 @@ export default function EditProfile({ navigation }) {
 
   // Reset canExit flag when screen comes into focus
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
+    const unsubscribe = navigation.addListener("focus", () => {
       setCanExit(false);
       justSavedRef.current = false;
     });
-    
+
     return unsubscribe;
   }, [navigation]);
 
   // Prevent navigation if there are unsaved changes
   useEffect(() => {
-    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+    const unsubscribe = navigation.addListener("beforeRemove", (e) => {
       // If canExit is true or just saved, allow navigation
       if (canExit || justSavedRef.current) {
         return;
       }
 
       // Check if there are unsaved changes
-      const hasProfileChanges = fullname !== originalFullname || phone !== originalPhone;
-      const hasPasswordChanges = currentPassword || newPassword || confirmPassword;
-      
+      const hasProfileChanges =
+        firstName !== originalFirstName ||
+        middleName !== originalMiddleName ||
+        lastName !== originalLastName ||
+        phone !== originalPhone;
+      const hasPasswordChanges =
+        currentPassword || newPassword || confirmPassword;
+
       if (!hasProfileChanges && !hasPasswordChanges) {
         // No unsaved changes, allow navigation
         return;
@@ -97,41 +123,101 @@ export default function EditProfile({ navigation }) {
     });
 
     return unsubscribe;
-  }, [navigation, fullname, phone, originalFullname, originalPhone, currentPassword, newPassword, confirmPassword, canExit]);
+  }, [
+    navigation,
+    firstName,
+    middleName,
+    lastName,
+    phone,
+    originalFirstName,
+    originalMiddleName,
+    originalLastName,
+    originalPhone,
+    currentPassword,
+    newPassword,
+    confirmPassword,
+    canExit,
+  ]);
 
   const fetchUserData = async () => {
     try {
       // Check if admin bypass
-      const isAdminBypass = await AsyncStorage.getItem('isAdminBypass');
-      const adminEmail = await AsyncStorage.getItem('adminEmail');
-      
-      if (isAdminBypass === 'true' && adminEmail === 'admin@example.com') {
+      const isAdminBypass = await AsyncStorage.getItem("isAdminBypass");
+      const adminEmail = await AsyncStorage.getItem("adminEmail");
+
+      if (isAdminBypass === "true" && adminEmail === "admin@example.com") {
         setIsAdmin(true);
-        setFullname("Admin");
+        setFirstName("Admin");
+        setMiddleName("");
+        setLastName("");
         setEmail("admin@example.com");
         setPhone("");
-        setOriginalFullname("Admin");
+        setOriginalFirstName("Admin");
+        setOriginalMiddleName("");
+        setOriginalLastName("");
         setOriginalPhone("");
         setLoading(false);
         return;
       }
 
       const currentUser = auth.currentUser;
-      
+
       if (currentUser) {
         const userDoc = await getDoc(doc(db, "users", currentUser.uid));
-        
+
         if (userDoc.exists()) {
           const data = userDoc.data();
-          const fetchedFullname = data.fullname || data.name || "";
           const fetchedPhone = data.phone || "";
-          
-          setFullname(fetchedFullname);
+
+          let fetchedFirstName = "";
+          let fetchedMiddleName = "";
+          let fetchedLastName = "";
+
+          // Strategy 1: Check for individual name fields (preferred)
+          if (data.firstName || data.lastName) {
+            // Map individual fields explicitly to avoid misplacement
+            fetchedFirstName = data.firstName || "";
+            fetchedMiddleName = data.middleName || "";
+            fetchedLastName = data.lastName || "";
+            console.log("✅ Loaded individual name fields from Firestore:", {
+              firstName: fetchedFirstName,
+              middleName: fetchedMiddleName,
+              lastName: fetchedLastName,
+            });
+          }
+          // Strategy 2: Fall back to parsing combined fullname field
+          else if (data.fullname || data.name) {
+            const fullname = data.fullname || data.name;
+            const nameParts = fullname.trim().split(/\s+/);
+
+            if (nameParts.length === 1) {
+              fetchedFirstName = nameParts[0];
+            } else if (nameParts.length === 2) {
+              fetchedFirstName = nameParts[0];
+              fetchedLastName = nameParts[1];
+            } else if (nameParts.length >= 3) {
+              fetchedFirstName = nameParts[0];
+              fetchedMiddleName = nameParts.slice(1, -1).join(" ");
+              fetchedLastName = nameParts[nameParts.length - 1];
+            }
+            console.log("⚠️ Parsed combined fullname into individual fields:", {
+              firstName: fetchedFirstName,
+              middleName: fetchedMiddleName,
+              lastName: fetchedLastName,
+            });
+          }
+
+          // Map fetched values to state variables explicitly
+          setFirstName(fetchedFirstName);
+          setMiddleName(fetchedMiddleName);
+          setLastName(fetchedLastName);
           setEmail(data.email || currentUser.email || "");
           setPhone(fetchedPhone);
-          
-          // Store original values
-          setOriginalFullname(fetchedFullname);
+
+          // Store original values for change detection
+          setOriginalFirstName(fetchedFirstName);
+          setOriginalMiddleName(fetchedMiddleName);
+          setOriginalLastName(fetchedLastName);
           setOriginalPhone(fetchedPhone);
         } else {
           setEmail(currentUser.email || "");
@@ -145,10 +231,126 @@ export default function EditProfile({ navigation }) {
     }
   };
 
+  // Format name to Title Case
+  const formatToTitleCase = (name) => {
+    return name
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  };
+
+  // Auto-capitalize to Title Case (capitalize first letter of each word)
+  const autoCapitalizeName = (name) => {
+    if (!name) return "";
+
+    return name
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  };
+
+  // Validate first name in real-time
+  const validateFirstName = (name) => {
+    if (!name) {
+      setFirstNameError("");
+      return;
+    }
+
+    let error = "";
+
+    // Check maximum length first
+    if (name.length >= 20) {
+      error = "First name cannot exceed 20 characters";
+    }
+    // Check minimum length
+    else if (name.length < 2) {
+      error = "First name must be at least 2 letters";
+    }
+    // Check for numbers
+    else if (/\d/.test(name)) {
+      error = "Numbers are not allowed";
+    }
+    // Check for invalid characters (only letters, spaces, and periods allowed)
+    else if (!/^[a-zA-Z\.\s]+$/.test(name)) {
+      error = "Invalid characters in first name";
+    }
+
+    setFirstNameError(error);
+  };
+
+  // Validate middle name in real-time
+  const validateMiddleName = (name) => {
+    if (!name) {
+      setMiddleNameError("");
+      return;
+    }
+
+    let error = "";
+
+    // Check maximum length
+    if (name.length >= 20) {
+      error = "Middle name cannot exceed 20 characters";
+    }
+    // Check for numbers
+    else if (/\d/.test(name)) {
+      error = "Numbers are not allowed";
+    }
+    // Check for invalid characters (only letters, spaces, and periods allowed)
+    else if (!/^[a-zA-Z\.\s]+$/.test(name)) {
+      error = "Invalid characters in middle name";
+    }
+
+    setMiddleNameError(error);
+  };
+
+  // Validate last name in real-time
+  const validateLastName = (name) => {
+    if (!name) {
+      setLastNameError("");
+      return;
+    }
+
+    let error = "";
+
+    // Check maximum length first
+    if (name.length >= 20) {
+      error = "Last name cannot exceed 20 characters";
+    }
+    // Check minimum length
+    else if (name.length < 2) {
+      error = "Last name must be at least 2 letters";
+    }
+    // Check for numbers
+    else if (/\d/.test(name)) {
+      error = "Numbers are not allowed";
+    }
+    // Check for invalid characters (only letters, spaces, and periods allowed)
+    else if (!/^[a-zA-Z\.\s]+$/.test(name)) {
+      error = "Invalid characters in last name";
+    }
+
+    setLastNameError(error);
+  };
+
   const handleSaveProfile = () => {
     // Validation
-    if (!fullname.trim()) {
-      Alert.alert("Error", "Please enter your name");
+    if (!firstName.trim()) {
+      Alert.alert("Error", "Please enter your first name");
+      return;
+    }
+
+    if (!lastName.trim()) {
+      Alert.alert("Error", "Please enter your last name");
+      return;
+    }
+
+    // Check for validation errors
+    if (firstNameError || middleNameError || lastNameError) {
+      Alert.alert("Error", "Please fix name validation errors before saving");
       return;
     }
 
@@ -178,41 +380,96 @@ export default function EditProfile({ navigation }) {
       }
 
       const currentUser = auth.currentUser;
-      
+
       if (!currentUser) {
         Alert.alert("Error", "No user logged in");
         setSaving(false);
         return;
       }
 
-      // Update Firestore profile
-      await updateDoc(doc(db, "users", currentUser.uid), {
-        fullname: fullname.trim(),
-        phone: phone.trim(),
-        updatedAt: new Date(),
-      });
+      // Format names to Title Case
+      const formattedFirstName = formatToTitleCase(firstName);
+      const formattedMiddleName = formatToTitleCase(middleName);
+      const formattedLastName = formatToTitleCase(lastName);
+      const trimmedPhone = phone.trim();
 
-      console.log("✅ Profile updated successfully");
-      
+      // Build update object with only changed fields
+      const updateData = {};
+      const fieldsChanged = [];
+
+      // Check each field for changes and only update if different
+      if (formattedFirstName !== originalFirstName) {
+        updateData.firstName = formattedFirstName;
+        fieldsChanged.push(
+          `firstName: "${originalFirstName}" → "${formattedFirstName}"`
+        );
+      }
+
+      if (formattedMiddleName !== originalMiddleName) {
+        updateData.middleName = formattedMiddleName;
+        fieldsChanged.push(
+          `middleName: "${originalMiddleName}" → "${formattedMiddleName}"`
+        );
+      }
+
+      if (formattedLastName !== originalLastName) {
+        updateData.lastName = formattedLastName;
+        fieldsChanged.push(
+          `lastName: "${originalLastName}" → "${formattedLastName}"`
+        );
+      }
+
+      if (trimmedPhone !== originalPhone) {
+        updateData.phone = trimmedPhone;
+        fieldsChanged.push(`phone: "${originalPhone}" → "${trimmedPhone}"`);
+      }
+
+      // Always update timestamp
+      updateData.updatedAt = new Date();
+
+      // Only proceed if there are actual changes
+      if (Object.keys(updateData).length > 1) {
+        // Generate combined fullname for reference (optional backup field)
+        const fullname = [
+          formattedFirstName,
+          formattedMiddleName,
+          formattedLastName,
+        ]
+          .filter((name) => name)
+          .join(" ");
+        updateData.fullname = fullname;
+
+        // Update Firestore profile with only changed fields
+        await updateDoc(doc(db, "users", currentUser.uid), updateData);
+
+        console.log("✅ Profile updated successfully");
+        console.log("📝 Fields changed:", fieldsChanged);
+      } else {
+        console.log("ℹ️ No changes detected - profile not updated");
+      }
+
       // Update original values to reflect saved changes
-      setOriginalFullname(fullname.trim());
-      setOriginalPhone(phone.trim());
-      
+      setOriginalFirstName(formattedFirstName);
+      setOriginalMiddleName(formattedMiddleName);
+      setOriginalLastName(formattedLastName);
+      setOriginalPhone(trimmedPhone);
+
       // Clear password fields to prevent unsaved changes warning
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      
+
       // Set flag to indicate changes were just saved
       justSavedRef.current = true;
-      
+
       // Show success modal
       setSuccessMessage("Your profile has been updated");
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
+        // Auto-navigate back to UserProfile after success
+        navigation.navigate("UserProfile");
       }, 2000);
-
     } catch (error) {
       console.error("Error saving profile:", error);
       Alert.alert("Error", "Failed to save changes. Please try again.");
@@ -234,6 +491,69 @@ export default function EditProfile({ navigation }) {
     setPasswordErrorMessage("Close");
   };
 
+  // Validate new password in real-time
+  const validateNewPassword = (password, currentPwd = "") => {
+    if (!password) {
+      setNewPasswordError("");
+      setConfirmPasswordError("");
+      return;
+    }
+
+    let error = "";
+
+    // Check if new password equals current password (run this check first)
+    if (currentPwd && password === currentPwd) {
+      error = "New password must be different from your current password";
+    }
+    // Check length
+    else if (password.length < 6) {
+      error = "Minimum 6 characters required";
+    } else if (password.length > 20) {
+      error = "Maximum 20 characters allowed";
+    }
+    // Check for uppercase
+    else if (!/[A-Z]/.test(password)) {
+      error = "At least 1 uppercase letter required";
+    }
+    // Check for lowercase
+    else if (!/[a-z]/.test(password)) {
+      error = "At least 1 lowercase letter required";
+    }
+    // Check for number
+    else if (!/\d/.test(password)) {
+      error = "At least 1 number required";
+    }
+    // Check for special character
+    else if (!/[!@#$%^&*]/.test(password)) {
+      error = "At least 1 special character required (!@#$%^&*)";
+    }
+
+    setNewPasswordError(error);
+
+    // If new password is valid and confirm password exists, check match
+    if (!error && confirmPassword) {
+      if (password !== confirmPassword) {
+        setConfirmPasswordError("Passwords do not match");
+      } else {
+        setConfirmPasswordError("");
+      }
+    }
+  };
+
+  // Validate confirm password in real-time
+  const validateConfirmPassword = (password) => {
+    if (!password) {
+      setConfirmPasswordError("");
+      return;
+    }
+
+    if (password !== newPassword) {
+      setConfirmPasswordError("Passwords do not match");
+    } else {
+      setConfirmPasswordError("");
+    }
+  };
+
   const handleSavePassword = () => {
     // Password validation
     if (!currentPassword) {
@@ -246,27 +566,15 @@ export default function EditProfile({ navigation }) {
       setShowPasswordErrorModal(true);
       return;
     }
-    if (newPassword !== confirmPassword) {
-      setPasswordErrorMessage("New passwords do not match");
+    if (!confirmPassword) {
+      setPasswordErrorMessage("Please confirm your new password");
       setShowPasswordErrorModal(true);
       return;
     }
-    if (newPassword.length < 8) {
-      setPasswordErrorMessage("Password must be at least 8 characters");
-      setShowPasswordErrorModal(true);
-      return;
-    }
-    
-    // Check for at least one number
-    if (!/\d/.test(newPassword)) {
-      setPasswordErrorMessage("Password must contain at least one number");
-      setShowPasswordErrorModal(true);
-      return;
-    }
-    
-    // Check for at least one special character
-    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(newPassword)) {
-      setPasswordErrorMessage("Password must contain at least one special character (!@#$%^&*...)");
+
+    // Check for inline validation errors
+    if (newPasswordError || confirmPasswordError) {
+      setPasswordErrorMessage("Please fix password errors before saving");
       setShowPasswordErrorModal(true);
       return;
     }
@@ -286,7 +594,7 @@ export default function EditProfile({ navigation }) {
 
     try {
       const currentUser = auth.currentUser;
-      
+
       if (!currentUser) {
         setPasswordErrorMessage("No user logged in");
         setShowPasswordErrorModal(true);
@@ -295,22 +603,32 @@ export default function EditProfile({ navigation }) {
       }
 
       // Try to reauthenticate with current password
-      const credential = EmailAuthProvider.credential(currentUser.email, currentPassword);
+      const credential = EmailAuthProvider.credential(
+        currentUser.email,
+        currentPassword
+      );
       await reauthenticateWithCredential(currentUser, credential);
-      
+
       // If successful, show confirmation modal
       setSaving(false);
       setShowPasswordConfirmModal(true);
     } catch (error) {
       setSaving(false);
       console.error("Current password validation error:", error);
-      
-      if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+
+      if (
+        error.code === "auth/wrong-password" ||
+        error.code === "auth/invalid-credential"
+      ) {
         setPasswordErrorMessage("Current password is incorrect");
-      } else if (error.code === 'auth/too-many-requests') {
-        setPasswordErrorMessage("Too many failed attempts. Please try again later");
+      } else if (error.code === "auth/too-many-requests") {
+        setPasswordErrorMessage(
+          "Too many failed attempts. Please try again later"
+        );
       } else {
-        setPasswordErrorMessage("Failed to verify current password. Please try again");
+        setPasswordErrorMessage(
+          "Failed to verify current password. Please try again"
+        );
       }
       setShowPasswordErrorModal(true);
     }
@@ -332,7 +650,7 @@ export default function EditProfile({ navigation }) {
       }
 
       const currentUser = auth.currentUser;
-      
+
       if (!currentUser) {
         Alert.alert("Error", "No user logged in");
         setSaving(false);
@@ -343,15 +661,15 @@ export default function EditProfile({ navigation }) {
       try {
         await updatePassword(currentUser, newPassword);
         console.log("✅ Password updated successfully");
-        
+
         // Clear password fields
         setCurrentPassword("");
         setNewPassword("");
         setConfirmPassword("");
-        
+
         // Set flag to indicate changes were just saved
         justSavedRef.current = true;
-        
+
         // Show success modal
         setSuccessMessage("You successfully changed your password");
         setShowSuccess(true);
@@ -364,7 +682,6 @@ export default function EditProfile({ navigation }) {
         setSaving(false);
         return;
       }
-
     } catch (error) {
       console.error("Error updating password:", error);
       Alert.alert("Error", "Failed to update password. Please try again.");
@@ -377,7 +694,7 @@ export default function EditProfile({ navigation }) {
     setShowUnsavedModal(false);
     // Set flag to allow navigation
     setCanExit(true);
-    
+
     // Use setTimeout to ensure state is updated before navigating
     setTimeout(() => {
       if (navigationActionRef.current) {
@@ -393,9 +710,14 @@ export default function EditProfile({ navigation }) {
   };
 
   const handleBackPress = () => {
-    const hasProfileChanges = fullname !== originalFullname || phone !== originalPhone;
-    const hasPasswordChanges = currentPassword || newPassword || confirmPassword;
-    
+    const hasProfileChanges =
+      firstName !== originalFirstName ||
+      middleName !== originalMiddleName ||
+      lastName !== originalLastName ||
+      phone !== originalPhone;
+    const hasPasswordChanges =
+      currentPassword || newPassword || confirmPassword;
+
     if (hasProfileChanges || hasPasswordChanges) {
       setShowUnsavedModal(true);
     } else {
@@ -405,9 +727,16 @@ export default function EditProfile({ navigation }) {
 
   if (loading) {
     return (
-      <View style={[styles.scrollContainer, { justifyContent: 'center', alignItems: 'center' }]}>
+      <View
+        style={[
+          styles.scrollContainer,
+          { justifyContent: "center", alignItems: "center" },
+        ]}
+      >
         <ActivityIndicator size="large" color="#1D3B71" />
-        <Text style={{ marginTop: 10, color: "#1D3B71" }}>Loading profile...</Text>
+        <Text style={{ marginTop: 10, color: "#1D3B71" }}>
+          Loading profile...
+        </Text>
       </View>
     );
   }
@@ -418,22 +747,26 @@ export default function EditProfile({ navigation }) {
       <Modal visible={showSaveConfirmModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Ionicons name="checkmark-circle-outline" size={60} color="#1D3B71" />
-            
+            <Ionicons
+              name="checkmark-circle-outline"
+              size={60}
+              color="#1D3B71"
+            />
+
             <Text style={styles.modalTitle}>Save Changes</Text>
             <Text style={styles.modalMessage}>
               Are you sure you want to save the changes?
             </Text>
-            
+
             <View style={styles.modalButtons}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}
                 onPress={cancelSaveProfile}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity 
+
+              <TouchableOpacity
                 style={[styles.modalButton, styles.confirmButton]}
                 onPress={confirmSaveProfile}
               >
@@ -449,13 +782,11 @@ export default function EditProfile({ navigation }) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Ionicons name="alert-circle-outline" size={60} color="#D32F2F" />
-            
+
             <Text style={styles.modalTitle}>Validation Error</Text>
-            <Text style={styles.modalMessage}>
-              {passwordErrorMessage}
-            </Text>
-            
-            <TouchableOpacity 
+            <Text style={styles.modalMessage}>{passwordErrorMessage}</Text>
+
+            <TouchableOpacity
               style={styles.singleModalButton}
               onPress={closePasswordErrorModal}
             >
@@ -466,25 +797,29 @@ export default function EditProfile({ navigation }) {
       </Modal>
 
       {/* PASSWORD SAVE CONFIRMATION MODAL */}
-      <Modal visible={showPasswordConfirmModal} transparent animationType="fade">
+      <Modal
+        visible={showPasswordConfirmModal}
+        transparent
+        animationType="fade"
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Ionicons name="lock-closed-outline" size={60} color="#1D3B71" />
-            
+
             <Text style={styles.modalTitle}>Save Password</Text>
             <Text style={styles.modalMessage}>
               Are you sure you want to change your password?
             </Text>
-            
+
             <View style={styles.modalButtons}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}
                 onPress={cancelSavePassword}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity 
+
+              <TouchableOpacity
                 style={[styles.modalButton, styles.confirmButton]}
                 onPress={confirmSavePassword}
               >
@@ -500,21 +835,22 @@ export default function EditProfile({ navigation }) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Ionicons name="warning-outline" size={60} color="#FF9800" />
-            
+
             <Text style={styles.modalTitle}>Unsaved Changes</Text>
             <Text style={styles.modalMessage}>
-              There are unsaved changes. Are you sure you want to close this page?
+              There are unsaved changes. Are you sure you want to close this
+              page?
             </Text>
-            
+
             <View style={styles.modalButtons}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}
                 onPress={handleCancelDiscard}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity 
+
+              <TouchableOpacity
                 style={[styles.modalButton, styles.discardButton]}
                 onPress={handleDiscardChanges}
               >
@@ -529,7 +865,12 @@ export default function EditProfile({ navigation }) {
       <Modal visible={showSuccess} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Image source={{ uri: 'https://img.icons8.com/color/96/checked--v1.png' }} style={styles.icon} />
+            <Image
+              source={{
+                uri: "https://img.icons8.com/color/96/checked--v1.png",
+              }}
+              style={styles.icon}
+            />
 
             <Text style={styles.successTitle}>Changes Saved Successfully!</Text>
             <Text style={styles.successSubtitle}>{successMessage}</Text>
@@ -545,10 +886,7 @@ export default function EditProfile({ navigation }) {
       >
         <ScrollView contentContainerStyle={styles.scrollContainer}>
           {/* Back Button */}
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={handleBackPress}
-          >
+          <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
             <Ionicons name="arrow-back" size={28} color="#1D3B71" />
             <Text style={styles.backText}>Back</Text>
           </TouchableOpacity>
@@ -559,30 +897,82 @@ export default function EditProfile({ navigation }) {
               <View style={styles.profileCircle}>
                 <Ionicons name="person" size={80} color="#1D3B71" />
               </View>
-              <Text style={styles.name}>{originalFullname || "User"}</Text>
+              <Text style={styles.name}>
+                {[originalFirstName, originalLastName]
+                  .filter((name) => name)
+                  .join(" ") || "User"}
+              </Text>
               <Text style={styles.subtitle}>Edit Profile</Text>
             </View>
 
-            {/* Full Name */}
-            <Text style={styles.label}>Full Name</Text>
-            <TextInput 
-              style={styles.input} 
-              placeholder="Enter full name"
-              value={fullname}
-              onChangeText={setFullname}
+            {/* First Name */}
+            <View style={styles.labelContainer}>
+              <Text style={styles.label}>First Name</Text>
+              <Text style={styles.requiredAsterisk}>*</Text>
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter first name"
+              value={firstName}
+              maxLength={20}
+              onChangeText={(text) => {
+                setFirstName(text);
+                validateFirstName(text);
+              }}
             />
+            {firstNameError ? (
+              <Text style={styles.errorText}>{firstNameError}</Text>
+            ) : null}
+
+            {/* Middle Name */}
+            <Text style={styles.label}>Middle Name</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter middle name"
+              value={middleName}
+              maxLength={20}
+              onChangeText={(text) => {
+                setMiddleName(text);
+                validateMiddleName(text);
+              }}
+            />
+            {middleNameError ? (
+              <Text style={styles.errorText}>{middleNameError}</Text>
+            ) : null}
+
+            {/* Last Name */}
+            <View style={styles.labelContainer}>
+              <Text style={styles.label}>Last Name</Text>
+              <Text style={styles.requiredAsterisk}>*</Text>
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter last name"
+              value={lastName}
+              maxLength={20}
+              onChangeText={(text) => {
+                setLastName(text);
+                validateLastName(text);
+              }}
+            />
+            {lastNameError ? (
+              <Text style={styles.errorText}>{lastNameError}</Text>
+            ) : null}
 
             {/* Email */}
             <Text style={styles.label}>Email</Text>
-            <TextInput 
-              style={[styles.input, styles.disabledInput]} 
+            <TextInput
+              style={[styles.input, styles.disabledInput]}
               placeholder="Email"
               value={email}
               editable={false}
             />
 
             {/* Phone Number */}
-            <Text style={styles.label}>Phone Number</Text>
+            <View style={styles.labelContainer}>
+              <Text style={styles.label}>Phone Number</Text>
+              <Text style={styles.requiredAsterisk}>*</Text>
+            </View>
             <TextInput
               style={styles.input}
               placeholder="+639123456789"
@@ -590,18 +980,22 @@ export default function EditProfile({ navigation }) {
               value={phone}
               onChangeText={(text) => {
                 // Remove any non-numeric characters except +
-                let cleanText = text.replace(/[^0-9+]/g, '');
-                
+                let cleanText = text.replace(/[^0-9+]/g, "");
+
                 // If starts with 0, replace with +63
-                if (cleanText.startsWith('0')) {
-                  cleanText = '+63' + cleanText.substring(1);
+                if (cleanText.startsWith("0")) {
+                  cleanText = "+63" + cleanText.substring(1);
                 }
-                
+
                 // If doesn't start with +63, add it
-                if (!cleanText.startsWith('+63') && cleanText.length > 0 && !cleanText.startsWith('+')) {
-                  cleanText = '+63' + cleanText;
+                if (
+                  !cleanText.startsWith("+63") &&
+                  cleanText.length > 0 &&
+                  !cleanText.startsWith("+")
+                ) {
+                  cleanText = "+63" + cleanText;
                 }
-                
+
                 // Limit to +63 + 10 digits = 13 characters
                 if (cleanText.length <= 13) {
                   setPhone(cleanText);
@@ -611,8 +1005,8 @@ export default function EditProfile({ navigation }) {
             />
 
             {/* Save Changes Button */}
-            <TouchableOpacity 
-              style={[styles.saveButton, saving && styles.saveButtonDisabled]} 
+            <TouchableOpacity
+              style={[styles.saveButton, saving && styles.saveButtonDisabled]}
               onPress={handleSaveProfile}
               disabled={saving}
             >
@@ -658,7 +1052,10 @@ export default function EditProfile({ navigation }) {
                 placeholder="Enter new password"
                 secureTextEntry={!showPassword}
                 value={newPassword}
-                onChangeText={setNewPassword}
+                onChangeText={(text) => {
+                  setNewPassword(text);
+                  validateNewPassword(text, currentPassword);
+                }}
               />
               <TouchableOpacity
                 onPress={() => setShowPassword(!showPassword)}
@@ -671,6 +1068,9 @@ export default function EditProfile({ navigation }) {
                 />
               </TouchableOpacity>
             </View>
+            {newPasswordError ? (
+              <Text style={styles.errorText}>{newPasswordError}</Text>
+            ) : null}
 
             {/* Confirm Password */}
             <Text style={styles.label}>Confirm New Password</Text>
@@ -680,7 +1080,10 @@ export default function EditProfile({ navigation }) {
                 placeholder="Confirm new password"
                 secureTextEntry={!showConfirmPassword}
                 value={confirmPassword}
-                onChangeText={setConfirmPassword}
+                onChangeText={(text) => {
+                  setConfirmPassword(text);
+                  validateConfirmPassword(text);
+                }}
               />
               <TouchableOpacity
                 onPress={() => setShowConfirmPassword(!showConfirmPassword)}
@@ -693,10 +1096,13 @@ export default function EditProfile({ navigation }) {
                 />
               </TouchableOpacity>
             </View>
+            {confirmPasswordError ? (
+              <Text style={styles.errorText}>{confirmPasswordError}</Text>
+            ) : null}
 
             {/* Save Password Button */}
-            <TouchableOpacity 
-              style={[styles.saveButton, saving && styles.saveButtonDisabled]} 
+            <TouchableOpacity
+              style={[styles.saveButton, saving && styles.saveButtonDisabled]}
               onPress={handleSavePassword}
               disabled={saving}
             >
@@ -737,6 +1143,7 @@ const styles = StyleSheet.create({
   profileContainer: {
     alignItems: "center",
     marginBottom: 30,
+    width: "100%",
   },
   profileCircle: {
     borderWidth: 3,
@@ -752,6 +1159,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginTop: 9,
     color: "#000",
+    textAlign: "center",
   },
   subtitle: {
     fontSize: 16,
@@ -761,8 +1169,18 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 16,
     fontWeight: "600",
-    marginBottom: 5,
     color: "#000",
+  },
+  labelContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 5,
+  },
+  requiredAsterisk: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#D32F2F",
+    marginLeft: 3,
   },
   input: {
     borderWidth: 1,
@@ -821,6 +1239,13 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#1D3B71",
   },
+  errorText: {
+    color: "#D32F2F",
+    fontSize: 13,
+    fontWeight: "400",
+    marginTop: -10,
+    marginBottom: 15,
+  },
 
   // MODAL STYLES
   modalOverlay: {
@@ -848,10 +1273,12 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#2E7D32",
     marginBottom: 10,
+    textAlign: "center",
   },
   successSubtitle: {
     fontSize: 16,
     color: "#666",
+    textAlign: "center",
   },
   modalTitle: {
     fontSize: 22,
