@@ -66,56 +66,30 @@ export default function ActivityLogs({ navigation }) {
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Sort state - make sure these are the ONLY sort state declarations
-  const [sortBy, setSortBy] = useState("Date");
-  const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
-  const sortOptions = ["Date", "Name", "Action"];
+  // Calendar filter state
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
 
-  // Apply sorting - SINGLE useEffect
+  // Apply sorting - always by Date (newest first)
   useEffect(() => {
-    console.log(`🔄 Sorting logs by: ${sortBy}`);
+    console.log(`🔄 Sorting logs by Date (newest first)`);
     console.log(`📊 Total logs before sorting: ${allLogs.length}`);
     
     let sorted = [...allLogs];
-
-    // Apply sorting
-    switch (sortBy) {
-      case "Date":
-        sorted.sort((a, b) => {
-          const timeA = a.timestamp.getTime();
-          const timeB = b.timestamp.getTime();
-          return timeB - timeA; // Newest first
-        });
-        console.log(`✅ Sorted by Date (newest first)`);
-        console.log(`First 3 dates: ${sorted.slice(0, 3).map(log => formatDateGMT8(log.timestamp)).join(', ')}`);
-        break;
-      case "Name":
-        sorted.sort((a, b) => {
-          const nameA = a.userName.toLowerCase();
-          const nameB = b.userName.toLowerCase();
-          return nameA.localeCompare(nameB); // A-Z
-        });
-        console.log(`✅ Sorted by Name (A-Z)`);
-        console.log(`First 3 names: ${sorted.slice(0, 3).map(log => log.userName).join(', ')}`);
-        break;
-      case "Action":
-        sorted.sort((a, b) => {
-          const actionA = a.action.toLowerCase();
-          const actionB = b.action.toLowerCase();
-          return actionA.localeCompare(actionB); // A-Z
-        });
-        console.log(`✅ Sorted by Action (A-Z)`);
-        console.log(`First 3 actions: ${sorted.slice(0, 3).map(log => log.action).join(', ')}`);
-        break;
-      default:
-        console.log(`⚠️ Unknown sort option: ${sortBy}`);
-        break;
-    }
-
+    sorted.sort((a, b) => {
+      const timeA = a.timestamp.getTime();
+      const timeB = b.timestamp.getTime();
+      return timeB - timeA; // Newest first
+    });
+    
+    console.log(`✅ Sorted by Date (newest first)`);
+    console.log(`First 3 dates: ${sorted.slice(0, 3).map(log => formatDateGMT8(log.timestamp)).join(', ')}`);
     console.log(`📊 Total logs after sorting: ${sorted.length}`);
+    
     setFilteredLogs(sorted);
-    setCurrentPage(1); // Reset to first page when sorting changes
-  }, [allLogs, sortBy]);
+    setCurrentPage(1);
+  }, [allLogs]);
 
   // Prevent duplicate fetches (React StrictMode protection)
   const hasFetchedRef = useRef(false);
@@ -583,6 +557,78 @@ export default function ActivityLogs({ navigation }) {
     }
   };
 
+  // Apply date filtering
+  useEffect(() => {
+    console.log(`🔄 Filtering logs by date`);
+    
+    let filtered = [...allLogs];
+    
+    // Apply date filter if selected
+    if (selectedDate) {
+      filtered = filtered.filter((log) => {
+        const logDate = formatDateGMT8(log.timestamp);
+        const selectedDateStr = formatDateGMT8(selectedDate);
+        return logDate === selectedDateStr;
+      });
+      console.log(`📅 Filtered ${filtered.length} logs for date: ${formatDateGMT8(selectedDate)}`);
+    }
+    
+    // Sort by timestamp descending (newest first)
+    filtered.sort((a, b) => b.timestamp - a.timestamp);
+    
+    setFilteredLogs(filtered);
+    setCurrentPage(1);
+  }, [allLogs, selectedDate]);
+
+  // Calendar functions
+  const getDaysInMonth = (date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startingDayOfWeek = firstDay.getDay();
+
+    const days = [];
+    
+    // Add empty cells for days before month starts
+    for (let i = 0; i < startingDayOfWeek; i++) {
+      days.push(null);
+    }
+    
+    // Add days of the month
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(new Date(year, month, i));
+    }
+    
+    return days;
+  };
+
+  const handleDateSelect = (date) => {
+    setSelectedDate(date);
+    setShowCalendar(false);
+    console.log(`📅 Date selected: ${formatDateGMT8(date)}`);
+  };
+
+  const handleClearFilter = () => {
+    setSelectedDate(null);
+    setShowCalendar(false);
+    console.log(`🗑️ Date filter cleared`);
+  };
+
+  const handlePrevMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
+  };
+
+  const handleNextMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
+  };
+
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+
   return (
     <SafeAreaView style={styles.safe}>
       <Header2 />
@@ -607,10 +653,6 @@ export default function ActivityLogs({ navigation }) {
       ) : (
         <ScrollView 
           contentContainerStyle={styles.pageContent}
-          onScrollBeginDrag={() => {
-            console.log('📜 Scrolling - closing sort dropdown');
-            setSortDropdownOpen(false);
-          }}
         >
           {/* Buttons Row */}
           <View style={styles.buttonsRow}>
@@ -650,69 +692,116 @@ export default function ActivityLogs({ navigation }) {
             </Text>
           </View>
 
-          {/* Sort By Dropdown */}
-          <View style={styles.sortContainer}>
-            <View style={styles.sortDropdownWrapper}>
+          {/* Date Filter Button */}
+          <View style={styles.dateFilterContainer}>
+            <TouchableOpacity
+              style={styles.dateFilterButton}
+              onPress={() => setShowCalendar(true)}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="calendar-blank" size={20} color="#000" />
+              <Text style={styles.dateFilterButtonText}>
+                {selectedDate ? formatDateGMT8(selectedDate) : "Date"}
+              </Text>
+            </TouchableOpacity>
+            
+            {selectedDate && (
               <TouchableOpacity
-                style={styles.sortButton}
-                onPress={() => {
-                  console.log(`🔘 Sort button clicked. Current state: ${sortDropdownOpen ? 'open' : 'closed'}`);
-                  setSortDropdownOpen(!sortDropdownOpen);
-                }}
-                activeOpacity={0.8}
+                style={styles.clearDateFilterButton}
+                onPress={handleClearFilter}
+                activeOpacity={0.7}
               >
-                <MaterialCommunityIcons
-                  name="sort"
-                  size={18}
-                  color="#000"
-                  style={{ marginRight: 6 }}
-                />
-                <Text style={styles.sortButtonText}>Sort by: {sortBy}</Text>
-                <MaterialCommunityIcons
-                  name={sortDropdownOpen ? "chevron-up" : "chevron-down"}
-                  size={18}
-                  color="#000"
-                />
+                <MaterialCommunityIcons name="close" size={18} color="#666" />
               </TouchableOpacity>
+            )}
+          </View>
 
-              {sortDropdownOpen && (
-                <View style={styles.sortDropdown}>
-                  {sortOptions.map((option) => (
+          {/* Calendar Modal */}
+          <Modal
+            visible={showCalendar}
+            transparent={true}
+            animationType="fade"
+            onRequestClose={() => setShowCalendar(false)}
+          >
+            <View style={styles.calendarModalOverlay}>
+              <View style={styles.calendarModal}>
+                {/* Calendar Header */}
+                <View style={styles.calendarHeader}>
+                  <TouchableOpacity onPress={handlePrevMonth} style={styles.calendarNavButton}>
+                    <MaterialCommunityIcons name="chevron-left" size={28} color="#0EA5E9" />
+                  </TouchableOpacity>
+                  
+                  <Text style={styles.calendarHeaderText}>
+                    {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+                  </Text>
+                  
+                  <TouchableOpacity onPress={handleNextMonth} style={styles.calendarNavButton}>
+                    <MaterialCommunityIcons name="chevron-right" size={28} color="#0EA5E9" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Day Names */}
+                <View style={styles.calendarDayNames}>
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                    <View key={day} style={styles.calendarDayNameCell}>
+                      <Text style={styles.calendarDayNameText}>{day}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                {/* Calendar Grid */}
+                <View style={styles.calendarGrid}>
+                  {getDaysInMonth(currentMonth).map((date, index) => (
                     <TouchableOpacity
-                      key={option}
+                      key={index}
                       style={[
-                        styles.sortDropdownItem,
-                        sortBy === option && styles.sortDropdownItemActive,
+                        styles.calendarDayCell,
+                        !date && styles.calendarDayCellEmpty,
+                        date && selectedDate && 
+                        date.toDateString() === selectedDate.toDateString() && 
+                        styles.calendarDayCellSelected,
                       ]}
-                      onPress={() => {
-                        console.log(`✅ Sort option selected: ${option}`);
-                        console.log(`📝 Previous sortBy: ${sortBy}`);
-                        setSortBy(option);
-                        console.log(`📝 New sortBy will be: ${option}`);
-                        setSortDropdownOpen(false);
-                      }}
+                      onPress={() => date && handleDateSelect(date)}
+                      disabled={!date}
+                      activeOpacity={0.7}
                     >
-                      <Text
-                        style={[
-                          styles.sortDropdownItemText,
-                          sortBy === option && styles.sortDropdownItemTextActive,
-                        ]}
-                      >
-                        {option}
-                      </Text>
-                      {sortBy === option && (
-                        <MaterialCommunityIcons
-                          name="check"
-                          size={18}
-                          color="#000"
-                        />
+                      {date && (
+                        <Text
+                          style={[
+                            styles.calendarDayText,
+                            selectedDate && 
+                            date.toDateString() === selectedDate.toDateString() && 
+                            styles.calendarDayTextSelected,
+                          ]}
+                        >
+                          {date.getDate()}
+                        </Text>
                       )}
                     </TouchableOpacity>
                   ))}
                 </View>
-              )}
+
+                {/* Calendar Footer */}
+                <View style={styles.calendarFooter}>
+                  <TouchableOpacity
+                    style={styles.calendarClearButton}
+                    onPress={handleClearFilter}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.calendarClearButtonText}>Clear Filter</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={styles.calendarCloseButton}
+                    onPress={() => setShowCalendar(false)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.calendarCloseButtonText}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
-          </View>
+          </Modal>
 
           {/* Table */}
           <View style={styles.tableCard}>
@@ -871,15 +960,6 @@ export default function ActivityLogs({ navigation }) {
           <View style={styles.bottomSpacing} />
         </ScrollView>
       )}
-
-      {/* Close dropdown when tapping outside */}
-      {sortDropdownOpen && (
-        <TouchableOpacity
-          style={styles.fullscreenDismiss}
-          activeOpacity={1}
-          onPress={() => setSortDropdownOpen(false)}
-        />
-      )}
     </SafeAreaView>
   );
 }
@@ -921,18 +1001,6 @@ const styles = StyleSheet.create({
     color: "#666",
   },
   pageContent: { paddingVertical: 16, paddingHorizontal: 12 },
-  backButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-    paddingVertical: 4,
-  },
-  backButtonText: {
-    fontSize: 16,
-    color: "#133E87",
-    fontWeight: "500",
-    marginLeft: 8,
-  },
   buttonsRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -941,6 +1009,19 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     marginTop: 12,
   },
+  actionButton: {
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#133E87",
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  actionButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#133E87",
+  },
   title: {
     fontSize: 24,
     fontWeight: "700",
@@ -948,56 +1029,50 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 16,
   },
-  dateFilterBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#EBF5FF",
-    borderRadius: 8,
-    padding: 12,
+  resultsInfo: {
     marginBottom: 16,
+    alignItems: "center",
   },
-  dateFilterContent: {
+  resultsText: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+  },
+
+  // Date Filter Styles
+  dateFilterContainer: {
     flexDirection: "row",
     alignItems: "center",
+    paddingHorizontal: 0,
+    marginBottom: 16,
     gap: 8,
   },
-  dateFilterText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#234187",
-  },
-  clearDateButton: {
+  dateFilterButton: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  clearDateText: {
-    fontSize: 13,
-    color: "#64748b",
-  },
-  actionButton: {
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#234187",
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-  },
-  actionButtonText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#000",
-  },
-  iconButton: {
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: "#D1D5DB",
-    borderRadius: 20,
-    width: 40,
-    height: 40,
+    borderRadius: 24,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    gap: 8,
+    elevation: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+  },
+  dateFilterButtonText: {
+    fontSize: 15,
+    fontWeight: "400",
+    color: "#000",
+  },
+  clearDateFilterButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1006,7 +1081,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "#E5E7EB",
     overflow: "hidden",
   },
 
@@ -1014,15 +1089,15 @@ const styles = StyleSheet.create({
 
   table: {
     borderLeftWidth: 1,
-    borderLeftColor: BORDER,
+    borderLeftColor: "#E5E7EB",
     borderRightWidth: 1,
-    borderRightColor: BORDER,
+    borderRightColor: "#E5E7EB",
   },
 
   row: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderBottomColor: BORDER,
+    borderBottomColor: "#E5E7EB",
   },
   headerRow: {
     backgroundColor: "#F7F8FA",
@@ -1035,7 +1110,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderLeftWidth: 1,
-    borderLeftColor: BORDER,
+    borderLeftColor: "#E5E7EB",
     justifyContent: "center",
   },
   leftCell: {
@@ -1053,12 +1128,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   center: { textAlign: "center" },
-  emptyRow: {
+  noDataRow: {
     paddingVertical: 32,
     alignItems: "center",
     justifyContent: "center",
   },
-  emptyText: {
+  noDataText: {
     fontSize: 15,
     color: "#666",
     fontStyle: "italic",
@@ -1102,87 +1177,110 @@ const styles = StyleSheet.create({
   bottomSpacing: {
     height: 80,
   },
-  resultsInfo: {
-    marginBottom: 16,
-    alignItems: "center",
-  },
-  resultsText: {
-    fontSize: 14,
-    color: "#666",
-    textAlign: "center",
-  },
 
-  // Sort Styles
-  sortContainer: {
-    paddingHorizontal: 0,
-    marginBottom: 16,
-    marginLeft: 12,
-  },
-  sortDropdownWrapper: {
-    position: "relative",
-    alignSelf: "flex-start",
-    zIndex: 1000,
-  },
-  sortButton: {
-    flexDirection: "row",
+  // Calendar Modal Styles
+  calendarModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#000",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    gap: 4,
   },
-  sortButtonText: {
-    fontSize: 14,
-    fontWeight: "400",
-    color: "#000",
-  },
-  sortDropdown: {
-    position: "absolute",
-    top: "100%",
-    left: 0,
-    marginTop: 4,
+  calendarModal: {
     backgroundColor: "#fff",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#E3E8EF",
-    minWidth: 150,
+    borderRadius: 16,
+    padding: 20,
+    width: "90%",
+    maxWidth: 400,
+    elevation: 5,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.25,
     shadowRadius: 4,
-    elevation: 3,
-    zIndex: 1001,
   },
-  sortDropdownItem: {
+  calendarHeader: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    alignItems: "center",
+    marginBottom: 20,
   },
-  sortDropdownItemActive: {
-    backgroundColor: "#fff",
+  calendarNavButton: {
+    padding: 4,
   },
-  sortDropdownItemText: {
+  calendarHeaderText: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#000",
+  },
+  calendarDayNames: {
+    flexDirection: "row",
+    marginBottom: 10,
+  },
+  calendarDayNameCell: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  calendarDayNameText: {
     fontSize: 14,
-    fontWeight: "400",
+    fontWeight: "600",
+    color: "#666",
+  },
+  calendarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  calendarDayCell: {
+    width: "14.28%",
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 8,
+  },
+  calendarDayCellEmpty: {
+    backgroundColor: "transparent",
+  },
+  calendarDayCellSelected: {
+    backgroundColor: "#1E40AF",
+    borderRadius: 8,
+  },
+  calendarDayText: {
+    fontSize: 16,
     color: "#000",
   },
-  sortDropdownItemTextActive: {
-    fontWeight: "400",
+  calendarDayTextSelected: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  calendarFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 20,
+    gap: 12,
+  },
+  calendarClearButton: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  calendarClearButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
     color: "#000",
   },
-  fullscreenDismiss: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 999,
+  calendarCloseButton: {
+    flex: 1,
+    backgroundColor: "#1E40AF",
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  calendarCloseButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff",
   },
 });

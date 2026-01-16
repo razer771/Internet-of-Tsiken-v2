@@ -16,6 +16,7 @@ import {
 
 // Vector icons (using Expo's vector-icons wrapper which includes react-native-vector-icons)
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Calendar } from "react-native-calendars";
 import Header2 from "../navigation/adminHeader";
 
 const { width: windowWidth } = Dimensions.get("window");
@@ -133,10 +134,37 @@ function DownloadBadge({ size = 32, bg = "#133E87", iconColor = "#fff", style })
 }
 
 export default function AdminAnalytics({ navigation }) {
-  const [range, setRange] = useState("Last 7 Days");
   const [LineChartComp, setLineChartComp] = useState(null);
   const [chartError, setChartError] = useState(null);
   const [activePoint, setActivePoint] = useState(null);
+  const [activePointPredator, setActivePointPredator] = useState(null);
+  const [activePointFeed, setActivePointFeed] = useState(null);
+  const [activePointWater, setActivePointWater] = useState(null);
+  const [activePointSolar, setActivePointSolar] = useState(null);
+  const [pressedBtn, setPressedBtn] = useState(null);
+  const [activePieSlice, setActivePieSlice] = useState(null);
+  const [activePieSlicePredator, setActivePieSlicePredator] = useState(null);
+  const [predatorTimeRange, setPredatorTimeRange] = useState("daily"); // Add state for time range
+
+  // New state variables for Filter Modal
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [selectedDate, setSelectedDate] = useState("");
+  // Current target chart for filtering
+  const [currentFilterTarget, setCurrentFilterTarget] = useState(null);
+
+  // Filters for each chart
+  const [chartFilters, setChartFilters] = useState({});
+
+  const formatFilterDisplay = (dateString) => {
+    if (!dateString) return "";
+    const date = new Date(dateString);
+    const monthNames = ["January", "February", "March", "April", "May", "June", 
+                       "July", "August", "September", "October", "November", "December"];
+    const day = date.getDate();
+    const year = date.getFullYear();
+    const monthName = monthNames[date.getMonth()];
+    return `${monthName} ${day}, ${year}`;
+  };
 
   useEffect(() => {
     try {
@@ -160,10 +188,8 @@ export default function AdminAnalytics({ navigation }) {
 
   // Note: icon values are MaterialCommunityIcons names
   const metrics = [
-    { id: 1, title: "Total Users", value: 24, subtitle: "+3 this month", icon: "account-group" },
-    { id: 2, title: "Active Sessions", value: 18, subtitle: "75% online", icon: "chart-areaspline" },
-    { id: 3, title: "Active Sessions", value: 18, subtitle: "75% online", icon: "flash" },
-    { id: 4, title: "Active Sessions", value: 18, subtitle: "75% online", icon: "alert-circle-outline" },
+    { id: 1, title: "Mortality Rate", value: "0%", subtitle: "31 chicks active", icon: "account-group" },
+    { id: 2, title: "Predators Detected", value: 0, subtitle: "No threats detected", icon: "chart-areaspline" },
   ];
 
   const chartData = {
@@ -195,9 +221,76 @@ export default function AdminAnalytics({ navigation }) {
     setTimeout(() => setActivePoint(null), 2000);
   };
 
+  const showPointTooltipPredator = (point) => {
+    setActivePointPredator(point);
+    setTimeout(() => setActivePointPredator(null), 2000);
+  };
+
+  const showPointTooltipFeed = (point) => {
+    setActivePointFeed(point);
+    setTimeout(() => setActivePointFeed(null), 2000);
+  };
+
+  const showPointTooltipWater = (point) => {
+    setActivePointWater(point);
+    setTimeout(() => setActivePointWater(null), 2000);
+  };
+
+  const showPointTooltipSolar = (point) => {
+    setActivePointSolar(point);
+    setTimeout(() => setActivePointSolar(null), 2000);
+  };
+
+  // Updated Predator chart data with different time ranges
+  const predatorChartDataDaily = {
+    labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    datasets: [{ data: [0, 1, 0, 2, 0, 1, 0], color: (opacity = 1) => `rgba(21,71,133, ${opacity})` }],
+  };
+
+  const predatorChartDataMonthly = {
+    labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+    datasets: [{ data: [3, 5, 2, 8, 4, 6], color: (opacity = 1) => `rgba(21,71,133, ${opacity})` }],
+  };
+
+  const predatorChartDataYearly = {
+    labels: ["2019", "2020", "2021", "2022", "2023", "2024"],
+    datasets: [{ data: [15, 22, 18, 30, 25, 28], color: (opacity = 1) => `rgba(21,71,133, ${opacity})` }],
+  };
+
+  // Get current predator chart data based on selected time range
+  const getCurrentPredatorData = () => {
+    switch (predatorTimeRange) {
+      case "monthly":
+        return predatorChartDataMonthly;
+      case "yearly":
+        return predatorChartDataYearly;
+      default:
+        return predatorChartDataDaily;
+    }
+  };
+
+  const predatorChartData = getCurrentPredatorData();
+
+  // Chart data for Feed Consumption
+  const feedChartData = {
+    labels: ["Day 1", "Day 7", "Day 14", "Day 21", "Day 28", "Day 35"],
+    datasets: [{ data: [5, 8, 12, 15, 18, 20], color: (opacity = 1) => `rgba(21,71,133, ${opacity})` }],
+  };
+
+  // Chart data for Water Consumption
+  const waterChartData = {
+    labels: ["Day 1", "Day 7", "Day 14", "Day 21", "Day 28", "Day 35"],
+    datasets: [{ data: [8, 12, 16, 20, 24, 28], color: (opacity = 1) => `rgba(21,71,133, ${opacity})` }],
+  };
+
+  const solarChartData = {
+    labels: ["Jan 01", "Jan 02", "Jan 03", "Jan 04", "Jan 05", "Jan 06"],
+    datasets: [{ data: [12.4, 10.8, 13.6, 14.1, 12.9, 11.7], color: (opacity = 1) => `rgba(21,71,133, ${opacity})` }],
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
-      <Header2 /> {/* Add the header at the top */}
+      <Header2 />
       <ScrollView contentContainerStyle={styles.container}>
         {/* Back Button */}
         <TouchableOpacity
@@ -209,26 +302,68 @@ export default function AdminAnalytics({ navigation }) {
           <Text style={styles.backButtonText}>Back to Dashboard</Text>
         </TouchableOpacity>
 
-        <View style={styles.pickerRow}>
-          <Text style={styles.pickerLabel}>Select Date Range:</Text>
-          <DateRangePicker
-            selected={range}
-            onChange={(r) => setRange(r)}
-            options={["Last 7 Days", "Last 30 Days", "This Month", "Custom"]}
-          />
-        </View>
-
         <View style={styles.metricsGrid}>
           {metrics.map((m) => (
             <MetricCard key={m.id} icon={m.icon} title={m.title} value={m.value} subtitle={m.subtitle} />
           ))}
         </View>
 
-        {/* Line chart */}
+        {/* Mortality Rate Chart */}
         <View style={{ width: "100%", marginTop: 8 }}>
-          <View style={styles.chartCard}>
-            <Text style={styles.chartTitle}>User Growth Over Time</Text>
+          {/* Section Header */}
+          <Text style={styles.mortalitySectionTitle}>MORTALITY RATE</Text>
 
+          {/* Title and buttons row */}
+          <View style={styles.chartHeaderRow}>
+            <Text style={styles.chartTitleOutside}>Mortality Trend over time</Text>
+            <View style={styles.chartButtonsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.chartFilterButton,
+                  pressedBtn === "filter-mortality" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("filter-mortality")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => {
+                  setCurrentFilterTarget("mortality");
+                  setFilterModalVisible(true);
+                }}
+              >
+                <Text style={[
+                  styles.chartFilterText,
+                  pressedBtn === "filter-mortality" && { color: "#fff" }
+                ]}>
+                  Filter
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.chartExportButton,
+                  pressedBtn === "export-mortality" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("export-mortality")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => Alert.alert("Export", "Export functionality to be implemented")}
+              >
+                <Text style={[
+                  styles.chartExportText,
+                  pressedBtn === "export-mortality" && { color: "#fff" }
+                ]}>
+                  Export
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          <View style={styles.chartCard}>
+            {chartFilters["mortality"] && (
+               <Text style={{ textAlign: 'center', color: '#133E87', fontWeight: 'bold', marginBottom: 8 }}>
+                 {formatFilterDisplay(chartFilters["mortality"])}
+               </Text>
+            )}
             {LineChartComp ? (
               (() => {
                 try {
@@ -296,7 +431,7 @@ export default function AdminAnalytics({ navigation }) {
                             ]}
                           >
                             <Text style={styles.tooltipLabel}>{activePoint.label}</Text>
-                            <Text style={styles.tooltipValue}>Users: {activePoint.value}</Text>
+                            <Text style={styles.tooltipValue}>Deaths: {activePoint.value}</Text>
                           </View>
                         </View>
                       )}
@@ -309,20 +444,1485 @@ export default function AdminAnalytics({ navigation }) {
               })()
             ) : null}
           </View>
-        </View>
 
-        {/* Grouped bar chart */}
-        <View style={{ width: "100%", marginTop: 12 }}>
-          <View style={[styles.chartCard, { overflow: "hidden", minHeight: barChartHeight + 80 }]}>
-            <Text style={styles.chartTitle}>System Usage & Activity</Text>
-            <GroupedBarChart data={barData} height={barChartHeight} />
+          {/* See More Button */}
+          <View style={styles.seeMoreContainer}>
+            <TouchableOpacity
+              style={[
+                styles.seeMoreButton,
+                pressedBtn === "seeMore-mortality" && { backgroundColor: "transparent" }
+              ]}
+              activeOpacity={0.8}
+              onPressIn={() => setPressedBtn("seeMore-mortality")}
+              onPressOut={() => setPressedBtn(null)}
+              onPress={() => Alert.alert("See More", "Navigate to detailed mortality rate view")}
+            >
+              <Text style={[
+                styles.seeMoreText,
+                pressedBtn === "seeMore-mortality" && { color: "#133E87" }
+              ]}>
+                See More
+              </Text>
+              <View style={[
+                styles.seeMoreUnderline,
+                pressedBtn === "seeMore-mortality" && { backgroundColor: "#133E87" }
+              ]} />
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* Reports tab */}
+        {/* Cause of Death Pie Chart */}
         <View style={{ width: "100%", marginTop: 12 }}>
-          <ReportsTab barData={barData} metrics={metrics} />
+          <View style={styles.chartHeaderRow}>
+            <Text style={styles.chartTitleOutside}>Cause of Death</Text>
+            <View style={styles.chartButtonsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.chartFilterButton,
+                  pressedBtn === "filter-cause" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("filter-cause")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => {
+                  setCurrentFilterTarget("cause");
+                  setFilterModalVisible(true);
+                }}
+              >
+                <Text style={[
+                  styles.chartFilterText,
+                  pressedBtn === "filter-cause" && { color: "#fff" }
+                ]}>
+                  Filter
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.chartExportButton,
+                  pressedBtn === "export-cause" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("export-cause")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => Alert.alert("Export", "Export functionality to be implemented")}
+              >
+                <Text style={[
+                  styles.chartExportText,
+                  pressedBtn === "export-cause" && { color: "#fff" }
+                ]}>
+                  Export
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          <View style={styles.chartCard}>
+            {chartFilters["cause"] && (
+               <Text style={{ textAlign: 'center', color: '#133E87', fontWeight: 'bold', marginBottom: 8 }}>
+                 {formatFilterDisplay(chartFilters["cause"])}
+               </Text>
+            )}
+            {LineChartComp && (() => {
+              try {
+                // eslint-disable-next-line global-require
+                const RN_SVG = require("react-native-svg");
+                const Svg = RN_SVG.Svg || RN_SVG.default?.Svg || RN_SVG;
+                const G = RN_SVG.G || RN_SVG.default?.G;
+                const Path = RN_SVG.Path || RN_SVG.default?.Path;
+                
+                const pieData = [
+                  {
+                    name: "Predatory Attack",
+                    population: 45,
+                    color: "#154785",
+                  },
+                  {
+                    name: "Overfeeding",
+                    population: 25,
+                    color: "#FFC107",
+                  },
+                  {
+                    name: "Dehydration",
+                    population: 15,
+                    color: "#F44336",
+                  },
+                  {
+                    name: "Other",
+                    population: 15,
+                    color: "#4CAF50",
+                  },
+                ];
+
+                // Calculate pie slice paths
+                const total = pieData.reduce((sum, item) => sum + item.population, 0);
+                const radius = 100;
+                const cx = 110;
+                const cy = 110;
+                
+                let currentAngle = -90; // Start at top
+                const slices = pieData.map((item, index) => {
+                  const percentage = item.population / total;
+                  const angle = percentage * 360;
+                  const startAngle = currentAngle;
+                  const endAngle = currentAngle + angle;
+                  const midAngle = startAngle + angle / 2;
+                  
+                  // Convert to radians
+                  const startRad = (startAngle * Math.PI) / 180;
+                  const endRad = (endAngle * Math.PI) / 180;
+                  const midRad = (midAngle * Math.PI) / 180;
+                  
+                  // Calculate arc points
+                  const x1 = cx + radius * Math.cos(startRad);
+                  const y1 = cy + radius * Math.sin(startRad);
+                  const x2 = cx + radius * Math.cos(endRad);
+                  const y2 = cy + radius * Math.sin(endRad);
+                  
+                  // Calculate tooltip position (60% of radius from center)
+                  const tooltipDistance = radius * 0.6;
+                  const tooltipX = cx + tooltipDistance * Math.cos(midRad) - 40; // -40 to center tooltip
+                  const tooltipY = cy + tooltipDistance * Math.sin(midRad) - 25; // -25 to center tooltip
+                  
+                  const largeArcFlag = angle > 180 ? 1 : 0;
+                  
+                  const pathData = [
+                    `M ${cx} ${cy}`,
+                    `L ${x1} ${y1}`,
+                    `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+                    'Z'
+                  ].join(' ');
+                  
+                  currentAngle = endAngle;
+                  
+                  return {
+                    ...item,
+                    path: pathData,
+                    index,
+                    tooltipX,
+                    tooltipY
+                  };
+                });
+
+                return (
+                  <View style={{ width: '100%', paddingVertical: 20, paddingHorizontal: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                      {/* Interactive SVG Pie Chart */}
+                      <View style={{ marginRight: 16, position: 'relative' }}>
+                        <Svg width={220} height={220}>
+                          <G>
+                            {slices.map((slice, index) => (
+                              <Path
+                                key={index}
+                                d={slice.path}
+                                fill={activePieSlice === index ? slice.color : slice.color.replace('1)', '0.8)')}
+                                stroke="#fff"
+                                strokeWidth={2}
+                                onPress={() => {
+                                  setActivePieSlice(index);
+                                  setTimeout(() => setActivePieSlice(null), 3000);
+                                }}
+                              />
+                            ))}
+                          </G>
+                        </Svg>
+                        
+                        {/* Tooltip */}
+                        {activePieSlice !== null && (
+                          <View style={{
+                            position: 'absolute',
+                            top: slices[activePieSlice].tooltipY,
+                            left: slices[activePieSlice].tooltipX,
+                            backgroundColor: '#fff',
+                            padding: 10,
+                            borderRadius: 6,
+                            borderWidth: 1,
+                            borderColor: '#ccc',
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.25,
+                            shadowRadius: 3.84,
+                            elevation: 5,
+                            zIndex: 1000,
+                          }}>
+                            <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#0b2336' }}>
+                              {pieData[activePieSlice].name}
+                            </Text>
+                            <Text style={{ fontSize: 11, color: '#133E87', marginTop: 2 }}>
+                              {pieData[activePieSlice].population}%
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      
+                      {/* Custom Legend */}
+                      <View style={{ flex: 1, paddingLeft: 8, paddingRight: 8, alignItems: 'flex-start', justifyContent: 'center' }}>
+                        {pieData.map((item, index) => (
+                          <View key={index} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, width: '100%' }}>
+                            <View style={{ width: 16, height: 16, backgroundColor: item.color, marginRight: 8, borderRadius: 2, flexShrink: 0 }} />
+                            <Text style={{ fontSize: 12, color: '#0b2336', flex: 1, flexWrap: 'wrap' }} numberOfLines={2}>
+                              {item.name} ({item.population}%)
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  </View>
+                );
+              } catch (err) {
+                console.warn("Pie chart render error:", err?.message ?? err);
+                return (
+                  <View style={styles.fallback}>
+                    <Text style={styles.fallbackText}>Chart unavailable</Text>
+                    <Text style={styles.fallbackTextSmall}>Install react-native-chart-kit and react-native-svg</Text>
+                  </View>
+                );
+              }
+            })()}
+          </View>
+
+          <View style={styles.seeMoreContainer}>
+            <TouchableOpacity
+              style={styles.seeMoreButton}
+              activeOpacity={0.8}
+              onPressIn={() => setPressedBtn("seeMore-cause")}
+              onPressOut={() => setPressedBtn(null)}
+              onPress={() => Alert.alert("See More", "Navigate to detailed cause of death view")}
+            >
+              <Text style={[
+                styles.seeMoreText,
+                pressedBtn === "seeMore-cause" && { color: "#133E87" }
+              ]}>
+                See More
+              </Text>
+              <View style={[
+                styles.seeMoreUnderline,
+                pressedBtn === "seeMore-cause" && { backgroundColor: "#133E87" }
+              ]} />
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {/* Mortality per Batch Chart */}
+        <View style={{ width: "100%", marginTop: 12 }}>
+          <View style={styles.chartHeaderRow}>
+            <Text style={styles.chartTitleOutside}>Mortality per Batch</Text>
+            <View style={styles.chartButtonsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.chartFilterButton,
+                  pressedBtn === "filter-mortalitybatch" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("filter-mortalitybatch")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => {
+                  setCurrentFilterTarget("mortalitybatch");
+                  setFilterModalVisible(true);
+                }}
+              >
+                <Text style={[
+                  styles.chartFilterText,
+                  pressedBtn === "filter-mortalitybatch" && { color: "#fff" }
+                ]}>
+                  Filter
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.chartExportButton,
+                  pressedBtn === "export-mortalitybatch" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("export-mortalitybatch")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => Alert.alert("Export", "Export functionality to be implemented")}
+              >
+                <Text style={[
+                  styles.chartExportText,
+                  pressedBtn === "export-mortalitybatch" && { color: "#fff" }
+                ]}>
+                  Export
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          <View style={styles.chartCard}>
+            {chartFilters["mortalitybatch"] && (
+               <Text style={{ textAlign: 'center', color: '#133E87', fontWeight: 'bold', marginBottom: 8 }}>
+                 {formatFilterDisplay(chartFilters["mortalitybatch"])}
+               </Text>
+            )}
+            <MortalityBatchChart height={220} />
+          </View>
+
+          <View style={styles.seeMoreContainer}>
+            <TouchableOpacity
+              style={styles.seeMoreButton}
+              activeOpacity={0.8}
+              onPressIn={() => setPressedBtn("seeMore-mortalitybatch")}
+              onPressOut={() => setPressedBtn(null)}
+              onPress={() => Alert.alert("See More", "Navigate to detailed mortality per batch view")}
+            >
+              <Text style={[
+                styles.seeMoreText,
+                pressedBtn === "seeMore-mortalitybatch" && { color: "#133E87" }
+              ]}>
+                See More
+              </Text>
+              <View style={[
+                styles.seeMoreUnderline,
+                pressedBtn === "seeMore-mortalitybatch" && { backgroundColor: "#133E87" }
+              ]} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Predator Attacks Chart */}
+        <View style={{ width: "100%", marginTop: 12 }}>
+          <Text style={styles.mortalitySectionTitle}>PREDATORS ATTACK</Text>
+          <View style={styles.chartHeaderRow}>
+            <Text style={styles.chartTitleOutside}>Frequency of Attacks</Text>
+            <View style={styles.chartButtonsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.chartFilterButton,
+                  pressedBtn === "filter-predator" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("filter-predator")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => {
+                  setCurrentFilterTarget("predator");
+                  setFilterModalVisible(true);
+                }}
+              >
+                <Text style={[
+                  styles.chartFilterText,
+                  pressedBtn === "filter-predator" && { color: "#fff" }
+                ]}>
+                  Filter
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.chartExportButton,
+                  pressedBtn === "export-predator" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("export-predator")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => Alert.alert("Export", "Export functionality to be implemented")}
+              >
+                <Text style={[
+                  styles.chartExportText,
+                  pressedBtn === "export-predator" && { color: "#fff" }
+                ]}>
+                  Export
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          <View style={styles.chartCard}>
+            {chartFilters["predator"] && (
+               <Text style={{ textAlign: 'center', color: '#133E87', fontWeight: 'bold', marginBottom: 8 }}>
+                 {formatFilterDisplay(chartFilters["predator"])}
+               </Text>
+            )}
+            {LineChartComp && (
+              <View style={{ position: "relative", width: chartWidth }}>
+                <LineChartComp
+                  data={predatorChartData}
+                  width={chartWidth}
+                  height={chartHeight}
+                  chartConfig={{
+                    backgroundGradientFrom: "#ffffff",
+                    backgroundGradientTo: "#ffffff",
+                    decimalPlaces: 0,
+                    color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                    labelColor: (opacity = 1) => `rgba(44, 62, 80, ${opacity})`,
+                    propsForDots: { r: "4", strokeWidth: "2", stroke: "#154985" },
+                  }}
+                  bezier
+                  style={{ marginTop: 8 }}
+                  withVerticalLines={false}
+                  withInnerLines={false}
+                  withHorizontalLines={false}
+                  fromZero
+                  onDataPointClick={(data) => {
+                    const point = {
+                      index: data.index,
+                      value: data.value,
+                      label: predatorChartData.labels[data.index],
+                      x: data.x,
+                      y: data.y,
+                    };
+                    showPointTooltipPredator(point);
+                  }}
+                />
+
+                {activePointPredator !== null && (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.tooltipWrapper,
+                      {
+                        left: Math.max(6, activePointPredator.x - 1),
+                        top: 0,
+                        height: chartHeight,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.tooltipVerticalLine,
+                        {
+                          top: activePointPredator.y + 4,
+                          height: chartHeight - activePointPredator.y - 18,
+                        },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.tooltipBox,
+                        {
+                          position: "absolute",
+                          bottom: chartHeight - activePointPredator.y + 10,
+                          left: -40,
+                        },
+                      ]}
+                    >
+                      <Text style={styles.tooltipLabel}>{activePointPredator.label}</Text>
+                      <Text style={styles.tooltipValue}>Attacks: {activePointPredator.value}</Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+
+          <View style={styles.seeMoreContainer}>
+            <TouchableOpacity
+              style={styles.seeMoreButton}
+              activeOpacity={0.8}
+              onPressIn={() => setPressedBtn("seeMore-predator")}
+              onPressOut={() => setPressedBtn(null)}
+              onPress={() => Alert.alert("See More", "Navigate to detailed predator attacks view")}
+            >
+              <Text style={[
+                styles.seeMoreText,
+                pressedBtn === "seeMore-predator" && { color: "#133E87" }
+              ]}>
+                See More
+              </Text>
+              <View style={[
+                styles.seeMoreUnderline,
+                pressedBtn === "seeMore-predator" && { backgroundColor: "#133E87" }
+              ]} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Attacks per Batch Chart */}
+        <View style={{ width: "100%", marginTop: 12 }}>
+          <View style={styles.chartHeaderRow}>
+            <Text style={styles.chartTitleOutside}>Attacks per Batch</Text>
+            <View style={styles.chartButtonsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.chartFilterButton,
+                  pressedBtn === "filter-attacksbatch" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("filter-attacksbatch")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => {
+                  setCurrentFilterTarget("attacksbatch");
+                  setFilterModalVisible(true);
+                }}
+              >
+                <Text style={[
+                  styles.chartFilterText,
+                  pressedBtn === "filter-attacksbatch" && { color: "#fff" }
+                ]}>
+                  Filter
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.chartExportButton,
+                  pressedBtn === "export-attacksbatch" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("export-attacksbatch")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => Alert.alert("Export", "Export functionality to be implemented")}
+              >
+                <Text style={[
+                  styles.chartExportText,
+                  pressedBtn === "export-attacksbatch" && { color: "#fff" }
+                ]}>
+                  Export
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          <View style={styles.chartCard}>
+            {chartFilters["attacksbatch"] && (
+               <Text style={{ textAlign: 'center', color: '#133E87', fontWeight: 'bold', marginBottom: 8 }}>
+                 {formatFilterDisplay(chartFilters["attacksbatch"])}
+               </Text>
+            )}
+            <AttacksBatchChart height={220} />
+          </View>
+
+          <View style={styles.seeMoreContainer}>
+            <TouchableOpacity
+              style={styles.seeMoreButton}
+              activeOpacity={0.8}
+              onPressIn={() => setPressedBtn("seeMore-attacksbatch")}
+              onPressOut={() => setPressedBtn(null)}
+              onPress={() => Alert.alert("See More", "Navigate to detailed attacks per batch view")}
+            >
+              <Text style={[
+                styles.seeMoreText,
+                pressedBtn === "seeMore-attacksbatch" && { color: "#133E87" }
+              ]}>
+                See More
+              </Text>
+              <View style={[
+                styles.seeMoreUnderline,
+                pressedBtn === "seeMore-attacksbatch" && { backgroundColor: "#133E87" }
+              ]} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Predator Types Pie Chart */}
+        <View style={{ width: "100%", marginTop: 12 }}>
+          <View style={styles.chartHeaderRow}>
+            <Text style={styles.chartTitleOutside}>Predator Types</Text>
+            <View style={styles.chartButtonsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.chartFilterButton,
+                  pressedBtn === "filter-predatortypes" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("filter-predatortypes")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => {
+                  setCurrentFilterTarget("predatortypes");
+                  setFilterModalVisible(true);
+                }}
+              >
+                <Text style={[
+                  styles.chartFilterText,
+                  pressedBtn === "filter-predatortypes" && { color: "#fff" }
+                ]}>
+                  Filter
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.chartExportButton,
+                  pressedBtn === "export-predatortypes" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("export-predatortypes")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => Alert.alert("Export", "Export functionality to be implemented")}
+              >
+                <Text style={[
+                  styles.chartExportText,
+                  pressedBtn === "export-predatortypes" && { color: "#fff" }
+                ]}>
+                  Export
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          <View style={styles.chartCard}>
+            {chartFilters["predatortypes"] && (
+               <Text style={{ textAlign: 'center', color: '#133E87', fontWeight: 'bold', marginBottom: 8 }}>
+                 {formatFilterDisplay(chartFilters["predatortypes"])}
+               </Text>
+            )}
+            {LineChartComp && (() => {
+              try {
+                // eslint-disable-next-line global-require
+                const RN_SVG = require("react-native-svg");
+                const Svg = RN_SVG.Svg || RN_SVG.default?.Svg || RN_SVG;
+                const G = RN_SVG.G || RN_SVG.default?.G;
+                const Path = RN_SVG.Path || RN_SVG.default?.Path;
+                
+                const predatorTypesData = [
+                  {
+                    name: "Dog",
+                    population: 40,
+                    color: "#154785",
+                  },
+                  {
+                    name: "Cat",
+                    population: 25,
+                    color: "#FFC107",
+                  },
+                  {
+                    name: "Snake",
+                    population: 20,
+                    color: "#F44336",
+                  },
+                  {
+                    name: "Rat",
+                    population: 10,
+                    color: "#4CAF50",
+                  },
+                  {
+                    name: "Other",
+                    population: 5,
+                    color: "#E91E63",
+                  },
+                ];
+
+                // Calculate pie slice paths
+                const total = predatorTypesData.reduce((sum, item) => sum + item.population, 0);
+                const radius = 100;
+                const cx = 110;
+                const cy = 110;
+                
+                let currentAngle = -90; // Start at top
+                const slices = predatorTypesData.map((item, index) => {
+                  const percentage = item.population / total;
+                  const angle = percentage * 360;
+                  const startAngle = currentAngle;
+                  const endAngle = currentAngle + angle;
+                  const midAngle = startAngle + angle / 2;
+                  
+                  // Convert to radians
+                  const startRad = (startAngle * Math.PI) / 180;
+                  const endRad = (endAngle * Math.PI) / 180;
+                  const midRad = (midAngle * Math.PI) / 180;
+                  
+                  // Calculate arc points
+                  const x1 = cx + radius * Math.cos(startRad);
+                  const y1 = cy + radius * Math.sin(startRad);
+                  const x2 = cx + radius * Math.cos(endRad);
+                  const y2 = cy + radius * Math.sin(endRad);
+                  
+                  // Calculate tooltip position (60% of radius from center)
+                  const tooltipDistance = radius * 0.6;
+                  const tooltipX = cx + tooltipDistance * Math.cos(midRad) - 40; // -40 to center tooltip
+                  const tooltipY = cy + tooltipDistance * Math.sin(midRad) - 25; // -25 to center tooltip
+                  
+                  const largeArcFlag = angle > 180 ? 1 : 0;
+                  
+                  const pathData = [
+                    `M ${cx} ${cy}`,
+                    `L ${x1} ${y1}`,
+                    `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+                    'Z'
+                  ].join(' ');
+                  
+                  currentAngle = endAngle;
+                  
+                  return {
+                    ...item,
+                    path: pathData,
+                    index,
+                    tooltipX,
+                    tooltipY
+                  };
+                });
+
+                return (
+                  <View style={{ width: '100%', paddingVertical: 20, paddingHorizontal: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                      {/* Interactive SVG Pie Chart */}
+                      <View style={{ marginRight: 16, position: 'relative' }}>
+                        <Svg width={220} height={220}>
+                          <G>
+                            {slices.map((slice, index) => (
+                              <Path
+                                key={index}
+                                d={slice.path}
+                                fill={activePieSlicePredator === index ? slice.color : slice.color.replace('1)', '0.8)')}
+                                stroke="#fff"
+                                strokeWidth={2}
+                                onPress={() => {
+                                  setActivePieSlicePredator(index);
+                                  setTimeout(() => setActivePieSlicePredator(null), 3000);
+                                }}
+                              />
+                            ))}
+                          </G>
+                        </Svg>
+                        
+                        {/* Tooltip */}
+                        {activePieSlicePredator !== null && (
+                          <View style={{
+                            position: 'absolute',
+                            top: slices[activePieSlicePredator].tooltipY,
+                            left: slices[activePieSlicePredator].tooltipX,
+                            backgroundColor: '#fff',
+                            padding: 10,
+                            borderRadius: 6,
+                            borderWidth: 1,
+                            borderColor: '#ccc',
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.25,
+                            shadowRadius: 3.84,
+                            elevation: 5,
+                            zIndex: 1000,
+                          }}>
+                            <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#0b2336' }}>
+                              {predatorTypesData[activePieSlicePredator].name}
+                            </Text>
+                            <Text style={{ fontSize: 11, color: '#133E87', marginTop: 2 }}>
+                              {predatorTypesData[activePieSlicePredator].population}%
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      
+                      {/* Custom Legend */}
+                      <View style={{ flex: 1, paddingLeft: 8, paddingRight: 8, alignItems: 'flex-start', justifyContent: 'center' }}>
+                        {predatorTypesData.map((item, index) => (
+                          <View key={index} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, width: '100%' }}>
+                            <View style={{ width: 16, height: 16, backgroundColor: item.color, marginRight: 8, borderRadius: 2, flexShrink: 0 }} />
+                            <Text style={{ fontSize: 12, color: '#0b2336', flex: 1, flexWrap: 'wrap' }} numberOfLines={2}>
+                              {item.name} ({item.population}%)
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  </View>
+                );
+              } catch (err) {
+                console.warn("Pie chart render error:", err?.message ?? err);
+                return (
+                  <View style={styles.fallback}>
+                    <Text style={styles.fallbackText}>Chart unavailable</Text>
+                    <Text style={styles.fallbackTextSmall}>Install react-native-chart-kit and react-native-svg</Text>
+                  </View>
+                );
+              }
+            })()}
+          </View>
+
+          <View style={styles.seeMoreContainer}>
+            <TouchableOpacity
+              style={styles.seeMoreButton}
+              activeOpacity={0.8}
+              onPressIn={() => setPressedBtn("seeMore-predatortypes")}
+              onPressOut={() => setPressedBtn(null)}
+              onPress={() => Alert.alert("See More", "Navigate to detailed predator types view")}
+            >
+              <Text style={[
+                styles.seeMoreText,
+                pressedBtn === "seeMore-predatortypes" && { color: "#133E87" }
+              ]}>
+                See More
+              </Text>
+              <View style={[
+                styles.seeMoreUnderline,
+                pressedBtn === "seeMore-predatortypes" && { backgroundColor: "#133E87" }
+              ]} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Feed Consumption Chart */}
+        <View style={{ width: "100%", marginTop: 12 }}>
+          <Text style={styles.mortalitySectionTitle}>FEED CONSUMPTION</Text>
+          <View style={styles.chartHeaderRow}>
+            <Text style={styles.chartTitleOutside}>Consumption vs Age</Text>
+            <View style={styles.chartButtonsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.chartFilterButton,
+                  pressedBtn === "filter-feed" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("filter-feed")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => {
+                  setCurrentFilterTarget("feed");
+                  setFilterModalVisible(true);
+                }}
+              >
+                <Text style={[
+                  styles.chartFilterText,
+                  pressedBtn === "filter-feed" && { color: "#fff" }
+                ]}>
+                  Filter
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.chartExportButton,
+                  pressedBtn === "export-feed" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("export-feed")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => Alert.alert("Export", "Export functionality to be implemented")}
+              >
+                <Text style={[
+                  styles.chartExportText,
+                  pressedBtn === "export-feed" && { color: "#fff" }
+                ]}>
+                  Export
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          <View style={styles.chartCard}>
+            {chartFilters["feed"] && (
+               <Text style={{ textAlign: 'center', color: '#133E87', fontWeight: 'bold', marginBottom: 8 }}>
+                 {formatFilterDisplay(chartFilters["feed"])}
+               </Text>
+            )}
+            {LineChartComp && (
+              <View style={{ position: "relative", width: chartWidth }}>
+                <LineChartComp
+                  data={feedChartData}
+                  width={chartWidth}
+                  height={chartHeight}
+                  chartConfig={{
+                    backgroundGradientFrom: "#ffffff",
+                    backgroundGradientTo: "#ffffff",
+                    decimalPlaces: 0,
+                    color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                    labelColor: (opacity = 1) => `rgba(44, 62, 80, ${opacity})`,
+                    propsForDots: { r: "4", strokeWidth: "2", stroke: "#154985" },
+                  }}
+                  bezier
+                  style={{ marginTop: 8 }}
+                  withVerticalLines={false}
+                  withInnerLines={false}
+                  withHorizontalLines={false}
+                  fromZero
+                  onDataPointClick={(data) => {
+                    const point = {
+                      index: data.index,
+                      value: data.value,
+                      label: feedChartData.labels[data.index],
+                      x: data.x,
+                      y: data.y,
+                    };
+                    showPointTooltipFeed(point);
+                  }}
+                />
+
+                {activePointFeed !== null && (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.tooltipWrapper,
+                      {
+                        left: Math.max(6, activePointFeed.x - 1),
+                        top: 0,
+                        height: chartHeight,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.tooltipVerticalLine,
+                        {
+                          top: activePointFeed.y + 4,
+                          height: chartHeight - activePointFeed.y - 18,
+                        },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.tooltipBox,
+                        {
+                          position: "absolute",
+                          bottom: chartHeight - activePointFeed.y + 10,
+                          left: -40,
+                        },
+                      ]}
+                    >
+                      <Text style={styles.tooltipLabel}>{activePointFeed.label}</Text>
+                      <Text style={styles.tooltipValue}>Activations: {activePointFeed.value}</Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+
+          <View style={styles.seeMoreContainer}>
+            <TouchableOpacity
+              style={styles.seeMoreButton}
+              activeOpacity={0.8}
+              onPressIn={() => setPressedBtn("seeMore-feed")}
+              onPressOut={() => setPressedBtn(null)}
+              onPress={() => Alert.alert("See More", "Navigate to detailed feed consumption view")}
+            >
+              <Text style={[
+                styles.seeMoreText,
+                pressedBtn === "seeMore-feed" && { color: "#133E87" }
+              ]}>
+                See More
+              </Text>
+              <View style={[
+                styles.seeMoreUnderline,
+                pressedBtn === "seeMore-feed" && { backgroundColor: "#133E87" }
+              ]} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Total Feed per Batch Chart */}
+        <View style={{ width: "100%", marginTop: 12 }}>
+          <View style={styles.chartHeaderRow}>
+            <Text style={styles.chartTitleOutside}>Total Feed per Batch</Text>
+            <View style={styles.chartButtonsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.chartFilterButton,
+                  pressedBtn === "filter-feedbatch" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("filter-feedbatch")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => {
+                  setCurrentFilterTarget("feedbatch");
+                  setFilterModalVisible(true);
+                }}
+              >
+                <Text style={[
+                  styles.chartFilterText,
+                  pressedBtn === "filter-feedbatch" && { color: "#fff" }
+                ]}>
+                  Filter
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.chartExportButton,
+                  pressedBtn === "export-feedbatch" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("export-feedbatch")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => Alert.alert("Export", "Export functionality to be implemented")}
+              >
+                <Text style={[
+                  styles.chartExportText,
+                  pressedBtn === "export-feedbatch" && { color: "#fff" }
+                ]}>
+                  Export
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          <View style={styles.chartCard}>
+            {chartFilters["feedbatch"] && (
+               <Text style={{ textAlign: 'center', color: '#133E87', fontWeight: 'bold', marginBottom: 8 }}>
+                 {formatFilterDisplay(chartFilters["feedbatch"])}
+               </Text>
+            )}
+            <FeedBatchChart height={220} />
+          </View>
+
+          <View style={styles.seeMoreContainer}>
+            <TouchableOpacity
+              style={styles.seeMoreButton}
+              activeOpacity={0.8}
+              onPressIn={() => setPressedBtn("seeMore-feedbatch")}
+              onPressOut={() => setPressedBtn(null)}
+              onPress={() => Alert.alert("See More", "Navigate to detailed feed per batch view")}
+            >
+              <Text style={[
+                styles.seeMoreText,
+                pressedBtn === "seeMore-feedbatch" && { color: "#133E87" }
+              ]}>
+                See More
+              </Text>
+              <View style={[
+                styles.seeMoreUnderline,
+                pressedBtn === "seeMore-feedbatch" && { backgroundColor: "#133E87" }
+              ]} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Water Consumption Chart */}
+        <View style={{ width: "100%", marginTop: 12 }}>
+          <Text style={styles.mortalitySectionTitle}>WATER CONSUMPTION</Text>
+          <View style={styles.chartHeaderRow}>
+            <Text style={styles.chartTitleOutside}>Water vs Age</Text>
+            <View style={styles.chartButtonsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.chartFilterButton,
+                  pressedBtn === "filter-water" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("filter-water")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => {
+                  setCurrentFilterTarget("water");
+                  setFilterModalVisible(true);
+                }}
+              >
+                <Text style={[
+                  styles.chartFilterText,
+                  pressedBtn === "filter-water" && { color: "#fff" }
+                ]}>
+                  Filter
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.chartExportButton,
+                  pressedBtn === "export-water" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("export-water")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => Alert.alert("Export", "Export functionality to be implemented")}
+              >
+                <Text style={[
+                  styles.chartExportText,
+                  pressedBtn === "export-water" && { color: "#fff" }
+                ]}>
+                  Export
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          <View style={styles.chartCard}>
+            {chartFilters["water"] && (
+               <Text style={{ textAlign: 'center', color: '#133E87', fontWeight: 'bold', marginBottom: 8 }}>
+                 {formatFilterDisplay(chartFilters["water"])}
+               </Text>
+            )}
+            {LineChartComp && (
+              <View style={{ position: "relative", width: chartWidth }}>
+                <LineChartComp
+                  data={waterChartData}
+                  width={chartWidth}
+                  height={chartHeight}
+                  chartConfig={{
+                    backgroundGradientFrom: "#ffffff",
+                    backgroundGradientTo: "#ffffff",
+                    decimalPlaces: 0,
+                    color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                    labelColor: (opacity = 1) => `rgba(44, 62, 80, ${opacity})`,
+                    propsForDots: { r: "4", strokeWidth: "2", stroke: "#154985" },
+                  }}
+                  bezier
+                  style={{ marginTop: 8 }}
+                  withVerticalLines={false}
+                  withInnerLines={false}
+                  withHorizontalLines={false}
+                  fromZero
+                  onDataPointClick={(data) => {
+                    const point = {
+                      index: data.index,
+                      value: data.value,
+                      label: waterChartData.labels[data.index],
+                      x: data.x,
+                      y: data.y,
+                    };
+                    showPointTooltipWater(point);
+                  }}
+                />
+
+                {activePointWater !== null && (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.tooltipWrapper,
+                      {
+                        left: Math.max(6, activePointWater.x - 1),
+                        top: 0,
+                        height: chartHeight,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.tooltipVerticalLine,
+                        {
+                          top: activePointWater.y + 4,
+                          height: chartHeight - activePointWater.y - 18,
+                        },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.tooltipBox,
+                        {
+                          position: "absolute",
+                          bottom: chartHeight - activePointWater.y + 10,
+                          left: -40,
+                        },
+                      ]}
+                    >
+                      <Text style={styles.tooltipLabel}>{activePointWater.label}</Text>
+                      <Text style={styles.tooltipValue}>Activations: {activePointWater.value}</Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+
+          <View style={styles.seeMoreContainer}>
+            <TouchableOpacity
+              style={styles.seeMoreButton}
+              activeOpacity={0.8}
+              onPressIn={() => setPressedBtn("seeMore-water")}
+              onPressOut={() => setPressedBtn(null)}
+              onPress={() => Alert.alert("See More", "Navigate to detailed water consumption view")}
+            >
+              <Text style={[
+                styles.seeMoreText,
+                pressedBtn === "seeMore-water" && { color: "#133E87" }
+              ]}>
+                See More
+              </Text>
+              <View style={[
+                styles.seeMoreUnderline,
+                pressedBtn === "seeMore-water" && { backgroundColor: "#133E87" }
+              ]} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Total Water per Batch Chart */}
+        <View style={{ width: "100%", marginTop: 12 }}>
+          <View style={styles.chartHeaderRow}>
+            <Text style={styles.chartTitleOutside}>Total Water per Batch</Text>
+            <View style={styles.chartButtonsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.chartFilterButton,
+                  pressedBtn === "filter-waterbatch" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("filter-waterbatch")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => {
+                  setCurrentFilterTarget("waterbatch");
+                  setFilterModalVisible(true);
+                }}
+              >
+                <Text style={[
+                  styles.chartFilterText,
+                  pressedBtn === "filter-waterbatch" && { color: "#fff" }
+                ]}>
+                  Filter
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.chartExportButton,
+                  pressedBtn === "export-waterbatch" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("export-waterbatch")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => Alert.alert("Export", "Export functionality to be implemented")}
+              >
+                <Text style={[
+                  styles.chartExportText,
+                  pressedBtn === "export-waterbatch" && { color: "#fff" }
+                ]}>
+                  Export
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.chartCard}>
+            {chartFilters["waterbatch"] && (
+               <Text style={{ textAlign: 'center', color: '#133E87', fontWeight: 'bold', marginBottom: 8 }}>
+                 {formatFilterDisplay(chartFilters["waterbatch"])}
+               </Text>
+            )}
+            <WaterBatchChart height={220} />
+          </View>
+
+          <View style={styles.seeMoreContainer}>
+            <TouchableOpacity
+              style={styles.seeMoreButton}
+              activeOpacity={0.8}
+              onPressIn={() => setPressedBtn("seeMore-waterbatch")}
+              onPressOut={() => setPressedBtn(null)}
+              onPress={() => Alert.alert("See More", "Navigate to detailed water per batch view")}
+            >
+              <Text style={[
+                styles.seeMoreText,
+                pressedBtn === "seeMore-waterbatch" && { color: "#133E87" }
+              ]}>
+                See More
+              </Text>
+              <View style={[
+                styles.seeMoreUnderline,
+                pressedBtn === "seeMore-waterbatch" && { backgroundColor: "#133E87" }
+              ]} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Solar Power Usage Chart */}
+        <View style={{ width: "100%", marginTop: 12 }}>
+          <Text style={styles.mortalitySectionTitle}>SOLAR POWER USAGE</Text>
+          <View style={styles.chartHeaderRow}>
+            <Text style={styles.chartTitleOutside}>Energy Trends</Text>
+            <View style={styles.chartButtonsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.chartFilterButton,
+                  pressedBtn === "filter-solar" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("filter-solar")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => {
+                  setCurrentFilterTarget("solar");
+                  setFilterModalVisible(true);
+                }}
+              >
+                <Text style={[
+                  styles.chartFilterText,
+                  pressedBtn === "filter-solar" && { color: "#fff" }
+                ]}>
+                  Filter
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.chartExportButton,
+                  pressedBtn === "export-solar" && { backgroundColor: "#133E87", borderColor: "#133E87" }
+                ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("export-solar")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => Alert.alert("Export", "Export functionality to be implemented")}
+              >
+                <Text style={[
+                  styles.chartExportText,
+                  pressedBtn === "export-solar" && { color: "#fff" }
+                ]}>
+                  Export
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          <View style={styles.chartCard}>
+            {chartFilters["solar"] && (
+               <Text style={{ textAlign: 'center', color: '#133E87', fontWeight: 'bold', marginBottom: 8 }}>
+                 {formatFilterDisplay(chartFilters["solar"])}
+               </Text>
+            )}
+            {LineChartComp && (
+              <View style={{ position: "relative", width: chartWidth }}>
+                <LineChartComp
+                  data={solarChartData}
+                  width={chartWidth}
+                  height={chartHeight}
+                  chartConfig={{
+                    backgroundGradientFrom: "#ffffff",
+                    backgroundGradientTo: "#ffffff",
+                    decimalPlaces: 0,
+                    color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                    labelColor: (opacity = 1) => `rgba(44, 62, 80, ${opacity})`,
+                    propsForDots: { r: "4", strokeWidth: "2", stroke: "#154985" },
+                  }}
+                  bezier
+                  style={{ marginTop: 8 }}
+                  withVerticalLines={false}
+                  withInnerLines={false}
+                  withHorizontalLines={false}
+                  fromZero
+                  onDataPointClick={(data) => {
+                    const point = {
+                      index: data.index,
+                      value: data.value,
+                      label: solarChartData.labels[data.index],
+                      x: data.x,
+                      y: data.y,
+                    };
+                    showPointTooltipSolar(point);
+                  }}
+                />
+
+                {activePointSolar !== null && (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.tooltipWrapper,
+                      {
+                        left: Math.max(6, activePointSolar.x - 1),
+                        top: 0,
+                        height: chartHeight,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.tooltipVerticalLine,
+                        {
+                          top: activePointSolar.y + 4,
+                          height: chartHeight - activePointSolar.y - 18,
+                        },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.tooltipBox,
+                        {
+                          position: "absolute",
+                          bottom: chartHeight - activePointSolar.y + 10,
+                          left: -40,
+                        },
+                      ]}
+                    >
+                      <Text style={styles.tooltipLabel}>{activePointSolar.label}</Text>
+                      <Text style={styles.tooltipValue}>Energy: {activePointSolar.value} kWh</Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+
+          <View style={styles.seeMoreContainer}>
+            <TouchableOpacity
+              style={styles.seeMoreButton}
+              activeOpacity={0.8}
+              onPressIn={() => setPressedBtn("seeMore-solar")}
+              onPressOut={() => setPressedBtn(null)}
+              onPress={() => Alert.alert("See More", "Navigate to detailed solar power usage view")}
+            >
+              <Text style={[
+                styles.seeMoreText,
+                pressedBtn === "seeMore-solar" && { color: "#133E87" }
+              ]}>
+                See More
+              </Text>
+              <View style={[
+                styles.seeMoreUnderline,
+                pressedBtn === "seeMore-solar" && { backgroundColor: "#133E87" }
+              ]} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Filter Modal */}
+        <Modal
+          visible={filterModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setFilterModalVisible(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              {/* Modal Header */}
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Select Date</Text>
+                <TouchableOpacity
+                  onPress={() => setFilterModalVisible(false)}
+                  style={styles.modalCloseButton}
+                >
+                  <MaterialCommunityIcons name="close" size={24} color="#000" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Date Picker */}
+              <View style={styles.datePickerContainer}>
+                <Calendar
+                  onDayPress={(day) => {
+                    setSelectedDate(day.dateString);
+                  }}
+                  markedDates={{
+                    [selectedDate]: { selected: true, disableTouchEvent: true, selectedColor: "#133E87" },
+                  }}
+                  theme={{
+                    selectedDayBackgroundColor: "#133E87",
+                    todayTextColor: "#133E87",
+                    dayTextColor: "#0b2336",
+                    textDisabledColor: "#ccc",
+                    monthTextColor: "#133E87",
+                    arrowColor: "#133E87",
+                  }}
+                  style={styles.calendar}
+                />
+              </View>
+
+              {/* Apply and Reset Buttons */}
+              <View style={styles.modalButtonsRow}>
+                <TouchableOpacity
+                  style={styles.modalButton}
+                  onPress={() => {
+                    if (currentFilterTarget && selectedDate) {
+                      // Save filter settings for this chart
+                      setChartFilters(prev => ({
+                        ...prev,
+                        [currentFilterTarget]: selectedDate
+                      }));
+
+                      // Existing logic for Predator Chart time range state
+                      if (currentFilterTarget === "predator") {
+                         setPredatorTimeRange("daily");
+                      }
+                    }
+                    setFilterModalVisible(false);
+                  }}
+                >
+                  <Text style={[styles.modalButtonText, { color: "#133E87" }]}>Apply Filter</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalResetButton]}
+                  onPress={() => {
+                    if (currentFilterTarget) {
+                       // Remove filter for this chart
+                       setChartFilters(prev => {
+                         const newState = {...prev};
+                         delete newState[currentFilterTarget];
+                         return newState;
+                       });
+                    }
+                    // Reset local selection states
+                    setSelectedDate("");
+                    if (currentFilterTarget === "predator") setPredatorTimeRange("daily"); 
+                    setFilterModalVisible(false);
+                  }}
+                >
+                  <Text style={[styles.modalButtonText, { color: "#133E87" }]}>Reset Filter</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     </SafeAreaView>
   );
@@ -336,9 +1936,9 @@ function GroupedBarChart({ data = [], height = 180 }) {
   const [tooltipWidth, setTooltipWidth] = useState(0);
   const totalSlots = data.length;
 
-  const yAxisWidth = 44;
+  const yAxisWidth = 34;
   const outerPadding = 12;
-  const loginsColor = "#154985";
+  const loginsColor = "#133E87";
   const actionsColor = "#000";
 
   // nice max for y-axis
@@ -396,31 +1996,22 @@ function GroupedBarChart({ data = [], height = 180 }) {
               <View style={{ flexDirection: "row", width: "100%", height, justifyContent: "space-between" }}>
                 {(() => {
                   const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
-                  const columnWidth = innerWidth / totalSlots;
-
-                  // compute widths: both bars + gap occupy up to 70% of column
-                  const maxTotalBarWidth = columnWidth * 0.7;
-                  const barGap = Math.max(6, Math.min(14, columnWidth * 0.08));
-                  const singleBarWidth = Math.max(12, Math.min(48, Math.floor((maxTotalBarWidth - barGap) / 2)));
-                  const barsContainerWidth = singleBarWidth * 2 + barGap;
+                  const barWidth = Math.min(48, (innerWidth / totalSlots) * 0.7);
+                  const spacing = innerWidth / totalSlots;
+                  const minBarHeight = 8;
 
                   return data.map((d, i) => {
                     const loginsHeight = Math.round((d.logins / finalMax) * height);
-                    const actionsHeight = Math.round((d.actions / finalMax) * height);
 
                     return (
-                      <View key={i} style={{ width: columnWidth, alignItems: "center" }}>
+                      <View key={i} style={{ width: spacing, alignItems: "center" }}>
                         <View style={{ height, justifyContent: "flex-end", alignItems: "center" }}>
-                          <View style={{ width: barsContainerWidth, flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", height }}>
-                            <TouchableOpacity activeOpacity={0.85} onPress={() => onBarPress(i, d.logins)}
-                              style={{ width: singleBarWidth, height: loginsHeight, backgroundColor: loginsColor, borderTopLeftRadius: 4, borderTopRightRadius: 4 }} />
-                            <TouchableOpacity activeOpacity={0.85} onPress={() => onBarPress(i, d.actions)}
-                              style={{ width: singleBarWidth, height: actionsHeight, backgroundColor: actionsColor, borderTopLeftRadius: 4, borderTopRightRadius: 4 }} />
-                          </View>
+                          <View style={{ width: barWidth, height: loginsHeight, backgroundColor: loginsColor, borderTopLeftRadius: 4, borderTopRightRadius: 4 }} />
+                          <View style={{ width: barWidth, height: actionsHeight, backgroundColor: actionsColor, borderTopLeftRadius: 4, borderTopRightRadius: 4 }} />
                         </View>
 
                         {/* label */}
-                        <View style={{ width: columnWidth, alignItems: "center", marginTop: 6 }}>
+                        <View style={{ width: spacing, alignItems: "center", marginTop: 6 }}>
                           <Text numberOfLines={1} ellipsizeMode="tail" style={{ fontSize: 12 }}>{d.label}</Text>
                         </View>
                       </View>
@@ -606,7 +2197,7 @@ function ReportsTab({ barData = [], metrics = [] }) {
           <TouchableOpacity
             style={[
               styles.generateAnotherButton,
-              { borderColor: "#cbdff5", borderWidth: 1, backgroundColor: "#fff" }, // Default: white bg, blue border
+              { borderColor: "#cbdff5", borderWidth: 1, backgroundColor: "#fff" },
               pressedBtn === "generateAnother" && { backgroundColor: "#133E87", borderColor: "#133E87" }
             ]}
             activeOpacity={0.85}
@@ -616,8 +2207,8 @@ function ReportsTab({ barData = [], metrics = [] }) {
           >
             <Text style={[
               styles.generateAnotherText,
-              { color: "#000" }, // Default black
-              pressedBtn === "generateAnother" && { color: "#fff" } // White when pressed
+              { color: "#000" },
+              pressedBtn === "generateAnother" && { color: "#fff" }
             ]}>
               Generate Another Report
             </Text>
@@ -701,7 +2292,7 @@ function ReportsTab({ barData = [], metrics = [] }) {
           <TouchableOpacity
             style={[
               styles.generateAnotherButton,
-              { borderColor: "#cbdff5", borderWidth: 1, backgroundColor: "#fff" }, // Default: white bg, blue border
+              { borderColor: "#cbdff5", borderWidth: 1, backgroundColor: "#fff" },
               pressedBtn === "generateAnother" && { backgroundColor: "#133E87", borderColor: "#133E87" }
             ]}
             activeOpacity={0.85}
@@ -711,8 +2302,8 @@ function ReportsTab({ barData = [], metrics = [] }) {
           >
             <Text style={[
               styles.generateAnotherText,
-              { color: "#000" }, // Default black
-              pressedBtn === "generateAnother" && { color: "#fff" } // White when pressed
+              { color: "#000" },
+              pressedBtn === "generateAnother" && { color: "#fff" }
             ]}>
               Generate Another Report
             </Text>
@@ -720,118 +2311,23 @@ function ReportsTab({ barData = [], metrics = [] }) {
         </View>
       )}
 
-      {/* Performance Report */}
-      {selected === "Performance Report" && (
-        <View>
-          <View style={styles.reportGeneratedCard}>
-            <Text style={styles.reportGeneratedTitle}>Report Generated Successfully</Text>
-            <Text style={styles.reportGeneratedTime}>{generatedAt ? generatedAt.toLocaleString() : ""}</Text>
-
-            <View style={styles.reportRows}>
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>Uptime:</Text>
-                <Text style={styles.reportRowValue}>{uptime}</Text>
-              </View>
-
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>Avg Response Time:</Text>
-                <Text style={styles.reportRowValue}>{avgResponseTime}</Text>
-              </View>
-
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>Peak Usage:</Text>
-                <Text style={styles.reportRowValue}>{peakUsage}</Text>
-              </View>
-
-              <View style={styles.reportRow}>
-                <Text style={styles.reportRowLabel}>Error Rate:</Text>
-                <Text style={styles.reportRowValue}>{errorRate}</Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.exportButtonsRow}>
-            <TouchableOpacity
-              style={[
-                styles.exportPdfButton,
-                { backgroundColor: "#fff", borderColor: "#cbdff5", borderWidth: 1 }, // Match exportCsvButton border color
-                pressedBtn === "pdf" && { backgroundColor: "#133E87", borderColor: "#133E87" }
-              ]}
-              activeOpacity={0.85}
-              onPressIn={() => setPressedBtn("pdf")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={handleExportPdf}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <MaterialCommunityIcons name="file-pdf-box" size={16} color={pressedBtn === "pdf" ? "#fff" : "#000"} style={{ marginRight: 8 }} />
-                <Text style={[
-                  styles.exportPdfText,
-                  { color: pressedBtn === "pdf" ? "#fff" : "#000" } // Black text by default, white when pressed
-                ]}>
-                  Export PDF
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.exportCsvButton,
-                pressedBtn === "csv" && { backgroundColor: "#133E87", borderColor: "#133E87" }
-              ]}
-              activeOpacity={0.85}
-              onPressIn={() => setPressedBtn("csv")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={handleExportCsv}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <TableIcon size={16} color={pressedBtn === "csv" ? "#fff" : "#000"} style={{ marginRight: 8 }} />
-                <Text style={[
-                  styles.exportCsvText,
-                  pressedBtn === "csv" && { color: "#fff" }
-                ]}>Export CSV</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            style={[
-              styles.generateAnotherButton,
-              { borderColor: "#cbdff5", borderWidth: 1, backgroundColor: "#fff" }, // Default: white bg, blue border
-              pressedBtn === "generateAnother" && { backgroundColor: "#133E87", borderColor: "#133E87" }
-            ]}
-            activeOpacity={0.85}
-            onPressIn={() => setPressedBtn("generateAnother")}
-            onPressOut={() => setPressedBtn(null)}
-            onPress={handleGenerateAnother}
-          >
-            <Text style={[
-              styles.generateAnotherText,
-              { color: "#000" }, // Default black
-              pressedBtn === "generateAnother" && { color: "#fff" } // White when pressed
-            ]}>
-              Generate Another Report
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Default list */}
-      {selected === null && (
+      {/* Show items if nothing selected */}
+      {!selected && (
         <View style={styles.reportsList}>
-          {items.map((it) => (
+          {items.map((item) => (
             <TouchableOpacity
-              key={it.id}
+              key={item.id}
               style={[
                 styles.reportItem,
-                pressedTab === it.id && { backgroundColor: "rgba(13,96,156,0.21)" } // #0D609C with 21% opacity
+                pressedTab === item.id && { backgroundColor: "#e8f0fe", borderColor: "#133E87" }
               ]}
               activeOpacity={0.85}
-              onPressIn={() => setPressedTab(it.id)}
+              onPressIn={() => setPressedTab(item.id)}
               onPressOut={() => setPressedTab(null)}
-              onPress={() => handleGenerate(it.title)}
+              onPress={() => handleGenerate(item.title)}
             >
-              <Text style={styles.reportItemTitle}>{it.title}</Text>
-              <Text style={styles.reportItemDesc}>{it.desc}</Text>
+              <Text style={styles.reportItemTitle}>{item.title}</Text>
+              <Text style={styles.reportItemDesc}>{item.desc}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -840,74 +2336,17 @@ function ReportsTab({ barData = [], metrics = [] }) {
   );
 }
 
-/* -------------------- Small helpers -------------------- */
-function DateRangePicker({ selected, onChange, options = [] }) {
-  const [open, setOpen] = useState(false);
-  const [buttonLayout, setButtonLayout] = useState(null);
-
-  return (
-    <>
-      <TouchableOpacity
-        onPress={() => setOpen(true)}
-        style={styles.rangeButton}
-        activeOpacity={0.85}
-        onLayout={(e) => setButtonLayout(e.nativeEvent.layout)}
-      >
-        <Text style={styles.rangeText}>{selected}</Text>
-        <MaterialCommunityIcons name="chevron-down" size={16} color="#6b7280" />
-      </TouchableOpacity>
-
-      <Modal visible={open} transparent animationType="fade">
-        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setOpen(false)}>
-          {buttonLayout && (
-            <View style={{ position: "absolute", top: buttonLayout.y + buttonLayout.height, right: 16 }}>
-              <View
-                style={{
-                  width: 160,
-                  backgroundColor: "white",
-                  borderRadius: 8,
-                  paddingVertical: 6,
-                  elevation: 4,
-                  shadowColor: "#000",
-                  shadowOpacity: 0.2,
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowRadius: 4,
-                }}
-              >
-                <FlatList
-                  data={options}
-                  keyExtractor={(i) => i}
-                  renderItem={({ item }) => (
-                    <TouchableOpacity
-                      style={styles.option}
-                      onPress={() => {
-                        onChange(item);
-                        setOpen(false);
-                      }}
-                    >
-                      <Text style={styles.dropdownOptionText}>{item}</Text>
-                    </TouchableOpacity>
-                  )}
-                />
-              </View>
-            </View>
-          )}
-        </TouchableOpacity>
-      </Modal>
-    </>
-  );
-}
-
-/* -------------------- MetricCard (only change: Active Sessions uses line-graph icon) -------------------- */
+/* -------------------- MetricCard -------------------- */
 function MetricCard({ icon = "chart-line", title, value, subtitle }) {
-  // Replace only the icons for Total Users and Active Sessions to match adminDashboard.js
   let iconName = icon;
   let extraTitleStyle = {};
-  if (title === "Total Users" || title === "Active Sessions") {
-    iconName = title === "Total Users" ? "account-group-outline" : "chart-timeline-variant";
-    // Use the same font size as Total Users for Active Sessions
+  
+  if (title === "Mortality Rate" || title === "Predators Detected") {
+    iconName = title === "Mortality Rate" ? "alert-circle-outline" : "shield-alert-outline";
     extraTitleStyle = { marginLeft: -6, fontSize: 15 };
   }
+
+  const isPredatorsDetected = title === "Predators Detected";
 
   return (
     <View style={styles.card}>
@@ -915,16 +2354,27 @@ function MetricCard({ icon = "chart-line", title, value, subtitle }) {
         <View style={styles.iconCircle}>
           <MaterialCommunityIcons name={iconName} size={18} color="#154985" />
         </View>
-        <Text
-          style={[
-            styles.cardTitle,
-            { flexShrink: 1, flexGrow: 1, flexBasis: 0 },
-            extraTitleStyle,
-          ]}
-          numberOfLines={1}
-        >
-          {title}
-        </Text>
+        {isPredatorsDetected ? (
+          <View style={{ flexShrink: 1, flexGrow: 1, flexBasis: 0 }}>
+            <Text style={[styles.cardTitle, extraTitleStyle]} numberOfLines={1}>
+              Predators
+            </Text>
+            <Text style={[styles.cardTitle, extraTitleStyle]} numberOfLines={1}>
+              Detected
+            </Text>
+          </View>
+        ) : (
+          <Text
+            style={[
+              styles.cardTitle,
+              { flexShrink: 1, flexGrow: 1, flexBasis: 0 },
+              extraTitleStyle,
+            ]}
+            numberOfLines={1}
+          >
+            {title}
+          </Text>
+        )}
       </View>
       <Text style={styles.cardValue}>{String(value)}</Text>
       <Text style={styles.cardSubtitle}>{subtitle}</Text>
@@ -932,121 +2382,1225 @@ function MetricCard({ icon = "chart-line", title, value, subtitle }) {
   );
 }
 
-/* -------------------- Styles -------------------- */
+/* -------------------- MortalityBatchChart -------------------- */
+function MortalityBatchChart({ height = 220 }) {
+  const [layoutWidth, setLayoutWidth] = useState(0);
+  const [activeBar, setActiveBar] = useState(null);
+  const [tooltipWidth, setTooltipWidth] = useState(0);
+
+  // Sample data - Batch IDs and total deaths per batch
+  const batchData = [
+    { batchId: "B001", deaths: 3 },
+    { batchId: "B002", deaths: 0 },
+    { batchId: "B003", deaths: 5 },
+    { batchId: "B004", deaths: 1 },
+    { batchId: "B005", deaths: 2 },
+    { batchId: "B006", deaths: 0 },
+  ];
+
+  const yAxisWidth = 34;
+  const outerPadding = 12;
+  const barColor = "#133E87";
+  const labelHeight = 35;
+
+  const rawMax = Math.max(...batchData.map((d) => d.deaths), 1);
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawMax)));
+  let niceMax = Math.ceil(rawMax / magnitude) * magnitude;
+  if (niceMax / 2 >= rawMax) niceMax = niceMax / 2;
+  const finalMax = Math.max(niceMax, 5);
+  const ticks = 5;
+
+  const onBarPress = (index, value) => {
+    if (!layoutWidth) return;
+    const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
+    const spacing = innerWidth / batchData.length;
+    const centerRelative = index * spacing + spacing / 2;
+    const barTop = height - (value / finalMax) * height;
+    const tooltipTop = Math.max(6, barTop - 60);
+    setActiveBar({ index, centerRelative, top: tooltipTop });
+    setTimeout(() => setActiveBar(null), 2400);
+  };
+
+  return (
+    <View
+      style={{ width: "100%", paddingHorizontal: outerPadding, paddingTop: 8, paddingBottom: labelHeight }}
+      onLayout={(e) => setLayoutWidth(e.nativeEvent.layout.width)}
+    >
+      <View style={{ height }} />
+
+      {layoutWidth > 0 && (
+        <View style={{ position: "absolute", top: 8, left: outerPadding, right: outerPadding }}>
+          <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+            {/* Y axis */}
+            <View style={{ width: yAxisWidth, height }}>
+              {Array.from({ length: ticks }).map((_, i) => {
+                const ratio = i / (ticks - 1);
+                const value = Math.round((1 - ratio) * finalMax);
+                const topPos = ratio * height - 8;
+                return (
+                  <View key={i} style={{ position: "absolute", top: Math.max(0, topPos), left: 0, right: 0 }}>
+                    <Text style={{ fontSize: 11, color: "#333", textAlign: "right", paddingRight: 6 }}>
+                      {value}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+
+            {/* Chart area */}
+            <View style={{ flex: 1, height, position: "relative" }}>
+              {/* gridlines */}
+              {Array.from({ length: ticks }).map((_, i) => {
+                const top = (i / (ticks - 1)) * height;
+                return <View key={i} style={{ position: "absolute", top, left: 0, right: 0, height: 1, backgroundColor: "#eee" }} />;
+              })}
+
+              {/* bars */}
+              <View style={{ flexDirection: "row", width: "100%", height, justifyContent: "space-between" }}>
+                {(() => {
+                  const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
+                  const barWidth = Math.min(48, (innerWidth / batchData.length) * 0.7);
+                  const spacing = innerWidth / batchData.length;
+                  const minBarHeight = 8;
+
+                  return batchData.map((d, i) => {
+                    const barHeight = d.deaths === 0
+                      ? minBarHeight
+                      : Math.max(minBarHeight, Math.round((d.deaths / finalMax) * height));
+                    const isActive = activeBar && activeBar.index === i;
+
+                    return (
+                      <View key={i} style={{ width: spacing, alignItems: "center" }}>
+                        <View style={{ height, justifyContent: "flex-end", alignItems: "center" }}>
+                          <TouchableOpacity
+                            activeOpacity={0.85}
+                            onPress={() => onBarPress(i, d.deaths)}
+                            style={{
+                              width: barWidth,
+                              height: barHeight,
+                              backgroundColor: isActive ? "#FFD700" : barColor,
+                              borderTopLeftRadius: 4,
+                              borderTopRightRadius: 4,
+                            }}
+                          />
+                        </View>
+
+                        <View style={{ width: spacing, alignItems: "center", marginTop: 8 }}>
+                          <Text numberOfLines={1} ellipsizeMode="tail" style={{ fontSize: 11, color: "#333", fontWeight: "500" }}>
+                            {d.batchId}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  });
+                })()}
+              </View>
+
+              {/* tooltip */}
+              {activeBar !== null && (
+                <View
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    width: "100%",
+                    height,
+                    zIndex: 30,
+                    pointerEvents: "none",
+                  }}
+                >
+                  <MortalityBatchTooltip
+                    active={activeBar}
+                    layoutWidth={layoutWidth}
+                    yAxisWidth={yAxisWidth}
+                    outerPadding={outerPadding}
+                    tooltipWidth={tooltipWidth}
+                    setTooltipWidth={setTooltipWidth}
+                    maxTooltipWidth={180}
+                    data={batchData}
+                  />
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/* Tooltip for Mortality Batch Chart */
+function MortalityBatchTooltip({
+  active,
+  layoutWidth,
+  yAxisWidth,
+  outerPadding,
+  tooltipWidth,
+  setTooltipWidth,
+  maxTooltipWidth,
+  data,
+}) {
+  const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
+  const centerRelative = active.centerRelative;
+
+  const desiredLeft = centerRelative - (tooltipWidth || maxTooltipWidth) / 2;
+  const minLeft = 6;
+  const maxLeft = Math.max(6, innerWidth - (tooltipWidth || maxTooltipWidth) - 6);
+  const leftClamped = Math.max(minLeft, Math.min(desiredLeft, maxLeft));
+  const topPos = Math.max(6, active.top - 54);
+
+  return (
+    <View style={{ position: "absolute", left: yAxisWidth, top: topPos, width: innerWidth }}>
+      <View
+        onLayout={(e) => {
+          const w = e.nativeEvent.layout.width;
+          if (w && w !== tooltipWidth) setTooltipWidth(w);
+        }}
+        style={{
+          position: "absolute",
+          left: leftClamped,
+          backgroundColor: "#fff",
+          paddingVertical: 6,
+          paddingHorizontal: 10,
+          borderRadius: 6,
+          borderWidth: 1,
+          borderColor: "#ccc",
+          alignItems: "flex-start",
+          maxWidth: maxTooltipWidth,
+        }}
+      >
+        <Text style={{ fontWeight: "700", fontSize: 13 }}>{data[active.index].batchId}</Text>
+        <Text style={{ marginTop: 4, color: "#154985", fontWeight: "700", fontSize: 12 }}>
+          Deaths: {data[active.index].deaths}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/* -------------------- AttacksBatchChart -------------------- */
+function AttacksBatchChart({ height = 220 }) {
+  const [layoutWidth, setLayoutWidth] = useState(0);
+  const [activeBar, setActiveBar] = useState(null);
+  const [tooltipWidth, setTooltipWidth] = useState(0);
+
+  // Sample data - Batch IDs and total attacks per batch
+  const batchData = [
+    { batchId: "B001", attacks: 2 },
+    { batchId: "B002", attacks: 1 },
+    { batchId: "B003", attacks: 4 },
+    { batchId: "B004", attacks: 1 },
+    { batchId: "B005", attacks: 3 },
+    { batchId: "B006", attacks: 2 },
+  ];
+
+  const yAxisWidth = 34;
+  const outerPadding = 12;
+  const barColor = "#133E87";
+  const labelHeight = 35;
+
+  const rawMax = Math.max(...batchData.map((d) => d.attacks), 1);
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawMax)));
+  let niceMax = Math.ceil(rawMax / magnitude) * magnitude;
+  if (niceMax / 2 >= rawMax) niceMax = niceMax / 2;
+  const finalMax = Math.max(niceMax, 5);
+  const ticks = 5;
+
+  const onBarPress = (index, value) => {
+    if (!layoutWidth) return;
+    const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
+    const spacing = innerWidth / batchData.length;
+    const centerRelative = index * spacing + spacing / 2;
+    const barTop = value === 0 ? height - 40 : height - (value / finalMax) * height;
+    const tooltipTop = Math.max(6, barTop - 60);
+    setActiveBar({ index, centerRelative, top: tooltipTop });
+    setTimeout(() => setActiveBar(null), 2400);
+  };
+
+  return (
+    <View
+      style={{ width: "100%", paddingHorizontal: outerPadding, paddingTop: 8, paddingBottom: labelHeight }}
+      onLayout={(e) => setLayoutWidth(e.nativeEvent.layout.width)}
+    >
+      <View style={{ height }} />
+
+      {layoutWidth > 0 && (
+        <View style={{ position: "absolute", top: 8, left: outerPadding, right: outerPadding }}>
+          <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+            <View style={{ width: yAxisWidth, height }}>
+              {Array.from({ length: ticks }).map((_, i) => {
+                const ratio = i / (ticks - 1);
+                const value = Math.round((1 - ratio) * finalMax);
+                const topPos = ratio * height - 8;
+                return (
+                  <View key={i} style={{ position: "absolute", top: Math.max(0, topPos), left: 0, right: 0 }}>
+                    <Text style={{ fontSize: 11, color: "#333", textAlign: "right", paddingRight: 6 }}>
+                      {value}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+
+            <View style={{ flex: 1, height, position: "relative" }}>
+              {Array.from({ length: ticks }).map((_, i) => {
+                const top = (i / (ticks - 1)) * height;
+                return (
+                  <View
+                    key={i}
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      right: 0,
+                      top,
+                      height: 1,
+                      backgroundColor: "#eee",
+                    }}
+                  />
+                );
+              })}
+
+              <View style={{ flexDirection: "row", height: "100%", alignItems: "flex-end" }}>
+                {(() => {
+                  const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
+                  const spacing = innerWidth / batchData.length;
+                  const barWidth = spacing * 0.6; 
+
+                  return batchData.map((d, index) => {
+                    const barHeight = (d.attacks / finalMax) * height;
+                    const isActive = activeBar && activeBar.index === index;
+                    return (
+                      <View key={index} style={{ width: spacing, height: "100%", justifyContent: "flex-end", alignItems: "center" }}>
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          onPress={() => onBarPress(index, d.attacks)}
+                          style={{
+                            width: barWidth,
+                            height: barHeight,
+                            backgroundColor: isActive ? "#FFD700" : barColor,
+                            borderTopLeftRadius: 4,
+                            borderTopRightRadius: 4,
+                          }}
+                        />
+                         <View style={{ position: "absolute", top: height + 8, width: spacing, alignItems: "center" }}>
+                          <Text numberOfLines={1} ellipsizeMode="tail" style={{ fontSize: 11, color: "#333", fontWeight: "500" }}>
+                            {d.batchId}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  });
+                })()}
+              </View>
+
+              {/* tooltip */}
+              {activeBar !== null && (
+                <View
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    width: "100%",
+                    height,
+                    zIndex: 30,
+                    pointerEvents: "none",
+                  }}
+                >
+                  <AttacksBatchTooltip
+                    active={activeBar}
+                    layoutWidth={layoutWidth}
+                    yAxisWidth={yAxisWidth}
+                    outerPadding={outerPadding}
+                    tooltipWidth={tooltipWidth}
+                    setTooltipWidth={setTooltipWidth}
+                    maxTooltipWidth={180}
+                    data={batchData}
+                  />
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/* Tooltip for Attacks Batch Chart */
+function AttacksBatchTooltip({
+  active,
+  layoutWidth,
+  yAxisWidth,
+  outerPadding,
+  tooltipWidth,
+  setTooltipWidth,
+  maxTooltipWidth,
+  data,
+}) {
+  const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
+  const centerRelative = active.centerRelative;
+
+  const desiredLeft = centerRelative - (tooltipWidth || maxTooltipWidth) / 2;
+  const minLeft = 6;
+  const maxLeft = Math.max(6, innerWidth - (tooltipWidth || maxTooltipWidth) - 6);
+  const leftClamped = Math.max(minLeft, Math.min(desiredLeft, maxLeft));
+  const topPos = Math.max(6, active.top - 54);
+
+  return (
+    <View style={{ position: "absolute", left: yAxisWidth, top: topPos, width: innerWidth }}>
+      <View
+        onLayout={(e) => {
+          const w = e.nativeEvent.layout.width;
+          if (w && w !== tooltipWidth) setTooltipWidth(w);
+        }}
+        style={{
+          position: "absolute",
+          left: leftClamped,
+          backgroundColor: "#fff",
+          paddingVertical: 6,
+          paddingHorizontal: 10,
+          borderRadius: 6,
+          borderWidth: 1,
+          borderColor: "#ccc",
+          alignItems: "flex-start",
+          maxWidth: maxTooltipWidth,
+        }}
+      >
+        <Text style={{ fontWeight: "700", fontSize: 13 }}>{data[active.index].batchId}</Text>
+        <Text style={{ marginTop: 4, color: "#133E87", fontWeight: "700", fontSize: 12 }}>
+          Attacks: {data[active.index].attacks}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/* -------------------- FeedBatchChart -------------------- */
+function FeedBatchChart({ height = 220 }) {
+  const [layoutWidth, setLayoutWidth] = useState(0);
+  const [activeBar, setActiveBar] = useState(null);
+  const [tooltipWidth, setTooltipWidth] = useState(0);
+
+  // Sample data - Batch IDs and feeder activations per batch
+  const batchData = [
+    { batchId: "B001", activations: 62 },
+    { batchId: "B002", activations: 55 },
+    { batchId: "B003", activations: 71 },
+    { batchId: "B004", activations: 68 },
+    { batchId: "B005", activations: 59 },
+    { batchId: "B006", activations: 64 },
+  ];
+
+  const yAxisWidth = 34;
+  const outerPadding = 12;
+  const barColor = "#133E87";
+  const labelHeight = 35;
+
+  const rawMax = Math.max(...batchData.map((d) => d.activations), 1);
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawMax)));
+  let niceMax = Math.ceil(rawMax / magnitude) * magnitude;
+  if (niceMax / 2 >= rawMax) niceMax = niceMax / 2;
+  const finalMax = Math.max(niceMax, 10);
+  const ticks = 5;
+
+  const onBarPress = (index, value) => {
+    if (!layoutWidth) return;
+    const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
+    const spacing = innerWidth / batchData.length;
+    const centerRelative = index * spacing + spacing / 2;
+    const barTop = height - (value / finalMax) * height;
+    const tooltipTop = Math.max(6, barTop - 60);
+    setActiveBar({ index, centerRelative, top: tooltipTop });
+    setTimeout(() => setActiveBar(null), 2400);
+  };
+
+  return (
+    <View
+      style={{ width: "100%", paddingHorizontal: outerPadding, paddingTop: 8, paddingBottom: labelHeight }}
+      onLayout={(e) => setLayoutWidth(e.nativeEvent.layout.width)}
+    >
+      <View style={{ height }} />
+
+      {layoutWidth > 0 && (
+        <View style={{ position: "absolute", top: 8, left: outerPadding, right: outerPadding }}>
+          <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+            {/* Y axis */}
+            <View style={{ width: yAxisWidth, height }}>
+              {Array.from({ length: ticks }).map((_, i) => {
+                const ratio = i / (ticks - 1);
+                const value = Math.round((1 - ratio) * finalMax);
+                const topPos = ratio * height - 8;
+                return (
+                  <View key={i} style={{ position: "absolute", top: Math.max(0, topPos), left: 0, right: 0 }}>
+                    <Text style={{ fontSize: 11, color: "#333", textAlign: "right", paddingRight: 6 }}>
+                      {value}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+
+            {/* Chart area */}
+            <View style={{ flex: 1, height, position: "relative" }}>
+              {/* gridlines */}
+              {Array.from({ length: ticks }).map((_, i) => {
+                const top = (i / (ticks - 1)) * height;
+                return (
+                  <View
+                    key={i}
+                    style={{
+                      position: "absolute",
+                      top,
+                      left: 0,
+                      right: 0,
+                      height: 1,
+                      backgroundColor: "#eee",
+                    }}
+                  />
+                );
+              })}
+
+              <View style={{ flexDirection: "row", width: "100%", height, justifyContent: "space-between" }}>
+                {(() => {
+                  const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
+                  const barWidth = Math.min(48, (innerWidth / batchData.length) * 0.7);
+                  const spacing = innerWidth / batchData.length;
+                  const minBarHeight = 8;
+
+                  return batchData.map((d, i) => {
+                    const barHeight = Math.max(minBarHeight, Math.round((d.activations / finalMax) * height));
+                    const isActive = activeBar && activeBar.index === i;
+
+                    return (
+                      <View key={i} style={{ width: spacing, alignItems: "center" }}>
+                        <View style={{ height, justifyContent: "flex-end", alignItems: "center" }}>
+                          <TouchableOpacity
+                            activeOpacity={0.85}
+                            onPress={() => onBarPress(i, d.activations)}
+                            style={{
+                              width: barWidth,
+                              height: barHeight,
+                              backgroundColor: isActive ? "#FFD700" : barColor,
+                              borderTopLeftRadius: 4,
+                              borderTopRightRadius: 4,
+                            }}
+                          />
+                        </View>
+
+                        <View style={{ width: spacing, alignItems: "center", marginTop: 8 }}>
+                          <Text numberOfLines={1} ellipsizeMode="tail" style={{ fontSize: 11, color: "#333", fontWeight: "500" }}>
+                            {d.batchId}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  });
+                })()}
+              </View>
+
+              {/* tooltip */}
+              {activeBar !== null && (
+                <View
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    width: "100%",
+                    height,
+                    zIndex: 30,
+                    pointerEvents: "none",
+                  }}
+                >
+                  <FeedBatchTooltip
+                    active={activeBar}
+                    layoutWidth={layoutWidth}
+                    yAxisWidth={yAxisWidth}
+                    outerPadding={outerPadding}
+                    tooltipWidth={tooltipWidth}
+                    setTooltipWidth={setTooltipWidth}
+                    maxTooltipWidth={180}
+                    data={batchData}
+                  />
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/* Tooltip for Feed Batch Chart */
+function FeedBatchTooltip({
+  active,
+  layoutWidth,
+  yAxisWidth,
+  outerPadding,
+  tooltipWidth,
+  setTooltipWidth,
+  maxTooltipWidth,
+  data,
+}) {
+  const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
+  const centerRelative = active.centerRelative;
+
+  const desiredLeft = centerRelative - (tooltipWidth || maxTooltipWidth) / 2;
+  const minLeft = 6;
+  const maxLeft = Math.max(6, innerWidth - (tooltipWidth || maxTooltipWidth) - 6);
+  const leftClamped = Math.max(minLeft, Math.min(desiredLeft, maxLeft));
+  const topPos = Math.max(6, active.top - 54);
+
+  return (
+    <View style={{ position: "absolute", left: yAxisWidth, top: topPos, width: innerWidth }}>
+      <View
+        onLayout={(e) => {
+          const w = e.nativeEvent.layout.width;
+          if (w && w !== tooltipWidth) setTooltipWidth(w);
+        }}
+        style={{
+          position: "absolute",
+          left: leftClamped,
+          backgroundColor: "#fff",
+          paddingVertical: 6,
+          paddingHorizontal: 10,
+          borderRadius: 6,
+          borderWidth: 1,
+          borderColor: "#ccc",
+          alignItems: "flex-start",
+          maxWidth: maxTooltipWidth,
+        }}
+      >
+        <Text style={{ fontWeight: "700", fontSize: 13 }}>{data[active.index].batchId}</Text>
+        <Text style={{ marginTop: 4, color: "#133E87", fontWeight: "700", fontSize: 12 }}>
+          Activations: {data[active.index].activations}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+
+/* -------------------- WaterBatchChart -------------------- */
+function WaterBatchChart({ height = 220 }) {
+  const [layoutWidth, setLayoutWidth] = useState(0);
+  const [activeBar, setActiveBar] = useState(null);
+  const [tooltipWidth, setTooltipWidth] = useState(0);
+
+  // Sample data
+  const batchData = [
+    { batchId: "B001", consumption: 125 },
+    { batchId: "B002", consumption: 98 },
+    { batchId: "B003", consumption: 145 },
+    { batchId: "B004", consumption: 130 },
+    { batchId: "B005", consumption: 112 },
+    { batchId: "B006", consumption: 156 },
+  ];
+
+  const yAxisWidth = 34;
+  const outerPadding = 12;
+  const barColor = "#133E87";
+
+  const rawMax = Math.max(...batchData.map((d) => d.consumption), 1);
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawMax)));
+  let niceMax = Math.ceil(rawMax / magnitude) * magnitude;
+  if (niceMax / 2 >= rawMax) niceMax = niceMax / 2;
+  const finalMax = Math.max(niceMax, 10);
+  const ticks = 5;
+
+  const onBarPress = (index, value) => {
+    if (!layoutWidth) return;
+    const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
+    const spacing = innerWidth / batchData.length;
+    const centerRelative = index * spacing + spacing / 2;
+    const barTop = height - (value / finalMax) * height;
+    const tooltipTop = Math.max(6, barTop - 60);
+    setActiveBar({ index, centerRelative, top: tooltipTop });
+    setTimeout(() => setActiveBar(null), 2400);
+  };
+
+  return (
+    <View
+      style={{ width: "100%", paddingHorizontal: outerPadding, paddingTop: 8, paddingBottom: 35 }}
+      onLayout={(e) => setLayoutWidth(e.nativeEvent.layout.width)}
+    >
+      <View style={{ height }} />
+
+      {layoutWidth > 0 && (
+        <View style={{ position: "absolute", top: 8, left: outerPadding, right: outerPadding }}>
+          <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+            <View style={{ width: yAxisWidth, height }}>
+              {Array.from({ length: ticks }).map((_, i) => {
+                const ratio = i / (ticks - 1);
+                const value = Math.round((1 - ratio) * finalMax);
+                const topPos = ratio * height - 8;
+                return (
+                  <View key={i} style={{ position: "absolute", top: Math.max(0, topPos), left: 0, right: 0 }}>
+                    <Text style={{ fontSize: 11, color: "#333", textAlign: "right", paddingRight: 6 }}>{value}</Text>
+                  </View>
+                );
+              })}
+            </View>
+
+            <View style={{ flex: 1, height, position: "relative" }}>
+              {Array.from({ length: ticks }).map((_, i) => {
+                const top = (i / (ticks - 1)) * height;
+                return <View key={i} style={{ position: "absolute", top, left: 0, right: 0, height: 1, backgroundColor: "#eee" }} />;
+              })}
+
+              <View style={{ flexDirection: "row", width: "100%", height, justifyContent: "space-between" }}>
+                {(() => {
+                  const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
+                  const spacing = innerWidth / batchData.length;
+                  const barWidth = Math.min(48, (innerWidth / batchData.length) * 0.7);
+
+                  return batchData.map((d, i) => {
+                    const barHeight = (d.consumption / finalMax) * height;
+                    const isActive = activeBar && activeBar.index === i;
+                    return (
+                      <View key={i} style={{ width: spacing, alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          onPress={() => onBarPress(i, d.consumption)}
+                          style={{
+                            width: barWidth,
+                            height: barHeight,
+                            backgroundColor: isActive ? "#FFD700" : barColor,
+                            borderTopLeftRadius: 4,
+                            borderTopRightRadius: 4,
+                          }}
+                        />
+                      </View>
+                    );
+                  });
+                })()}
+              </View>
+
+               <View style={{ flexDirection: "row", width: "100%", position: "absolute", top: height, left: 0 }}>
+                 {(() => {
+                   const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
+                   const spacing = innerWidth / batchData.length;
+                   return batchData.map((d, i) => (
+                      <View key={i} style={{ width: spacing, alignItems: "center", marginTop: 8 }}>
+                        <Text numberOfLines={1} style={{ fontSize: 11, color: "#333", fontWeight: "500" }}>{d.batchId}</Text>
+                      </View>
+                   ));
+                 })()}
+              </View>
+
+              {activeBar !== null && (
+                <View
+                  style={{
+                    position: "absolute", left: 0, top: 0, width: "100%", height, zIndex: 30, pointerEvents: "none",
+                  }}
+                >
+                  <WaterBatchTooltip
+                    active={activeBar}
+                    layoutWidth={layoutWidth}
+                    yAxisWidth={yAxisWidth}
+                    outerPadding={outerPadding}
+                    tooltipWidth={tooltipWidth}
+                    setTooltipWidth={setTooltipWidth}
+                    maxTooltipWidth={180}
+                    data={batchData}
+                  />
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function WaterBatchTooltip({ active, layoutWidth, yAxisWidth, outerPadding, tooltipWidth, setTooltipWidth, maxTooltipWidth, data }) {
+  const innerWidth = layoutWidth - yAxisWidth - outerPadding * 2;
+  const centerRelative = active.centerRelative;
+  const desiredLeft = centerRelative - (tooltipWidth || maxTooltipWidth) / 2;
+  const minLeft = 6;
+  const maxLeft = Math.max(6, innerWidth - (tooltipWidth || maxTooltipWidth) - 6);
+  const leftClamped = Math.max(minLeft, Math.min(desiredLeft, maxLeft));
+  const topPos = Math.max(6, active.top - 54);
+
+  return (
+    <View style={{ position: "absolute", left: yAxisWidth, top: topPos, width: innerWidth }}>
+      <View
+        onLayout={(e) => {
+          const w = e.nativeEvent.layout.width;
+          if (w && w !== tooltipWidth) setTooltipWidth(w);
+        }}
+        style={{
+          position: "absolute",
+          left: leftClamped,
+          backgroundColor: "#fff",
+          paddingVertical: 6,
+          paddingHorizontal: 10,
+          borderRadius: 6,
+          borderWidth: 1,
+          borderColor: "#ccc",
+          alignItems: "flex-start",
+          maxWidth: maxTooltipWidth,
+        }}
+      >
+        <Text style={{ fontWeight: "700", fontSize: 13 }}>{data[active.index].batchId}</Text>
+        <Text style={{ marginTop: 4, color: "#133E87", fontWeight: "700", fontSize: 12 }}>
+          Activations: {data[active.index].consumption}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#ffff" },
-  container: { padding: 16, alignItems: "center" },
+  safe: {
+    flex: 1,
+    backgroundColor: "#ffffff",
+  },
+  container: {
+    flexGrow: 1,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
   backButton: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 12,
-    paddingVertical: 4,
-    alignSelf: "flex-start",
-  },
+    marginBottom: 16,
+    paddingVertical: 8  },
   backButtonText: {
+    marginLeft: 8,
     fontSize: 16,
     color: "#133E87",
-    fontWeight: "500",
-    marginLeft: 8,
+    fontWeight: "600",
   },
-
-  pickerRow: {
-    width: "100%", backgroundColor: "#ffffff", borderRadius: 12, borderWidth: 1.5, borderColor: "#d9e9f6",
-    padding: 14, flexDirection: "row", alignItems: "center", marginBottom: 16, justifyContent: "space-between",
+  metricsGrid: {
+       width: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    marginBottom: 18,
   },
-  pickerLabel: { fontSize: 16, color: "#0b2336" },
-
-  rangeButton: {
-    flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#a9c0d8",
-    paddingVertical: 8, paddingHorizontal: 14, borderRadius: 12, backgroundColor: "#fff",
-  },
-  rangeText: { color: "#16324a", fontSize: 15, marginRight: 8 },
-  rangeChevron: { color: "#6b7280" },
-
-  metricsGrid: { width: "100%", flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginBottom: 18 },
-
   card: {
-    width: "48%", backgroundColor: "#fff", borderRadius: 12, borderWidth: 1.2, borderColor: "#e1f0fb",
-    padding: 14, marginBottom: 12, minHeight: 110, justifyContent: "space-between",
+    width: "48%",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1.2,
+    borderColor: "#e1f0fb",
+    padding: 14,
+    marginBottom: 12,
+    minHeight: 110,
+    justifyContent: "space-between",
   },
-  cardHeader: { flexDirection: "row", alignItems: "center", flexShrink: 1 },
-  iconCircle: { width: 36, height: 36, borderRadius: 18, backgroundColor: "#eef6ff", alignItems: "center", justifyContent: "center", marginRight: 10 },
-  icon: { fontSize: 18 },
-  cardTitle: { fontSize: 16, color: "#0b2336", fontWeight: "600", flexShrink: 1 },
-  cardValue: { fontSize: 34, color: "#000", fontWeight: "800", marginTop: 8 },
-  cardSubtitle: { color: "#2a66a6", marginTop: 6, fontSize: 14 },
-
-  // kept custom network icon styles (unused) in case you revert
-  customNetworkIcon: { width: 22, alignItems: "center", justifyContent: "center" },
-  iconRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
-  node: { width: 6, height: 6, borderRadius: 6, backgroundColor: "#154985" },
-  connector: { width: 8, height: 2.5, backgroundColor: "#154985", marginHorizontal: 3, borderRadius: 2 },
-  connectorShort: { width: 6, height: 2.5, backgroundColor: "#154985", marginHorizontal: 3, borderRadius: 2 },
-
-  chartCard: { backgroundColor: "#fff", borderRadius: 12, borderWidth: 1.2, borderColor: "#dbeffb", padding: 14, marginBottom: 18, width: "100%" },
-  chartTitle: { fontSize: 18, fontWeight: "800", color: "#0b2336" },
-
-  fallback: { paddingVertical: 18, alignItems: "center" },
-  fallbackText: { color: "#b22222", fontWeight: "700" },
-  fallbackTextSmall: { color: "#444", marginTop: 6, textAlign: "center" },
-  instructions: { marginTop: 10, color: "#333", textAlign: "center", fontSize: 12, paddingHorizontal: 12 },
-
-  tooltipWrapper: { position: "absolute", alignItems: "center", zIndex: 20, elevation: 10 },
-  tooltipVerticalLine: { width: 2, backgroundColor: "#333", position: "absolute" },
-  tooltipBox: { backgroundColor: "#fff", padding: 8, borderRadius: 6, borderWidth: 1, borderColor: "#ccc", marginBottom: 8, alignItems: "center" },
-  tooltipLabel: { fontWeight: "700" },
-  tooltipValue: { fontWeight: "700", color: "#154985" },
-
-  // dropdown
-  menu: { backgroundColor: "white", borderRadius: 10, paddingVertical: 8 },
-  dropdownOptionText: { fontSize: 16, color: "#16324a" },
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.12)", justifyContent: "center", padding: 30 },
-  option: { padding: 12 },
-
-  // Reports tab
-  reportsWrapper: { backgroundColor: "#eef6fb", borderRadius: 12, borderWidth: 1, borderColor: "#d6eaf8", padding: 16 },
-  reportsHeader: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
-  reportsIcon: { fontSize: 20, marginRight: 8 },
-  reportsTitle: { fontSize: 18, fontWeight: "800", color: "#133E87", marginLeft: -7 },
-
-  reportsList: { marginTop: 6 },
-  reportItem: { backgroundColor: "#fff", borderRadius: 10, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 10, borderWidth: 1, borderColor: "#d9eaf6" },
-  reportItemActive: { backgroundColor: "#dfeefb", borderColor: "#bfe0fb" },
-  reportItemTitle: { color: "#133E87", fontWeight: "700", marginBottom: 6 },
-  reportItemTitleActive: { color: "#0b3b6a" },
-  reportItemDesc: { color: "#556b82", fontSize: 13 },
-
-  // Generated report card
-  reportGeneratedCard: { backgroundColor: "#f3f8fc", borderRadius: 10, padding: 14, borderWidth: 1, borderColor: "#d6eaf8" },
-  reportGeneratedTitle: { color: "#0b3b6a", fontSize: 16, fontWeight: "700", marginBottom: 6 },
-  reportGeneratedTime: { color: "#556b82", marginBottom: 10 },
-
-  reportRows: { marginTop: 6 },
-  reportRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6 },
-  reportRowLabel: { color: "#334e68" },
-  reportRowValue: { color: "#000", fontWeight: "700" },
-
-  // export buttons (centered)
-  exportButtonsRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", marginTop: 12 },
-  exportPdfButton: {
-    backgroundColor: "#fff", // Default white
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    marginRight: 12,
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 1,
+  },
+  iconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#eef6ff",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+  cardTitle: {
+    fontSize: 16,
+    color: "#0b2336",
+    fontWeight: "600",
+    flexShrink: 1,
+  },
+  cardValue: {
+    fontSize: 34,
+    color: "#000",
+    fontWeight: "800",
+    marginTop: 8,
+  },
+  cardSubtitle: {
+    color: "#2a66a6",
+    marginTop: 6,
+    fontSize: 14,
+  },
+  chartCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1.2,
+    borderColor: "#dbeffb",
+    padding: 14,
+    marginBottom: 18,
+    width: "100%",
+    alignItems: "center",
+  },
+  chartHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "100%",
+    marginBottom: 8,
+  },
+  chartTitleOutside: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#000000",
+  },
+  mortalitySectionTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#133E87",
+    textAlign: "center",
+    alignSelf: "center",
+    marginBottom: 35, // match Mortality header spacing
+  },
+  chartButtonsRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  chartFilterButton: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: "#cbdff5", // Match exportCsvButton border color
+    borderColor: "#133E87",
   },
-  exportPdfText: {
-    color: "#000", // Default black
+  chartFilterText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#000",
+  },
+  chartExportButton: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#133E87",
+  },
+  chartExportText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#000",
+  },
+  fallback: {
+    paddingVertical: 18,
+    alignItems: "center",
+  },
+  fallbackText: {
+    color: "#b22222",
     fontWeight: "700",
   },
-  exportCsvButton: { backgroundColor: "#fff", paddingVertical: 12, paddingHorizontal: 18, borderRadius: 10, borderWidth: 1, borderColor: "#cbdff5" },
-  exportCsvText: { color: "#000", fontWeight: "700" },
-
-  generateAnotherButton: { backgroundColor: "#cfe9fb", paddingVertical: 12, borderRadius: 10, marginTop: 14, alignItems: "center" },
-  generateAnotherText: { color: "#133E87", fontWeight: "700" },
-
-  // Table icon helper style
-  tableIconOuter: { position: "absolute", left: 0, top: 0, right: 0, bottom: 0, justifyContent: "center", alignItems: "center" },
+  fallbackTextSmall: {
+    color: "#444",
+    marginTop: 6,
+    textAlign: "center",
+  },
+  tooltipWrapper: {
+    position: "absolute",
+    alignItems: "center",
+    zIndex: 20,
+    elevation: 10,
+  },
+  tooltipVerticalLine: {
+    width: 2,
+    backgroundColor: "#333",
+    position: "absolute",
+  },
+  tooltipBox: {
+    backgroundColor: "#fff",
+    padding: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    marginBottom: 8,
+    alignItems: "center",
+  },
+  tooltipLabel: {
+    fontWeight: "700",
+  },
+  tooltipValue: {
+    fontWeight: "700",
+    color: "#154985",
+  },
+  seeMoreContainer: {
+    width: "100%",
+    alignItems: "flex-end",
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  seeMoreButton: {
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    borderRadius: 4,
+  },
+  seeMoreText: {
+    fontSize: 12,
+    color: "#000000",
+    fontWeight: "400",
+    marginTop: -15,
+  },
+  seeMoreUnderline: {
+    height: 1,
+    backgroundColor: "#666",
+    marginTop: 1,
+  },
+  reportsWrapper: {
+    backgroundColor: "#eef6fb",
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12,
+  },
+  reportsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  reportsTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#133E87",
+  },
+  reportGeneratedCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1.2,
+    borderColor: "#dbeffb",
+    padding: 16,
+    marginBottom: 16,
+  },
+  reportGeneratedTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#0b2336",
+  },
+  reportGeneratedTime: {
+    fontSize: 14,
+    color: "#777",
+    marginTop: 4,
+  },
+  reportRows: {
+    marginTop: 12,
+  },
+  reportRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  reportRowLabel: {
+    fontSize: 14,
+    color: "#333",
+  },
+  reportRowValue: {
+    fontSize: 14,
+    color: "#0b2336",
+    fontWeight: "500",
+  },
+  exportButtonsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 12,
+    gap: 12,
+  },
+  exportPdfButton: {
+    flex: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.2,
+    borderColor: "#133E87",
+    backgroundColor: "#eef6fb",
+  },
+  exportCsvButton: {
+    flex: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.2,
+    borderColor: "#133E87",
+    backgroundColor: "#eef6fb",
+  },
+  exportPdfText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#133E87",
+  },
+  exportCsvText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#133E87",
+  },
+  generateAnotherButton: {
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.2,
+    borderColor: "#133E87",
+    backgroundColor: "#eef6fb",
+    marginTop: 12,
+  },
+  generateAnotherText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#133E87",
+  },
+  reportsList: {
+    width: "100%",
+  },
+  reportItem: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1.2,
+    borderColor: "#dbeffb",
+    padding: 16,
+    marginBottom: 12,
+  },
+  reportItemTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#0b2336",
+  },
+  reportItemDesc: {
+    fontSize: 14,
+    color: "#777",
+    marginTop: 4,
+  },
+  tableIconOuter: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  timeRangeContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  timeRangeButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#133E87",
+    backgroundColor: "#fff",
+  },
+  timeRangeButtonActive: {
+    backgroundColor: "#133E87",
+    borderColor: "#133E87",
+  },
+  timeRangeText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#133E87",
+  },
+  timeRangeTextActive: {
+    color: "#fff",
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+  },
+  modalContent: {
+    width: "90%",
+    maxWidth: 400,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    elevation: 10,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#133E87",
+  },
+  modalCloseButton: {
+    padding: 8,
+  },
+  filterTabs: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  filterTab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#133E87",
+    backgroundColor: "#fff",
+  },
+  filterTabActive: {
+    backgroundColor: "#133E87",
+    borderColor: "#133E87",
+  },
+  filterTabText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#133E87",
+  },
+  filterTabTextActive: {
+    color: "#fff",
+  },
+  datePickerContainer: {
+    width: "100%",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  monthPicker: {
+    width: "100%",
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  monthPickerText: {
+    fontSize: 16,
+    color: "#0b2336",
+  },
+  yearPicker: {
+    width: "100%",
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  yearPickerText: {
+    fontSize: 16,
+    color: "#0b2336",
+  },
+  modalButtonsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    marginTop: 8,
+  },
+  modalButton: {
+    flex: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.2,
+    borderColor: "#133E87",
+    backgroundColor: "#eef6fb",
+    marginHorizontal: 4,
+  },
+  modalResetButton: {
+    backgroundColor: "#fff",
+  },
+  modalButtonText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#133E87",
+  },
 });
