@@ -25,7 +25,13 @@ function GroupedBarChart({
   // tooltipFormatter: function(group, index, value)
   const chartHeight = 180;
   const yMax = maxValue !== null ? maxValue : Math.max(...actions, 1);
-  const yTicks = [yMax, Math.round((yMax * 3) / 4), Math.round(yMax / 2), Math.round(yMax / 4), 0];
+  const yTicks = [
+    yMax,
+    Math.round((yMax * 3) / 4),
+    Math.round(yMax / 2),
+    Math.round(yMax / 4),
+    0,
+  ];
 
   const [containerWidth, setContainerWidth] = React.useState(null);
   // paddingLeft for y-axis, marginLeft for bars
@@ -51,11 +57,15 @@ function GroupedBarChart({
       const ratio = 24 / 28;
       // Let barWidth + groupSpace = X, barWidth = X/(1+ratio), groupSpace = X*ratio/(1+ratio)
       // But easier: Try barWidth = max(minBarWidth, (barsAreaWidth - (groupCount-1)*minGroupSpace)/groupCount)
-      let testBarWidth = (barsAreaWidth - (groupCount-1)*minGroupSpace)/groupCount;
+      let testBarWidth =
+        (barsAreaWidth - (groupCount - 1) * minGroupSpace) / groupCount;
       if (testBarWidth < minBarWidth) {
         // fallback: minimum bar width, reduce groupSpace even more if needed
         barWidth = minBarWidth;
-        groupSpace = Math.max(minGroupSpace, (barsAreaWidth - groupCount*minBarWidth)/(groupCount-1));
+        groupSpace = Math.max(
+          minGroupSpace,
+          (barsAreaWidth - groupCount * minBarWidth) / (groupCount - 1)
+        );
       } else {
         barWidth = testBarWidth;
         groupSpace = minGroupSpace;
@@ -79,7 +89,7 @@ function GroupedBarChart({
         },
         style,
       ]}
-      onLayout={e => {
+      onLayout={(e) => {
         setContainerWidth(e.nativeEvent.layout.width);
       }}
     >
@@ -136,50 +146,61 @@ function GroupedBarChart({
                   style={{
                     width: barWidth,
                     height: actionHeight,
-                    backgroundColor: actionVal === yMax ? "#676767" : barColors[0],
+                    backgroundColor:
+                      actionVal === yMax ? "#676767" : barColors[0],
                     borderRadius: 6,
                   }}
                 />
-                {activeIndex && activeIndex.group === 0 && activeIndex.index === idx && (
-                  <View
-                    style={[
-                      {
-                        position: "absolute",
-                        bottom: actionHeight + 8,
-                        left: (() => {
-                          if (!containerWidth) return 0;
-                          const tooltipWidth = 100; // match your tooltip minWidth
-                          // barWidth is calculated above
-                          if (idx === labels.length - 1) {
-                            return -tooltipWidth + barWidth; // shift left so it fits
-                          } else if (idx === labels.length - 2) {
-                            return -tooltipWidth / 2 + barWidth / 2; // minor adjustment
-                          }
-                          return 0;
-                        })(),
-                        right: 0,
-                        backgroundColor: "#fff",
-                        borderRadius: 8,
-                        borderWidth: 1,
-                        borderColor: "#ccc",
-                        minWidth: 90,
-                        alignItems: "center",
-                        padding: 8,
-                        zIndex: 10,
-                        elevation: 5,
-                      },
-                    ]}
-                  >
-                    <Text style={{ fontSize: 15, fontWeight: "700", color: "#333" }}>
-                      {tooltipFormatter
-                        ? tooltipFormatter(0, idx, actionVal)
-                        : `${label} amount: ${actionVal}`}
-                    </Text>
-                  </View>
-                )}
+                {activeIndex &&
+                  activeIndex.group === 0 &&
+                  activeIndex.index === idx && (
+                    <View
+                      style={[
+                        {
+                          position: "absolute",
+                          bottom: actionHeight + 8,
+                          left: (() => {
+                            if (!containerWidth) return 0;
+                            const tooltipWidth = 100; // match your tooltip minWidth
+                            // barWidth is calculated above
+                            if (idx === labels.length - 1) {
+                              return -tooltipWidth + barWidth; // shift left so it fits
+                            } else if (idx === labels.length - 2) {
+                              return -tooltipWidth / 2 + barWidth / 2; // minor adjustment
+                            }
+                            return 0;
+                          })(),
+                          right: 0,
+                          backgroundColor: "#fff",
+                          borderRadius: 8,
+                          borderWidth: 1,
+                          borderColor: "#ccc",
+                          minWidth: 90,
+                          alignItems: "center",
+                          padding: 8,
+                          zIndex: 10,
+                          elevation: 5,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 15,
+                          fontWeight: "700",
+                          color: "#333",
+                        }}
+                      >
+                        {tooltipFormatter
+                          ? tooltipFormatter(0, idx, actionVal)
+                          : `${label} amount: ${actionVal}`}
+                      </Text>
+                    </View>
+                  )}
               </TouchableOpacity>
               {/* X label */}
-              <Text style={{ fontSize: 12, color: "#333", marginTop: 8 }}>{label}</Text>
+              <Text style={{ fontSize: 12, color: "#333", marginTop: 8 }}>
+                {label}
+              </Text>
             </View>
           );
         })}
@@ -208,6 +229,11 @@ export default function Analytics() {
   const [showDateDropdown, setShowDateDropdown] = useState(false);
   const [selectedDateRange, setSelectedDateRange] = useState("Last 7 Days");
 
+  // Batch data from Firestore
+  const [batches, setBatches] = useState([]);
+  const [batchLoading, setBatchLoading] = useState(true);
+  const [batchError, setBatchError] = useState("");
+
   const cardWidth = Dimensions.get("window").width - 32;
 
   const tableData = [
@@ -234,9 +260,63 @@ export default function Analytics() {
     },
   ];
 
+  // Fetch batches from Firestore
+  useEffect(() => {
+    fetchBatches();
+  }, []);
+
+  const fetchBatches = async () => {
+    setBatchLoading(true);
+    setBatchError("");
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        console.log("No user logged in");
+        setBatchLoading(false);
+        return;
+      }
+
+      const brooderInfoRef = collection(db, "brooderInfo");
+      const brooderSnapshot = await getDocs(brooderInfoRef);
+
+      const fetchedBatches = [];
+      brooderSnapshot.forEach((doc) => {
+        const data = doc.data();
+        // All batches are visible to any logged-in user (no userId filter)
+
+        // Use batchNumber or document ID as identifier
+        const batchId = data.batchNumber || data.batchId || doc.id;
+        const batchLabel =
+          typeof batchId === "number" ? `Batch ${batchId}` : batchId;
+
+        fetchedBatches.push({
+          id: doc.id,
+          label: batchLabel,
+          ...data,
+        });
+      });
+
+      // Sort batches by batchNumber if available
+      fetchedBatches.sort((a, b) => {
+        const numA = a.batchNumber || 0;
+        const numB = b.batchNumber || 0;
+        return numA - numB;
+      });
+
+      console.log("Fetched batches from Firestore:", fetchedBatches);
+      setBatches(fetchedBatches);
+    } catch (error) {
+      console.error("Error fetching batches:", error);
+      setBatchError("Failed to load batches");
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
   // Feeding data - now fetched from Firestore
   const [feedingData, setFeedingData] = useState([0, 0, 0, 0, 0, 0, 0]);
   const [feedingLoading, setFeedingLoading] = useState(true);
+  const [feedingError, setFeedingError] = useState("");
   const [totalFeedUsed, setTotalFeedUsed] = useState(0);
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const [activeFeedIndex, setActiveFeedIndex] = useState(null);
@@ -244,22 +324,28 @@ export default function Analytics() {
   // Fetch feeding data from Firestore
   useEffect(() => {
     fetchFeedingData();
-  }, [selectedDateRange]);
+  }, [selectedDateRange, selectedBatch]);
 
   const fetchFeedingData = async () => {
     setFeedingLoading(true);
+    setFeedingError("");
     try {
       const user = auth.currentUser;
       if (!user) {
         console.log("No user logged in");
+        setFeedingError("No user logged in");
         setFeedingLoading(false);
         return;
       }
 
+      console.log("Fetching feeding data for user:", user.uid);
+      console.log("Selected batch:", selectedBatch);
+      console.log("Selected date range:", selectedDateRange);
+
       // Calculate date range
       const now = new Date();
       let startDate = new Date();
-      
+
       if (selectedDateRange === "Last 7 Days") {
         startDate.setDate(now.getDate() - 7);
       } else if (selectedDateRange === "Last 30 Days") {
@@ -268,47 +354,101 @@ export default function Analytics() {
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
       }
 
-      // Fetch from addFeedSchedule collection
-      const feedScheduleRef = collection(db, "addFeedSchedule_logs");
-      const feedsSnapshot = await getDocs(feedScheduleRef);
-      
+      console.log("Date range:", {
+        startDate: startDate.toISOString(),
+        now: now.toISOString(),
+      });
+
+      // Fetch from feedingExecutions_logs collection
+      const feedExecutionsRef = collection(db, "feedingExecutions_logs");
+      const feedsSnapshot = await getDocs(feedExecutionsRef);
+
+      console.log(
+        "Total documents in feedingExecutions_logs:",
+        feedsSnapshot.size
+      );
+
       // Initialize counts for each day of week
       const dayCounts = [0, 0, 0, 0, 0, 0, 0]; // Mon-Sun
       let total = 0;
 
       feedsSnapshot.forEach((doc) => {
         const data = doc.data();
-        
-        // Filter by user
-        if (data.userId !== user.uid) return;
-        
-        // Parse timestamp
+
+        // Log sample documents
+        if (total < 3) {
+          console.log("Sample document:", { id: doc.id, data });
+        }
+
+        // Filter by status === "success"
+        if (data.status !== "success") {
+          console.log("Skipping doc - status not success:", data.status);
+          return;
+        }
+
+        // Filter by batch if not "All Batches"
+        if (selectedBatch !== "All Batches" && data.batchId) {
+          if (data.batchId !== selectedBatch) {
+            console.log(
+              "Skipping doc - batch mismatch:",
+              data.batchId,
+              "vs",
+              selectedBatch
+            );
+            return;
+          }
+        }
+
+        // Parse timestamp (try executedAt first, fall back to timestamp)
+        // Handle both Firestore Timestamp objects and string dates
         let docDate;
-        if (data.timestamp) {
-          docDate = new Date(data.timestamp);
-        } else if (data.selectedTime) {
-          docDate = new Date(data.selectedTime);
+        if (data.executedAt) {
+          docDate = data.executedAt.toDate
+            ? data.executedAt.toDate()
+            : new Date(data.executedAt);
+        } else if (data.timestamp) {
+          docDate = data.timestamp.toDate
+            ? data.timestamp.toDate()
+            : new Date(data.timestamp);
         } else {
+          console.log("Skipping doc - no timestamp found");
           return;
         }
 
         // Filter by date range
-        if (docDate < startDate || docDate > now) return;
+        if (docDate < startDate || docDate > now) {
+          console.log(
+            "Skipping doc - outside date range:",
+            docDate.toISOString()
+          );
+          return;
+        }
 
         // Get day of week (0 = Sunday, so we need to adjust for Mon-Sun)
         const dayOfWeek = docDate.getDay();
         // Convert: Sunday(0)->6, Monday(1)->0, Tuesday(2)->1, etc.
         const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-        
+
+        console.log("Counting document:", {
+          date: docDate.toISOString(),
+          day: days[adjustedDay],
+          dayOfWeek,
+        });
         dayCounts[adjustedDay]++;
         total++;
       });
 
-      console.log("Feeding data from Firestore:", dayCounts);
+      console.log("Final feeding data:", dayCounts, "Total:", total);
+
+      if (total === 0) {
+        console.warn("No feeding data found matching criteria");
+      }
+
       setFeedingData(dayCounts);
       setTotalFeedUsed(total);
     } catch (error) {
       console.error("Error fetching feeding data:", error);
+      setFeedingError(`Error: ${error.message}`);
     } finally {
       setFeedingLoading(false);
     }
@@ -316,7 +456,13 @@ export default function Analytics() {
 
   // Water data - now fetched from Firestore
   const [waterLevels, setWaterLevels] = useState([0, 0, 0, 0, 0]);
-  const [waterTimes, setWaterTimes] = useState(["00:00", "04:00", "08:00", "12:00", "20:00"]);
+  const [waterTimes, setWaterTimes] = useState([
+    "00:00",
+    "04:00",
+    "08:00",
+    "12:00",
+    "20:00",
+  ]);
   const [waterLoading, setWaterLoading] = useState(true);
   const [waterStats, setWaterStats] = useState({
     currentLevel: 0,
@@ -328,7 +474,7 @@ export default function Analytics() {
   // Fetch water data from Firestore
   useEffect(() => {
     fetchWaterData();
-  }, [selectedDateRange]);
+  }, [selectedDateRange, selectedBatch]);
 
   const fetchWaterData = async () => {
     setWaterLoading(true);
@@ -343,7 +489,7 @@ export default function Analytics() {
       // Calculate date range
       const now = new Date();
       let startDate = new Date();
-      
+
       if (selectedDateRange === "Last 7 Days") {
         startDate.setDate(now.getDate() - 7);
       } else if (selectedDateRange === "Last 30 Days") {
@@ -352,10 +498,19 @@ export default function Analytics() {
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
       }
 
-      // Fetch from wateringActivityLogs collection
-      const waterLogsRef = collection(db, "wateringActivity_logs");
+      console.log("Fetching water data from waterLevel_logs collection");
+      console.log("Selected batch:", selectedBatch);
+      console.log("Date range:", {
+        startDate: startDate.toISOString(),
+        now: now.toISOString(),
+      });
+
+      // Fetch from waterLevel_logs collection
+      const waterLogsRef = collection(db, "waterLevel_logs");
       const waterSnapshot = await getDocs(waterLogsRef);
-      
+
+      console.log("Total documents in waterLevel_logs:", waterSnapshot.size);
+
       // Group data by time slots
       const timeSlots = {
         "00:00": [],
@@ -364,31 +519,56 @@ export default function Analytics() {
         "12:00": [],
         "20:00": [],
       };
-      
-      let totalLogs = 0;
+
+      let totalConsumption = 0;
       let latestLevel = 0;
+      let allLevels = [];
 
       waterSnapshot.forEach((doc) => {
         const data = doc.data();
-        
-        // Filter by user
-        if (data.userId !== user.uid) return;
-        
+
+        // Log sample documents
+        if (allLevels.length < 3) {
+          console.log("Sample water document:", { id: doc.id, data });
+        }
+
+        // Filter by batch if not "All Batches"
+        if (selectedBatch !== "All Batches" && data.batchId) {
+          if (data.batchId !== selectedBatch) {
+            console.log(
+              "Skipping doc - batch mismatch:",
+              data.batchId,
+              "vs",
+              selectedBatch
+            );
+            return;
+          }
+        }
+
         // Parse timestamp
         let docDate;
         if (data.timestamp) {
-          docDate = new Date(data.timestamp);
-        } else if (data.selectedTime) {
-          docDate = new Date(data.selectedTime);
+          docDate = data.timestamp.toDate
+            ? data.timestamp.toDate()
+            : new Date(data.timestamp);
         } else {
+          console.log("Skipping doc - no timestamp found");
           return;
         }
 
         // Filter by date range
-        if (docDate < startDate || docDate > now) return;
+        if (docDate < startDate || docDate > now) {
+          console.log(
+            "Skipping doc - outside date range:",
+            docDate.toISOString()
+          );
+          return;
+        }
 
-        totalLogs++;
-        
+        // Parse water level (convert string to number if needed)
+        const level = parseInt(data.waterLevel) || 0;
+        allLevels.push(level);
+
         // Get hour and assign to nearest time slot
         const hour = docDate.getHours();
         let slot = "00:00";
@@ -398,31 +578,47 @@ export default function Analytics() {
         else if (hour >= 16 && hour < 22) slot = "20:00";
         else slot = "00:00";
 
-        // Use waterLevel if available, otherwise count as activity
-        const level = data.waterLevel || data.level || 1;
         timeSlots[slot].push(level);
-        
+
         // Track latest level
         if (docDate > new Date(latestLevel)) {
           latestLevel = level;
         }
       });
 
-      // Calculate average for each time slot (or count if no levels)
-      const levels = Object.keys(timeSlots).map(slot => {
+      // Calculate average for each time slot
+      const levels = Object.keys(timeSlots).map((slot) => {
         const values = timeSlots[slot];
         if (values.length === 0) return 0;
-        // If values are small numbers (counts), multiply for visualization
         const avg = values.reduce((a, b) => a + b, 0) / values.length;
-        return Math.round(avg > 10 ? avg : avg * 20); // Scale up small values
+        return Math.round(avg);
       });
 
-      console.log("Water data from Firestore:", levels);
+      // Calculate water usage statistics
+      const maxLevel = Math.max(...allLevels, 0);
+      const minLevel = allLevels.length > 0 ? Math.min(...allLevels) : 0;
+      const waterUsed = maxLevel - minLevel; // Water consumed in this period
+      const dailyAvgUsage =
+        allLevels.length > 0 ? (waterUsed / 7).toFixed(1) : 0;
+
+      console.log(
+        "Water levels collected:",
+        allLevels.length,
+        "Total:",
+        levels
+      );
+      console.log("Water usage stats:", {
+        waterUsed,
+        dailyAvgUsage,
+        maxLevel,
+        minLevel,
+      });
+
       setWaterLevels(levels);
       setWaterStats({
-        currentLevel: latestLevel > 10 ? latestLevel : latestLevel * 20,
-        dailyConsumption: totalLogs,
-        weeklyTotal: totalLogs,
+        currentLevel: latestLevel,
+        dailyConsumption: Math.round(dailyAvgUsage),
+        weeklyTotal: waterUsed,
       });
     } catch (error) {
       console.error("Error fetching water data:", error);
@@ -431,12 +627,173 @@ export default function Analytics() {
     }
   };
 
-  // Energy data
+  // Energy data - now fetched from Firestore
+  const [energyData, setEnergyData] = useState([0, 0, 0, 0, 0]);
+  const [energyTimes, setEnergyTimes] = useState([
+    "00:00",
+    "04:00",
+    "08:00",
+    "12:00",
+    "20:00",
+  ]);
+  const [energyLoading, setEnergyLoading] = useState(true);
+  const [energySummary, setEnergySummary] = useState({
+    solarOutput: 0,
+    mainPowerUsed: 0,
+    efficiency: 0,
+  });
   const [activeEnergyIndex, setActiveEnergyIndex] = useState(null);
+  const maxEnergy = Math.max(...energyData, 1);
 
-  const energyData = [35, 50, 80, 60, 40];
-  const energyTimes = ["00:00", "04:00", "08:00", "12:00", "20:00"];
-  const maxEnergy = Math.max(...energyData);
+  // Fetch energy data from Firestore
+  useEffect(() => {
+    fetchEnergyData();
+  }, [selectedDateRange, selectedBatch]);
+
+  const fetchEnergyData = async () => {
+    setEnergyLoading(true);
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        console.log("No user logged in");
+        setEnergyLoading(false);
+        return;
+      }
+
+      // Calculate date range
+      const now = new Date();
+      let startDate = new Date();
+
+      if (selectedDateRange === "Last 7 Days") {
+        startDate.setDate(now.getDate() - 7);
+      } else if (selectedDateRange === "Last 30 Days") {
+        startDate.setDate(now.getDate() - 30);
+      } else if (selectedDateRange === "This Month") {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      }
+
+      console.log("Fetching energy data from energyLogs collection");
+      console.log("Selected batch:", selectedBatch);
+      console.log("Date range:", {
+        startDate: startDate.toISOString(),
+        now: now.toISOString(),
+      });
+
+      // Fetch from energyLogs collection
+      const energyLogsRef = collection(db, "energyLogs");
+      const energySnapshot = await getDocs(energyLogsRef);
+
+      console.log("Total documents in energyLogs:", energySnapshot.size);
+
+      // Group data by time slots
+      const timeSlots = {
+        "00:00": [],
+        "04:00": [],
+        "08:00": [],
+        "12:00": [],
+        "20:00": [],
+      };
+
+      let totalSolarOutput = 0;
+      let totalMainPowerUsed = 0;
+      let documentCount = 0;
+
+      energySnapshot.forEach((doc) => {
+        const data = doc.data();
+
+        // Log sample documents
+        if (documentCount < 3) {
+          console.log("Sample energy document:", { id: doc.id, data });
+        }
+
+        // Filter by batch if not "All Batches"
+        if (selectedBatch !== "All Batches" && data.batchId) {
+          if (data.batchId !== selectedBatch) {
+            console.log(
+              "Skipping doc - batch mismatch:",
+              data.batchId,
+              "vs",
+              selectedBatch
+            );
+            return;
+          }
+        }
+
+        // Parse timestamp
+        let docDate;
+        if (data.timestamp) {
+          docDate = data.timestamp.toDate
+            ? data.timestamp.toDate()
+            : new Date(data.timestamp);
+        } else {
+          console.log("Skipping doc - no timestamp found");
+          return;
+        }
+
+        // Filter by date range
+        if (docDate < startDate || docDate > now) {
+          console.log(
+            "Skipping doc - outside date range:",
+            docDate.toISOString()
+          );
+          return;
+        }
+
+        // Parse energy values (convert to number if needed)
+        const solarOutput = parseFloat(data.solarOutput) || 0;
+        const mainPowerUsed = parseFloat(data.mainPowerUsed) || 0;
+
+        totalSolarOutput += solarOutput;
+        totalMainPowerUsed += mainPowerUsed;
+        documentCount++;
+
+        // Get hour and assign to nearest time slot
+        const hour = docDate.getHours();
+        let slot = "00:00";
+        if (hour >= 2 && hour < 6) slot = "04:00";
+        else if (hour >= 6 && hour < 10) slot = "08:00";
+        else if (hour >= 10 && hour < 16) slot = "12:00";
+        else if (hour >= 16 && hour < 22) slot = "20:00";
+        else slot = "00:00";
+
+        // Store solar output for chart (using solar as primary metric)
+        timeSlots[slot].push(solarOutput);
+      });
+
+      // Calculate average solar output for each time slot
+      const chartData = Object.keys(timeSlots).map((slot) => {
+        const values = timeSlots[slot];
+        if (values.length === 0) return 0;
+        const avg = values.reduce((a, b) => a + b, 0) / values.length;
+        return Math.round(avg * 10) / 10; // Round to 1 decimal place
+      });
+
+      // Calculate efficiency
+      const totalEnergy = totalSolarOutput + totalMainPowerUsed;
+      const efficiency =
+        totalEnergy > 0
+          ? ((totalSolarOutput / totalEnergy) * 100).toFixed(1)
+          : 0;
+
+      console.log("Energy data collected:", documentCount, "documents");
+      console.log("Energy summary:", {
+        totalSolarOutput,
+        totalMainPowerUsed,
+        efficiency,
+      });
+
+      setEnergyData(chartData);
+      setEnergySummary({
+        solarOutput: Math.round(totalSolarOutput * 10) / 10,
+        mainPowerUsed: Math.round(totalMainPowerUsed * 10) / 10,
+        efficiency: efficiency,
+      });
+    } catch (error) {
+      console.error("Error fetching energy data:", error);
+    } finally {
+      setEnergyLoading(false);
+    }
+  };
 
   return (
     <ScrollView style={styles.container}>
@@ -453,20 +810,63 @@ export default function Analytics() {
           onPress={() => setShowBatchDropdown(!showBatchDropdown)}
         >
           <Text style={styles.dropdownText}>{selectedBatch}</Text>
-          <Ionicons name={showBatchDropdown ? "chevron-up" : "chevron-down"} size={18} color="#666" />
+          <Ionicons
+            name={showBatchDropdown ? "chevron-up" : "chevron-down"}
+            size={18}
+            color="#666"
+          />
         </TouchableOpacity>
 
         {showBatchDropdown && (
           <View style={styles.dropdownOptions}>
-            <TouchableOpacity onPress={() => { setSelectedBatch("All Batches"); setShowBatchDropdown(false); }}>
+            {/* All Batches default option */}
+            <TouchableOpacity
+              onPress={() => {
+                setSelectedBatch("All Batches");
+                setShowBatchDropdown(false);
+              }}
+            >
               <Text style={styles.dropdownOptionText}>All Batches</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => { setSelectedBatch("Batch-2025-001"); setShowBatchDropdown(false); }}>
-              <Text style={styles.dropdownOptionText}>Batch-2025-001</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => { setSelectedBatch("Batch-2025-002"); setShowBatchDropdown(false); }}>
-              <Text style={styles.dropdownOptionText}>Batch-2025-002</Text>
-            </TouchableOpacity>
+
+            {/* Loading state */}
+            {batchLoading && (
+              <View style={{ padding: 12, alignItems: "center" }}>
+                <ActivityIndicator size="small" color="#133E87" />
+                <Text style={{ marginTop: 4, color: "#666", fontSize: 14 }}>
+                  Loading batches...
+                </Text>
+              </View>
+            )}
+
+            {/* Error state */}
+            {!batchLoading && batchError && (
+              <Text style={{ padding: 12, color: "#D32F2F", fontSize: 14 }}>
+                {batchError}
+              </Text>
+            )}
+
+            {/* No batches found */}
+            {!batchLoading && !batchError && batches.length === 0 && (
+              <Text style={{ padding: 12, color: "#666", fontSize: 14 }}>
+                No batches found
+              </Text>
+            )}
+
+            {/* Dynamic batch options */}
+            {!batchLoading &&
+              !batchError &&
+              batches.map((batch) => (
+                <TouchableOpacity
+                  key={batch.id}
+                  onPress={() => {
+                    setSelectedBatch(batch.label);
+                    setShowBatchDropdown(false);
+                  }}
+                >
+                  <Text style={styles.dropdownOptionText}>{batch.label}</Text>
+                </TouchableOpacity>
+              ))}
           </View>
         )}
 
@@ -476,18 +876,37 @@ export default function Analytics() {
           onPress={() => setShowDateDropdown(!showDateDropdown)}
         >
           <Text style={styles.dropdownText}>{selectedDateRange}</Text>
-          <Ionicons name={showDateDropdown ? "chevron-up" : "chevron-down"} size={18} color="#666" />
+          <Ionicons
+            name={showDateDropdown ? "chevron-up" : "chevron-down"}
+            size={18}
+            color="#666"
+          />
         </TouchableOpacity>
 
         {showDateDropdown && (
           <View style={styles.dropdownOptions}>
-            <TouchableOpacity onPress={() => { setSelectedDateRange("Last 7 Days"); setShowDateDropdown(false); }}>
+            <TouchableOpacity
+              onPress={() => {
+                setSelectedDateRange("Last 7 Days");
+                setShowDateDropdown(false);
+              }}
+            >
               <Text style={styles.dropdownOptionText}>Last 7 Days</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => { setSelectedDateRange("Last 30 Days"); setShowDateDropdown(false); }}>
+            <TouchableOpacity
+              onPress={() => {
+                setSelectedDateRange("Last 30 Days");
+                setShowDateDropdown(false);
+              }}
+            >
               <Text style={styles.dropdownOptionText}>Last 30 Days</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => { setSelectedDateRange("This Month"); setShowDateDropdown(false); }}>
+            <TouchableOpacity
+              onPress={() => {
+                setSelectedDateRange("This Month");
+                setShowDateDropdown(false);
+              }}
+            >
               <Text style={styles.dropdownOptionText}>This Month</Text>
             </TouchableOpacity>
           </View>
@@ -499,10 +918,7 @@ export default function Analytics() {
         {["Feeding", "Water", "Energy"].map((tab, i) => (
           <TouchableOpacity
             key={i}
-            style={[
-              styles.tabButton,
-              selectedTab === tab && styles.activeTab,
-            ]}
+            style={[styles.tabButton, selectedTab === tab && styles.activeTab]}
             onPress={() => setSelectedTab(tab)}
           >
             <Text
@@ -517,17 +933,40 @@ export default function Analytics() {
         ))}
       </View>
 
-
       {/* ---------------- FEEDING TAB ---------------- */}
       {selectedTab === "Feeding" && (
         <>
           {/* Feeding Bar Chart (Single Bar) */}
           <View style={[styles.card, { width: cardWidth }]}>
             <Text style={styles.chartTitle}>Feeding Frequency Chart</Text>
+            {feedingError && (
+              <View
+                style={{
+                  padding: 12,
+                  backgroundColor: "#ffebee",
+                  borderRadius: 8,
+                  marginBottom: 10,
+                }}
+              >
+                <Text
+                  style={{ color: "#D32F2F", fontSize: 14, fontWeight: "600" }}
+                >
+                  Error: {feedingError}
+                </Text>
+              </View>
+            )}
             {feedingLoading ? (
-              <View style={{ height: 180, justifyContent: "center", alignItems: "center" }}>
+              <View
+                style={{
+                  height: 180,
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
                 <ActivityIndicator size="large" color="#133E87" />
-                <Text style={{ marginTop: 10, color: "#666" }}>Loading data...</Text>
+                <Text style={{ marginTop: 10, color: "#666" }}>
+                  Loading data...
+                </Text>
               </View>
             ) : (
               <GroupedBarChart
@@ -535,7 +974,12 @@ export default function Analytics() {
                 labels={days}
                 barColors={["#000"]}
                 maxValue={Math.max(...feedingData, 1) + 2}
-                style={{ marginTop: 10, marginBottom: 10, justifyContent: 'center', alignItems: 'center' }}
+                style={{
+                  marginTop: 10,
+                  marginBottom: 10,
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
                 activeIndex={activeFeedIndex}
                 setActiveIndex={setActiveFeedIndex}
                 tooltipFormatter={(group, idx, val) =>
@@ -553,12 +997,16 @@ export default function Analytics() {
             </View>
             <View style={styles.weeklyRow}>
               <Text style={styles.weeklyLabel}>Daily Average</Text>
-              <Text style={styles.weeklyValue}>{(totalFeedUsed / 7).toFixed(1)}</Text>
+              <Text style={styles.weeklyValue}>
+                {(totalFeedUsed / 7).toFixed(1)}
+              </Text>
             </View>
             <View style={styles.weeklyRow}>
               <Text style={styles.weeklyLabel}>Most Active Day</Text>
               <Text style={styles.weeklyValue}>
-                {feedingData.every(v => v === 0) ? "N/A" : days[feedingData.indexOf(Math.max(...feedingData))]}
+                {feedingData.every((v) => v === 0)
+                  ? "N/A"
+                  : days[feedingData.indexOf(Math.max(...feedingData))]}
               </Text>
             </View>
           </View>
@@ -573,36 +1021,55 @@ export default function Analytics() {
             <Text style={styles.chartTitle}>Water Level Chart</Text>
 
             {waterLoading ? (
-              <View style={{ height: 180, justifyContent: "center", alignItems: "center" }}>
+              <View
+                style={{
+                  height: 180,
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
                 <ActivityIndicator size="large" color="#133E87" />
-                <Text style={{ marginTop: 10, color: "#666" }}>Loading data...</Text>
+                <Text style={{ marginTop: 10, color: "#666" }}>
+                  Loading data...
+                </Text>
               </View>
             ) : (
               <View style={styles.waterChartContainer}>
                 {/* Y-Axis Labels */}
-                <View style={{
-                  position: "absolute",
-                  left: 0,
-                  bottom: 0,
-                  top: 0,
-                  justifyContent: "space-between",
-                  paddingLeft: 5,
-                  height: "100%",
-                }}>
+                <View
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    bottom: 0,
+                    top: 0,
+                    justifyContent: "space-between",
+                    paddingLeft: 5,
+                    height: "100%",
+                  }}
+                >
                   <Text style={{ fontSize: 10, color: "#333" }}>100</Text>
                   <Text style={{ fontSize: 10, color: "#333" }}>75</Text>
                   <Text style={{ fontSize: 10, color: "#333" }}>50</Text>
                   <Text style={{ fontSize: 10, color: "#333" }}>25</Text>
                   <Text style={{ fontSize: 10, color: "#333" }}>0</Text>
                 </View>
-                <View style={{ flex: 1, flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginLeft: 30 }}>
+                <View
+                  style={{
+                    flex: 1,
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "flex-end",
+                    marginLeft: 30,
+                  }}
+                >
                   {waterTimes.map((time, index) => (
                     <View key={index} style={styles.waterPointWrapper}>
-                      {(activeWaterIndex === index || waterLevels[index] === Math.max(...waterLevels)) && (
+                      {(activeWaterIndex === index ||
+                        waterLevels[index] === Math.max(...waterLevels)) && (
                         <View
                           style={[
                             styles.waterVerticalLine,
-                            { bottom: 0, height: waterLevels[index] * 1.8 }
+                            { bottom: 0, height: waterLevels[index] * 1.8 },
                           ]}
                         />
                       )}
@@ -632,8 +1099,12 @@ export default function Analytics() {
                             },
                           ]}
                         >
-                          <Text style={styles.tooltipText}>{waterTimes[index]}</Text>
-                          <Text style={styles.tooltipText}>Level: {waterLevels[index]}</Text>
+                          <Text style={styles.tooltipText}>
+                            {waterTimes[index]}
+                          </Text>
+                          <Text style={styles.tooltipText}>
+                            Level: {waterLevels[index]}
+                          </Text>
                         </View>
                       )}
                       {/* Spacer to push label below baseline */}
@@ -657,13 +1128,17 @@ export default function Analytics() {
 
             <View style={styles.weeklyRow}>
               <Text style={styles.weeklyLabel}>Total Activities</Text>
-              <Text style={styles.weeklyValue}>{waterStats.dailyConsumption}</Text>
+              <Text style={styles.weeklyValue}>
+                {waterStats.dailyConsumption}
+              </Text>
             </View>
 
             <View style={styles.weeklyRow}>
               <Text style={styles.weeklyLabel}>Peak Time</Text>
               <Text style={styles.weeklyValue}>
-                {waterLevels.every(v => v === 0) ? "N/A" : waterTimes[waterLevels.indexOf(Math.max(...waterLevels))]}
+                {waterLevels.every((v) => v === 0)
+                  ? "N/A"
+                  : waterTimes[waterLevels.indexOf(Math.max(...waterLevels))]}
               </Text>
             </View>
           </View>
@@ -677,73 +1152,101 @@ export default function Analytics() {
           <View style={[styles.card, { width: cardWidth }]}>
             <Text style={styles.chartTitle}>Energy Output Chart</Text>
 
-            <View style={styles.energyChartContainer}>
-              {/* Y-Axis Labels */}
+            {energyLoading ? (
               <View
                 style={{
-                  position: "absolute",
-                  left: 0,
-                  bottom: 0,
-                  top: 0,
-                  justifyContent: "space-between",
-                  paddingLeft: 5,
-                  height: "100%",
+                  height: 180,
+                  justifyContent: "center",
+                  alignItems: "center",
                 }}
               >
-                <Text style={{ fontSize: 10, color: "#333" }}>80</Text>
-                <Text style={{ fontSize: 10, color: "#333" }}>60</Text>
-                <Text style={{ fontSize: 10, color: "#333" }}>40</Text>
-                <Text style={{ fontSize: 10, color: "#333" }}>20</Text>
-                <Text style={{ fontSize: 10, color: "#333" }}>0</Text>
+                <ActivityIndicator size="large" color="#133E87" />
+                <Text style={{ marginTop: 10, color: "#666" }}>
+                  Loading data...
+                </Text>
               </View>
-              <View style={{ flex: 1, flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginLeft: 30 }}>
-                {energyTimes.map((time, index) => (
-                  <View key={index} style={styles.energyPointWrapper}>
-                    {/* Show vertical line if this is the active dot, or if this value is the max energy */}
-                    {(activeEnergyIndex === index || energyData[index] === maxEnergy) && (
-                      <View
+            ) : (
+              <View style={styles.energyChartContainer}>
+                {/* Y-Axis Labels */}
+                <View
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    bottom: 0,
+                    top: 0,
+                    justifyContent: "space-between",
+                    paddingLeft: 5,
+                    height: "100%",
+                  }}
+                >
+                  <Text style={{ fontSize: 10, color: "#333" }}>80</Text>
+                  <Text style={{ fontSize: 10, color: "#333" }}>60</Text>
+                  <Text style={{ fontSize: 10, color: "#333" }}>40</Text>
+                  <Text style={{ fontSize: 10, color: "#333" }}>20</Text>
+                  <Text style={{ fontSize: 10, color: "#333" }}>0</Text>
+                </View>
+                <View
+                  style={{
+                    flex: 1,
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "flex-end",
+                    marginLeft: 30,
+                  }}
+                >
+                  {energyTimes.map((time, index) => (
+                    <View key={index} style={styles.energyPointWrapper}>
+                      {/* Show vertical line if this is the active dot, or if this value is the max energy */}
+                      {(activeEnergyIndex === index ||
+                        energyData[index] === maxEnergy) && (
+                        <View
+                          style={[
+                            styles.energyVerticalLine,
+                            { bottom: 0, height: energyData[index] * 1.8 },
+                          ]}
+                        />
+                      )}
+                      <TouchableOpacity
+                        onPress={() => {
+                          setActiveEnergyIndex(index);
+                          setTimeout(() => setActiveEnergyIndex(null), 1000);
+                        }}
+                        activeOpacity={0.8}
                         style={[
-                          styles.energyVerticalLine,
-                          { bottom: 0, height: energyData[index] * 1.8 }
+                          styles.energyDot,
+                          { bottom: energyData[index] * 1.8 },
                         ]}
                       />
-                    )}
-                    <TouchableOpacity
-                      onPress={() => {
-                        setActiveEnergyIndex(index);
-                        setTimeout(() => setActiveEnergyIndex(null), 1000);
-                      }}
-                      activeOpacity={0.8}
-                      style={[
-                        styles.energyDot,
-                        { bottom: energyData[index] * 1.8 },
-                      ]}
-                    />
-                    {/* Tooltip above dot (optional, matching Water) */}
-                    {activeEnergyIndex === index && (
-                      <View
-                        style={[
-                          styles.feedTooltip,
-                          {
-                            position: "absolute",
-                            bottom: energyData[index] * 1.8 + 18,
-                            left: "50%",
-                            transform: [{ translateX: -50 }],
-                            minWidth: 90,
-                            zIndex: 10,
-                          },
-                        ]}
-                      >
-                        <Text style={styles.tooltipText}>{energyTimes[index]}</Text>
-                        <Text style={styles.tooltipText}>Output: {energyData[index]} kWh</Text>
-                      </View>
-                    )}
-                    <View style={{ height: 180 }} />
-                    <Text style={styles.energyTimeLabel}>{time}</Text>
-                  </View>
-                ))}
+                      {/* Tooltip above dot (optional, matching Water) */}
+                      {activeEnergyIndex === index && (
+                        <View
+                          style={[
+                            styles.feedTooltip,
+                            {
+                              position: "absolute",
+                              bottom: energyData[index] * 1.8 + 18,
+                              left: "50%",
+                              transform: [{ translateX: -50 }],
+                              minWidth: 90,
+                              zIndex: 10,
+                            },
+                          ]}
+                        >
+                          <Text style={styles.tooltipText}>
+                            {energyTimes[index]}
+                          </Text>
+                          <Text style={styles.tooltipText}>
+                            Output: {energyData[index]} kWh
+                          </Text>
+                        </View>
+                      )}
+                      <View style={{ height: 180 }} />
+                      <Text style={styles.energyTimeLabel}>{time}</Text>
+                    </View>
+                  ))}
+                </View>
               </View>
-            </View>
+            )}
           </View>
 
           {/* Energy Summary */}
@@ -752,17 +1255,23 @@ export default function Analytics() {
 
             <View style={styles.weeklyRow}>
               <Text style={styles.weeklyLabel}>Solar Output</Text>
-              <Text style={styles.weeklyValue}>89.3 kWh</Text>
+              <Text style={styles.weeklyValue}>
+                {energySummary.solarOutput} kWh
+              </Text>
             </View>
 
             <View style={styles.weeklyRow}>
               <Text style={styles.weeklyLabel}>Main Power Used</Text>
-              <Text style={styles.weeklyValue}>67.2 kWh</Text>
+              <Text style={styles.weeklyValue}>
+                {energySummary.mainPowerUsed} kWh
+              </Text>
             </View>
 
             <View style={styles.weeklyRow}>
               <Text style={styles.weeklyLabel}>Efficiency</Text>
-              <Text style={styles.weeklyValue}>57%</Text>
+              <Text style={styles.weeklyValue}>
+                {energySummary.efficiency}%
+              </Text>
             </View>
           </View>
         </>
@@ -915,7 +1424,7 @@ const styles = StyleSheet.create({
   /* TEMP CHART */
   chartTitle: { fontSize: 17, fontWeight: "700", marginBottom: 12 },
 
-  /* WEEKLY SUMMARY (NEW) */ 
+  /* WEEKLY SUMMARY (NEW) */
   weeklyCard: {
     backgroundColor: "#F8FCFF",
     padding: 20,
@@ -962,8 +1471,11 @@ const styles = StyleSheet.create({
     alignSelf: "center",
   },
 
-  tableTitle: { 
-    fontSize: 17, fontWeight: "700", marginBottom: 28 },
+  tableTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    marginBottom: 28,
+  },
 
   tableHeader: {
     flexDirection: "row",
@@ -989,7 +1501,12 @@ const styles = StyleSheet.create({
   col3Row: { flex: 1.3, textAlign: "center" },
   col4Header: { flex: 1.4, fontWeight: "700", textAlign: "center" },
   col4Row: { flex: 1.1, textAlign: "center" },
-  col5Header: { flex: 1.2, fontWeight: "700", textAlign: "right", color: "green" },
+  col5Header: {
+    flex: 1.2,
+    fontWeight: "700",
+    textAlign: "right",
+    color: "green",
+  },
   col5Row: { flex: 1.2, textAlign: "right", fontWeight: "700", color: "green" },
 
   /* WATER CHART */
@@ -1020,8 +1537,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#333",
     marginBottom: -12,
-    
-  
   },
 
   waterVerticalLine: {
@@ -1043,7 +1558,7 @@ const styles = StyleSheet.create({
   },
 
   tooltipText: {
-    fontSize: 16,  // increased font size
+    fontSize: 16, // increased font size
     fontWeight: "700",
     color: "#333",
     textAlign: "center",

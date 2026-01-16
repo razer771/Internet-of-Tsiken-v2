@@ -29,7 +29,7 @@ const nodemailer = require("nodemailer");
 
 // Initialize Twilio
 const accountSid = "ACcc5a4257b42b456747083860b3a61773";
-const authToken = "58601eea68b29fe736575805da0d5b88";
+const authToken = "8448f54ce691e603a6e074d437c90031";
 const twilioClient = require("twilio")(accountSid, authToken);
 const verifyServiceSid = "VAf81f3e93faa06bb33bd946e3a7fb1da5";
 
@@ -55,14 +55,36 @@ exports.sendSMSOTP = onCall(async (request) => {
     console.log(`📱 Sending SMS OTP to: ${phone}`);
 
     // Check if phone number exists in Firestore users collection
-    const usersSnapshot = await db
+    // Check both "mobile" and "phone" fields for compatibility
+    let usersSnapshot = await db
       .collection("users")
       .where("mobile", "==", phone)
       .limit(1)
       .get();
 
+    // If not found in "mobile" field, try "phone" field
+    if (usersSnapshot.empty) {
+      console.log(
+        `⚠️ Phone not found in "mobile" field, checking "phone" field...`
+      );
+      usersSnapshot = await db
+        .collection("users")
+        .where("phone", "==", phone)
+        .limit(1)
+        .get();
+    }
+
     if (usersSnapshot.empty) {
       console.log(`❌ Phone number not found in database: ${phone}`);
+      // Log all users for debugging
+      const allUsers = await db.collection("users").limit(5).get();
+      allUsers.forEach((doc) => {
+        console.log(`📋 User ${doc.id}:`, {
+          mobile: doc.data().mobile,
+          phone: doc.data().phone,
+          phoneNumber: doc.data().phoneNumber,
+        });
+      });
       throw new HttpsError(
         "not-found",
         "Mobile number does not match user records"

@@ -523,9 +523,6 @@ export default function ControlScreen({ navigation }) {
           id: data.feedId,
           label: data.label,
           time: timeGMT8,
-          timeGMT8Formatted: timeGMT8,
-          originalTime: rawTime,
-          userId: data.userId, // Include userId for reference
         });
       });
 
@@ -579,9 +576,6 @@ export default function ControlScreen({ navigation }) {
           id: data.wateringId,
           label: data.label,
           time: timeGMT8,
-          timeGMT8Formatted: timeGMT8,
-          originalTime: data.time,
-          userId: data.userId,
         });
       });
 
@@ -590,7 +584,9 @@ export default function ControlScreen({ navigation }) {
         (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
       );
       setWaterings(loadedWaterings);
-      console.log(`💧 [LOAD] Watering schedules loaded from database: ${loadedWaterings.length} total`);
+      console.log(
+        `💧 [LOAD] Watering schedules loaded from database: ${loadedWaterings.length} total`
+      );
       console.log("💧 [SORT] Watering schedules sorted:");
       loadedWaterings.forEach((w) => {
         console.log(
@@ -860,29 +856,29 @@ export default function ControlScreen({ navigation }) {
         }
 
         // Persist to Firestore feeds collection
-        await setDoc(doc(db, "feeds", `${user.uid}_${nextId}`), {
+        await setDoc(doc(db, "feeds", `${nextId}`), {
           feedId: nextId,
           label: label,
           time: formattedTime,
-          userId: user.uid,
           timestamp: new Date().toISOString(),
         });
 
-        // LOGGING REMOVED - Log to addFeedSchedule_logs collection
-        console.log("📋 [LOGGING DISABLED] Would log feed schedule add:", {
-          feedId: nextId,
-          time: formattedTime,
-          action: "Add a feeding schedule",
-        });
-
         // Log activity to Firestore
-        await logActivity("addFeedSchedule_logs", {
-          action: "Feeding schedule added",
-          description: `Added ${formattedTime}`,
-          feedId: nextId,
-          newTime: formattedTime,
-          selectedTime: pendingFeedTime.toISOString(),
-        });
+        await addDoc(
+          collection(db, "activity_logs", "feeding", "addFeedSchedule_logs"),
+          {
+            action: "New feeding schedule",
+            description: `Added ${formattedTime}`,
+            firstName,
+            lastName,
+            newTime: formattedTime,
+            selectedTime: pendingFeedTime.toISOString(),
+            selectedTimeGMT8: formattedTime,
+            timestamp: new Date().toISOString(),
+            userId: user.uid,
+            feedId: nextId,
+          }
+        );
 
         // Add user notification
         addUserNotification({
@@ -1194,31 +1190,30 @@ export default function ControlScreen({ navigation }) {
         }
 
         // Update Firestore feeds document
-        await setDoc(doc(db, "feeds", `${user.uid}_${feedId}`), {
+        await setDoc(doc(db, "feeds", `${feedId}`), {
           feedId: feedId,
           label: feeds[feedEdit.idx].label,
           time: newTime,
-          userId: user.uid,
           timestamp: new Date().toISOString(),
         });
 
-        // LOGGING REMOVED - Log to editFeedSchedule_logs collection
-        console.log("📋 [LOGGING DISABLED] Would log feed schedule edit:", {
-          feedId: feedId,
-          oldTime,
-          newTime,
-          action: "Updated feeding time",
-        });
-
         // Log activity to Firestore
-        await logActivity("editFeedSchedule_logs", {
-          action: "Updated feeding time",
-          description: `Changed from ${oldTime} to ${newTime}`,
-          feedId: feedId,
-          oldTime: oldTime,
-          newTime: newTime,
-          selectedTime: feedEdit.timeDate.toISOString(),
-        });
+        await addDoc(
+          collection(db, "activity_logs", "feeding", "editFeedSchedule_logs"),
+          {
+            action: "Updated feeding time",
+            description: `Changed from ${oldTime} to ${newTime}`,
+            firstName,
+            lastName,
+            newTime,
+            oldTime,
+            selectedTime: feedEdit.timeDate.toISOString(),
+            selectedTimeGMT8: newTime,
+            timestamp: new Date().toISOString(),
+            userId: user.uid,
+            feedId,
+          }
+        );
 
         // Add user notification
         addUserNotification({
@@ -1313,22 +1308,22 @@ export default function ControlScreen({ navigation }) {
         }
 
         // Delete from Firestore feeds collection
-        await deleteDoc(doc(db, "feeds", `${user.uid}_${pendingDeleteFeedId}`));
-
-        // LOGGING REMOVED - Log delete activity to deleteFeedSchedule_logs collection
-        console.log("📋 [LOGGING DISABLED] Would log feed schedule delete:", {
-          feedId: pendingDeleteFeedId,
-          time: feedToDelete.time,
-          action: "Deleted a feeding schedule",
-        });
+        await deleteDoc(doc(db, "feeds", `${pendingDeleteFeedId}`));
 
         // Log activity to Firestore
-        await logActivity("deleteFeedSchedule_logs", {
-          action: "Deleted a feeding schedule",
-          description: `Deleted schedule at ${feedToDelete.time}`,
-          feedId: pendingDeleteFeedId,
-          oldTime: feedToDelete.time,
-        });
+        await addDoc(
+          collection(db, "activity_logs", "feeding", "deleteFeedSchedule_logs"),
+          {
+            action: "Removed a feeding schedule",
+            description: `${feedToDelete.time} has been removed`,
+            firstName,
+            lastName,
+            scheduleRemoved: feedToDelete.time,
+            timestamp: new Date().toISOString(),
+            userId: user.uid,
+            feedId: pendingDeleteFeedId,
+          }
+        );
 
         // Add user notification
         addUserNotification({
@@ -1540,30 +1535,28 @@ export default function ControlScreen({ navigation }) {
           console.error("Failed to fetch user data:", fetchErr);
         }
 
-        await setDoc(doc(db, "wateringSchedules", `${user.uid}_${nextId}`), {
+        await setDoc(doc(db, "wateringSchedules", `${nextId}`), {
           wateringId: nextId,
           label: label,
           time: formattedTime,
-          selectedTimeGMT8Formatted: formattedTime,
-          selectedTime: pendingWaterTime.toISOString(),
-          duration: 15,
-          userId: user.uid,
           timestamp: new Date().toISOString(),
         });
 
-        await addDoc(collection(db, "addWaterSchedule_logs"), {
-          wateringId: nextId,
-          userId: user.uid,
-          userName: user.displayName || user.email || "Unknown User",
-          firstName,
-          lastName,
-          selectedTime: pendingWaterTime.toISOString(),
-          selectedTimeFormatted: formattedTime,
-          newTime: formattedTime,
-          timestamp: new Date().toISOString(),
-          action: "Add new watering schedule",
-          description: `Added ${formattedTime}`,
-        });
+        await addDoc(
+          collection(db, "activity_logs", "watering", "addWaterSchedule_logs"),
+          {
+            action: "New watering schedule",
+            description: `Added ${formattedTime}`,
+            firstName,
+            lastName,
+            newTime: formattedTime,
+            selectedTime: pendingWaterTime.toISOString(),
+            selectedTimeGMT8: formattedTime,
+            timestamp: new Date().toISOString(),
+            userId: user.uid,
+            waterId: nextId,
+          }
+        );
 
         // Add user notification
         addUserNotification({
@@ -1629,10 +1622,9 @@ export default function ControlScreen({ navigation }) {
       setWaterEdit({ open: false, idx: null, timeDate: new Date() });
       return;
     }
-    const newTime = waterEdit.timeDate.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+
+    // Convert to GMT+8 format
+    const newTime = formatTimeGMT8(waterEdit.timeDate);
     const oldTime = waterings[waterEdit.idx].time;
     const wateringId = waterings[waterEdit.idx].id;
 
@@ -1664,32 +1656,30 @@ export default function ControlScreen({ navigation }) {
           console.error("Failed to fetch user data:", fetchErr);
         }
 
-        await setDoc(
-          doc(db, "wateringSchedules", `${user.uid}_${wateringId}`),
+        // Update existing document in database
+        await setDoc(doc(db, "wateringSchedules", `${wateringId}`), {
+          wateringId,
+          label: waterings[waterEdit.idx].label,
+          time: newTime,
+          timestamp: new Date().toISOString(),
+        });
+
+        await addDoc(
+          collection(db, "activity_logs", "watering", "editWaterSchedule_logs"),
           {
-            wateringId,
-            label: waterings[waterEdit.idx].label,
-            time: newTime,
-            duration: 15,
-            userId: user.uid,
+            action: "Updated watering time",
+            description: `Changed from ${oldTime} to ${newTime}`,
+            firstName,
+            lastName,
+            newTime,
+            oldTime,
+            selectedTime: waterEdit.timeDate.toISOString(),
+            selectedTimeGMT8: newTime,
             timestamp: new Date().toISOString(),
+            userId: user.uid,
+            wateringId,
           }
         );
-
-        await addDoc(collection(db, "editWaterSchedule_logs"), {
-          wateringId,
-          userId: user.uid,
-          userName: user.displayName || user.email || "Unknown User",
-          firstName,
-          lastName,
-          oldTime,
-          newTime,
-          selectedTime: waterEdit.timeDate.toISOString(),
-          selectedTimeFormatted: newTime,
-          timestamp: new Date().toISOString(),
-          action: "Updated watering time",
-          description: `From ${oldTime} to ${newTime}`,
-        });
 
         // Add user notification
         addUserNotification({
@@ -1765,21 +1755,28 @@ export default function ControlScreen({ navigation }) {
 
         console.log("🔥 Deleting from Firestore...");
         await deleteDoc(
-          doc(db, "wateringSchedules", `${user.uid}_${pendingDeleteWaterId}`)
+          doc(db, "wateringSchedules", `${pendingDeleteWaterId}`)
         );
 
         console.log("📝 Adding delete log...");
-        await addDoc(collection(db, "deleteWaterSchedule_logs"), {
-          wateringId: pendingDeleteWaterId,
-          userId: user.uid,
-          userName: user.displayName || user.email || "Unknown User",
-          firstName,
-          lastName,
-          oldTime: waterToDelete.time,
-          timestamp: new Date().toISOString(),
-          action: "Deleted a watering schedule",
-          description: `Deleted ${waterToDelete.time}`,
-        });
+        await addDoc(
+          collection(
+            db,
+            "activity_logs",
+            "watering",
+            "deleteWaterSchedule_logs"
+          ),
+          {
+            action: "Removed a water schedule",
+            description: `${waterToDelete.time} has been removed`,
+            firstName,
+            lastName,
+            scheduleRemoved: waterToDelete.time,
+            timestamp: new Date().toISOString(),
+            userId: user.uid,
+            waterId: pendingDeleteWaterId,
+          }
+        );
 
         // Add user notification
         addUserNotification({
@@ -2502,9 +2499,9 @@ export default function ControlScreen({ navigation }) {
       </ScrollView>
 
       {/* Date / Time Pickers */}
-      {showWaterTimePicker && (
+      {showWaterTimePicker && !waterEdit.open && (
         <DateTimePicker
-          value={waterEdit.open ? waterEdit.timeDate || new Date() : new Date()}
+          value={new Date()}
           mode="time"
           display="default"
           onChange={(_, selected) => {

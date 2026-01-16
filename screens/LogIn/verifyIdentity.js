@@ -14,11 +14,10 @@ import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityI
 import { useNavigation } from "@react-navigation/native";
 import { auth, db } from "../../config/firebaseconfig.js";
 import { doc, updateDoc, getDoc } from "firebase/firestore";
-// TODO: Re-enable Firebase Functions after fixing build issues
-// import { getFunctions, httpsCallable } from "firebase/functions";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
 // Initialize Firebase Functions
-// const functions = getFunctions(undefined, "us-central1");
+const functions = getFunctions(undefined, "us-central1");
 
 export default function VerifyIdentityScreen() {
   const [selectedOption, setSelectedOption] = useState("mobile");
@@ -191,35 +190,49 @@ export default function VerifyIdentityScreen() {
         setMobileAttempts(0);
 
         console.log("✅ Mobile number verified against user records");
-        console.log("🔄 Sending SMS to:", phoneNumber);
+        console.log("🔄 Sending SMS via Firebase Function to:", phoneNumber);
 
-        // TODO: Re-enable Firebase Functions for SMS OTP
-        // Temporary workaround: Generate test OTP locally
-        const testOTP = Math.floor(100000 + Math.random() * 900000).toString();
+        // Call Firebase Function to send real SMS OTP
+        try {
+          const sendSMSOTP = httpsCallable(functions, "sendSMSOTP");
+          console.log("📞 Calling sendSMSOTP Firebase Function...");
 
-        setConfirmationResult({
-          phone: phoneNumber,
-          testOTP: testOTP,
-        });
-        setVerificationId(phoneNumber);
+          const response = await sendSMSOTP({
+            phone: phoneNumber,
+          });
 
-        console.log("==========================================");
-        console.log(`📱 Test SMS for: ${phoneNumber}`);
-        console.log(`🔐 OTP CODE: ${testOTP}`);
-        console.log(
-          "⚠️ Using test OTP - Firebase Functions disabled for build"
-        );
-        console.log("==========================================");
+          console.log("✅ Firebase Function response:", response.data);
 
-        setShowOtpScreen(true);
-        setSuccessModalVisible(true);
-        setCountdown(10);
-        setCanResend(false);
+          if (!response.data || !response.data.success) {
+            throw new Error(response.data?.error || "Failed to send SMS OTP");
+          }
 
-        // Auto-hide modal after 2 seconds
-        setTimeout(() => {
-          setSuccessModalVisible(false);
-        }, 2000);
+          setConfirmationResult({
+            phone: phoneNumber,
+            method: "twilio-verify",
+            verificationSid: response.data.sid,
+          });
+          setVerificationId(phoneNumber);
+
+          console.log("==========================================");
+          console.log(`📱 SMS sent to: ${phoneNumber}`);
+          console.log(`✅ SMS OTP sent via Twilio`);
+          console.log(`Verification SID: ${response.data.sid}`);
+          console.log("==========================================");
+
+          setShowOtpScreen(true);
+          setSuccessModalVisible(true);
+          setCountdown(300); // 5 minutes
+          setCanResend(false);
+
+          // Auto-hide modal after 2 seconds
+          setTimeout(() => {
+            setSuccessModalVisible(false);
+          }, 2000);
+        } catch (firebaseError) {
+          console.error("❌ Firebase Function Error:", firebaseError);
+          throw firebaseError;
+        }
       } catch (error) {
         console.error("🚨 OTP Generation Error:", error);
         console.error("Error details:", {
@@ -274,14 +287,22 @@ export default function VerifyIdentityScreen() {
     }
 
     try {
-      // TODO: Re-enable Firebase Functions for OTP verification
-      // Temporary workaround: Verify against locally generated OTP
-      const isValid = enteredOtp === confirmationResult.testOTP;
+      // Call Firebase Function to verify OTP with Twilio
+      const verifySMSOTP = httpsCallable(functions, "verifySMSOTP");
+      console.log("🔍 Verifying OTP with Firebase Function...");
+      console.log("Phone:", confirmationResult.phone, "OTP:", enteredOtp);
 
-      if (isValid) {
+      const response = await verifySMSOTP({
+        phone: confirmationResult.phone,
+        otp: enteredOtp,
+      });
+
+      console.log("✅ Firebase verifySMSOTP response:", response.data);
+
+      if (response.data && response.data.success) {
         // Reset attempts on success
         setOtpAttempts(0);
-        console.log("✅ Phone number verified successfully (test mode)!");
+        console.log("✅ Phone number verified successfully with Twilio!");
         console.log("Phone:", confirmationResult.phone);
 
         // Update Firestore verification status and fetch user data
@@ -293,6 +314,7 @@ export default function VerifyIdentityScreen() {
             lastVerified: new Date(),
             phone: confirmationResult.phone,
             phoneVerified: true,
+            otpVerified: true,
           });
           console.log("✅ User verification status updated");
 
@@ -335,6 +357,8 @@ export default function VerifyIdentityScreen() {
           }
         }
       } else {
+        // OTP verification failed
+        console.error("❌ OTP verification failed:", response.data);
         // Increment failed attempts
         const newAttempts = otpAttempts + 1;
         setOtpAttempts(newAttempts);

@@ -1,15 +1,22 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "../../../config/firebaseconfig";
 import { doc, getDoc } from "firebase/firestore";
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function UserProfile({ navigation }) {
   const [isPressed, setIsPressed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [userData, setUserData] = useState({
-    name: "",
+    firstName: "",
+    lastName: "",
     email: "",
     phone: "",
   });
@@ -21,12 +28,13 @@ export default function UserProfile({ navigation }) {
   const fetchUserData = async () => {
     try {
       // First check if this is an admin bypass login
-      const isAdminBypass = await AsyncStorage.getItem('isAdminBypass');
-      const adminEmail = await AsyncStorage.getItem('adminEmail');
-      
-      if (isAdminBypass === 'true' && adminEmail === 'admin@example.com') {
+      const isAdminBypass = await AsyncStorage.getItem("isAdminBypass");
+      const adminEmail = await AsyncStorage.getItem("adminEmail");
+
+      if (isAdminBypass === "true" && adminEmail === "admin@example.com") {
         setUserData({
-          name: "Admin",
+          firstName: "Admin",
+          lastName: "",
           email: "admin@example.com",
           phone: "",
         });
@@ -35,22 +43,34 @@ export default function UserProfile({ navigation }) {
       }
 
       const currentUser = auth.currentUser;
-      
+
       if (currentUser) {
         // Fetch user data from Firestore
         const userDoc = await getDoc(doc(db, "users", currentUser.uid));
-        
+
         if (userDoc.exists()) {
           const data = userDoc.data();
           setUserData({
-            name: data.fullname || data.name || data.firstName || "User",
+            firstName:
+              data.firstName ||
+              data.fullname?.split(" ")[0] ||
+              currentUser.displayName?.split(" ")[0] ||
+              "User",
+            lastName:
+              data.lastName ||
+              data.fullname?.split(" ").pop() ||
+              currentUser.displayName?.split(" ").pop() ||
+              "",
             email: data.email || currentUser.email || "",
             phone: data.phone || data.phoneNumber || "",
           });
         } else {
           // If no Firestore doc, use auth data
+          const displayName = currentUser.displayName || "User";
+          const nameParts = displayName.split(" ");
           setUserData({
-            name: currentUser.displayName || "User",
+            firstName: nameParts[0] || "User",
+            lastName: nameParts.slice(1).join(" ") || "",
             email: currentUser.email || "",
             phone: currentUser.phoneNumber || "",
           });
@@ -58,7 +78,8 @@ export default function UserProfile({ navigation }) {
       } else {
         // No current user and no admin bypass
         setUserData({
-          name: "Guest",
+          firstName: "Guest",
+          lastName: "",
           email: "",
           phone: "",
         });
@@ -82,7 +103,10 @@ export default function UserProfile({ navigation }) {
   return (
     <View style={styles.container}>
       {/* Back Button */}
-      <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+      <TouchableOpacity
+        style={styles.backButton}
+        onPress={() => navigation.goBack()}
+      >
         <Ionicons name="arrow-back" size={24} color="#1F3C88" />
         <Text style={styles.backText}>Back</Text>
       </TouchableOpacity>
@@ -92,12 +116,19 @@ export default function UserProfile({ navigation }) {
         <View style={styles.imageWrapper}>
           <Ionicons name="person" size={80} color="#1F3C88" />
         </View>
-        <Text style={styles.name}>{userData.name}</Text>
+        <Text style={styles.name}>
+          {[userData.firstName, userData.lastName]
+            .filter((name) => name)
+            .join(" ") || "User"}
+        </Text>
       </View>
 
       {/* Edit Button */}
-      <TouchableOpacity 
-        style={[styles.editButton, { backgroundColor: isPressed ? "#133E87" : "transparent" }]}
+      <TouchableOpacity
+        style={[
+          styles.editButton,
+          { backgroundColor: isPressed ? "#133E87" : "transparent" },
+        ]}
         onPress={() => navigation.navigate("EditProfile")}
         onPressIn={() => setIsPressed(true)}
         onPressOut={() => setIsPressed(false)}
@@ -105,7 +136,7 @@ export default function UserProfile({ navigation }) {
         <Text style={styles.editText}>Edit Profile</Text>
       </TouchableOpacity>
 
-          {/* Email */}
+      {/* Email */}
       <View style={styles.section}>
         <Text style={styles.label}>Email</Text>
         <Text style={styles.value}>{userData.email}</Text>
@@ -172,6 +203,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#000",
     marginTop: 10,
+    textAlign: "center",
   },
 
   subtitle: {
