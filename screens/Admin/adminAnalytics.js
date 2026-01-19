@@ -149,21 +149,125 @@ export default function AdminAnalytics({ navigation }) {
   // New state variables for Filter Modal
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [selectedDate, setSelectedDate] = useState("");
+  const [startDate, setStartDate] = useState(null);
+  const [endDate, setEndDate] = useState(null);
   // Current target chart for filtering
   const [currentFilterTarget, setCurrentFilterTarget] = useState(null);
 
   // Filters for each chart
   const [chartFilters, setChartFilters] = useState({});
 
-  const formatFilterDisplay = (dateString) => {
-    if (!dateString) return "";
-    const date = new Date(dateString);
-    const monthNames = ["January", "February", "March", "April", "May", "June", 
-                       "July", "August", "September", "October", "November", "December"];
-    const day = date.getDate();
-    const year = date.getFullYear();
-    const monthName = monthNames[date.getMonth()];
-    return `${monthName} ${day}, ${year}`;
+  const formatFilterDisplay = (filterData) => {
+    if (!filterData) return "";
+    
+    // Handle date range object
+    if (filterData.startDate && filterData.endDate) {
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      
+      const startDate = new Date(filterData.startDate);
+      const endDate = new Date(filterData.endDate);
+      
+      const startMonth = monthNames[startDate.getMonth()];
+      const startDay = startDate.getDate();
+      const startYear = startDate.getFullYear();
+      
+      const endMonth = monthNames[endDate.getMonth()];
+      const endDay = endDate.getDate();
+      const endYear = endDate.getFullYear();
+      
+      // If same year, show: Jan 1 - Jan 15, 2024
+      if (startYear === endYear) {
+        if (startMonth === endMonth) {
+          return `${startMonth} ${startDay} - ${endDay}, ${startYear}`;
+        }
+        return `${startMonth} ${startDay} - ${endMonth} ${endDay}, ${startYear}`;
+      }
+      
+      // Different years: Jan 1, 2023 - Jan 15, 2024
+      return `${startMonth} ${startDay}, ${startYear} - ${endMonth} ${endDay}, ${endYear}`;
+    }
+    
+    // Handle legacy single date string (if any old data exists)
+    if (typeof filterData === 'string') {
+      const date = new Date(filterData);
+      const monthNames = ["January", "February", "March", "April", "May", "June", 
+                         "July", "August", "September", "October", "November", "December"];
+      const day = date.getDate();
+      const year = date.getFullYear();
+      const monthName = monthNames[date.getMonth()];
+      return `${monthName} ${day}, ${year}`;
+    }
+    
+    return "";
+  };
+
+  // Generate date labels based on selected date range - shows all days in range
+  const generateDateLabels = (filterData, defaultLabels) => {
+    if (!filterData || !filterData.startDate || !filterData.endDate) {
+      return defaultLabels;
+    }
+
+    const start = new Date(filterData.startDate);
+    const end = new Date(filterData.endDate);
+    const diffTime = Math.abs(end - start);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    // Handle single day selection (start and end are the same)
+    if (diffDays === 0) {
+      const month = start.toLocaleDateString('en-US', { month: 'short' });
+      const day = start.getDate();
+      return [`${month} ${day}`];
+    }
+
+    // Generate labels for each day in the range (inclusive)
+    const labels = [];
+    
+    for (let i = 0; i <= diffDays; i++) {
+      const currentDate = new Date(start);
+      currentDate.setDate(start.getDate() + i);
+      
+      const month = currentDate.toLocaleDateString('en-US', { month: 'short' });
+      const day = currentDate.getDate();
+      
+      labels.push(`${month} ${day}`);
+    }
+
+    return labels;
+  };
+
+  // Generate batch labels from B001 to B007
+  const generateBatchLabels = (filterData, defaultData) => {
+    // For batch charts, we'll keep the batch IDs but could filter by date in the future
+    return defaultData;
+  };
+
+  // Generate data points based on the number of labels
+  const generateDataPoints = (filterData, defaultData) => {
+    if (!filterData || !filterData.startDate || !filterData.endDate) {
+      return defaultData;
+    }
+
+    const start = new Date(filterData.startDate);
+    const end = new Date(filterData.endDate);
+    const diffTime = Math.abs(end - start);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 to include both start and end
+
+    // Handle single day selection (start and end are the same)
+    if (diffDays === 1) {
+      return [defaultData[0]];
+    }
+
+    // Generate data points based on the number of days
+    // For demo purposes, we'll interpolate from the default data
+    const dataPoints = [];
+    for (let i = 0; i < diffDays; i++) {
+      const ratio = i / (diffDays - 1);
+      const index = Math.min(Math.floor(ratio * (defaultData.length - 1)), defaultData.length - 1);
+      dataPoints.push(defaultData[index]);
+    }
+
+    return dataPoints;
   };
 
   useEffect(() => {
@@ -192,11 +296,14 @@ export default function AdminAnalytics({ navigation }) {
     { id: 2, title: "Predators Detected", value: 0, subtitle: "No threats detected", icon: "chart-areaspline" },
   ];
 
+  // Mortality chart data - dynamic labels and data based on filter
+  const defaultMortalityLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"];
+  const defaultMortalityData = [10, 12, 18, 20, 22, 25, 28];
   const chartData = {
-    labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+    labels: generateDateLabels(chartFilters["mortality"], defaultMortalityLabels),
     datasets: [
       {
-        data: [10, 12, 18, 20, 22, 25],
+        data: generateDataPoints(chartFilters["mortality"], defaultMortalityData),
         color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
       },
     ],
@@ -241,20 +348,37 @@ export default function AdminAnalytics({ navigation }) {
     setTimeout(() => setActivePointSolar(null), 2000);
   };
 
-  // Updated Predator chart data with different time ranges
+  // Updated Predator chart data with different time ranges - dynamic labels based on filter
+  const defaultPredatorDailyLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const defaultPredatorMonthlyLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"];
+  const defaultPredatorYearlyLabels = ["2019", "2020", "2021", "2022", "2023", "2024", "2025"];
+  
+  const defaultPredatorDailyData = [0, 1, 0, 2, 0, 1, 0];
+  const defaultPredatorMonthlyData = [3, 5, 2, 8, 4, 6, 7];
+  const defaultPredatorYearlyData = [15, 22, 18, 30, 25, 28, 32];
+  
   const predatorChartDataDaily = {
-    labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-    datasets: [{ data: [0, 1, 0, 2, 0, 1, 0], color: (opacity = 1) => `rgba(21,71,133, ${opacity})` }],
+    labels: generateDateLabels(chartFilters["predator"], defaultPredatorDailyLabels),
+    datasets: [{ 
+      data: generateDataPoints(chartFilters["predator"], defaultPredatorDailyData), 
+      color: (opacity = 1) => `rgba(21,71,133, ${opacity})` 
+    }],
   };
 
   const predatorChartDataMonthly = {
-    labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-    datasets: [{ data: [3, 5, 2, 8, 4, 6], color: (opacity = 1) => `rgba(21,71,133, ${opacity})` }],
+    labels: generateDateLabels(chartFilters["predator"], defaultPredatorMonthlyLabels),
+    datasets: [{ 
+      data: generateDataPoints(chartFilters["predator"], defaultPredatorMonthlyData), 
+      color: (opacity = 1) => `rgba(21,71,133, ${opacity})` 
+    }],
   };
 
   const predatorChartDataYearly = {
-    labels: ["2019", "2020", "2021", "2022", "2023", "2024"],
-    datasets: [{ data: [15, 22, 18, 30, 25, 28], color: (opacity = 1) => `rgba(21,71,133, ${opacity})` }],
+    labels: generateDateLabels(chartFilters["predator"], defaultPredatorYearlyLabels),
+    datasets: [{ 
+      data: generateDataPoints(chartFilters["predator"], defaultPredatorYearlyData), 
+      color: (opacity = 1) => `rgba(21,71,133, ${opacity})` 
+    }],
   };
 
   // Get current predator chart data based on selected time range
@@ -271,21 +395,37 @@ export default function AdminAnalytics({ navigation }) {
 
   const predatorChartData = getCurrentPredatorData();
 
-  // Chart data for Feed Consumption
+  // Chart data for Feed Consumption - dynamic labels and data based on filter
+  const defaultFeedLabels = ["Day 1", "Day 7", "Day 14", "Day 21", "Day 28", "Day 35", "Day 42"];
+  const defaultFeedData = [5, 8, 12, 15, 18, 20, 22];
   const feedChartData = {
-    labels: ["Day 1", "Day 7", "Day 14", "Day 21", "Day 28", "Day 35"],
-    datasets: [{ data: [5, 8, 12, 15, 18, 20], color: (opacity = 1) => `rgba(21,71,133, ${opacity})` }],
+    labels: generateDateLabels(chartFilters["feed"], defaultFeedLabels),
+    datasets: [{ 
+      data: generateDataPoints(chartFilters["feed"], defaultFeedData), 
+      color: (opacity = 1) => `rgba(21,71,133, ${opacity})` 
+    }],
   };
 
-  // Chart data for Water Consumption
+  // Chart data for Water Consumption - dynamic labels and data based on filter
+  const defaultWaterLabels = ["Day 1", "Day 7", "Day 14", "Day 21", "Day 28", "Day 35", "Day 42"];
+  const defaultWaterData = [8, 12, 16, 20, 24, 28, 30];
   const waterChartData = {
-    labels: ["Day 1", "Day 7", "Day 14", "Day 21", "Day 28", "Day 35"],
-    datasets: [{ data: [8, 12, 16, 20, 24, 28], color: (opacity = 1) => `rgba(21,71,133, ${opacity})` }],
+    labels: generateDateLabels(chartFilters["water"], defaultWaterLabels),
+    datasets: [{ 
+      data: generateDataPoints(chartFilters["water"], defaultWaterData), 
+      color: (opacity = 1) => `rgba(21,71,133, ${opacity})` 
+    }],
   };
 
+  // Solar chart data - dynamic labels and data based on filter
+  const defaultSolarLabels = ["Jan 01", "Jan 02", "Jan 03", "Jan 04", "Jan 05", "Jan 06", "Jan 07"];
+  const defaultSolarData = [12.4, 10.8, 13.6, 14.1, 12.9, 11.7, 13.2];
   const solarChartData = {
-    labels: ["Jan 01", "Jan 02", "Jan 03", "Jan 04", "Jan 05", "Jan 06"],
-    datasets: [{ data: [12.4, 10.8, 13.6, 14.1, 12.9, 11.7], color: (opacity = 1) => `rgba(21,71,133, ${opacity})` }],
+    labels: generateDateLabels(chartFilters["solar"], defaultSolarLabels),
+    datasets: [{ 
+      data: generateDataPoints(chartFilters["solar"], defaultSolarData), 
+      color: (opacity = 1) => `rgba(21,71,133, ${opacity})` 
+    }],
   };
 
   return (
@@ -315,7 +455,7 @@ export default function AdminAnalytics({ navigation }) {
 
           {/* Title and buttons row */}
           <View style={styles.chartHeaderRow}>
-            <Text style={styles.chartTitleOutside}>Mortality Trend over time</Text>
+            <Text style={styles.chartTitleOutside}>Mortality Trend</Text>
             <View style={styles.chartButtonsRow}>
               <TouchableOpacity
                 style={[
@@ -443,31 +583,6 @@ export default function AdminAnalytics({ navigation }) {
                 }
               })()
             ) : null}
-          </View>
-
-          {/* See More Button */}
-          <View style={styles.seeMoreContainer}>
-            <TouchableOpacity
-              style={[
-                styles.seeMoreButton,
-                pressedBtn === "seeMore-mortality" && { backgroundColor: "transparent" }
-              ]}
-              activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("seeMore-mortality")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={() => Alert.alert("See More", "Navigate to detailed mortality rate view")}
-            >
-              <Text style={[
-                styles.seeMoreText,
-                pressedBtn === "seeMore-mortality" && { color: "#133E87" }
-              ]}>
-                See More
-              </Text>
-              <View style={[
-                styles.seeMoreUnderline,
-                pressedBtn === "seeMore-mortality" && { backgroundColor: "#133E87" }
-              ]} />
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -606,9 +721,9 @@ export default function AdminAnalytics({ navigation }) {
 
                 return (
                   <View style={{ width: '100%', paddingVertical: 20, paddingHorizontal: 8 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                      {/* Interactive SVG Pie Chart */}
-                      <View style={{ marginRight: 16, position: 'relative' }}>
+                    {/* Interactive SVG Pie Chart */}
+                    <View style={{ alignItems: 'center', marginBottom: 20 }}>
+                      <View style={{ position: 'relative' }}>
                         <Svg width={220} height={220}>
                           <G>
                             {slices.map((slice, index) => (
@@ -654,17 +769,55 @@ export default function AdminAnalytics({ navigation }) {
                           </View>
                         )}
                       </View>
-                      
-                      {/* Custom Legend */}
-                      <View style={{ flex: 1, paddingLeft: 8, paddingRight: 8, alignItems: 'flex-start', justifyContent: 'center' }}>
-                        {pieData.map((item, index) => (
-                          <View key={index} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, width: '100%' }}>
-                            <View style={{ width: 16, height: 16, backgroundColor: item.color, marginRight: 8, borderRadius: 2, flexShrink: 0 }} />
-                            <Text style={{ fontSize: 12, color: '#0b2336', flex: 1, flexWrap: 'wrap' }} numberOfLines={2}>
-                              {item.name} ({item.population}%)
-                            </Text>
-                          </View>
-                        ))}
+                    </View>
+                    
+                    {/* Custom Legend - Horizontal */}
+                    <View style={{ paddingHorizontal: 8, alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', marginBottom: 8, marginLeft: 35 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', width: 165 }}>
+                          <View style={{ width: 14, height: 14, backgroundColor: pieData[0].color, marginRight: 6, borderRadius: 2 }} />
+                          <Text 
+                            style={{ fontSize: 13, color: '#0b2336', includeFontPadding: false, flex: 1 }} 
+                            allowFontScaling={false}
+                            numberOfLines={1}
+                          >
+                            {pieData[0].name} ({pieData[0].population}%)
+                          </Text>
+                        </View>
+                        <View style={{ width: 16 }} />
+                        <View style={{ flexDirection: 'row', alignItems: 'center', width: 165 }}>
+                          <View style={{ width: 14, height: 14, backgroundColor: pieData[1].color, marginRight: 6, borderRadius: 2 }} />
+                          <Text 
+                            style={{ fontSize: 13, color: '#0b2336', includeFontPadding: false, flex: 1 }} 
+                            allowFontScaling={false}
+                            numberOfLines={1}
+                          >
+                            {pieData[1].name} ({pieData[1].population}%)
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={{ flexDirection: 'row', marginLeft: 35 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', width: 165 }}>
+                          <View style={{ width: 14, height: 14, backgroundColor: pieData[2].color, marginRight: 6, borderRadius: 2 }} />
+                          <Text 
+                            style={{ fontSize: 13, color: '#0b2336', includeFontPadding: false, flex: 1 }} 
+                            allowFontScaling={false}
+                            numberOfLines={1}
+                          >
+                            {pieData[2].name} ({pieData[2].population}%)
+                          </Text>
+                        </View>
+                        <View style={{ width: 16 }} />
+                        <View style={{ flexDirection: 'row', alignItems: 'center', width: 165 }}>
+                          <View style={{ width: 14, height: 14, backgroundColor: pieData[3].color, marginRight: 6, borderRadius: 2 }} />
+                          <Text 
+                            style={{ fontSize: 13, color: '#0b2336', includeFontPadding: false, flex: 1 }} 
+                            allowFontScaling={false}
+                            numberOfLines={1}
+                          >
+                            {pieData[3].name} ({pieData[3].population}%)
+                          </Text>
+                        </View>
                       </View>
                     </View>
                   </View>
@@ -679,27 +832,6 @@ export default function AdminAnalytics({ navigation }) {
                 );
               }
             })()}
-          </View>
-
-          <View style={styles.seeMoreContainer}>
-            <TouchableOpacity
-              style={styles.seeMoreButton}
-              activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("seeMore-cause")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={() => Alert.alert("See More", "Navigate to detailed cause of death view")}
-            >
-              <Text style={[
-                styles.seeMoreText,
-                pressedBtn === "seeMore-cause" && { color: "#133E87" }
-              ]}>
-                See More
-              </Text>
-              <View style={[
-                styles.seeMoreUnderline,
-                pressedBtn === "seeMore-cause" && { backgroundColor: "#133E87" }
-              ]} />
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -756,27 +888,6 @@ export default function AdminAnalytics({ navigation }) {
                </Text>
             )}
             <MortalityBatchChart height={220} />
-          </View>
-
-          <View style={styles.seeMoreContainer}>
-            <TouchableOpacity
-              style={styles.seeMoreButton}
-              activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("seeMore-mortalitybatch")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={() => Alert.alert("See More", "Navigate to detailed mortality per batch view")}
-            >
-              <Text style={[
-                styles.seeMoreText,
-                pressedBtn === "seeMore-mortalitybatch" && { color: "#133E87" }
-              ]}>
-                See More
-              </Text>
-              <View style={[
-                styles.seeMoreUnderline,
-                pressedBtn === "seeMore-mortalitybatch" && { backgroundColor: "#133E87" }
-              ]} />
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -904,27 +1015,6 @@ export default function AdminAnalytics({ navigation }) {
               </View>
             )}
           </View>
-
-          <View style={styles.seeMoreContainer}>
-            <TouchableOpacity
-              style={styles.seeMoreButton}
-              activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("seeMore-predator")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={() => Alert.alert("See More", "Navigate to detailed predator attacks view")}
-            >
-              <Text style={[
-                styles.seeMoreText,
-                pressedBtn === "seeMore-predator" && { color: "#133E87" }
-              ]}>
-                See More
-              </Text>
-              <View style={[
-                styles.seeMoreUnderline,
-                pressedBtn === "seeMore-predator" && { backgroundColor: "#133E87" }
-              ]} />
-            </TouchableOpacity>
-          </View>
         </View>
 
         {/* Attacks per Batch Chart */}
@@ -980,27 +1070,6 @@ export default function AdminAnalytics({ navigation }) {
                </Text>
             )}
             <AttacksBatchChart height={220} />
-          </View>
-
-          <View style={styles.seeMoreContainer}>
-            <TouchableOpacity
-              style={styles.seeMoreButton}
-              activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("seeMore-attacksbatch")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={() => Alert.alert("See More", "Navigate to detailed attacks per batch view")}
-            >
-              <Text style={[
-                styles.seeMoreText,
-                pressedBtn === "seeMore-attacksbatch" && { color: "#133E87" }
-              ]}>
-                See More
-              </Text>
-              <View style={[
-                styles.seeMoreUnderline,
-                pressedBtn === "seeMore-attacksbatch" && { backgroundColor: "#133E87" }
-              ]} />
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -1144,9 +1213,9 @@ export default function AdminAnalytics({ navigation }) {
 
                 return (
                   <View style={{ width: '100%', paddingVertical: 20, paddingHorizontal: 8 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                      {/* Interactive SVG Pie Chart */}
-                      <View style={{ marginRight: 16, position: 'relative' }}>
+                    {/* Interactive SVG Pie Chart */}
+                    <View style={{ alignItems: 'center', marginBottom: 20 }}>
+                      <View style={{ position: 'relative' }}>
                         <Svg width={220} height={220}>
                           <G>
                             {slices.map((slice, index) => (
@@ -1192,17 +1261,66 @@ export default function AdminAnalytics({ navigation }) {
                           </View>
                         )}
                       </View>
-                      
-                      {/* Custom Legend */}
-                      <View style={{ flex: 1, paddingLeft: 8, paddingRight: 8, alignItems: 'flex-start', justifyContent: 'center' }}>
-                        {predatorTypesData.map((item, index) => (
-                          <View key={index} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, width: '100%' }}>
-                            <View style={{ width: 16, height: 16, backgroundColor: item.color, marginRight: 8, borderRadius: 2, flexShrink: 0 }} />
-                            <Text style={{ fontSize: 12, color: '#0b2336', flex: 1, flexWrap: 'wrap' }} numberOfLines={2}>
-                              {item.name} ({item.population}%)
-                            </Text>
-                          </View>
-                        ))}
+                    </View>
+                    
+                    {/* Custom Legend - Horizontal */}
+                    <View style={{ paddingHorizontal: 4, alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', marginBottom: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', width: 100 }}>
+                          <View style={{ width: 14, height: 14, backgroundColor: predatorTypesData[0].color, marginRight: 4, borderRadius: 2 }} />
+                          <Text 
+                            style={{ fontSize: 12, color: '#0b2336', includeFontPadding: false, flex: 1 }} 
+                            allowFontScaling={false}
+                            numberOfLines={1}
+                          >
+                            {predatorTypesData[0].name} ({predatorTypesData[0].population}%)
+                          </Text>
+                        </View>
+                        <View style={{ width: 6 }} />
+                        <View style={{ flexDirection: 'row', alignItems: 'center', width: 100 }}>
+                          <View style={{ width: 14, height: 14, backgroundColor: predatorTypesData[1].color, marginRight: 4, borderRadius: 2 }} />
+                          <Text 
+                            style={{ fontSize: 12, color: '#0b2336', includeFontPadding: false, flex: 1 }} 
+                            allowFontScaling={false}
+                            numberOfLines={1}
+                          >
+                            {predatorTypesData[1].name} ({predatorTypesData[1].population}%)
+                          </Text>
+                        </View>
+                        <View style={{ width: 6 }} />
+                        <View style={{ flexDirection: 'row', alignItems: 'center', width: 100 }}>
+                          <View style={{ width: 14, height: 14, backgroundColor: predatorTypesData[2].color, marginRight: 4, borderRadius: 2 }} />
+                          <Text 
+                            style={{ fontSize: 12, color: '#0b2336', includeFontPadding: false, flex: 1 }} 
+                            allowFontScaling={false}
+                            numberOfLines={1}
+                          >
+                            {predatorTypesData[2].name} ({predatorTypesData[2].population}%)
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={{ flexDirection: 'row', justifyContent: 'flex-start', width: 312 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', width: 100 }}>
+                          <View style={{ width: 14, height: 14, backgroundColor: predatorTypesData[3].color, marginRight: 4, borderRadius: 2 }} />
+                          <Text 
+                            style={{ fontSize: 12, color: '#0b2336', includeFontPadding: false, flex: 1 }} 
+                            allowFontScaling={false}
+                            numberOfLines={1}
+                          >
+                            {predatorTypesData[3].name} ({predatorTypesData[3].population}%)
+                          </Text>
+                        </View>
+                        <View style={{ width: 6 }} />
+                        <View style={{ flexDirection: 'row', alignItems: 'center', width: 100 }}>
+                          <View style={{ width: 14, height: 14, backgroundColor: predatorTypesData[4].color, marginRight: 4, borderRadius: 2 }} />
+                          <Text 
+                            style={{ fontSize: 12, color: '#0b2336', includeFontPadding: false, flex: 1 }} 
+                            allowFontScaling={false}
+                            numberOfLines={1}
+                          >
+                            {predatorTypesData[4].name} ({predatorTypesData[4].population}%)
+                          </Text>
+                        </View>
                       </View>
                     </View>
                   </View>
@@ -1217,27 +1335,6 @@ export default function AdminAnalytics({ navigation }) {
                 );
               }
             })()}
-          </View>
-
-          <View style={styles.seeMoreContainer}>
-            <TouchableOpacity
-              style={styles.seeMoreButton}
-              activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("seeMore-predatortypes")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={() => Alert.alert("See More", "Navigate to detailed predator types view")}
-            >
-              <Text style={[
-                styles.seeMoreText,
-                pressedBtn === "seeMore-predatortypes" && { color: "#133E87" }
-              ]}>
-                See More
-              </Text>
-              <View style={[
-                styles.seeMoreUnderline,
-                pressedBtn === "seeMore-predatortypes" && { backgroundColor: "#133E87" }
-              ]} />
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -1365,27 +1462,6 @@ export default function AdminAnalytics({ navigation }) {
               </View>
             )}
           </View>
-
-          <View style={styles.seeMoreContainer}>
-            <TouchableOpacity
-              style={styles.seeMoreButton}
-              activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("seeMore-feed")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={() => Alert.alert("See More", "Navigate to detailed feed consumption view")}
-            >
-              <Text style={[
-                styles.seeMoreText,
-                pressedBtn === "seeMore-feed" && { color: "#133E87" }
-              ]}>
-                See More
-              </Text>
-              <View style={[
-                styles.seeMoreUnderline,
-                pressedBtn === "seeMore-feed" && { backgroundColor: "#133E87" }
-              ]} />
-            </TouchableOpacity>
-          </View>
         </View>
 
         {/* Total Feed per Batch Chart */}
@@ -1441,27 +1517,6 @@ export default function AdminAnalytics({ navigation }) {
                </Text>
             )}
             <FeedBatchChart height={220} />
-          </View>
-
-          <View style={styles.seeMoreContainer}>
-            <TouchableOpacity
-              style={styles.seeMoreButton}
-              activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("seeMore-feedbatch")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={() => Alert.alert("See More", "Navigate to detailed feed per batch view")}
-            >
-              <Text style={[
-                styles.seeMoreText,
-                pressedBtn === "seeMore-feedbatch" && { color: "#133E87" }
-              ]}>
-                See More
-              </Text>
-              <View style={[
-                styles.seeMoreUnderline,
-                pressedBtn === "seeMore-feedbatch" && { backgroundColor: "#133E87" }
-              ]} />
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -1589,27 +1644,6 @@ export default function AdminAnalytics({ navigation }) {
               </View>
             )}
           </View>
-
-          <View style={styles.seeMoreContainer}>
-            <TouchableOpacity
-              style={styles.seeMoreButton}
-              activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("seeMore-water")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={() => Alert.alert("See More", "Navigate to detailed water consumption view")}
-            >
-              <Text style={[
-                styles.seeMoreText,
-                pressedBtn === "seeMore-water" && { color: "#133E87" }
-              ]}>
-                See More
-              </Text>
-              <View style={[
-                styles.seeMoreUnderline,
-                pressedBtn === "seeMore-water" && { backgroundColor: "#133E87" }
-              ]} />
-            </TouchableOpacity>
-          </View>
         </View>
 
         {/* Total Water per Batch Chart */}
@@ -1665,27 +1699,6 @@ export default function AdminAnalytics({ navigation }) {
                </Text>
             )}
             <WaterBatchChart height={220} />
-          </View>
-
-          <View style={styles.seeMoreContainer}>
-            <TouchableOpacity
-              style={styles.seeMoreButton}
-              activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("seeMore-waterbatch")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={() => Alert.alert("See More", "Navigate to detailed water per batch view")}
-            >
-              <Text style={[
-                styles.seeMoreText,
-                pressedBtn === "seeMore-waterbatch" && { color: "#133E87" }
-              ]}>
-                See More
-              </Text>
-              <View style={[
-                styles.seeMoreUnderline,
-                pressedBtn === "seeMore-waterbatch" && { backgroundColor: "#133E87" }
-              ]} />
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -1813,27 +1826,6 @@ export default function AdminAnalytics({ navigation }) {
               </View>
             )}
           </View>
-
-          <View style={styles.seeMoreContainer}>
-            <TouchableOpacity
-              style={styles.seeMoreButton}
-              activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("seeMore-solar")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={() => Alert.alert("See More", "Navigate to detailed solar power usage view")}
-            >
-              <Text style={[
-                styles.seeMoreText,
-                pressedBtn === "seeMore-solar" && { color: "#133E87" }
-              ]}>
-                See More
-              </Text>
-              <View style={[
-                styles.seeMoreUnderline,
-                pressedBtn === "seeMore-solar" && { backgroundColor: "#133E87" }
-              ]} />
-            </TouchableOpacity>
-          </View>
         </View>
 
         {/* Filter Modal */}
@@ -1845,48 +1837,209 @@ export default function AdminAnalytics({ navigation }) {
         >
           <View style={styles.modalContainer}>
             <View style={styles.modalContent}>
-              {/* Modal Header */}
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Select Date</Text>
-                <TouchableOpacity
-                  onPress={() => setFilterModalVisible(false)}
-                  style={styles.modalCloseButton}
-                >
-                  <MaterialCommunityIcons name="close" size={24} color="#000" />
-                </TouchableOpacity>
+              {/* Date Range Display */}
+              <View style={styles.dateRangeHeader}>
+                <View style={styles.dateRangeItem}>
+                  <Text style={styles.dateRangeLabel}>From</Text>
+                  <Text style={styles.dateRangeValue}>
+                    {startDate ? new Date(startDate).toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short' }) : 'Select date'}
+                  </Text>
+                </View>
+                <View style={styles.dateRangeItem}>
+                  <Text style={styles.dateRangeLabel}>To</Text>
+                  <Text style={styles.dateRangeValue}>
+                    {endDate ? new Date(endDate).toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short' }) : 'Select date'}
+                  </Text>
+                </View>
               </View>
 
               {/* Date Picker */}
               <View style={styles.datePickerContainer}>
                 <Calendar
                   onDayPress={(day) => {
-                    setSelectedDate(day.dateString);
+                    const selectedDateStr = day.dateString;
+                    
+                    if (!startDate || (startDate && endDate)) {
+                      // Start new selection
+                      setStartDate(selectedDateStr);
+                      setEndDate(null);
+                    } else if (startDate && !endDate) {
+                      // Calculate the difference in days
+                      const start = new Date(startDate);
+                      const selected = new Date(selectedDateStr);
+                      const diffTime = Math.abs(selected - start);
+                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                      
+                      // Check if the range exceeds 7 days
+                      if (diffDays > 6) {
+                        // Show alert and don't set the end date
+                        Alert.alert(
+                          "Invalid Range",
+                          "Please select a date range within 7 days.",
+                          [{ text: "OK" }]
+                        );
+                        return;
+                      }
+                      
+                      // Set end date
+                      if (new Date(selectedDateStr) < new Date(startDate)) {
+                        // If selected date is before start, swap them (and check again)
+                        const tempStart = new Date(selectedDateStr);
+                        const tempEnd = new Date(startDate);
+                        const tempDiff = Math.ceil(Math.abs(tempEnd - tempStart) / (1000 * 60 * 60 * 24));
+                        
+                        if (tempDiff > 6) {
+                          Alert.alert(
+                            "Invalid Range",
+                            "Please select a date range within 7 days.",
+                            [{ text: "OK" }]
+                          );
+                          return;
+                        }
+                        
+                        setEndDate(startDate);
+                        setStartDate(selectedDateStr);
+                      } else {
+                        setEndDate(selectedDateStr);
+                      }
+                    }
                   }}
-                  markedDates={{
-                    [selectedDate]: { selected: true, disableTouchEvent: true, selectedColor: "#133E87" },
-                  }}
+                  markingType={'period'}
+                  markedDates={(() => {
+                    if (!startDate) return {};
+                    
+                    if (startDate && !endDate) {
+                      return {
+                        [startDate]: {
+                          startingDay: true,
+                          color: '#3B82F6',
+                          textColor: 'white',
+                        },
+                      };
+                    }
+                    
+                    if (startDate && endDate) {
+                      const marks = {};
+                      const start = new Date(startDate);
+                      const end = new Date(endDate);
+                      
+                      // Mark all dates in the range
+                      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                        const dateStr = d.toISOString().split('T')[0];
+                        
+                        if (dateStr === startDate) {
+                          marks[dateStr] = {
+                            startingDay: true,
+                            color: '#BFDBFE',
+                            textColor: '#000',
+                          };
+                        } else if (dateStr === endDate) {
+                          marks[dateStr] = {
+                            endingDay: true,
+                            color: '#BFDBFE',
+                            textColor: '#000',
+                          };
+                        } else {
+                          marks[dateStr] = {
+                            color: '#BFDBFE',
+                            textColor: '#000',
+                          };
+                        }
+                      }
+                      
+                      // Override start and end with circular highlights
+                      marks[startDate] = {
+                        ...marks[startDate],
+                        startingDay: true,
+                        color: '#BFDBFE',
+                        textColor: 'white',
+                        marked: true,
+                        dotColor: 'white',
+                        customStyles: {
+                          container: {
+                            backgroundColor: '#3B82F6',
+                            borderRadius: 100,
+                          },
+                          text: {
+                            color: 'white',
+                            fontWeight: 'bold',
+                          },
+                        },
+                      };
+                      
+                      marks[endDate] = {
+                        ...marks[endDate],
+                        endingDay: true,
+                        color: '#BFDBFE',
+                        textColor: 'white',
+                        marked: true,
+                        dotColor: 'white',
+                        customStyles: {
+                          container: {
+                            backgroundColor: '#3B82F6',
+                            borderRadius: 100,
+                          },
+                          text: {
+                            color: 'white',
+                            fontWeight: 'bold',
+                          },
+                        },
+                      };
+                      
+                      return marks;
+                    }
+                    
+                    return {};
+                  })()}
                   theme={{
-                    selectedDayBackgroundColor: "#133E87",
-                    todayTextColor: "#133E87",
-                    dayTextColor: "#0b2336",
-                    textDisabledColor: "#ccc",
-                    monthTextColor: "#133E87",
-                    arrowColor: "#133E87",
+                    calendarBackground: '#ffffff',
+                    textSectionTitleColor: '#3B82F6',
+                    selectedDayBackgroundColor: '#3B82F6',
+                    selectedDayTextColor: '#ffffff',
+                    todayTextColor: '#3B82F6',
+                    dayTextColor: '#2d4150',
+                    textDisabledColor: '#d9e1e8',
+                    monthTextColor: '#2d4150',
+                    indicatorColor: '#3B82F6',
+                    textDayFontWeight: '400',
+                    textMonthFontWeight: '600',
+                    textDayHeaderFontWeight: '500',
+                    textDayFontSize: 14,
+                    textMonthFontSize: 18,
+                    textDayHeaderFontSize: 12,
+                    'stylesheet.calendar.header': {
+                      week: {
+                        marginTop: 5,
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                      },
+                    },
                   }}
                   style={styles.calendar}
                 />
               </View>
 
-              {/* Apply and Reset Buttons */}
+              {/* Apply and Cancel Buttons */}
               <View style={styles.modalButtonsRow}>
                 <TouchableOpacity
-                  style={styles.modalButton}
+                  style={[styles.modalActionButton, styles.modalCancelButton]}
                   onPress={() => {
-                    if (currentFilterTarget && selectedDate) {
+                    setStartDate(null);
+                    setEndDate(null);
+                    setFilterModalVisible(false);
+                  }}
+                >
+                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalActionButton, styles.modalApplyButton]}
+                  onPress={() => {
+                    if (currentFilterTarget && startDate && endDate) {
                       // Save filter settings for this chart
                       setChartFilters(prev => ({
                         ...prev,
-                        [currentFilterTarget]: selectedDate
+                        [currentFilterTarget]: { startDate, endDate }
                       }));
 
                       // Existing logic for Predator Chart time range state
@@ -1897,27 +2050,7 @@ export default function AdminAnalytics({ navigation }) {
                     setFilterModalVisible(false);
                   }}
                 >
-                  <Text style={[styles.modalButtonText, { color: "#133E87" }]}>Apply Filter</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.modalResetButton]}
-                  onPress={() => {
-                    if (currentFilterTarget) {
-                       // Remove filter for this chart
-                       setChartFilters(prev => {
-                         const newState = {...prev};
-                         delete newState[currentFilterTarget];
-                         return newState;
-                       });
-                    }
-                    // Reset local selection states
-                    setSelectedDate("");
-                    if (currentFilterTarget === "predator") setPredatorTimeRange("daily"); 
-                    setFilterModalVisible(false);
-                  }}
-                >
-                  <Text style={[styles.modalButtonText, { color: "#133E87" }]}>Reset Filter</Text>
+                  <Text style={styles.modalApplyButtonText}>Apply</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -2343,7 +2476,7 @@ function MetricCard({ icon = "chart-line", title, value, subtitle }) {
   
   if (title === "Mortality Rate" || title === "Predators Detected") {
     iconName = title === "Mortality Rate" ? "alert-circle-outline" : "shield-alert-outline";
-    extraTitleStyle = { marginLeft: -6, fontSize: 15 };
+    extraTitleStyle = { marginLeft: -6 };
   }
 
   const isPredatorsDetected = title === "Predators Detected";
@@ -2355,11 +2488,11 @@ function MetricCard({ icon = "chart-line", title, value, subtitle }) {
           <MaterialCommunityIcons name={iconName} size={18} color="#154985" />
         </View>
         {isPredatorsDetected ? (
-          <View style={{ flexShrink: 1, flexGrow: 1, flexBasis: 0 }}>
-            <Text style={[styles.cardTitle, extraTitleStyle]} numberOfLines={1}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.cardTitle, extraTitleStyle]} numberOfLines={2} ellipsizeMode="tail">
               Predators
             </Text>
-            <Text style={[styles.cardTitle, extraTitleStyle]} numberOfLines={1}>
+            <Text style={[styles.cardTitle, extraTitleStyle]} numberOfLines={2} ellipsizeMode="tail">
               Detected
             </Text>
           </View>
@@ -2367,10 +2500,11 @@ function MetricCard({ icon = "chart-line", title, value, subtitle }) {
           <Text
             style={[
               styles.cardTitle,
-              { flexShrink: 1, flexGrow: 1, flexBasis: 0 },
+              { flex: 1 },
               extraTitleStyle,
             ]}
-            numberOfLines={1}
+            numberOfLines={2}
+            ellipsizeMode="tail"
           >
             {title}
           </Text>
@@ -2396,6 +2530,7 @@ function MortalityBatchChart({ height = 220 }) {
     { batchId: "B004", deaths: 1 },
     { batchId: "B005", deaths: 2 },
     { batchId: "B006", deaths: 0 },
+    { batchId: "B007", deaths: 4 },
   ];
 
   const yAxisWidth = 34;
@@ -2592,6 +2727,7 @@ function AttacksBatchChart({ height = 220 }) {
     { batchId: "B004", attacks: 1 },
     { batchId: "B005", attacks: 3 },
     { batchId: "B006", attacks: 2 },
+    { batchId: "B007", attacks: 3 },
   ];
 
   const yAxisWidth = 34;
@@ -2789,6 +2925,7 @@ function FeedBatchChart({ height = 220 }) {
     { batchId: "B004", activations: 68 },
     { batchId: "B005", activations: 59 },
     { batchId: "B006", activations: 64 },
+    { batchId: "B007", activations: 67 },
   ];
 
   const yAxisWidth = 34;
@@ -2995,6 +3132,7 @@ function WaterBatchChart({ height = 220 }) {
     { batchId: "B004", consumption: 130 },
     { batchId: "B005", consumption: 112 },
     { batchId: "B006", consumption: 156 },
+    { batchId: "B007", consumption: 138 },
   ];
 
   const yAxisWidth = 34;
@@ -3194,7 +3332,7 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
-    flexShrink: 1,
+    marginBottom: 4,
   },
   iconCircle: {
     width: 36,
@@ -3209,7 +3347,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#0b2336",
     fontWeight: "600",
-    flexShrink: 1,
+    includeFontPadding: false,
+    textAlignVertical: "center",
   },
   cardValue: {
     fontSize: 34,
@@ -3602,5 +3741,55 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
     color: "#133E87",
+  },
+  // Date Range Picker Styles
+  dateRangeHeader: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  dateRangeItem: {
+    alignItems: "center",
+  },
+  dateRangeLabel: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    marginBottom: 4,
+    fontWeight: "500",
+  },
+  dateRangeValue: {
+    fontSize: 16,
+    color: "#1F2937",
+    fontWeight: "600",
+  },
+  modalActionButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 25,
+    alignItems: "center",
+    justifyContent: "center",
+    marginHorizontal: 6,
+  },
+  modalCancelButton: {
+    backgroundColor: "#133E87",
+  },
+  modalApplyButton: {
+    backgroundColor: "#133E87",
+  },
+  modalCancelButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  modalApplyButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  calendar: {
+    borderRadius: 12,
+    elevation: 0,
   },
 });
