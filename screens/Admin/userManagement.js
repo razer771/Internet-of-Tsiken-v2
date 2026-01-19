@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import Icon from "react-native-vector-icons/Feather";
 import Header2 from "../navigation/adminHeader";
+import { Calendar } from "react-native-calendars";
 import {
   doc,
   collection,
@@ -22,6 +23,8 @@ import {
   orderBy,
   limit,
   updateDoc,
+  addDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig";
 
@@ -81,16 +84,24 @@ const roleTextColors = {
 };
 
 export default function UserManagement({ navigation }) {
+  const horizontalScrollRef = useRef(null);
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState("");
-  const [selectedRole, setSelectedRole] = useState("All Roles");
+  const [selectedRole, setSelectedRole] = useState("Roles");
   const [roleFilterOpen, setRoleFilterOpen] = useState(false);
-  const roleFilterOptions = ["All Roles", "Admin", "User"];
-  const [selectedStatus, setSelectedStatus] = useState("All Status");
+  const roleFilterOptions = ["Roles", "Admin", "User"];
+  const [selectedStatus, setSelectedStatus] = useState("Status");
   const [statusFilterOpen, setStatusFilterOpen] = useState(false);
-  const statusFilterOptions = ["All Status", "Active", "Inactive"];
-
+  const statusFilterOptions = ["Status", "Active", "Inactive"];
+  const [calendarVisible, setCalendarVisible] = useState(false);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState("");
   const [pressedRow, setPressedRow] = useState(null);
+
+  // Add scroll indicator states
+  const [scrollIndicatorLeft, setScrollIndicatorLeft] = useState(0);
+  const [scrollIndicatorWidth, setScrollIndicatorWidth] = useState(100);
+  const [showScrollIndicator, setShowScrollIndicator] = useState(false);
+
   const [editUser, setEditUser] = useState({
     id: "",
     firstName: "",
@@ -131,6 +142,15 @@ export default function UserManagement({ navigation }) {
   const [deleteCancelBtnPressed, setDeleteCancelBtnPressed] = useState(false);
   const [deleteSuccessVisible, setDeleteSuccessVisible] = useState(false);
 
+  // Reactivate User Modal
+  const [reactivateUserVisible, setReactivateUserVisible] = useState(false);
+  const [reactivateConfirmBtnPressed, setReactivateConfirmBtnPressed] =
+    useState(false);
+  const [reactivateCancelBtnPressed, setReactivateCancelBtnPressed] =
+    useState(false);
+  const [reactivateSuccessVisible, setReactivateSuccessVisible] =
+    useState(false);
+
   // Alert Modal
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertType, setAlertType] = useState("info");
@@ -161,7 +181,7 @@ export default function UserManagement({ navigation }) {
             where("userId", "==", userId),
             where("action", "==", "login"),
             orderBy("timestamp", "desc"),
-            limit(1)
+            limit(1),
           );
 
           let status = "inactive";
@@ -169,7 +189,7 @@ export default function UserManagement({ navigation }) {
             const sessionSnapshot = await getDocs(loginQuery);
             console.log(
               `Fetched session logs for user ${userId} (${userData.firstName} ${userData.lastName}):`,
-              sessionSnapshot.size
+              sessionSnapshot.size,
             );
 
             if (!sessionSnapshot.empty) {
@@ -184,22 +204,22 @@ export default function UserManagement({ navigation }) {
                 // Active if logged in within past 3 days
                 status = diffInDays <= 3 ? "active" : "inactive";
                 console.log(
-                  `Last login for user ${userId} (${userData.firstName} ${userData.lastName}): ${diffInDays.toFixed(2)} days ago → ${status}`
+                  `Last login for user ${userId} (${userData.firstName} ${userData.lastName}): ${diffInDays.toFixed(2)} days ago → ${status}`,
                 );
               } else {
                 console.log(
-                  `No valid timestamp for user ${userId}, marking as inactive`
+                  `No valid timestamp for user ${userId}, marking as inactive`,
                 );
               }
             } else {
               console.log(
-                `No login logs found for user ${userId} (${userData.firstName} ${userData.lastName}), marking as inactive`
+                `No login logs found for user ${userId} (${userData.firstName} ${userData.lastName}), marking as inactive`,
               );
             }
           } catch (error) {
             console.error(
               `Error fetching session logs for user ${userId}:`,
-              error
+              error,
             );
             console.log(`Marking user ${userId} as inactive due to error`);
           }
@@ -213,7 +233,7 @@ export default function UserManagement({ navigation }) {
             const day = String(createdAt.getDate()).padStart(2, "0");
             created = `${year}-${month}-${day}`;
             console.log(
-              `User ${userId} (${userData.firstName} ${userData.lastName}) created on ${created}`
+              `User ${userId} (${userData.firstName} ${userData.lastName}) created on ${created}`,
             );
           }
 
@@ -228,7 +248,7 @@ export default function UserManagement({ navigation }) {
             status: status,
             created: created,
           };
-        })
+        }),
       );
 
       console.log("Users with computed status:", usersData);
@@ -245,14 +265,20 @@ export default function UserManagement({ navigation }) {
   const filteredUsers = users.filter((u) => {
     // role filter
     const roleOk =
-      selectedRole === "All Roles" ||
+      selectedRole === "Roles" ||
       u.role.toLowerCase() === selectedRole.toLowerCase();
 
-    // status filter
-    const statusOk =
-      selectedStatus === "All Status" ||
-      (u.accountStatus &&
-        u.accountStatus.toLowerCase() === selectedStatus.toLowerCase());
+    // status filter - Modified to exclude inactive by default
+    let statusOk;
+    if (selectedStatus === "Status") {
+      // Default: only show active accounts
+      statusOk = u.accountStatus && u.accountStatus.toLowerCase() === "active";
+    } else {
+      // When a specific status is selected, filter by that status
+      statusOk =
+        u.accountStatus &&
+        u.accountStatus.toLowerCase() === selectedStatus.toLowerCase();
+    }
 
     // search filter (name or email)
     const q = search.trim().toLowerCase();
@@ -263,9 +289,114 @@ export default function UserManagement({ navigation }) {
     return roleOk && statusOk && searchOk;
   });
 
+  // Sort by date - always show newest first by default
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    console.log(
+      `Sorting users - comparing ${a.firstName} (${a.created}) with ${b.firstName} (${b.created})`,
+    );
+
+    if (a.created === "N/A" && b.created === "N/A") return 0;
+    if (a.created === "N/A") return 1; // Push N/A to the end
+    if (b.created === "N/A") return -1;
+
+    // Parse dates in format "YYYY-MMM-DD"
+    const parseDate = (dateStr) => {
+      const parts = dateStr.split("-");
+      if (parts.length !== 3) return new Date(0);
+
+      const year = parseInt(parts[0]);
+      const monthNames = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+      const monthIndex = monthNames.indexOf(parts[1]);
+      const day = parseInt(parts[2]);
+
+      if (monthIndex === -1) return new Date(0);
+      return new Date(year, monthIndex, day);
+    };
+
+    const dateA = parseDate(a.created);
+    const dateB = parseDate(b.created);
+
+    console.log(`  Date A: ${dateA.toDateString()} (${dateA.getTime()})`);
+    console.log(`  Date B: ${dateB.toDateString()} (${dateB.getTime()})`);
+    console.log(
+      `  Result: ${dateB - dateA} (${dateB > dateA ? "B is newer" : "A is newer"})`,
+    );
+
+    return dateB - dateA; // Most recent first (larger timestamp comes first)
+  });
+
+  console.log("Sorted users order:");
+  sortedUsers.forEach((user, index) => {
+    console.log(
+      `  ${index + 1}. ${user.firstName} ${user.lastName} - Created: ${user.created}`,
+    );
+  });
+  // Filter by selected calendar date
+  const filteredByDate = selectedCalendarDate
+    ? sortedUsers.filter((user) => {
+        if (user.created === "N/A") return false;
+
+        // Parse the created date which is in format "YYYY-MMM-DD"
+        const createdParts = user.created.split("-");
+        if (createdParts.length !== 3) return false;
+
+        const year = createdParts[0];
+        const monthStr = createdParts[1]; // e.g., "Dec"
+        const day = createdParts[2];
+
+        // Convert month name to number
+        const monthNames = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        const monthIndex = monthNames.indexOf(monthStr);
+
+        if (monthIndex === -1) return false;
+
+        // Create date object from user's created date
+        const userDate = new Date(parseInt(year), monthIndex, parseInt(day));
+
+        // Create date object from selected calendar date
+        const filterDate = new Date(selectedCalendarDate);
+
+        console.log(
+          `Comparing user date: ${user.created} (${userDate.toISOString()}) with filter date: ${selectedCalendarDate} (${filterDate.toISOString()})`,
+        );
+
+        return (
+          userDate.getFullYear() === filterDate.getFullYear() &&
+          userDate.getMonth() === filterDate.getMonth() &&
+          userDate.getDate() === filterDate.getDate()
+        );
+      })
+    : sortedUsers;
+
   const handleEditUser = (user) => {
     console.log(
-      `Opening edit modal for user: ${user.firstName} ${user.lastName}`
+      `Opening edit modal for user: ${user.firstName} ${user.lastName}`,
     );
     setEditUser({
       id: user.id,
@@ -275,6 +406,7 @@ export default function UserManagement({ navigation }) {
       email: user.email,
       phone: user.phone,
       role: user.role.charAt(0).toUpperCase() + user.role.slice(1), // Capitalize first letter
+      isCurrentAdmin: auth.currentUser?.uid === user.id, // Check if editing own account
     });
     setOriginalEmail(user.email);
     setValidationErrors({
@@ -365,7 +497,7 @@ export default function UserManagement({ navigation }) {
         const usersRef = collection(db, "users");
         const emailQuery = query(
           usersRef,
-          where("email", "==", editUser.email)
+          where("email", "==", editUser.email),
         );
         const emailSnapshot = await getDocs(emailQuery);
 
@@ -400,8 +532,35 @@ export default function UserManagement({ navigation }) {
       });
 
       console.log(
-        `User ${editUser.id} updated successfully with displayName: "${displayName}" and fullname: "${fullname}"`
+        `User ${editUser.id} updated successfully with displayName: "${displayName}" and fullname: "${fullname}"`,
       );
+
+      // Log activity to activity_logs/userManagement/updateAccount
+      try {
+        const currentAdmin = auth.currentUser;
+        if (currentAdmin && currentAdmin.uid) {
+          await addDoc(
+            collection(db, "activity_logs", "userManagement", "updateAccount"),
+            {
+              adminId: currentAdmin.uid,
+              adminEmail: currentAdmin.email || "Unknown",
+              action: `Updated account: ${displayName}`,
+              description: `Updated account for ${displayName} (${editUser.email})`,
+              timestamp: serverTimestamp(),
+              deviceInfo: "web",
+              targetUserId: editUser.id,
+              targetUserName: fullname,
+              targetUserEmail: editUser.email,
+            },
+          );
+          console.log("✅ Account update activity logged successfully");
+        } else {
+          console.warn("⚠️ No admin user found, skipping activity log");
+        }
+      } catch (logError) {
+        console.error("⚠️ Failed to log account update activity:", logError);
+        // Don't block the flow if logging fails
+      }
 
       setEditModalVisible(false);
       setSavedVisible(true);
@@ -421,7 +580,7 @@ export default function UserManagement({ navigation }) {
     console.log(
       "Force Password Change modal opened for:",
       user.firstName,
-      user.lastName
+      user.lastName,
     );
     setSelectedUser(user);
     setForcePasswordVisible(true);
@@ -444,8 +603,42 @@ export default function UserManagement({ navigation }) {
       });
 
       console.log(
-        `User ${selectedUser.firstName} ${selectedUser.lastName} flagged for password change in Firestore`
+        `User ${selectedUser.firstName} ${selectedUser.lastName} flagged for password change in Firestore`,
       );
+
+      // Log activity to activity_logs/userManagement/forcePasswordChange
+      try {
+        const currentAdmin = auth.currentUser;
+        if (currentAdmin && currentAdmin.uid) {
+          await addDoc(
+            collection(
+              db,
+              "activity_logs",
+              "userManagement",
+              "forcePasswordChange",
+            ),
+            {
+              adminId: currentAdmin.uid,
+              adminEmail: currentAdmin.email || "Unknown",
+              action: `PW reset : ${selectedUser.firstName} ${selectedUser.lastName}`,
+              description: `Forced password change for ${selectedUser.firstName} ${selectedUser.lastName} (${selectedUser.email})`,
+              timestamp: serverTimestamp(),
+              targetUserId: selectedUser.id,
+              targetUserName: `${selectedUser.firstName} ${selectedUser.lastName}`,
+              targetUserEmail: selectedUser.email,
+            },
+          );
+          console.log("✅ Force password change activity logged successfully");
+        } else {
+          console.warn("⚠️ No admin user found, skipping activity log");
+        }
+      } catch (logError) {
+        console.error(
+          "⚠️ Failed to log force password change activity:",
+          logError,
+        );
+        // Don't block the flow if logging fails
+      }
 
       setForcePasswordVisible(false);
 
@@ -462,7 +655,7 @@ export default function UserManagement({ navigation }) {
       setAlertType("error");
       setAlertTitle("Update Failed");
       setAlertMessage(
-        "Failed to flag user for password change. Please try again."
+        "Failed to flag user for password change. Please try again.",
       );
       setAlertVisible(true);
       setForcePasswordVisible(false);
@@ -492,8 +685,34 @@ export default function UserManagement({ navigation }) {
       });
 
       console.log(
-        `User ${selectedUser.firstName} ${selectedUser.lastName} marked as Inactive in Firestore`
+        `User ${selectedUser.firstName} ${selectedUser.lastName} marked as Inactive in Firestore`,
       );
+
+      // Log activity to activity_logs/userManagement/disableAccess
+      try {
+        const currentAdmin = auth.currentUser;
+        if (currentAdmin && currentAdmin.uid) {
+          await addDoc(
+            collection(db, "activity_logs", "userManagement", "disableAccess"),
+            {
+              adminId: currentAdmin.uid,
+              adminEmail: currentAdmin.email || "Unknown",
+              action: `Disabled : ${selectedUser.firstName} ${selectedUser.lastName}`,
+              description: `Disabled access for ${selectedUser.firstName} ${selectedUser.lastName} (${selectedUser.email})`,
+              timestamp: serverTimestamp(),
+              targetUserId: selectedUser.id,
+              targetUserName: `${selectedUser.firstName} ${selectedUser.lastName}`,
+              targetUserEmail: selectedUser.email,
+            },
+          );
+          console.log("✅ Disable access activity logged successfully");
+        } else {
+          console.warn("⚠️ No admin user found, skipping activity log");
+        }
+      } catch (logError) {
+        console.error("⚠️ Failed to log disable access activity:", logError);
+        // Don't block the flow if logging fails
+      }
 
       setDeleteUserVisible(false);
 
@@ -517,6 +736,122 @@ export default function UserManagement({ navigation }) {
       setSelectedUser(null);
     }
   };
+
+  const handleReactivateUser = (user) => {
+    setSelectedUser(user);
+    setReactivateUserVisible(true);
+  };
+
+  const handleConfirmReactivate = async () => {
+    try {
+      console.log("Reactivating user:", selectedUser);
+
+      if (!selectedUser || !selectedUser.id) {
+        console.error("No user selected for reactivation");
+        return;
+      }
+
+      const userRef = doc(db, "users", selectedUser.id);
+
+      // Update accountStatus to "active" in Firestore
+      await updateDoc(userRef, {
+        accountStatus: "active",
+      });
+
+      console.log(
+        `User ${selectedUser.firstName} ${selectedUser.lastName} reactivated in Firestore`,
+      );
+
+      // Log activity to activity_logs/userManagement/reactivateAccount
+      try {
+        const currentAdmin = auth.currentUser;
+        if (currentAdmin && currentAdmin.uid) {
+          await addDoc(
+            collection(
+              db,
+              "activity_logs",
+              "userManagement",
+              "reactivateAccount",
+            ),
+            {
+              adminId: currentAdmin.uid,
+              adminEmail: currentAdmin.email || "Unknown",
+              action: `Reactivated : ${selectedUser.firstName} ${selectedUser.lastName}`,
+              description: `Reactivated account for ${selectedUser.firstName} ${selectedUser.lastName} (${selectedUser.email})`,
+              timestamp: serverTimestamp(),
+              targetUserId: selectedUser.id,
+              targetUserName: `${selectedUser.firstName} ${selectedUser.lastName}`,
+              targetUserEmail: selectedUser.email,
+            },
+          );
+          console.log("✅ Reactivate account activity logged successfully");
+        } else {
+          console.warn("⚠️ No admin user found, skipping activity log");
+        }
+      } catch (logError) {
+        console.error(
+          "⚠️ Failed to log reactivate account activity:",
+          logError,
+        );
+        // Don't block the flow if logging fails
+      }
+
+      setReactivateUserVisible(false);
+
+      // Show success modal
+      setReactivateSuccessVisible(true);
+
+      // Redirect after 2.5 seconds
+      setTimeout(() => {
+        setReactivateSuccessVisible(false);
+        setSelectedUser(null);
+      }, 2500);
+
+      // User list will auto-refresh via onSnapshot listener
+    } catch (error) {
+      console.error("Error reactivating user:", error);
+      setAlertType("error");
+      setAlertTitle("Update Failed");
+      setAlertMessage("Failed to reactivate user account. Please try again.");
+      setAlertVisible(true);
+      setReactivateUserVisible(false);
+      setSelectedUser(null);
+    }
+  };
+
+  const closeModal = () => {
+    setEditModalVisible(false);
+    setForcePasswordVisible(false);
+    setDeleteUserVisible(false);
+    setReactivateUserVisible(false);
+    setSavedVisible(false);
+    setPasswordResetSuccessVisible(false);
+    setReactivateSuccessVisible(false);
+    setAlertVisible(false);
+  };
+
+  const handleScroll = (event) => {
+    const { contentOffset, layoutMeasurement, contentSize } = event.nativeEvent;
+
+    if (contentSize.width > layoutMeasurement.width) {
+      setShowScrollIndicator(true);
+
+      // Calculate indicator position and width
+      const scrollPercentage =
+        contentOffset.x / (contentSize.width - layoutMeasurement.width);
+      const indicatorWidth =
+        (layoutMeasurement.width / contentSize.width) * 100;
+      const indicatorLeft = scrollPercentage * (100 - indicatorWidth);
+
+      setScrollIndicatorWidth(indicatorWidth);
+      setScrollIndicatorLeft(indicatorLeft);
+    } else {
+      setShowScrollIndicator(false);
+    }
+  };
+
+  // Removed: scrollProgress calculation
+  // Removed: indicatorWidth calculation
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -683,6 +1018,33 @@ export default function UserManagement({ navigation }) {
               </View>
             )}
           </View>
+
+          {/* Date calendar button - flex: 1 with proper text truncation */}
+          <TouchableOpacity
+            style={[styles.filterButton, { flex: 1, minWidth: 0 }]}
+            onPress={() => {
+              setCalendarVisible(true);
+              setRoleFilterOpen(false);
+              setStatusFilterOpen(false);
+            }}
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons
+              name="calendar-blank-outline"
+              size={18}
+              color="#000"
+              style={{ marginRight: 6, flexShrink: 0 }}
+            />
+            <Text style={[styles.filterText, { flex: 1 }]} numberOfLines={1}>
+              {selectedCalendarDate
+                ? new Date(selectedCalendarDate).toLocaleDateString("en-US", {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })
+                : "Date"}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -706,18 +1068,34 @@ export default function UserManagement({ navigation }) {
           setStatusFilterOpen(false);
         }}
       >
+        {/* Custom Scroll Indicator at Top */}
+        {showScrollIndicator && (
+          <View style={styles.customScrollIndicatorContainer}>
+            <View style={styles.customScrollIndicatorTrack}>
+              <View
+                style={[
+                  styles.customScrollIndicatorThumb,
+                  {
+                    width: `${scrollIndicatorWidth}%`,
+                    left: `${scrollIndicatorLeft}%`,
+                  },
+                ]}
+              />
+            </View>
+          </View>
+        )}
+
         <ScrollView
+          ref={horizontalScrollRef}
           horizontal
           style={styles.horizontalScroll}
-          showsHorizontalScrollIndicator
-          onScrollBeginDrag={() => {
-            setRoleFilterOpen(false);
-            setStatusFilterOpen(false);
-          }}
+          showsHorizontalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
         >
           <View style={styles.userListCard}>
             <Text style={styles.userListTitle}>
-              User List ({filteredUsers.length} users)
+              User List ({filteredByDate.length} users)
             </Text>
             <View style={styles.userListHeader}>
               <View style={styles.nameColHeader}>
@@ -755,9 +1133,9 @@ export default function UserManagement({ navigation }) {
                 </Text>
               </View>
             </View>
-            {filteredUsers.map((user) => {
+            {filteredByDate.map((user) => {
               console.log(
-                `Rendering user row: ${user.firstName} ${user.lastName}`
+                `Rendering user row: ${user.firstName} ${user.lastName}`,
               );
               return (
                 <TouchableOpacity
@@ -840,7 +1218,7 @@ export default function UserManagement({ navigation }) {
                         const formattedStatus =
                           status.charAt(0).toUpperCase() + status.slice(1);
                         console.log(
-                          `Fetched accountStatus for user ${user.firstName} ${user.lastName}: ${formattedStatus}`
+                          `Fetched accountStatus for user ${user.firstName} ${user.lastName}: ${formattedStatus}`,
                         );
                         return formattedStatus;
                       })()}
@@ -857,20 +1235,48 @@ export default function UserManagement({ navigation }) {
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handleForcePasswordChange(user)}
+                      disabled={auth.currentUser?.uid === user.id}
                     >
                       <MaterialCommunityIcons
                         name="lock-outline"
                         size={20}
-                        color="#234187"
+                        color={
+                          auth.currentUser?.uid === user.id ? "#ccc" : "#234187"
+                        }
                       />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => handleDeleteUser(user)}>
-                      <MaterialCommunityIcons
-                        name="trash-can-outline"
-                        size={20}
-                        color="#D9534F"
-                      />
-                    </TouchableOpacity>
+                    {/* Conditional icon: Delete or Reactivate based on status */}
+                    {user.accountStatus === "inactive" ? (
+                      <TouchableOpacity
+                        onPress={() => handleReactivateUser(user)}
+                        disabled={auth.currentUser?.uid === user.id}
+                      >
+                        <MaterialCommunityIcons
+                          name="account-reactivate-outline"
+                          size={20}
+                          color={
+                            auth.currentUser?.uid === user.id
+                              ? "#ccc"
+                              : "#4CAF50"
+                          }
+                        />
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        onPress={() => handleDeleteUser(user)}
+                        disabled={auth.currentUser?.uid === user.id}
+                      >
+                        <MaterialCommunityIcons
+                          name="trash-can-outline"
+                          size={20}
+                          color={
+                            auth.currentUser?.uid === user.id
+                              ? "#ccc"
+                              : "#D9534F"
+                          }
+                        />
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </TouchableOpacity>
               );
@@ -968,6 +1374,7 @@ export default function UserManagement({ navigation }) {
                 style={[
                   styles.editUserInput,
                   validationErrors.email && styles.editUserInputError,
+                  editUser.isCurrentAdmin && styles.editUserInputDisabled,
                 ]}
                 value={editUser.email}
                 onChangeText={(text) => {
@@ -980,6 +1387,7 @@ export default function UserManagement({ navigation }) {
                 placeholder="Email"
                 keyboardType="email-address"
                 autoCapitalize="none"
+                editable={!editUser.isCurrentAdmin}
               />
               {validationErrors.email ? (
                 <Text style={styles.errorText}>{validationErrors.email}</Text>
@@ -1014,9 +1422,15 @@ export default function UserManagement({ navigation }) {
               <View style={styles.roleFieldContainer}>
                 <View style={styles.roleFieldWrapper}>
                   <TouchableOpacity
-                    onPress={() => setRoleOpen((o) => !o)}
-                    style={styles.editUserPicker}
-                    activeOpacity={0.8}
+                    onPress={() =>
+                      !editUser.isCurrentAdmin && setRoleOpen((o) => !o)
+                    }
+                    style={[
+                      styles.editUserPicker,
+                      editUser.isCurrentAdmin && styles.editUserPickerDisabled,
+                    ]}
+                    activeOpacity={editUser.isCurrentAdmin ? 1 : 0.8}
+                    disabled={editUser.isCurrentAdmin}
                   >
                     <Text style={styles.roleValueText}>{editUser.role}</Text>
                     <MaterialCommunityIcons
@@ -1026,7 +1440,7 @@ export default function UserManagement({ navigation }) {
                     />
                   </TouchableOpacity>
 
-                  {roleOpen && (
+                  {roleOpen && !editUser.isCurrentAdmin && (
                     <View style={styles.roleDropdown}>
                       {roles.map((r) => (
                         <TouchableOpacity
@@ -1295,9 +1709,7 @@ export default function UserManagement({ navigation }) {
               Account marked as inactive
             </Text>
             <Text style={styles.deleteSuccessSubtitle}>Access disabled</Text>
-            <Text style={styles.deleteSuccessLoading}>
-              Loading your dashboard...
-            </Text>
+            <Text style={styles.deleteSuccessLoading}></Text>
           </View>
         </View>
       </Modal>
@@ -1310,6 +1722,154 @@ export default function UserManagement({ navigation }) {
         message={alertMessage}
         onClose={closeAlert}
       />
+
+      {/* Calendar Modal */}
+      <Modal
+        transparent
+        visible={calendarVisible}
+        animationType="fade"
+        onRequestClose={() => setCalendarVisible(false)}
+      >
+        <View style={styles.calendarOverlay}>
+          <View style={styles.calendarModal}>
+            <Calendar
+              onDayPress={(day) => {
+                console.log("Selected date:", day.dateString);
+                setSelectedCalendarDate(day.dateString);
+                setCalendarVisible(false);
+              }}
+              markedDates={{
+                [selectedCalendarDate]: {
+                  selected: true,
+                  selectedColor: "#133E87",
+                },
+              }}
+              theme={{
+                backgroundColor: "#ffffff",
+                calendarBackground: "#ffffff",
+                textSectionTitleColor: "#000",
+                selectedDayBackgroundColor: "#133E87",
+                selectedDayTextColor: "#ffffff",
+                todayTextColor: "#133E87",
+                dayTextColor: "#000",
+                textDisabledColor: "#d9e1e8",
+                monthTextColor: "#000",
+                textMonthFontWeight: "bold",
+                textDayFontSize: 16,
+                textMonthFontSize: 20,
+                textDayHeaderFontSize: 14,
+              }}
+            />
+
+            <View style={styles.calendarButtonRow}>
+              <TouchableOpacity
+                style={styles.clearDateButton}
+                onPress={() => {
+                  setSelectedCalendarDate("");
+                  setCalendarVisible(false);
+                }}
+              >
+                <Text style={styles.clearDateButtonText}>Clear Filter</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.closeCalendarButton}
+                onPress={() => setCalendarVisible(false)}
+              >
+                <Text style={styles.closeCalendarButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Reactivate User Modal */}
+      <Modal
+        transparent
+        visible={reactivateUserVisible}
+        animationType="fade"
+        onRequestClose={() => setReactivateUserVisible(false)}
+      >
+        <View style={styles.overlay}>
+          <View style={styles.reactivateUserModal}>
+            <Text style={styles.reactivateUserTitle}>Reactivate Account</Text>
+            <Text style={styles.reactivateUserMessage}>
+              Are you sure you want to reactivate {selectedUser?.firstName}{" "}
+              {selectedUser?.lastName}?{"\n"}
+              This will restore full access to the account.
+            </Text>
+
+            <TouchableOpacity
+              style={[
+                styles.reactivateConfirmButton,
+                reactivateConfirmBtnPressed &&
+                  styles.reactivateConfirmButtonPressed,
+              ]}
+              activeOpacity={0.8}
+              onPressIn={() => setReactivateConfirmBtnPressed(true)}
+              onPressOut={() => setReactivateConfirmBtnPressed(false)}
+              onPress={handleConfirmReactivate}
+            >
+              <Text
+                style={[
+                  styles.reactivateConfirmButtonText,
+                  reactivateConfirmBtnPressed &&
+                    styles.reactivateConfirmButtonTextPressed,
+                ]}
+              >
+                Confirm
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.reactivateCancelButton,
+                reactivateCancelBtnPressed &&
+                  styles.reactivateCancelButtonPressed,
+              ]}
+              activeOpacity={0.8}
+              onPressIn={() => setReactivateCancelBtnPressed(true)}
+              onPressOut={() => setReactivateCancelBtnPressed(false)}
+              onPress={() => {
+                setReactivateUserVisible(false);
+                setSelectedUser(null);
+              }}
+            >
+              <Text
+                style={[
+                  styles.reactivateCancelButtonText,
+                  reactivateCancelBtnPressed &&
+                    styles.reactivateCancelButtonTextPressed,
+                ]}
+              >
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Reactivate Success Modal */}
+      <Modal
+        transparent
+        visible={reactivateSuccessVisible}
+        animationType="fade"
+      >
+        <View style={styles.overlay}>
+          <View style={styles.reactivateSuccessModal}>
+            <View style={styles.successIconContainer}>
+              <MaterialCommunityIcons name="check" size={48} color="#4CAF50" />
+            </View>
+            <Text style={styles.reactivateSuccessTitle}>
+              Account Reactivated
+            </Text>
+            <Text style={styles.reactivateSuccessSubtitle}>
+              Access has been restored
+            </Text>
+            <Text style={styles.reactivateSuccessLoading}></Text>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -2021,7 +2581,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   createAccountButton: {
-    width: "115%", 
+    width: "100%",
     backgroundColor: "#fff",
     borderRadius: 16,
     paddingVertical: 12,
@@ -2087,5 +2647,194 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     textAlign: "center",
+  },
+  // Calendar Modal Styles
+  calendarOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  calendarModal: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 20,
+    width: "90%",
+    maxWidth: 400,
+  },
+  calendarButtonRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 16,
+    gap: 12,
+  },
+  clearDateButton: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  clearDateButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#000",
+  },
+  closeCalendarButton: {
+    flex: 1,
+    backgroundColor: "#133E87",
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  closeCalendarButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  // Custom Scroll Indicator Styles
+  customScrollIndicatorContainer: {
+    width: "100%",
+    paddingHorizontal: 18,
+    marginBottom: 8,
+  },
+  customScrollIndicatorTrack: {
+    height: 4,
+    backgroundColor: "#E5E7EB",
+    borderRadius: 2,
+    position: "relative",
+    overflow: "hidden",
+  },
+  customScrollIndicatorThumb: {
+    position: "absolute",
+    height: "100%",
+    backgroundColor: "#9CA3AF",
+    borderRadius: 2,
+  },
+  // Reactivate User Modal Styles
+  reactivateUserModal: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    width: "85%",
+    maxWidth: 400,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  reactivateUserTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#000",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  reactivateUserMessage: {
+    fontSize: 14,
+    color: "#555",
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  reactivateConfirmButton: {
+    backgroundColor: "#4CAF50",
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    marginBottom: 12,
+    width: "100%",
+    alignItems: "center",
+    shadowColor: "#4CAF50",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  reactivateConfirmButtonPressed: {
+    backgroundColor: "#45a049",
+    transform: [{ scale: 0.98 }],
+  },
+  reactivateConfirmButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  reactivateConfirmButtonTextPressed: {
+    color: "#fff",
+  },
+  reactivateCancelButton: {
+    backgroundColor: "transparent",
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    width: "100%",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+  },
+  reactivateCancelButtonPressed: {
+    backgroundColor: "#F3F4F6",
+  },
+  reactivateCancelButtonText: {
+    color: "#6B7280",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  reactivateCancelButtonTextPressed: {
+    color: "#4B5563",
+  },
+  reactivateSuccessModal: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    paddingVertical: 40,
+    paddingHorizontal: 32,
+    width: "85%",
+    maxWidth: 400,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  reactivateSuccessTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#000",
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  reactivateSuccessSubtitle: {
+    fontSize: 14,
+    color: "#555",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  reactivateSuccessLoading: {
+    fontSize: 12,
+    color: "#999",
+    fontStyle: "italic",
+  },
+  editUserInputDisabled: {
+    backgroundColor: "#f5f5f5",
+    color: "#999",
+  },
+  editUserPickerDisabled: {
+    backgroundColor: "#f5f5f5",
+    opacity: 0.6,
+  },
+  infoText: {
+    color: "#666",
+    fontSize: 13,
+    marginBottom: 10,
+    marginTop: 2,
+    fontStyle: "italic",
   },
 });
