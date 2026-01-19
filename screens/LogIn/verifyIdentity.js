@@ -116,7 +116,7 @@ export default function VerifyIdentityScreen() {
         showAlert(
           "error",
           "Incomplete Mobile Number",
-          "Enter the 10-digit mobile number"
+          "Enter the 10-digit mobile number",
         );
         return;
       }
@@ -132,7 +132,7 @@ export default function VerifyIdentityScreen() {
           showAlert(
             "error",
             "Authentication Required",
-            "Please log in first to verify your identity."
+            "Please log in first to verify your identity.",
           );
           return;
         }
@@ -145,7 +145,7 @@ export default function VerifyIdentityScreen() {
           showAlert(
             "error",
             "User Not Found",
-            "User record not found in database."
+            "User record not found in database.",
           );
           return;
         }
@@ -170,7 +170,7 @@ export default function VerifyIdentityScreen() {
             setMobileLockCountdown(10);
             setInputValue("");
             console.log(
-              "🔒 Device locked due to multiple mobile number mismatches"
+              "🔒 Device locked due to multiple mobile number mismatches",
             );
             return;
           }
@@ -181,7 +181,7 @@ export default function VerifyIdentityScreen() {
             "error",
             "Incorrect Mobile Number",
 
-            "Mobile number does not match user records."
+            "Mobile number does not match user records.",
           );
           return;
         }
@@ -275,7 +275,7 @@ export default function VerifyIdentityScreen() {
       showAlert(
         "error",
         "Device Locked",
-        `Too many failed attempts. Please wait ${lockCountdown} seconds before trying again.`
+        `Too many failed attempts. Please wait ${lockCountdown} seconds before trying again.`,
       );
       return;
     }
@@ -327,15 +327,15 @@ export default function VerifyIdentityScreen() {
             showAlert(
               "success",
               "Success",
-              "Phone number verified successfully!"
+              "Phone number verified successfully!",
             );
 
             // Navigate based on user role after a short delay
             setTimeout(() => {
               console.log("🚀 Starting navigation after verification...");
-              if (userData.role === "Admin") {
+              if (userData.role === "admin") {
                 console.log(
-                  "🔀 Navigating to AdminDashboard (OTP verified admin)"
+                  "🔀 Navigating to AdminDashboard (OTP verified admin)",
                 );
                 navigation.reset({
                   index: 0,
@@ -343,7 +343,7 @@ export default function VerifyIdentityScreen() {
                 });
               } else {
                 console.log(
-                  "🔀 Navigating to Home (OTP verified regular user)"
+                  "🔀 Navigating to Home (OTP verified regular user)",
                 );
                 navigation.reset({
                   index: 0,
@@ -371,7 +371,7 @@ export default function VerifyIdentityScreen() {
           showAlert(
             "error",
             "Device Locked",
-            "Too many failed attempts. Your device has been locked for 10 seconds."
+            "Too many failed attempts. Your device has been locked for 10 seconds.",
           );
         } else {
           // Show remaining attempts
@@ -384,7 +384,7 @@ export default function VerifyIdentityScreen() {
       showAlert(
         "error",
         "Error",
-        error.message || "Failed to verify OTP. Please try again."
+        error.message || "Failed to verify OTP. Please try again.",
       );
     }
   };

@@ -15,7 +15,14 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "../../../config/firebaseconfig";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  addDoc,
+  collection,
+  serverTimestamp,
+} from "firebase/firestore";
 import {
   updatePassword,
   EmailAuthProvider,
@@ -60,7 +67,7 @@ export default function EditProfile({ navigation }) {
   // Success popup state
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState(
-    "Your profile has been updated"
+    "Your profile has been updated",
   );
 
   // Unsaved changes modal state
@@ -401,21 +408,21 @@ export default function EditProfile({ navigation }) {
       if (formattedFirstName !== originalFirstName) {
         updateData.firstName = formattedFirstName;
         fieldsChanged.push(
-          `firstName: "${originalFirstName}" → "${formattedFirstName}"`
+          `firstName: "${originalFirstName}" → "${formattedFirstName}"`,
         );
       }
 
       if (formattedMiddleName !== originalMiddleName) {
         updateData.middleName = formattedMiddleName;
         fieldsChanged.push(
-          `middleName: "${originalMiddleName}" → "${formattedMiddleName}"`
+          `middleName: "${originalMiddleName}" → "${formattedMiddleName}"`,
         );
       }
 
       if (formattedLastName !== originalLastName) {
         updateData.lastName = formattedLastName;
         fieldsChanged.push(
-          `lastName: "${originalLastName}" → "${formattedLastName}"`
+          `lastName: "${originalLastName}" → "${formattedLastName}"`,
         );
       }
 
@@ -444,6 +451,26 @@ export default function EditProfile({ navigation }) {
 
         console.log("✅ Profile updated successfully");
         console.log("📝 Fields changed:", fieldsChanged);
+
+        // Log activity to activity_logs/editProfile/userprofile
+        try {
+          await addDoc(
+            collection(db, "activity_logs", "editProfile", "userprofile"),
+            {
+              userId: currentUser.uid,
+              action: "Profile updated",
+              description: `Updated profile fields: ${fieldsChanged.join(", ")}`,
+              timestamp: serverTimestamp(),
+              deviceInfo: Platform.OS,
+              firstName: formattedFirstName,
+              lastName: formattedLastName,
+            },
+          );
+          console.log("✅ Activity logged successfully");
+        } catch (logError) {
+          console.error("⚠️ Failed to log activity:", logError);
+          // Don't block the flow if logging fails
+        }
       } else {
         console.log("ℹ️ No changes detected - profile not updated");
       }
@@ -506,8 +533,8 @@ export default function EditProfile({ navigation }) {
       error = "New password must be different from your current password";
     }
     // Check length
-    else if (password.length < 6) {
-      error = "Minimum 6 characters required";
+    else if (password.length < 8) {
+      error = "Minimum 8 characters required";
     } else if (password.length > 20) {
       error = "Maximum 20 characters allowed";
     }
@@ -605,7 +632,7 @@ export default function EditProfile({ navigation }) {
       // Try to reauthenticate with current password
       const credential = EmailAuthProvider.credential(
         currentUser.email,
-        currentPassword
+        currentPassword,
       );
       await reauthenticateWithCredential(currentUser, credential);
 
@@ -623,11 +650,11 @@ export default function EditProfile({ navigation }) {
         setPasswordErrorMessage("Current password is incorrect");
       } else if (error.code === "auth/too-many-requests") {
         setPasswordErrorMessage(
-          "Too many failed attempts. Please try again later"
+          "Too many failed attempts. Please try again later",
         );
       } else {
         setPasswordErrorMessage(
-          "Failed to verify current password. Please try again"
+          "Failed to verify current password. Please try again",
         );
       }
       setShowPasswordErrorModal(true);
@@ -662,6 +689,26 @@ export default function EditProfile({ navigation }) {
         await updatePassword(currentUser, newPassword);
         console.log("✅ Password updated successfully");
 
+        // Log activity to activity_logs/editProfile/passwordChange
+        try {
+          await addDoc(
+            collection(db, "activity_logs", "editProfile", "passwordChange"),
+            {
+              userId: currentUser.uid,
+              action: "Password changed",
+              description: "User successfully changed their password",
+              timestamp: serverTimestamp(),
+              deviceInfo: Platform.OS,
+              firstName: firstName,
+              lastName: lastName,
+            },
+          );
+          console.log("✅ Password change activity logged successfully");
+        } catch (logError) {
+          console.error("⚠️ Failed to log password change activity:", logError);
+          // Don't block the flow if logging fails
+        }
+
         // Clear password fields
         setCurrentPassword("");
         setNewPassword("");
@@ -675,6 +722,8 @@ export default function EditProfile({ navigation }) {
         setShowSuccess(true);
         setTimeout(() => {
           setShowSuccess(false);
+          // Navigate back to previous screen after password update
+          navigation.goBack();
         }, 2000);
       } catch (passwordError) {
         console.error("Password update error:", passwordError);

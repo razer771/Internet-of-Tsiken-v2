@@ -45,7 +45,7 @@ const updateBatchInFirestore = async (batchId, updates) => {
     console.log(
       "[UpdateBatch] Successfully updated batch:",
       batchId,
-      updateData
+      updateData,
     );
     return { success: true, batchId, updates: updateData };
   } catch (error) {
@@ -64,13 +64,13 @@ const logEditEvent = async (
   firstName,
   lastName,
   batchId,
-  batchNumber
+  batchNumber,
 ) => {
   try {
     const eventData = {
       userId: userId,
       batchId: batchId,
-      action: "Batch edited",
+      action: `Updated Batch ${batchNumber}`,
       description: `Batch ${batchNumber} information updated`,
       timestamp: serverTimestamp(),
       deviceInfo: Platform.OS,
@@ -81,7 +81,7 @@ const logEditEvent = async (
     // Add document to activity_logs/editBatch_logs/events subcollection
     const docRef = await addDoc(
       collection(firestoreDb, "activity_logs", "editBatch_logs", "events"),
-      eventData
+      eventData,
     );
 
     console.log("[LogEditEvent] Event logged successfully:", docRef.id);
@@ -198,7 +198,16 @@ export default function EditBatchModal({
       setDaysError("");
     } else if (numValue >= 0 && numValue <= 365) {
       setDaysCount(numericText);
-      setDaysError("");
+      // Check if days exceeds harvest days (if harvest is set)
+      if (harvestDays && parseInt(harvestDays) > 0) {
+        if (numValue > parseInt(harvestDays)) {
+          setDaysError("Number of days cannot exceed expected harvest days");
+        } else {
+          setDaysError("");
+        }
+      } else {
+        setDaysError("");
+      }
     } else {
       setDaysError("Number of days cannot exceed 365");
     }
@@ -214,7 +223,18 @@ export default function EditBatchModal({
       setHarvestError("");
     } else if (numValue >= 0 && numValue <= 365) {
       setHarvestDays(numericText);
-      setHarvestError("");
+      // Check if harvest days is less than current days (if days is set)
+      if (daysCount && parseInt(daysCount) > 0) {
+        if (numValue < parseInt(daysCount)) {
+          setHarvestError(
+            "Expected harvest days cannot be less than current days",
+          );
+        } else {
+          setHarvestError("");
+        }
+      } else {
+        setHarvestError("");
+      }
     } else {
       setHarvestError("Expected harvest days cannot exceed 365");
     }
@@ -257,7 +277,7 @@ export default function EditBatchModal({
 
           const today = new Date();
           const daysDiff = Math.floor(
-            (today - startDateObj) / (1000 * 60 * 60 * 24)
+            (today - startDateObj) / (1000 * 60 * 60 * 24),
           );
           const calculatedAge = daysDiff + parseInt(daysCount);
 
@@ -289,6 +309,19 @@ export default function EditBatchModal({
   };
 
   const handleSave = () => {
+    // Validate that days does not exceed harvest days
+    const daysValue = parseInt(daysCount);
+    const harvestValue = parseInt(harvestDays);
+
+    if (daysValue > harvestValue) {
+      Alert.alert(
+        "Invalid Input",
+        "Number of days cannot be greater than expected harvest days.\n\nPlease check your entries and try again.",
+      );
+      setDaysError("Number of days cannot exceed expected harvest days");
+      return;
+    }
+
     // Get current user info
     const currentUser = auth.currentUser;
     if (!currentUser) {
@@ -333,7 +366,7 @@ export default function EditBatchModal({
           userInfo.firstname,
           userInfo.lastname,
           batchId,
-          batchNumber
+          batchNumber,
         );
 
         // Call the original callback for backward compatibility (AsyncStorage)
@@ -356,7 +389,7 @@ export default function EditBatchModal({
         console.error("[HandleSave] Error:", error);
         Alert.alert(
           "Error",
-          "Failed to save changes. Please try again.\n" + error.message
+          "Failed to save changes. Please try again.\n" + error.message,
         );
       });
   };

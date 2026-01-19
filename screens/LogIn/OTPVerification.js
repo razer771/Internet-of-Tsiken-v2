@@ -19,7 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { auth, db } from "../../config/firebaseconfig.js";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 // Removed Firebase phone-auth specific imports; using Twilio Verify exclusively
 import {
@@ -433,7 +433,8 @@ export default function OTPVerification() {
         // Update user document in Firestore
         const user = auth.currentUser;
         if (user) {
-          await updateDoc(doc(db, "users", user.uid), {
+          const userDocRef = doc(db, "users", user.uid);
+          await updateDoc(userDocRef, {
             verified: true,
             lastVerified: new Date(),
             phone: confirmationResult.phone || mobileNumber,
@@ -443,9 +444,39 @@ export default function OTPVerification() {
             failedOtpAttempts: 0,
           });
           console.log("✅ User verification status updated in Firestore");
+
+          // Fetch user role to determine navigation
+          console.log("🔍 Fetching user document for navigation...");
+          const userDoc = await getDoc(userDocRef);
+          console.log("📄 User doc exists:", userDoc.exists());
+          
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            console.log("📋 Full user data:", JSON.stringify(userData, null, 2));
+            console.log("👤 User role (raw):", userData.role);
+            const userRole = userData.role?.toLowerCase();
+            console.log("👤 User role (lowercase):", userRole);
+
+            // Navigate based on role
+            if (userRole === "admin") {
+              console.log("✅ Admin verified, navigating to Admin Dashboard");
+              navigation.reset({
+                index: 0,
+                routes: [{ name: "AdminDashboard" }],
+              });
+            } else {
+              console.log("✅ User verified, navigating to User Dashboard via LoginSuccess");
+              console.log("🔍 Role was:", userRole, "!== 'admin'");
+              navigation.navigate("LoginSuccess");
+            }
+          } else {
+            console.log("❌ User doc doesn't exist, fallback to LoginSuccess");
+            navigation.navigate("LoginSuccess");
+          }
+        } else {
+          // Fallback if no current user
+          navigation.navigate("LoginSuccess");
         }
-        // Navigate forward after successful verification
-        navigation.navigate("LoginSuccess");
       } else {
         throw new Error("Invalid OTP code");
       }

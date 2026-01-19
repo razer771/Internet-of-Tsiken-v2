@@ -25,6 +25,7 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { getAuth } = require("firebase-admin/auth");
 const nodemailer = require("nodemailer");
 
 // Initialize Twilio
@@ -65,7 +66,7 @@ exports.sendSMSOTP = onCall(async (request) => {
     // If not found in "mobile" field, try "phone" field
     if (usersSnapshot.empty) {
       console.log(
-        `⚠️ Phone not found in "mobile" field, checking "phone" field...`
+        `⚠️ Phone not found in "mobile" field, checking "phone" field...`,
       );
       usersSnapshot = await db
         .collection("users")
@@ -87,7 +88,7 @@ exports.sendSMSOTP = onCall(async (request) => {
       });
       throw new HttpsError(
         "not-found",
-        "Mobile number does not match user records"
+        "Mobile number does not match user records",
       );
     }
 
@@ -298,6 +299,184 @@ If you have any questions, please contact your administrator.
 });
 
 /**
+ * Create User Account (Admin Only)
+ * Creates a new user account without signing them in
+ * Allows admins to create accounts without being logged out
+ */
+exports.createUserAccount = onCall(
+  {
+    region: "us-central1",
+  },
+  async (request) => {
+    try {
+      // Verify the caller is an admin
+      const callerUid = request.auth?.uid;
+      if (!callerUid) {
+        throw new HttpsError("unauthenticated", "User must be authenticated");
+      }
+
+      // Check if caller is admin
+      const callerDoc = await db.collection("users").doc(callerUid).get();
+      console.log("Caller UID:", callerUid);
+      console.log("Caller doc exists:", callerDoc.exists);
+      console.log("Caller data:", callerDoc.data());
+      console.log("Caller role:", callerDoc.data()?.role);
+
+      if (!callerDoc.exists || callerDoc.data().role !== "admin") {
+        console.error(
+          "Permission denied - caller role:",
+          callerDoc.data()?.role,
+        );
+        throw new HttpsError(
+          "permission-denied",
+          "Only administrators can create accounts",
+        );
+      }
+
+      const {
+        email,
+        password,
+        firstName,
+        middleName,
+        lastName,
+        mobileNumber,
+        role,
+      } = request.data;
+
+      // Validate required fields
+      if (
+        !email ||
+        !password ||
+        !firstName ||
+        !lastName ||
+        !mobileNumber ||
+        !role
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Missing required fields: email, password, firstName, lastName, mobileNumber, or role",
+        );
+      }
+
+      console.log(`Creating account for: ${email}`);
+
+      // Check if email already exists
+      const existingUsers = await db
+        .collection("users")
+        .where("email", "==", email)
+        .limit(1)
+        .get();
+
+      if (!existingUsers.empty) {
+        throw new HttpsError("already-exists", "Email already exists");
+      }
+
+      // Create Firebase Authentication user (DOES NOT SIGN THEM IN)
+      const auth = getAuth();
+      const userRecord = await auth.createUser({
+        email: email,
+        password: password,
+        emailVerified: false, // All users start unverified
+        disabled: false,
+      });
+
+      console.log(`Firebase Auth user created: ${userRecord.uid}`);
+
+      // Create full name
+      const fullName = middleName
+        ? `${firstName} ${middleName} ${lastName}`
+        : `${firstName} ${lastName}`;
+
+      // Format phone number
+      const formattedPhone = `+63${mobileNumber}`;
+
+      // Get admin info for logging
+      const adminData = callerDoc.data();
+      const createdByAdminName =
+        adminData.fullname || adminData.displayName || adminData.email;
+
+      // Create Firestore user document
+      await db
+        .collection("users")
+        .doc(userRecord.uid)
+        .set({
+          uid: userRecord.uid,
+          email: email,
+          firstName: firstName,
+          middleName: middleName || "",
+          lastName: lastName,
+          fullname: fullName,
+          displayName: fullName,
+          role: role.toLowerCase(),
+          mobileNumber: mobileNumber,
+          phone: formattedPhone,
+          accountStatus: "active",
+          accountType: "standard",
+          verified: false,
+          phoneVerified: false,
+          otpVerified: false,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          createdBy: createdByAdminName,
+          createdByUid: callerUid,
+          failedLoginAttempts: 0,
+          failedOtpAttempts: 0,
+          mobileVerificationAttempts: 0,
+          passwordHistory: [],
+          loginHistory: [],
+          mustShowPasswordUpdated: false,
+          deviceLockUntil: null,
+          lastFailedLogin: null,
+          lastLoginAttempt: null,
+          lastVerified: null,
+          lastOTPVerified: null,
+          lastMobileVerified: null,
+          ipAddress: null,
+          userAgent: null,
+        });
+
+      console.log(`User profile saved to Firestore: ${userRecord.uid}`);
+
+      // Log activity
+      await db
+        .collection("activity_logs")
+        .doc("userManagement")
+        .collection("createAccount")
+        .add({
+          adminId: callerUid,
+          adminName: createdByAdminName,
+          action: `Account created for ${fullName} as ${role}`,
+          description: `Created new ${role} account for ${fullName} (${email})`,
+          timestamp: FieldValue.serverTimestamp(),
+          newUserId: userRecord.uid,
+          newUserEmail: email,
+          newUserName: fullName,
+          newUserRole: role.toLowerCase(),
+          userId: userRecord.uid,
+        });
+
+      console.log(`Account creation logged successfully`);
+
+      return {
+        success: true,
+        uid: userRecord.uid,
+        email: email,
+        fullName: fullName,
+      };
+    } catch (error) {
+      console.error("Error creating user account:", error);
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      throw new HttpsError(
+        "internal",
+        error.message || "Failed to create account",
+      );
+    }
+  },
+);
+
+/**
  * Cloud Function triggered when sensor data is written to Realtime Database
  * Path pattern: /sensorData/{userId}/{sensorType}/{timestamp}
  */
@@ -312,7 +491,7 @@ exports.calculateSensorAverages = onValueWritten(
       const { userId, sensorType, timestamp } = event.params;
 
       console.log(
-        `Processing sensor data: userId=${userId}, sensorType=${sensorType}, timestamp=${timestamp}`
+        `Processing sensor data: userId=${userId}, sensorType=${sensorType}, timestamp=${timestamp}`,
       );
 
       // Get the data that was written
@@ -348,7 +527,7 @@ exports.calculateSensorAverages = onValueWritten(
       const average = sum / values.length;
 
       console.log(
-        `Calculated average for ${sensorType}: ${average} (from ${values.length} readings)`
+        `Calculated average for ${sensorType}: ${average} (from ${values.length} readings)`,
       );
 
       // Save to Firestore sensorAverages collection
@@ -376,7 +555,7 @@ exports.calculateSensorAverages = onValueWritten(
       console.error("Error calculating sensor averages:", error);
       throw error;
     }
-  }
+  },
 );
 
 /**
@@ -436,7 +615,7 @@ exports.calculateGlobalSensorAverages = onValueWritten(
       const average = sum / allValues.length;
 
       console.log(
-        `Global average for ${sensorType}: ${average} (from ${allValues.length} readings)`
+        `Global average for ${sensorType}: ${average} (from ${allValues.length} readings)`,
       );
 
       // Save to Firestore with "global_" prefix
@@ -466,7 +645,7 @@ exports.calculateGlobalSensorAverages = onValueWritten(
       console.error("Error calculating global sensor averages:", error);
       throw error;
     }
-  }
+  },
 );
 
 /**
@@ -494,7 +673,7 @@ exports.calculateMultiSensorAverages = onValueWritten(
       const { userId, readingId } = event.params;
 
       console.log(
-        `Processing multi-sensor reading: userId=${userId}, readingId=${readingId}`
+        `Processing multi-sensor reading: userId=${userId}, readingId=${readingId}`,
       );
 
       const newData = event.data.after.val();
@@ -513,7 +692,7 @@ exports.calculateMultiSensorAverages = onValueWritten(
         "location",
       ];
       const sensorTypes = Object.keys(newData).filter(
-        (key) => !excludedFields.includes(key)
+        (key) => !excludedFields.includes(key),
       );
 
       if (sensorTypes.length === 0) {
@@ -538,7 +717,7 @@ exports.calculateMultiSensorAverages = onValueWritten(
             const allReadings = snapshot.val();
             const values = Object.values(allReadings)
               .filter(
-                (reading) => reading && typeof reading[sensorType] === "number"
+                (reading) => reading && typeof reading[sensorType] === "number",
               )
               .map((reading) => reading[sensorType]);
 
@@ -565,7 +744,7 @@ exports.calculateMultiSensorAverages = onValueWritten(
             });
 
             console.log(
-              `Saved average for ${sensorType}: ${average.toFixed(2)}`
+              `Saved average for ${sensorType}: ${average.toFixed(2)}`,
             );
 
             return {
@@ -577,7 +756,7 @@ exports.calculateMultiSensorAverages = onValueWritten(
             console.error(`Error processing ${sensorType}:`, error);
             return { sensorType, error: error.message };
           }
-        })
+        }),
       );
 
       console.log("Multi-sensor processing complete:", results);
@@ -592,5 +771,5 @@ exports.calculateMultiSensorAverages = onValueWritten(
       console.error("Error in multi-sensor average calculation:", error);
       throw error;
     }
-  }
+  },
 );

@@ -65,7 +65,7 @@ const getNextBatchNumber = async () => {
   try {
     const q = query(
       collection(firestoreDb, "brooderInfo"),
-      orderBy("batchNumber", "desc")
+      orderBy("batchNumber", "desc"),
     );
     const querySnapshot = await getDocs(q);
 
@@ -157,12 +157,12 @@ const saveBatch = async ({
  * Records user actions for audit trail
  * Stores in: activity_logs/addBatch_logs/events
  */
-const logSessionEvent = async (userId, firstName, lastName) => {
+const logSessionEvent = async (userId, firstName, lastName, batchNumber) => {
   try {
     const eventData = {
       userId: userId,
-      action: "Batch Added",
-      description: "New batch added",
+      action: `Added Batch ${batchNumber}`,
+      description: `Batch ${batchNumber} added`,
       timestamp: serverTimestamp(),
       deviceInfo: Platform.OS,
       firstName: firstName,
@@ -172,7 +172,7 @@ const logSessionEvent = async (userId, firstName, lastName) => {
     // Add document to activity_logs/addBatch_logs/events subcollection
     const docRef = await addDoc(
       collection(firestoreDb, "activity_logs", "addBatch_logs", "events"),
-      eventData
+      eventData,
     );
 
     console.log("[LogSessionEvent] Event logged successfully:", docRef.id);
@@ -283,17 +283,26 @@ export default function QuickSetupModal({
   };
 
   const handleDaysChange = (text) => {
-    // Only allow numeric input, max 365, never show '0'
+    // Only allow numeric input, max 45 days, never show '0'
     const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
     if (numericText === "" || numericText === "0") {
       setDaysCount("");
       setDaysError("");
-    } else if (numValue > 0 && numValue <= 365) {
+    } else if (numValue > 0 && numValue <= 45) {
       setDaysCount(numericText);
-      setDaysError("");
+      // Check if days exceeds harvest days (if harvest is set)
+      if (harvestDays && parseInt(harvestDays) > 0) {
+        if (numValue > parseInt(harvestDays)) {
+          setDaysError("Number of days cannot exceed expected harvest days");
+        } else {
+          setDaysError("");
+        }
+      } else {
+        setDaysError("");
+      }
     } else {
-      setDaysError("Number of days cannot exceed 365");
+      setDaysError("Number of days cannot exceed 45");
     }
   };
 
@@ -306,13 +315,37 @@ export default function QuickSetupModal({
       setHarvestError("");
     } else if (numValue > 0 && numValue <= 365) {
       setHarvestDays(numericText);
-      setHarvestError("");
+      // Check if harvest days is less than current days (if days is set)
+      if (daysCount && parseInt(daysCount) > 0) {
+        if (numValue < parseInt(daysCount)) {
+          setHarvestError(
+            "Expected harvest days cannot be less than current days",
+          );
+        } else {
+          setHarvestError("");
+        }
+      } else {
+        setHarvestError("");
+      }
     } else {
       setHarvestError("Expected harvest days cannot exceed 365");
     }
   };
 
   const handleSave = () => {
+    // Validate that days does not exceed harvest days
+    const daysValue = parseInt(daysCount);
+    const harvestValue = parseInt(harvestDays);
+
+    if (daysValue > harvestValue) {
+      Alert.alert(
+        "Invalid Input",
+        "Number of days cannot be greater than expected harvest days.\n\nPlease check your entries and try again.",
+      );
+      setDaysError("Number of days cannot exceed expected harvest days");
+      return;
+    }
+
     // Get current user info
     const currentUser = auth.currentUser;
     if (!currentUser) {
@@ -346,7 +379,12 @@ export default function QuickSetupModal({
         console.log("[HandleSave] Batch saved to Firestore:", result);
 
         // Log the event to session_logs
-        logSessionEvent(currentUser.uid, userInfo.firstname, userInfo.lastname);
+        logSessionEvent(
+          currentUser.uid,
+          userInfo.firstname,
+          userInfo.lastname,
+          result.batchNumber,
+        );
 
         // Call the original batch save callback for backward compatibility (AsyncStorage)
         if (onSaveBatch) {
@@ -381,7 +419,7 @@ export default function QuickSetupModal({
         console.error("[HandleSave] Error:", error);
         Alert.alert(
           "Error",
-          "Failed to save batch. Please try again.\n" + error.message
+          "Failed to save batch. Please try again.\n" + error.message,
         );
       });
   };

@@ -208,6 +208,7 @@ export const fetchBatches = async () => {
           chicksCount: data.chicksCount || 0,
           daysCount: calculatedDaysCount, // Dynamically calculated age
           age: calculatedDaysCount, // Also provide as 'age' for compatibility
+          originalDaysCount: data.daysCount, // Store original value from Firestore
           harvestDays: data.harvestDays || 0,
           startDate: data.startDate,
           // Keep original data for reference
@@ -241,18 +242,50 @@ export default function ViewAllBatchesModal({
   const [showDeleteSuccess, setShowDeleteSuccess] = useState(false);
   const [showDeleteError, setShowDeleteError] = useState(false);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
+  const [recalculatedBatches, setRecalculatedBatches] = useState(batches);
+
+  // Recalculate ages only when modal becomes visible
+  // This ensures we get fresh calculation from original daysCount in Firestore data
+  React.useEffect(() => {
+    if (visible && batches.length > 0) {
+      // Only recalculate if batches contain originalDaysCount (not already calculated)
+      // Otherwise use batches as-is to avoid double calculation
+      const updatedBatches = batches.map((batch) => {
+        // If batch has originalDaysCount, it means it was freshly fetched from Firestore
+        // In that case, recalculate to account for time elapsed since fetch
+        if (batch.originalDaysCount !== undefined && batch.startDate) {
+          const calculatedDays = calculateAge(
+            batch.startDate,
+            batch.originalDaysCount
+          );
+
+          return {
+            ...batch,
+            daysCount: calculatedDays,
+            age: calculatedDays,
+          };
+        }
+        // Otherwise, return batch as-is (already calculated correctly)
+        return batch;
+      });
+      setRecalculatedBatches(updatedBatches);
+    } else {
+      setRecalculatedBatches(batches);
+    }
+  }, [visible, batches]);
 
   // Auto-select the most recent batch if none is selected
   React.useEffect(() => {
     if (
       visible &&
-      batches.length > 0 &&
-      (selectedBatchIndex === null || selectedBatchIndex >= batches.length)
+      recalculatedBatches.length > 0 &&
+      (selectedBatchIndex === null ||
+        selectedBatchIndex >= recalculatedBatches.length)
     ) {
       // Select the last batch (most recent)
-      onSelectBatch(batches.length - 1);
+      onSelectBatch(recalculatedBatches.length - 1);
     }
-  }, [visible, batches, selectedBatchIndex, onSelectBatch]);
+  }, [visible, recalculatedBatches, selectedBatchIndex, onSelectBatch]);
 
   const handleDeletePress = (index) => {
     setBatchToDelete(index);
@@ -262,11 +295,11 @@ export default function ViewAllBatchesModal({
   const handleConfirmDelete = async () => {
     if (batchToDelete !== null) {
       try {
-        // Get the batch ID from the batches array
-        const batchId = batches[batchToDelete]?.id;
+        // Get the batch ID from the recalculatedBatches array
+        const batchId = recalculatedBatches[batchToDelete]?.id;
         const batchNumber =
-          batches[batchToDelete]?.batchNumber ||
-          batches[batchToDelete]?.batchNo ||
+          recalculatedBatches[batchToDelete]?.batchNumber ||
+          recalculatedBatches[batchToDelete]?.batchNo ||
           "Unknown";
 
         if (!batchId) {
@@ -324,10 +357,10 @@ export default function ViewAllBatchesModal({
             <Text style={styles.modalTitle}>All Batches</Text>
 
             <ScrollView style={styles.batchesContainer}>
-              {batches.length === 0 ? (
+              {recalculatedBatches.length === 0 ? (
                 <Text style={styles.emptyMessage}>No batches found.</Text>
               ) : (
-                batches.map((batch, idx) => {
+                recalculatedBatches.map((batch, idx) => {
                   // Map batch fields - support both old and new field names
                   const displayBatchNo =
                     batch.batchNumber !== undefined &&

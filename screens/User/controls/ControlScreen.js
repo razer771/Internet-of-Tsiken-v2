@@ -84,7 +84,7 @@ const fetchNightTimeSchedule = async () => {
   } catch (error) {
     console.error(
       "[FetchNightTime] Error fetching night time schedule:",
-      error
+      error,
     );
     return null;
   }
@@ -126,7 +126,7 @@ const updateNightTimeSchedule = async (
   newTime,
   userId,
   firstName,
-  lastName
+  lastName,
 ) => {
   try {
     console.log("[UpdateNightTime] Updating night time schedule...");
@@ -153,7 +153,7 @@ const updateNightTimeSchedule = async (
         updatedAt: new Date().toISOString(),
         updatedBy: userId,
       },
-      { merge: true }
+      { merge: true },
     );
 
     console.log("[UpdateNightTime] Night time schedule updated successfully");
@@ -164,7 +164,7 @@ const updateNightTimeSchedule = async (
       const oldTimeFormatted = oldTime ? formatTimeGMT8(oldTime) : "N/A";
 
       const logEntry = {
-        action: "Set Night Time",
+        action: `Set night time at ${newTimeFormatted}`,
         description: `Night time starts at ${newTimeFormatted}`,
         firstName: firstName,
         lastName: lastName,
@@ -178,7 +178,7 @@ const updateNightTimeSchedule = async (
 
       await addDoc(
         collection(db, "activity_logs", "nightTime_logs", "events"),
-        logEntry
+        logEntry,
       );
 
       console.log("[UpdateNightTime] Activity logged successfully");
@@ -196,7 +196,7 @@ const updateNightTimeSchedule = async (
   } catch (error) {
     console.error(
       "[UpdateNightTime] Error updating night time schedule:",
-      error
+      error,
     );
     return {
       success: false,
@@ -291,7 +291,7 @@ export default function ControlScreen({ navigation }) {
       // Save to Firestore: activity_logs/{actionType}/{auto-generated-id}
       await addDoc(
         collection(db, "activity_logs", actionType, "logs"),
-        logRecord
+        logRecord,
       );
 
       console.log(`✅ [LOGGING] Logged to ${actionType}:`, logRecord);
@@ -350,7 +350,7 @@ export default function ControlScreen({ navigation }) {
         const user = auth.currentUser;
         if (user) {
           console.log(
-            "📡 Configuring ESP32 with user ID for scheduled watering..."
+            "📡 Configuring ESP32 with user ID for scheduled watering...",
           );
           await configureWaterSystemUserId(user.uid);
         }
@@ -402,7 +402,7 @@ export default function ControlScreen({ navigation }) {
       } catch (error) {
         console.warn(
           "[Solar] Failed to fetch from ESP32, using simulated data:",
-          error.message
+          error.message,
         );
         setSolarPowerLevel(30); // Fallback to simulated
         setIsSolarSimulated(true);
@@ -425,7 +425,7 @@ export default function ControlScreen({ navigation }) {
     const loadNightTimeSchedule = async () => {
       try {
         console.log(
-          "[NightTime] Loading night time schedule from Firestore..."
+          "[NightTime] Loading night time schedule from Firestore...",
         );
         const nightTimeData = await fetchNightTimeSchedule();
 
@@ -441,14 +441,14 @@ export default function ControlScreen({ navigation }) {
             setNightStart(timeDate);
             console.log(
               "[NightTime] Night time loaded successfully:",
-              fmtTime(timeDate)
+              fmtTime(timeDate),
             );
           } else {
             console.warn("[NightTime] No time value found in document");
           }
         } else {
           console.warn(
-            "[NightTime] Night time document not found, using default time"
+            "[NightTime] Night time document not found, using default time",
           );
         }
       } catch (error) {
@@ -533,11 +533,11 @@ export default function ControlScreen({ navigation }) {
 
       console.log("[FetchFeeds] Total feeds fetched:", loadedFeeds.length);
       console.log(
-        "📋 [SORT] Feeds loaded and sorted in ascending order (GMT+8):"
+        "📋 [SORT] Feeds loaded and sorted in ascending order (GMT+8):",
       );
       loadedFeeds.forEach((f) => {
         console.log(
-          `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`
+          `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`,
         );
       });
     } catch (err) {
@@ -549,7 +549,7 @@ export default function ControlScreen({ navigation }) {
     try {
       // Fetch ALL watering schedules from "wateringSchedules" collection (no userId filter)
       const wateringSnapshot = await getDocs(
-        collection(db, "wateringSchedules")
+        collection(db, "wateringSchedules"),
       );
 
       const loadedWaterings = [];
@@ -560,7 +560,7 @@ export default function ControlScreen({ navigation }) {
         // Skip duplicates based on wateringId
         if (seenIds.has(data.wateringId)) {
           console.warn(
-            `Duplicate wateringId ${data.wateringId} found, skipping`
+            `Duplicate wateringId ${data.wateringId} found, skipping`,
           );
           return;
         }
@@ -581,16 +581,16 @@ export default function ControlScreen({ navigation }) {
 
       // Sort by time in ascending order (earliest to latest)
       loadedWaterings.sort(
-        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time),
       );
       setWaterings(loadedWaterings);
       console.log(
-        `💧 [LOAD] Watering schedules loaded from database: ${loadedWaterings.length} total`
+        `💧 [LOAD] Watering schedules loaded from database: ${loadedWaterings.length} total`,
       );
       console.log("💧 [SORT] Watering schedules sorted:");
       loadedWaterings.forEach((w) => {
         console.log(
-          `  - ${w.time} (${w.label}) = ${timeToMinutes(w.time)} minutes`
+          `  - ${w.time} (${w.label}) = ${timeToMinutes(w.time)} minutes`,
         );
       });
     } catch (err) {
@@ -642,7 +642,7 @@ export default function ControlScreen({ navigation }) {
 
   // Camera server auto-discovery - no user input needed!
   const [cameraServerUrl, setCameraServerUrl] = useState(
-    "http://rpi5desktop.local:5000"
+    "http://rpi5desktop.local:5000",
   );
   const [showServerInput, setShowServerInput] = useState(false);
 
@@ -688,7 +688,7 @@ export default function ControlScreen({ navigation }) {
         //   navigation.navigate("Analytics");
         // }
       },
-    })
+    }),
   ).current;
 
   // Handlers
@@ -760,7 +760,7 @@ export default function ControlScreen({ navigation }) {
         "[Solar] Alert sent - Power:",
         powerLevel + "%",
         "Threshold:",
-        alertThreshold + "%"
+        alertThreshold + "%",
       );
     }
   };
@@ -867,7 +867,7 @@ export default function ControlScreen({ navigation }) {
         await addDoc(
           collection(db, "activity_logs", "feeding", "addFeedSchedule_logs"),
           {
-            action: "New feeding schedule",
+            action: `New feeding schedule: ${formattedTime}`,
             description: `Added ${formattedTime}`,
             firstName,
             lastName,
@@ -877,7 +877,7 @@ export default function ControlScreen({ navigation }) {
             timestamp: new Date().toISOString(),
             userId: user.uid,
             feedId: nextId,
-          }
+          },
         );
 
         // Add user notification
@@ -908,12 +908,12 @@ export default function ControlScreen({ navigation }) {
     setFeeds((s) => {
       const updated = [...s, newFeed];
       const sorted = updated.sort(
-        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time),
       );
       console.log("📋 [SORT] Feeds after adding new schedule:");
       sorted.forEach((f) => {
         console.log(
-          `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`
+          `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`,
         );
       });
       return sorted;
@@ -948,7 +948,7 @@ export default function ControlScreen({ navigation }) {
         },
         { text: "Cancel", style: "cancel" },
       ],
-      { cancelable: true }
+      { cancelable: true },
     );
   };
 
@@ -968,12 +968,12 @@ export default function ControlScreen({ navigation }) {
       if (user) {
         // Delete all feed documents from Firestore for this user
         const deletePromises = feeds.map((feed) =>
-          deleteDoc(doc(db, "feeds", `${user.uid}_${feed.id}`))
+          deleteDoc(doc(db, "feeds", `${user.uid}_${feed.id}`)),
         );
         await Promise.all(deletePromises);
 
         console.log(
-          `✅ Deleted ${feeds.length} feeding schedules from Firestore`
+          `✅ Deleted ${feeds.length} feeding schedules from Firestore`,
         );
 
         // Add user notification
@@ -1021,7 +1021,7 @@ export default function ControlScreen({ navigation }) {
     if (selectedToDelete.length === 0) {
       Alert.alert(
         "No selection",
-        "Please select at least one schedule to delete."
+        "Please select at least one schedule to delete.",
       );
       return;
     }
@@ -1037,13 +1037,13 @@ export default function ControlScreen({ navigation }) {
           onPress: async () => {
             console.log(
               "📄 [ACTION] Deleting selected feeds:",
-              selectedToDelete
+              selectedToDelete,
             );
 
             // Prevent duplicate submissions
             if (isSubmitting) {
               console.warn(
-                "Submit already in progress, ignoring duplicate click"
+                "Submit already in progress, ignoring duplicate click",
               );
               return;
             }
@@ -1055,17 +1055,17 @@ export default function ControlScreen({ navigation }) {
               if (user) {
                 // Delete selected feed documents from Firestore
                 const deletePromises = selectedToDelete.map((feedId) =>
-                  deleteDoc(doc(db, "feeds", `${user.uid}_${feedId}`))
+                  deleteDoc(doc(db, "feeds", `${user.uid}_${feedId}`)),
                 );
                 await Promise.all(deletePromises);
 
                 console.log(
-                  `✅ Deleted ${selectedToDelete.length} selected feeding schedules`
+                  `✅ Deleted ${selectedToDelete.length} selected feeding schedules`,
                 );
 
                 // Get deleted feed times for notification
                 const deletedFeeds = feeds.filter((f) =>
-                  selectedToDelete.includes(f.id)
+                  selectedToDelete.includes(f.id),
                 );
                 const deletedTimes = deletedFeeds.map((f) => f.time).join(", ");
 
@@ -1088,7 +1088,7 @@ export default function ControlScreen({ navigation }) {
               console.error("Failed to delete selected feeds:", err);
               Alert.alert(
                 "Error",
-                "Failed to delete selected schedules: " + err.message
+                "Failed to delete selected schedules: " + err.message,
               );
               setIsSubmitting(false);
               return;
@@ -1106,7 +1106,7 @@ export default function ControlScreen({ navigation }) {
           },
         },
       ],
-      { cancelable: true }
+      { cancelable: true },
     );
   };
 
@@ -1201,7 +1201,7 @@ export default function ControlScreen({ navigation }) {
         await addDoc(
           collection(db, "activity_logs", "feeding", "editFeedSchedule_logs"),
           {
-            action: "Updated feeding time",
+            action: `Changed feeding time from ${oldTime} to ${newTime}`,
             description: `Changed from ${oldTime} to ${newTime}`,
             firstName,
             lastName,
@@ -1212,7 +1212,7 @@ export default function ControlScreen({ navigation }) {
             timestamp: new Date().toISOString(),
             userId: user.uid,
             feedId,
-          }
+          },
         );
 
         // Add user notification
@@ -1243,12 +1243,12 @@ export default function ControlScreen({ navigation }) {
       const copy = [...s];
       copy[feedEdit.idx].time = newTime;
       const sorted = copy.sort(
-        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time),
       );
       console.log("📋 [SORT] Feeds after editing schedule:");
       sorted.forEach((f) => {
         console.log(
-          `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`
+          `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`,
         );
       });
       return sorted;
@@ -1314,7 +1314,7 @@ export default function ControlScreen({ navigation }) {
         await addDoc(
           collection(db, "activity_logs", "feeding", "deleteFeedSchedule_logs"),
           {
-            action: "Removed a feeding schedule",
+            action: `Removed ${feedToDelete.time} feeding schedule`,
             description: `${feedToDelete.time} has been removed`,
             firstName,
             lastName,
@@ -1322,7 +1322,7 @@ export default function ControlScreen({ navigation }) {
             timestamp: new Date().toISOString(),
             userId: user.uid,
             feedId: pendingDeleteFeedId,
-          }
+          },
         );
 
         // Add user notification
@@ -1409,20 +1409,20 @@ export default function ControlScreen({ navigation }) {
         if (result.isSimulated && result.warning) {
           showMotorWarning(
             "Motor Not Detected",
-            result.warning + "\n\nThe operation was simulated."
+            result.warning + "\n\nThe operation was simulated.",
           );
         }
       } else {
         showMotorWarning(
           "Dispense Error",
-          result.error || "Failed to dispense feed."
+          result.error || "Failed to dispense feed.",
         );
       }
     } catch (error) {
       console.error("Dispense error:", error);
       showMotorWarning(
         "Error",
-        "Feed dispenser motor not detected. Please check the connection."
+        "Feed dispenser motor not detected. Please check the connection.",
       );
     } finally {
       setIsDispensing(false);
@@ -1458,20 +1458,20 @@ export default function ControlScreen({ navigation }) {
         if (result.isSimulated && result.warning) {
           showMotorWarning(
             "Motor Not Detected",
-            result.warning + "\n\nThe operation was simulated."
+            result.warning + "\n\nThe operation was simulated.",
           );
         }
       } else {
         showMotorWarning(
           "Sprinkler Error",
-          result.error || "Failed to activate sprinkler."
+          result.error || "Failed to activate sprinkler.",
         );
       }
     } catch (error) {
       console.error("Sprinkler error:", error);
       showMotorWarning(
         "Error",
-        "Water sprinkler motor not detected. Please check the connection."
+        "Water sprinkler motor not detected. Please check the connection.",
       );
     } finally {
       setIsSprinklerActive(false);
@@ -1545,7 +1545,7 @@ export default function ControlScreen({ navigation }) {
         await addDoc(
           collection(db, "activity_logs", "watering", "addWaterSchedule_logs"),
           {
-            action: "New watering schedule",
+            action: `New watering schedule: ${formattedTime}`,
             description: `Added ${formattedTime}`,
             firstName,
             lastName,
@@ -1555,7 +1555,7 @@ export default function ControlScreen({ navigation }) {
             timestamp: new Date().toISOString(),
             userId: user.uid,
             waterId: nextId,
-          }
+          },
         );
 
         // Add user notification
@@ -1585,7 +1585,7 @@ export default function ControlScreen({ navigation }) {
     setWaterings((s) => {
       const updated = [...s, newWater];
       return updated.sort(
-        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time),
       );
     });
 
@@ -1630,7 +1630,7 @@ export default function ControlScreen({ navigation }) {
 
     // Check for duplicate time (excluding current schedule being edited)
     const isDuplicate = waterings.some(
-      (w, i) => w.time === newTime && i !== waterEdit.idx
+      (w, i) => w.time === newTime && i !== waterEdit.idx,
     );
     if (isDuplicate) {
       setConfirmEditVisible(false);
@@ -1667,7 +1667,7 @@ export default function ControlScreen({ navigation }) {
         await addDoc(
           collection(db, "activity_logs", "watering", "editWaterSchedule_logs"),
           {
-            action: "Updated watering time",
+            action: `Changed watering time from ${oldTime} to ${newTime}`,
             description: `Changed from ${oldTime} to ${newTime}`,
             firstName,
             lastName,
@@ -1678,7 +1678,7 @@ export default function ControlScreen({ navigation }) {
             timestamp: new Date().toISOString(),
             userId: user.uid,
             wateringId,
-          }
+          },
         );
 
         // Add user notification
@@ -1703,7 +1703,7 @@ export default function ControlScreen({ navigation }) {
     setWaterings((s) =>
       s
         .map((w, i) => (i === waterEdit.idx ? { ...w, time: newTime } : w))
-        .sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time))
+        .sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)),
     );
 
     setConfirmEditVisible(false);
@@ -1727,7 +1727,7 @@ export default function ControlScreen({ navigation }) {
     if (!waterToDelete) {
       console.warn(
         "❌ Water schedule not found in list:",
-        pendingDeleteWaterId
+        pendingDeleteWaterId,
       );
       setConfirmDeleteWaterVisible(false);
       setPendingDeleteWaterId(null);
@@ -1755,7 +1755,7 @@ export default function ControlScreen({ navigation }) {
 
         console.log("🔥 Deleting from Firestore...");
         await deleteDoc(
-          doc(db, "wateringSchedules", `${pendingDeleteWaterId}`)
+          doc(db, "wateringSchedules", `${pendingDeleteWaterId}`),
         );
 
         console.log("📝 Adding delete log...");
@@ -1764,10 +1764,10 @@ export default function ControlScreen({ navigation }) {
             db,
             "activity_logs",
             "watering",
-            "deleteWaterSchedule_logs"
+            "deleteWaterSchedule_logs",
           ),
           {
-            action: "Removed a water schedule",
+            action: `Removed water schedule: ${waterToDelete.time}`,
             description: `${waterToDelete.time} has been removed`,
             firstName,
             lastName,
@@ -1775,7 +1775,7 @@ export default function ControlScreen({ navigation }) {
             timestamp: new Date().toISOString(),
             userId: user.uid,
             waterId: pendingDeleteWaterId,
-          }
+          },
         );
 
         // Add user notification
@@ -1845,7 +1845,7 @@ export default function ControlScreen({ navigation }) {
         // Convert scheduledTime to GMT+8 and format
         const scheduledTimeDate = new Date(pendingWaterSchedule.time);
         const gmt8Time = new Date(
-          scheduledTimeDate.getTime() + 8 * 60 * 60 * 1000
+          scheduledTimeDate.getTime() + 8 * 60 * 60 * 1000,
         );
         const hours = gmt8Time.getUTCHours();
         const minutes = gmt8Time.getUTCMinutes();
@@ -1860,7 +1860,7 @@ export default function ControlScreen({ navigation }) {
             liters: pendingWaterSchedule.liters,
             duration: pendingWaterSchedule.duration,
             action: "New watering schedule",
-          }
+          },
         );
 
         // Log activity to Firestore
@@ -1892,12 +1892,12 @@ export default function ControlScreen({ navigation }) {
         setConfirmedWaterDate(
           pendingWaterSchedule.date
             ? new Date(pendingWaterSchedule.date)
-            : new Date()
+            : new Date(),
         );
         setConfirmedWaterTime(
           pendingWaterSchedule.time
             ? new Date(pendingWaterSchedule.time)
-            : new Date()
+            : new Date(),
         );
       }
     } catch (err) {
@@ -1977,13 +1977,13 @@ export default function ControlScreen({ navigation }) {
 
       // Save to Firestore nightTime collection
       console.log(
-        "💾 [DATABASE] Saving night time to Firestore nightTime/1..."
+        "💾 [DATABASE] Saving night time to Firestore nightTime/1...",
       );
       const updateResult = await updateNightTimeSchedule(
         time.toISOString(),
         user.uid,
         firstName,
-        lastName
+        lastName,
       );
 
       if (!updateResult.success) {
@@ -2164,7 +2164,7 @@ export default function ControlScreen({ navigation }) {
                     onPress={() => {
                       console.log(
                         "📄 [ACTION] User clicked delete feed button for id:",
-                        f.id
+                        f.id,
                       );
                       setPendingDeleteFeedId(f.id);
                       setConfirmDeleteFeedVisible(true);
@@ -2275,7 +2275,7 @@ export default function ControlScreen({ navigation }) {
                       console.log(
                         "🗑️ [ACTION] Delete button clicked for water schedule:",
                         w.id,
-                        w.time
+                        w.time,
                       );
                       setPendingDeleteWaterId(w.id);
                       setConfirmDeleteWaterVisible(true);
@@ -2527,7 +2527,7 @@ export default function ControlScreen({ navigation }) {
                 minute: "2-digit",
               });
               const isDuplicate = waterings.some(
-                (w) => w.time === formattedTime
+                (w) => w.time === formattedTime,
               );
 
               if (isDuplicate) {
@@ -2697,7 +2697,7 @@ export default function ControlScreen({ navigation }) {
                     minute: "2-digit",
                   });
                   const isDuplicate = feeds.some(
-                    (f, i) => i !== feedEdit.idx && f.time === newTime
+                    (f, i) => i !== feedEdit.idx && f.time === newTime,
                   );
                   if (isDuplicate) {
                     setShowDuplicateModal(true);
@@ -2710,7 +2710,7 @@ export default function ControlScreen({ navigation }) {
                     minute: "2-digit",
                   });
                   const isDuplicate = waterings.some(
-                    (w, i) => i !== waterEdit.idx && w.time === newTime
+                    (w, i) => i !== waterEdit.idx && w.time === newTime,
                   );
                   if (isDuplicate) {
                     setShowDuplicateWaterModal(true);

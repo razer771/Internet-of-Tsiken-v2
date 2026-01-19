@@ -135,7 +135,7 @@ export default function Login() {
       setEmail("");
       setPassword("");
       setErrors({});
-    }, [])
+    }, []),
   );
 
   useEffect(() => {
@@ -245,8 +245,8 @@ export default function Login() {
           "error",
           "Account Locked",
           `Too many failed login attempts. Please try again in ${formatLockoutTime(
-            lockoutStatus.remainingTime
-          )}.`
+            lockoutStatus.remainingTime,
+          )}.`,
         );
         return;
       }
@@ -266,7 +266,7 @@ export default function Login() {
       const userCredential = await signInWithEmailAndPassword(
         auth,
         email.trim(),
-        password
+        password,
       );
       const user = userCredential.user;
       console.log("✅ Login successful! User ID:", user.uid);
@@ -276,7 +276,7 @@ export default function Login() {
       try {
         const logPromise = addDoc(collection(db, "session_logs"), {
           userId: user.uid,
-          action: "Login",
+          action: "Log in",
           description: "Logged in",
           timestamp: serverTimestamp(),
           deviceInfo: Platform.OS,
@@ -286,14 +286,14 @@ export default function Login() {
         await Promise.race([
           logPromise,
           new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Timeout")), 3000)
+            setTimeout(() => reject(new Error("Timeout")), 3000),
           ),
         ]);
         console.log("📝 Login event logged to session_logs");
       } catch (logError) {
         console.log(
           "⚠️ Failed to log login event (non-critical):",
-          logError.message
+          logError.message,
         );
       }
 
@@ -314,7 +314,7 @@ export default function Login() {
           const isVerified = userData.verified === true;
 
           console.log(
-            `📊 Account Status: ${accountStatus}, Role: ${userRole}, Verified: ${isVerified}`
+            `📊 Account Status: ${accountStatus}, Role: ${userRole}, Verified: ${isVerified}`,
           );
 
           // PRIORITY 1: Check if password change is required (highest priority)
@@ -334,25 +334,8 @@ export default function Login() {
             if (userRole === "admin") {
               console.log("✅ Verified + Active + Admin → AdminDashboard");
 
-              // Log successful admin login (with timeout)
-              const logPromise = addDoc(collection(db, "session_logs"), {
-                userId: user.uid,
-                action: "login",
-                description: "Logged in",
-                timestamp: serverTimestamp(),
-                deviceInfo: Platform.OS,
-                email: email.trim(),
-                loginType: "admin",
-              });
-
-              // Don't wait more than 2 seconds for logging
-              Promise.race([
-                logPromise,
-                new Promise((resolve) => setTimeout(resolve, 2000)),
-              ]).catch((e) => console.log("⚠️ Session log error:", e.message));
-
               await resetLoginAttempts().catch((e) =>
-                console.log("⚠️ Reset error:", e.message)
+                console.log("⚠️ Reset error:", e.message),
               );
 
               console.log("🔀 Navigating to AdminDashboard NOW");
@@ -373,25 +356,8 @@ export default function Login() {
             if (userRole === "user") {
               console.log("✅ Verified + Active + User → Home");
 
-              // Log successful user login (with timeout)
-              const logPromise = addDoc(collection(db, "session_logs"), {
-                userId: user.uid,
-                action: "login",
-                description: "Logged in",
-                timestamp: serverTimestamp(),
-                deviceInfo: Platform.OS,
-                email: email.trim(),
-                loginType: "user",
-              });
-
-              // Don't wait more than 2 seconds for logging
-              Promise.race([
-                logPromise,
-                new Promise((resolve) => setTimeout(resolve, 2000)),
-              ]).catch((e) => console.log("⚠️ Session log error:", e.message));
-
               await resetLoginAttempts().catch((e) =>
-                console.log("⚠️ Reset error:", e.message)
+                console.log("⚠️ Reset error:", e.message),
               );
 
               console.log("🔀 Navigating to Home NOW");
@@ -408,10 +374,10 @@ export default function Login() {
 
             // If role is not recognized but status is active and verified
             console.log(
-              `⚠️ Unknown role "${userRole}" but verified + active → defaulting to Home`
+              `⚠️ Unknown role "${userRole}" but verified + active → defaulting to Home`,
             );
             await resetLoginAttempts().catch((e) =>
-              console.log("⚠️ Reset error:", e.message)
+              console.log("⚠️ Reset error:", e.message),
             );
             console.log("🔀 Navigating to Home (fallback) NOW");
             setLoading(false);
@@ -476,7 +442,7 @@ export default function Login() {
             showAlert(
               "error",
               "Account Inactive",
-              "Your account has been deactivated. Please contact the administrator for assistance."
+              "Your account has been deactivated. Please contact the administrator for assistance.",
             );
             return;
           }
@@ -505,7 +471,7 @@ export default function Login() {
             showAlert(
               "error",
               "Account Inactive",
-              "Your account has been deactivated. Please contact the administrator for assistance."
+              "Your account has been deactivated. Please contact the administrator for assistance.",
             );
             return;
           }
@@ -513,7 +479,7 @@ export default function Login() {
           // Fallback (unknown status or missing fields)
           console.log("⚠️ Fallback triggered - Unknown/missing status or role");
           console.log(
-            `   accountStatus: "${accountStatus}" (empty: ${accountStatus === ""})`
+            `   accountStatus: "${accountStatus}" (empty: ${accountStatus === ""})`,
           );
           console.log(`   userRole: "${userRole}" (empty: ${userRole === ""})`);
           console.log(`   isVerified: ${isVerified}`);

@@ -713,7 +713,7 @@ export default function QuickOverviewSetup({ navigation }) {
       return true;
     } catch (error) {
       console.error("Error updating brooder info in Firestore:", error);
-      Alert.alert("Error", "Failed to update brooder information in database");
+      // Alert.alert("Error", "Failed to update brooder information in database");
       return false;
     }
   };
