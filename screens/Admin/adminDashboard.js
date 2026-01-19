@@ -266,6 +266,7 @@ export default function AdminDashboard() {
         "activity_logs/userManagement/disableAccess",
         "activity_logs/userManagement/forcePasswordChange",
         "activity_logs/userManagement/reactivateAccount",
+        "activity_logs/mortalityReporting/events",
         "session_logs",
       ];
 

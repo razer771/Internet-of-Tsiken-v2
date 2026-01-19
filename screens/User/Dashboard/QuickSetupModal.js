@@ -127,7 +127,9 @@ const saveBatch = async ({
     const batchData = {
       batchNumber: batchNumber,
       batchNo: batchNumber.toString(), // Store as string for backward compatibility
-      chicksCount: parseInt(chicksCount),
+      initialChicksCount: parseInt(chicksCount), // Original count - editable only before mortality reported
+      chicksCount: parseInt(chicksCount), // Current/live count - reduces when mortality reported
+      mortalityCount: 0, // Total chicks died - locks editing when > 0
       daysCount: parseInt(daysCount),
       age: parseInt(daysCount), // Store as 'age' for backward compatibility
       harvestDays: parseInt(harvestDays),

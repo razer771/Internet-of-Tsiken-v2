@@ -70,6 +70,7 @@ const LOG_COLLECTIONS = [
       { name: "report_logs", documentPath: "logs" },
       { name: "editProfile", documentPath: "passwordChange" },
       { name: "editProfile", documentPath: "userprofile" },
+      { name: "mortalityReporting", documentPath: "events" },
       {
         name: "feeding",
         documentPath: [

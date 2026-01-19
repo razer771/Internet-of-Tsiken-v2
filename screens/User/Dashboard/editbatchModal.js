@@ -24,9 +24,9 @@ import {
 
 /**
  * Update batch in Firestore
- * Updates chicksCount, daysCount, harvestDays and metadata
+ * Updates chicksCount, daysCount, harvestDays and initialChicksCount (if no mortality)
  */
-const updateBatchInFirestore = async (batchId, updates) => {
+const updateBatchInFirestore = async (batchId, updates, currentBatch) => {
   try {
     const batchDocRef = doc(firestoreDb, "brooderInfo", batchId);
 
@@ -38,6 +38,12 @@ const updateBatchInFirestore = async (batchId, updates) => {
       harvestDays: parseInt(updates.harvestDays),
       updatedAt: new Date(),
     };
+
+    // When updating chicksCount, also update initialChicksCount if no mortality reported
+    if (currentBatch && (currentBatch.mortalityCount || 0) === 0) {
+      // Sync initialChicksCount with the new chicksCount value
+      updateData.initialChicksCount = parseInt(updates.chicksCount);
+    }
 
     // Update the batch document
     await updateDoc(batchDocRef, updateData);
@@ -56,7 +62,7 @@ const updateBatchInFirestore = async (batchId, updates) => {
 
 /**
  * Log edit event to activity_logs collection
- * Records batch edit actions for audit trail
+ * Records batch edit actions for audit trail with change details
  * Stores in: activity_logs/editBatch_logs/events
  */
 const logEditEvent = async (
@@ -65,6 +71,7 @@ const logEditEvent = async (
   lastName,
   batchId,
   batchNumber,
+  changes = undefined,
 ) => {
   try {
     const eventData = {
@@ -76,6 +83,7 @@ const logEditEvent = async (
       deviceInfo: Platform.OS,
       firstName: firstName,
       lastName: lastName,
+      ...(changes && { changes: changes }), // Include changes array if provided
     };
 
     // Add document to activity_logs/editBatch_logs/events subcollection
@@ -352,21 +360,37 @@ export default function EditBatchModal({
         // Store userInfo for later use
         userInfo = userInfoData;
 
-        // Update batch in Firestore
-        return updateBatchInFirestore(batchId, updates);
+        // Update batch in Firestore (pass currentBatch so function can check mortalityCount)
+        return updateBatchInFirestore(batchId, updates, batchData);
       })
       .then((result) => {
         console.log("[HandleSave] Batch updated in Firestore:", result);
 
-        // Log the edit event with batch number
+        // Log the edit event with batch number and changes
         const batchNumber =
           batchData?.batchNumber || batchData?.batchNo || "Unknown";
+
+        // Track which fields were changed
+        const changes = [];
+        if (parseInt(chicksCount) !== batchData?.chicksCount) {
+          changes.push(`Chicks: ${batchData?.chicksCount} → ${chicksCount}`);
+        }
+        if (parseInt(daysCount) !== batchData?.daysCount) {
+          changes.push(`Days: ${batchData?.daysCount} → ${daysCount}`);
+        }
+        if (parseInt(harvestDays) !== batchData?.harvestDays) {
+          changes.push(
+            `Harvest Days: ${batchData?.harvestDays} → ${harvestDays}`,
+          );
+        }
+
         logEditEvent(
           currentUser.uid,
           userInfo.firstname,
           userInfo.lastname,
           batchId,
           batchNumber,
+          changes.length > 0 ? changes : undefined,
         );
 
         // Call the original callback for backward compatibility (AsyncStorage)

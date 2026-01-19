@@ -17,6 +17,8 @@ import ViewAllBatchesModal, {
   calculateAge,
 } from "./viewallbatchesModal";
 import EditBatchModal from "./editbatchModal";
+import ReportMortalityModal from "./ReportMortalityModal";
+import Toast from "../../navigation/Toast";
 import { auth, db } from "../../../config/firebaseconfig";
 import {
   doc,
@@ -39,7 +41,7 @@ try {
   AsyncStorage = mod && mod.default ? mod.default : mod;
 } catch (e) {
   console.warn(
-    "[AsyncStorage] @react-native-async-storage/async-storage not found — using in-memory fallback. Install the package to persist data between app restarts."
+    "[AsyncStorage] @react-native-async-storage/async-storage not found — using in-memory fallback. Install the package to persist data between app restarts.",
   );
   // Simple in-memory shim that mimics AsyncStorage API (not persistent across reloads)
   const _store = {};
@@ -76,7 +78,7 @@ const getLatestBatch = async () => {
     const q = query(
       collection(firestoreDb, "brooderInfo"),
       orderBy("batchNumber", "desc"),
-      limit(1)
+      limit(1),
     );
 
     const querySnapshot = await getDocs(q);
@@ -202,7 +204,7 @@ const updateBrooderCardFromBatch = (
   setDaysCount,
   setHarvestDays,
   setBrooderInfo,
-  setHasBatchData
+  setHasBatchData,
 ) => {
   try {
     if (!batch) {
@@ -269,6 +271,9 @@ export default function QuickOverviewSetup({ navigation }) {
   const [editingBatchIndex, setEditingBatchIndex] = useState(null);
   const [batches, setBatches] = useState([]);
   const [selectedBatchIndex, setSelectedBatchIndex] = useState(null);
+  const [showMortalityModal, setShowMortalityModal] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
   const [sensorData, setSensorData] = useState({
     waterLevel: 0,
     feedLevel: 0,
@@ -369,23 +374,23 @@ export default function QuickOverviewSetup({ navigation }) {
                 setDaysCount,
                 setHarvestDays,
                 setBrooderInfo,
-                setHasBatchData
+                setHasBatchData,
               );
 
               // Update batches array with fresh data
               const updatedBatches = batches.map((batch) =>
-                batch.id === selectedBatchId ? freshBatch : batch
+                batch.id === selectedBatchId ? freshBatch : batch,
               );
               setBatches(updatedBatches);
 
               console.log(
                 "[ScreenFocus] Refreshed selected batch:",
-                selectedBatchId
+                selectedBatchId,
               );
             } else {
               // Selected batch deleted, fallback to latest
               console.log(
-                "[ScreenFocus] Selected batch not found, falling back to latest"
+                "[ScreenFocus] Selected batch not found, falling back to latest",
               );
               const latestBatch = await getLatestBatch();
               if (latestBatch) {
@@ -396,10 +401,10 @@ export default function QuickOverviewSetup({ navigation }) {
                   setDaysCount,
                   setHarvestDays,
                   setBrooderInfo,
-                  setHasBatchData
+                  setHasBatchData,
                 );
                 const updatedBatches = batches.map((batch) =>
-                  batch.id === latestBatch.id ? latestBatch : batch
+                  batch.id === latestBatch.id ? latestBatch : batch,
                 );
                 setBatches(updatedBatches);
               }
@@ -416,10 +421,10 @@ export default function QuickOverviewSetup({ navigation }) {
                 setDaysCount,
                 setHarvestDays,
                 setBrooderInfo,
-                setHasBatchData
+                setHasBatchData,
               );
               const updatedBatches = batches.map((batch) =>
-                batch.id === latestBatch.id ? latestBatch : batch
+                batch.id === latestBatch.id ? latestBatch : batch,
               );
               setBatches(updatedBatches);
             }
@@ -430,7 +435,7 @@ export default function QuickOverviewSetup({ navigation }) {
       };
 
       refreshSelectedBatch();
-    }, [batches])
+    }, [batches]),
   );
 
   // ==================== SYNC SELECTED BATCH INDEX ====================
@@ -445,7 +450,7 @@ export default function QuickOverviewSetup({ navigation }) {
         (batch) =>
           String(batch.chicksCount) === chicksCount &&
           String(batch.daysCount) === daysCount &&
-          String(batch.harvestDays) === harvestDays
+          String(batch.harvestDays) === harvestDays,
       );
 
       if (currentBatchIndex !== -1) {
@@ -453,7 +458,7 @@ export default function QuickOverviewSetup({ navigation }) {
           "[SyncIndex] Found batch at index",
           currentBatchIndex,
           "id:",
-          batches[currentBatchIndex].id
+          batches[currentBatchIndex].id,
         );
         setSelectedBatchIndex(currentBatchIndex);
       }
@@ -517,7 +522,7 @@ export default function QuickOverviewSetup({ navigation }) {
         console.log(
           "[FetchLatest] Latest batch found:",
           latestBatch.id,
-          latestBatch
+          latestBatch,
         );
 
         // Extract fields
@@ -546,7 +551,7 @@ export default function QuickOverviewSetup({ navigation }) {
         } catch (storageError) {
           console.warn(
             "[FetchLatest] AsyncStorage cache failed:",
-            storageError
+            storageError,
           );
         }
 
@@ -606,7 +611,7 @@ export default function QuickOverviewSetup({ navigation }) {
       const q = query(
         collection(firestoreDb, "brooderInfo"),
         orderBy("startDate", "desc"),
-        limit(1)
+        limit(1),
       );
       const querySnapshot = await getDocs(q);
 
@@ -670,13 +675,13 @@ export default function QuickOverviewSetup({ navigation }) {
         } catch (storageError) {
           console.warn(
             "Could not sync Firestore data to AsyncStorage:",
-            storageError
+            storageError,
           );
         }
 
         console.log(
           "Brooder info fetched from Firestore and UI updated:",
-          data
+          data,
         );
 
         // Check and perform daily age auto-increment
@@ -738,7 +743,7 @@ export default function QuickOverviewSetup({ navigation }) {
       const lastUpdateDate = await AsyncStorage.getItem("lastUpdateDate");
 
       console.log(
-        `[DailyAge] Today: ${todayGMT8}, Last Update: ${lastUpdateDate}`
+        `[DailyAge] Today: ${todayGMT8}, Last Update: ${lastUpdateDate}`,
       );
 
       // If today's date is different from last update date, increment age
@@ -747,7 +752,7 @@ export default function QuickOverviewSetup({ navigation }) {
         const newDaysCountStr = String(newDaysCount);
 
         console.log(
-          `[DailyAge] Incrementing age from ${currentDaysCount} to ${newDaysCount}`
+          `[DailyAge] Incrementing age from ${currentDaysCount} to ${newDaysCount}`,
         );
 
         // Update React state
@@ -765,7 +770,7 @@ export default function QuickOverviewSetup({ navigation }) {
         await AsyncStorage.setItem("lastUpdateDate", todayGMT8);
 
         console.log(
-          `[DailyAge] Age incremented and saved. Last update date set to ${todayGMT8}`
+          `[DailyAge] Age incremented and saved. Last update date set to ${todayGMT8}`,
         );
       } else {
         console.log("[DailyAge] Age already incremented today, skipping");
@@ -861,13 +866,13 @@ export default function QuickOverviewSetup({ navigation }) {
       if (data.solarCharge !== undefined) {
         await AsyncStorage.setItem(
           "sensorSolarCharge",
-          String(data.solarCharge)
+          String(data.solarCharge),
         );
       }
       if (data.lightStatus !== undefined) {
         await AsyncStorage.setItem(
           "sensorLightStatus",
-          String(data.lightStatus)
+          String(data.lightStatus),
         );
       }
 
@@ -1081,12 +1086,12 @@ export default function QuickOverviewSetup({ navigation }) {
         setDaysCount,
         setHarvestDays,
         setBrooderInfo,
-        setHasBatchData
+        setHasBatchData,
       );
 
       // Update batches array with fresh data
       const updatedBatches = batches.map((batch, idx) =>
-        idx === index ? freshBatch : batch
+        idx === index ? freshBatch : batch,
       );
       setBatches(updatedBatches);
 
@@ -1094,7 +1099,7 @@ export default function QuickOverviewSetup({ navigation }) {
         "[SelectBatch] Selected batch",
         freshBatch.id,
         "at index",
-        index
+        index,
       );
 
       setShowBatchesModal(false);
@@ -1141,19 +1146,19 @@ export default function QuickOverviewSetup({ navigation }) {
                 await AsyncStorage.setItem("selectedBatchIndex", "0");
                 await AsyncStorage.setItem(
                   "chicksCount",
-                  String(nextBatch.chicksCount || "0")
+                  String(nextBatch.chicksCount || "0"),
                 );
                 await AsyncStorage.setItem(
                   "daysCount",
-                  String(nextBatch.daysCount || "0")
+                  String(nextBatch.daysCount || "0"),
                 );
                 await AsyncStorage.setItem(
                   "harvestDays",
-                  String(nextBatch.harvestDays || "0")
+                  String(nextBatch.harvestDays || "0"),
                 );
                 await AsyncStorage.setItem(
                   "batchStartDate",
-                  nextBatch.startDate || ""
+                  nextBatch.startDate || "",
                 );
               } else {
                 // No batches left, reset to zero
@@ -1177,7 +1182,7 @@ export default function QuickOverviewSetup({ navigation }) {
           },
           style: "destructive",
         },
-      ]
+      ],
     );
   };
 
@@ -1246,7 +1251,7 @@ export default function QuickOverviewSetup({ navigation }) {
           chicksCount: String(value),
           daysCount: String(daysCount && daysCount !== "" ? daysCount : "0"),
           harvestDays: String(
-            harvestDays && harvestDays !== "" ? harvestDays : "0"
+            harvestDays && harvestDays !== "" ? harvestDays : "0",
           ),
           startDate: new Date().toISOString(),
         };
@@ -1320,11 +1325,11 @@ export default function QuickOverviewSetup({ navigation }) {
       } else {
         const newBatch = {
           chicksCount: String(
-            chicksCount && chicksCount !== "" ? chicksCount : "0"
+            chicksCount && chicksCount !== "" ? chicksCount : "0",
           ),
           daysCount: String(value),
           harvestDays: String(
-            harvestDays && harvestDays !== "" ? harvestDays : "0"
+            harvestDays && harvestDays !== "" ? harvestDays : "0",
           ),
           startDate: new Date().toISOString(),
         };
@@ -1366,7 +1371,7 @@ export default function QuickOverviewSetup({ navigation }) {
       } else {
         const newBatch = {
           chicksCount: String(
-            chicksCount && chicksCount !== "" ? chicksCount : "0"
+            chicksCount && chicksCount !== "" ? chicksCount : "0",
           ),
           daysCount: String(daysCount && daysCount !== "" ? daysCount : "0"),
           harvestDays: String(value),
@@ -1388,6 +1393,29 @@ export default function QuickOverviewSetup({ navigation }) {
     }
   };
 
+  const handleOpenMortalityModal = () => {
+    if (batches.length === 0) {
+      Alert.alert(
+        "No Batches Available",
+        "Please add a batch first before reporting mortality.",
+      );
+      return;
+    }
+    setShowMortalityModal(true);
+  };
+
+  const handleCloseMortalityModal = async () => {
+    setShowMortalityModal(false);
+    // Refresh batches and latest batch after reporting mortality
+    await fetchAllBatchesFromFirestore();
+    await fetchLatestBatch();
+  };
+
+  const handleMortalitySuccess = (batchNumber) => {
+    setToastMessage(`Mortality reported for Batch ${batchNumber}`);
+    setShowToast(true);
+  };
+
   // Swipe gesture handler - swipe left to go to Control screen
   const panResponder = React.useRef(
     PanResponder.create({
@@ -1405,7 +1433,7 @@ export default function QuickOverviewSetup({ navigation }) {
           navigation.navigate("Control");
         }
       },
-    })
+    }),
   ).current;
 
   return (
@@ -1500,11 +1528,26 @@ export default function QuickOverviewSetup({ navigation }) {
               <TouchableOpacity
                 style={[
                   styles.editBtn,
-                  (selectedBatchIndex === null || batches.length === 0) &&
+                  (selectedBatchIndex === null ||
+                    batches.length === 0 ||
+                    (selectedBatchIndex !== null &&
+                      batches[selectedBatchIndex]?.mortalityCount > 0)) &&
                     styles.editBtnDisabled,
                 ]}
                 activeOpacity={0.9}
                 onPress={() => {
+                  // Check if mortality exists
+                  if (
+                    selectedBatchIndex !== null &&
+                    batches[selectedBatchIndex]?.mortalityCount > 0
+                  ) {
+                    Alert.alert(
+                      "Cannot Edit",
+                      "This batch has mortality records. Editing is disabled to preserve data accuracy.",
+                    );
+                    return;
+                  }
+
                   if (
                     selectedBatchIndex !== null &&
                     selectedBatchIndex < batches.length
@@ -1513,21 +1556,40 @@ export default function QuickOverviewSetup({ navigation }) {
                   } else {
                     Alert.alert(
                       "No Batch Selected",
-                      "Please select a batch to edit"
+                      "Please select a batch to edit",
                     );
                   }
                 }}
-                disabled={selectedBatchIndex === null || batches.length === 0}
+                disabled={
+                  selectedBatchIndex === null ||
+                  batches.length === 0 ||
+                  (selectedBatchIndex !== null &&
+                    batches[selectedBatchIndex]?.mortalityCount > 0)
+                }
               >
                 <Text
                   style={[
                     styles.editBtnText,
-                    (selectedBatchIndex === null || batches.length === 0) &&
+                    (selectedBatchIndex === null ||
+                      batches.length === 0 ||
+                      (selectedBatchIndex !== null &&
+                        batches[selectedBatchIndex]?.mortalityCount > 0)) &&
                       styles.editBtnTextDisabled,
                   ]}
                 >
                   Edit
                 </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Report Mortality Button - Centered Below */}
+            <View style={styles.mortalityButtonContainer}>
+              <TouchableOpacity
+                style={styles.mortalityBtn}
+                activeOpacity={0.9}
+                onPress={handleOpenMortalityModal}
+              >
+                <Text style={styles.mortalityBtnText}>Report Mortality</Text>
               </TouchableOpacity>
             </View>
 
@@ -1608,7 +1670,7 @@ export default function QuickOverviewSetup({ navigation }) {
                 // Called when EditBatchModal successfully updates batch in Firestore
                 console.log(
                   "[EditBatchCallback] Received fresh batch:",
-                  freshBatch.id
+                  freshBatch.id,
                 );
 
                 // Update display with fresh batch data
@@ -1618,12 +1680,12 @@ export default function QuickOverviewSetup({ navigation }) {
                   setDaysCount,
                   setHarvestDays,
                   setBrooderInfo,
-                  setHasBatchData
+                  setHasBatchData,
                 );
 
                 // Update batches array with fresh data
                 const updatedBatches = batches.map((batch) =>
-                  batch.id === freshBatch.id ? freshBatch : batch
+                  batch.id === freshBatch.id ? freshBatch : batch,
                 );
                 setBatches(updatedBatches);
 
@@ -1635,6 +1697,21 @@ export default function QuickOverviewSetup({ navigation }) {
                 setShowEditBatchModal(false);
                 setEditingBatchIndex(null);
               }}
+            />
+
+            {/* Report Mortality Modal */}
+            <ReportMortalityModal
+              visible={showMortalityModal}
+              batches={batches}
+              onClose={handleCloseMortalityModal}
+              onSuccess={handleMortalitySuccess}
+            />
+
+            {/* Toast Notification */}
+            <Toast
+              visible={showToast}
+              message={toastMessage}
+              onHide={() => setShowToast(false)}
             />
 
             {/* Confirmation Modal */}
@@ -2102,5 +2179,28 @@ const styles = StyleSheet.create({
   },
   editBtnTextDisabled: {
     color: "#666666", // Grey text
+  },
+  mortalityButtonContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginHorizontal: 8,
+    marginBottom: 24,
+  },
+  mortalityBtn: {
+    backgroundColor: "#E53935",
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    alignItems: "center",
+    shadowColor: "#E53935",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  mortalityBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 16,
   },
 });
