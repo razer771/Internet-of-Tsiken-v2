@@ -70,8 +70,6 @@ const LOG_COLLECTIONS = [
       { name: "report_logs", documentPath: "logs" },
       { name: "editProfile", documentPath: "passwordChange" },
       { name: "editProfile", documentPath: "userprofile" },
-      { name: "report_logs", documentPath: "logs" },
-      { name: "report_logs", documentPath: "logs" },
       {
         name: "feeding",
         documentPath: [
