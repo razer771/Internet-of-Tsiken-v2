@@ -12,6 +12,7 @@ import {
   Button,
   Alert,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 
 // Vector icons (using Expo's vector-icons wrapper which includes react-native-vector-icons)
@@ -19,7 +20,18 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Calendar } from "react-native-calendars";
 import Header2 from "../navigation/adminHeader";
 import { db as firestoreDb } from "../../config/firebaseconfig";
-import { collection, getDocs } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  collectionGroup,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
+import * as FileSystem from "expo-file-system/legacy";
+import { Asset } from "expo-asset";
+import { getAuth } from "firebase/auth";
 
 const { width: windowWidth } = Dimensions.get("window");
 
@@ -169,6 +181,9 @@ export default function AdminAnalytics({ navigation }) {
   const [activePieSlicePredator, setActivePieSlicePredator] = useState(null);
   const [predatorTimeRange, setPredatorTimeRange] = useState("daily"); // Add state for time range
   const [mortalityData, setMortalityData] = useState([]); // State for mortality records from Firestore
+  const [totalChicksCount, setTotalChicksCount] = useState(0); // Total active chicks
+  const [totalDeaths, setTotalDeaths] = useState(0); // Total mortality count
+  const [mortalityRate, setMortalityRate] = useState(0); // Mortality rate percentage
 
   // New state variables for Filter Modal
   const [filterModalVisible, setFilterModalVisible] = useState(false);
@@ -180,6 +195,30 @@ export default function AdminAnalytics({ navigation }) {
 
   // Filters for each chart
   const [chartFilters, setChartFilters] = useState({});
+
+  // Export mortality modal state
+  const [exportMortalityModalVisible, setExportMortalityModalVisible] =
+    useState(false);
+  const [exportStartDate, setExportStartDate] = useState(null);
+  const [exportEndDate, setExportEndDate] = useState(null);
+  const [exportSelectedDate, setExportSelectedDate] = useState("");
+  const [exportMortalityData, setExportMortalityData] = useState([]);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+
+  // Export cause of death modal state
+  const [exportCauseModalVisible, setExportCauseModalVisible] = useState(false);
+  const [causeExportStartDate, setCauseExportStartDate] = useState(null);
+  const [causeExportEndDate, setCauseExportEndDate] = useState(null);
+  const [causeExportSelectedDate, setCauseExportSelectedDate] = useState("");
+  const [isGeneratingCauseReport, setIsGeneratingCauseReport] = useState(false);
+
+  // Cause of Death state
+  const [causeOfDeathData, setCauseOfDeathData] = useState([
+    { name: "Predatory Attack", population: 0, color: "#154785" },
+    { name: "Overfeeding", population: 0, color: "#FFC107" },
+    { name: "Dehydration", population: 0, color: "#F44336" },
+    { name: "Other", population: 0, color: "#4CAF50" },
+  ]);
 
   const formatFilterDisplay = (filterData) => {
     if (!filterData) return "";
@@ -284,7 +323,7 @@ export default function AdminAnalytics({ navigation }) {
     return labels;
   };
 
-  // Format date as "DD-MMM" (e.g., "20-Jan")
+  // Format date as "MMM DD" (e.g., "Jan 20")
   const formatDateAsDayMonth = (date) => {
     if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
       return "Unknown";
@@ -305,7 +344,7 @@ export default function AdminAnalytics({ navigation }) {
     ];
     const day = String(date.getDate()).padStart(2, "0");
     const month = months[date.getMonth()];
-    return `${day}-${month}`;
+    return `${month} ${day}`;
   };
 
   // Parse date strings in format "January 19, 2026 at 3:33:04 AM UTC+8" or "January 20, 2026, 8:00:00 AM UTC+8"
@@ -391,6 +430,106 @@ export default function AdminAnalytics({ navigation }) {
   const generateBatchLabels = (filterData, defaultData) => {
     // For batch charts, we'll keep the batch IDs but could filter by date in the future
     return defaultData;
+  };
+
+  /**
+   * Fetch brooder info and calculate mortality statistics
+   * Gets all documents from /brooderInfo and sums up chicksCount (alive)
+   * Gets all documents from /mortality/{BatchId}/records and sums count (deaths)
+   * Calculation:
+   * - Total Alive = Sum of chicksCount from brooderInfo
+   * - Total Deaths = Sum of count from mortality records
+   * - Total Chicks (Initial) = Total Alive + Total Deaths
+   * - Mortality Rate = (Total Deaths / Total Chicks Initial) × 100
+   */
+  const fetchBrooderStats = async () => {
+    try {
+      console.log("[FetchBrooderStats] Fetching brooder info...");
+
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const brooderSnapshot = await getDocs(brooderInfoRef);
+
+      let totalAliveChicks = 0; // Sum of chicksCount (alive now)
+      let totalDeathCount = 0; // Sum of count from mortality records
+
+      // Step 1: Sum all alive chicks from brooderInfo
+      brooderSnapshot.docs.forEach((doc) => {
+        const batchData = doc.data();
+        const batchId = doc.id;
+        const chicksCount = batchData.chicksCount || 0;
+
+        totalAliveChicks += chicksCount;
+        console.log(
+          `[FetchBrooderStats] Batch ${batchId}: ${chicksCount} chicks alive`,
+        );
+      });
+
+      console.log(
+        `[FetchBrooderStats] Total alive chicks: ${totalAliveChicks}`,
+      );
+
+      // Step 2: Sum all deaths from mortality records for all batches
+      const batchPromises = brooderSnapshot.docs.map(async (doc) => {
+        const batchId = doc.id;
+
+        // Fetch mortality records for this batch
+        try {
+          const mortalityRecordsRef = collection(
+            firestoreDb,
+            "mortality",
+            batchId,
+            "records",
+          );
+          const recordsSnapshot = await getDocs(mortalityRecordsRef);
+
+          recordsSnapshot.docs.forEach((recordDoc) => {
+            const recordData = recordDoc.data();
+            const count = recordData.count || 0;
+            totalDeathCount += count;
+          });
+
+          console.log(
+            `[FetchBrooderStats] Batch ${batchId}: Deaths accumulated = ${totalDeathCount}`,
+          );
+        } catch (error) {
+          console.error(
+            `[FetchBrooderStats] Error fetching mortality for ${batchId}:`,
+            error,
+          );
+        }
+      });
+
+      await Promise.all(batchPromises);
+
+      console.log(`[FetchBrooderStats] Total deaths: ${totalDeathCount}`);
+
+      // Step 3: Calculate total initial chicks (alive + dead)
+      const totalInitialChicks = totalAliveChicks + totalDeathCount;
+
+      // Step 4: Calculate mortality rate (2 decimal places)
+      const rate =
+        totalInitialChicks > 0
+          ? ((totalDeathCount / totalInitialChicks) * 100).toFixed(2)
+          : 0;
+
+      console.log(
+        `[FetchBrooderStats] Total Alive Chicks: ${totalAliveChicks}`,
+      );
+      console.log(`[FetchBrooderStats] Total Deaths: ${totalDeathCount}`);
+      console.log(
+        `[FetchBrooderStats] Total Initial Chicks: ${totalInitialChicks}`,
+      );
+      console.log(`[FetchBrooderStats] Mortality Rate: ${rate}%`);
+
+      setTotalChicksCount(totalAliveChicks);
+      setTotalDeaths(totalDeathCount);
+      setMortalityRate(parseFloat(rate));
+    } catch (error) {
+      console.error("[FetchBrooderStats] Error:", error);
+      setTotalChicksCount(0);
+      setTotalDeaths(0);
+      setMortalityRate(0);
+    }
   };
 
   /**
@@ -642,6 +781,1498 @@ export default function AdminAnalytics({ navigation }) {
     }
   };
 
+  /**
+   * Fetch all mortality records for export within a date range
+   */
+  const fetchMortalityRecordsForExport = async (startDateStr, endDateStr) => {
+    try {
+      console.log(
+        "[FetchMortalityExport] Fetching mortality records for export...",
+      );
+
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const brooderSnapshot = await getDocs(brooderInfoRef);
+
+      const startDate = new Date(startDateStr);
+      const endDate = new Date(endDateStr);
+      endDate.setHours(23, 59, 59, 999);
+
+      let allRecords = [];
+
+      // Fetch mortality records from each batch
+      const batchPromises = brooderSnapshot.docs.map(async (doc) => {
+        const batchId = doc.id;
+
+        try {
+          const mortalityRecordsRef = collection(
+            firestoreDb,
+            "mortality",
+            batchId,
+            "records",
+          );
+          const recordsSnapshot = await getDocs(mortalityRecordsRef);
+
+          recordsSnapshot.docs.forEach((recordDoc) => {
+            const recordData = recordDoc.data();
+            let recordDate;
+
+            // Parse dateOfDeath
+            if (recordData.dateOfDeath) {
+              if (recordData.dateOfDeath.toDate) {
+                recordDate = recordData.dateOfDeath.toDate();
+              } else if (recordData.dateOfDeath.seconds) {
+                recordDate = new Date(recordData.dateOfDeath.seconds * 1000);
+              }
+            }
+
+            // Filter by date range
+            if (
+              recordDate &&
+              recordDate >= startDate &&
+              recordDate <= endDate
+            ) {
+              allRecords.push({
+                id: recordDoc.id,
+                ...recordData,
+              });
+            }
+          });
+        } catch (error) {
+          console.warn(`Error fetching mortality for batch ${batchId}:`, error);
+        }
+      });
+
+      await Promise.all(batchPromises);
+
+      // Sort by dateOfDeath (descending)
+      allRecords.sort((a, b) => {
+        const dateA =
+          a.dateOfDeath?.toDate?.() ||
+          new Date(a.dateOfDeath?.seconds * 1000) ||
+          new Date(0);
+        const dateB =
+          b.dateOfDeath?.toDate?.() ||
+          new Date(b.dateOfDeath?.seconds * 1000) ||
+          new Date(0);
+        return dateB - dateA;
+      });
+
+      console.log(`[FetchMortalityExport] Found ${allRecords.length} records`);
+      return allRecords;
+    } catch (error) {
+      console.error("[FetchMortalityExport] Error:", error);
+      return [];
+    }
+  };
+
+  /**
+   * Fetch and calculate cause of death statistics filtered by date range
+   *
+   * Counts occurrences of each cause and calculates percentages
+   * Uses chartFilters["cause"] for date range (startDate, endDate)
+   * If no filter set, defaults to last 7 days
+   */
+  const fetchCauseOfDeathStats = async (filterData = null) => {
+    try {
+      console.log(
+        "[FetchCauseOfDeath] Starting fetch with filter:",
+        filterData,
+      );
+
+      // Determine date range
+      let startDate, endDate;
+
+      if (filterData && filterData.startDate && filterData.endDate) {
+        // Parse filter date strings (format: YYYY-MM-DD)
+        const [startYear, startMonth, startDay] = filterData.startDate
+          .split("-")
+          .map(Number);
+        const [endYear, endMonth, endDay] = filterData.endDate
+          .split("-")
+          .map(Number);
+
+        startDate = new Date(startYear, startMonth - 1, startDay);
+        endDate = new Date(endYear, endMonth - 1, endDay);
+        endDate.setHours(23, 59, 59, 999); // Include entire end day
+      } else {
+        // Default: last 7 days
+        endDate = new Date();
+        endDate.setHours(23, 59, 59, 999);
+        startDate = new Date(endDate);
+        startDate.setDate(startDate.getDate() - 6); // -6 to include today as day 7
+        startDate.setHours(0, 0, 0, 0);
+      }
+
+      console.log(
+        "[FetchCauseOfDeath] Date range:",
+        startDate.toISOString(),
+        "to",
+        endDate.toISOString(),
+      );
+
+      // Use collectionGroup to query all records across all batches
+      const recordsRef = collectionGroup(firestoreDb, "records");
+      const recordsSnapshot = await getDocs(recordsRef);
+      console.log(
+        "[FetchCauseOfDeath] Found total records:",
+        recordsSnapshot.docs.length,
+      );
+
+      let predatoryAttackCount = 0;
+      let overfeedingCount = 0;
+      let dehydrationCount = 0;
+      let otherCount = 0;
+      let totalRecordsProcessed = 0;
+
+      // Process all records from all batches
+      for (const recordDoc of recordsSnapshot.docs) {
+        const data = recordDoc.data();
+        console.log("[FetchCauseOfDeath] Record data:", data);
+
+        const causeOfDeath = data.causeOfDeath || "Other";
+        const count = data.count || 1; // Default to 1 if count not specified
+        totalRecordsProcessed++;
+
+        // Parse timestamp (date reported) to Date object
+        let reportedDate = null;
+        if (data.timestamp) {
+          try {
+            if (data.timestamp.toDate) {
+              // Firestore Timestamp object
+              reportedDate = data.timestamp.toDate();
+            } else if (data.timestamp.seconds) {
+              // Firestore Timestamp with seconds property
+              reportedDate = new Date(data.timestamp.seconds * 1000);
+            } else if (typeof data.timestamp === "string") {
+              // ISO string or date string
+              const [year, month, day] = data.timestamp.split("-").map(Number);
+              reportedDate = new Date(year, month - 1, day);
+            } else if (data.timestamp instanceof Date) {
+              reportedDate = data.timestamp;
+            }
+          } catch (dateParseErr) {
+            console.warn(
+              "[FetchCauseOfDeath] Failed to parse timestamp:",
+              data.timestamp,
+              dateParseErr,
+            );
+          }
+        }
+
+        // Skip if timestamp is invalid
+        if (!reportedDate) {
+          console.warn(
+            "[FetchCauseOfDeath] Skipping record - invalid timestamp:",
+            data.timestamp,
+          );
+          continue;
+        }
+
+        // Convert UTC timestamp to GMT+8 (Philippine time)
+        const reportedDateGMT8 = new Date(
+          reportedDate.getTime() + 8 * 60 * 60 * 1000,
+        );
+
+        // Reset time to midnight for comparison (in GMT+8)
+        const recordDate = new Date(
+          reportedDateGMT8.getFullYear(),
+          reportedDateGMT8.getMonth(),
+          reportedDateGMT8.getDate(),
+        );
+
+        console.log("[FetchCauseOfDeath] Comparing dates (GMT+8):", {
+          recordDate: recordDate.toISOString(),
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          isInRange: recordDate >= startDate && recordDate <= endDate,
+          causeOfDeath,
+          count,
+        });
+
+        if (recordDate < startDate || recordDate > endDate) {
+          console.log(
+            "[FetchCauseOfDeath] Record outside date range:",
+            recordDate.toISOString(),
+          );
+          continue;
+        }
+
+        // Categorize the cause and add count
+        if (causeOfDeath.toLowerCase().includes("predator")) {
+          predatoryAttackCount += count;
+        } else if (causeOfDeath.toLowerCase().includes("overfeeding")) {
+          overfeedingCount += count;
+        } else if (causeOfDeath.toLowerCase().includes("dehydration")) {
+          dehydrationCount += count;
+        } else {
+          otherCount += count;
+        }
+      }
+
+      // Calculate total
+      const total =
+        predatoryAttackCount + overfeedingCount + dehydrationCount + otherCount;
+
+      console.log("[FetchCauseOfDeath] Processing complete:", {
+        totalRecordsProcessed,
+        predatoryAttackCount,
+        overfeedingCount,
+        dehydrationCount,
+        otherCount,
+        total,
+      });
+
+      // Calculate percentages with 1 decimal places
+      const updatedData = [
+        {
+          name: "Predator Attack",
+          population:
+            total > 0
+              ? parseFloat(((predatoryAttackCount / total) * 100).toFixed(1))
+              : 0,
+          color: "#154785",
+          count: predatoryAttackCount,
+        },
+        {
+          name: "Overfeeding",
+          population:
+            total > 0
+              ? parseFloat(((overfeedingCount / total) * 100).toFixed(1))
+              : 0,
+          color: "#FFC107",
+          count: overfeedingCount,
+        },
+        {
+          name: "Dehydration",
+          population:
+            total > 0
+              ? parseFloat(((dehydrationCount / total) * 100).toFixed(1))
+              : 0,
+          color: "#F44336",
+          count: dehydrationCount,
+        },
+        {
+          name: "Other",
+          population:
+            total > 0 ? parseFloat(((otherCount / total) * 100).toFixed(1)) : 0,
+          color: "#4CAF50",
+          count: otherCount,
+        },
+      ];
+
+      setCauseOfDeathData(updatedData);
+      console.log(
+        "[FetchCauseOfDeath] Updated cause of death data:",
+        updatedData,
+      );
+    } catch (error) {
+      console.error("[FetchCauseOfDeath] Error:", error);
+      // Set default data on error
+      setCauseOfDeathData([
+        { name: "Predatory Attack", population: 0, color: "#154785", count: 0 },
+        { name: "Overfeeding", population: 0, color: "#FFC107", count: 0 },
+        { name: "Dehydration", population: 0, color: "#F44336", count: 0 },
+        { name: "Other", population: 0, color: "#4CAF50", count: 0 },
+      ]);
+    }
+  };
+
+  /**
+   * Format date for display in GMT+8
+   */
+  const formatDateForDisplay = (timestamp) => {
+    if (!timestamp) return "N/A";
+
+    let date;
+    if (timestamp.toDate) {
+      date = timestamp.toDate();
+    } else if (timestamp.seconds) {
+      date = new Date(timestamp.seconds * 1000);
+    } else if (timestamp instanceof Date) {
+      date = timestamp;
+    } else {
+      return "N/A";
+    }
+
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    const day = date.getDate();
+    const month = months[date.getMonth()];
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+
+    return `${month} ${day}, ${year} ${hours}:${minutes}`;
+  };
+
+  /**
+   * Format date without time for report tables
+   */
+  const formatDateOnly = (timestamp) => {
+    if (!timestamp) return "N/A";
+
+    let date;
+    if (timestamp.toDate) {
+      date = timestamp.toDate();
+    } else if (timestamp.seconds) {
+      date = new Date(timestamp.seconds * 1000);
+    } else if (timestamp instanceof Date) {
+      date = timestamp;
+    } else {
+      return "N/A";
+    }
+
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    const day = date.getDate();
+    const month = months[date.getMonth()];
+    const year = date.getFullYear();
+
+    return `${month} ${day}, ${year}`;
+  };
+
+  /**
+   * Log report generation to audit trail
+   */
+  const logReportGeneration = async (
+    filename,
+    reportName,
+    action = null,
+    description = null,
+  ) => {
+    try {
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+
+      if (!currentUser) {
+        console.log("No authenticated user found for audit logging");
+        return;
+      }
+
+      // Get user data from Firestore for additional info like userName
+      let userName = currentUser.displayName || "Unknown User";
+      let userEmail = currentUser.email || "unknown@example.com";
+
+      try {
+        const userDoc = await getDocs(collection(firestoreDb, "users"));
+        userDoc.forEach((doc) => {
+          if (doc.id === currentUser.uid) {
+            userName = doc.data().name || doc.data().displayName || userName;
+          }
+        });
+      } catch (e) {
+        console.log("Could not fetch additional user data:", e);
+      }
+
+      // Use current UTC timestamp (Firestore will store it as is)
+      const now = new Date();
+
+      const auditLog = {
+        action: action || "Generated mortality report",
+        description: description || "Generated mortality trend report",
+        fileName: filename,
+        reportName: reportName,
+        role: "admin",
+        timestamp: now,
+        type: "pdf",
+        userId: currentUser.uid,
+        userName: userName,
+        userEmail: userEmail,
+      };
+
+      // Add to Firestore
+      const logsCollectionRef = collection(
+        firestoreDb,
+        "activity_logs",
+        "report_logs",
+        "logs",
+      );
+      await addDoc(logsCollectionRef, auditLog);
+
+      console.log("Audit log created successfully:", auditLog);
+    } catch (error) {
+      console.error("Error logging report generation:", error);
+      // Don't throw error - audit logging failure shouldn't block report generation
+    }
+  };
+
+  /**
+   * Generate and export mortality report as PDF
+   */
+  const generateMortalityReportPDF = async () => {
+    if (!exportStartDate || !exportEndDate) {
+      Alert.alert("Error", "Please select both start and end dates");
+      return;
+    }
+
+    setIsGeneratingReport(true);
+    try {
+      const records = await fetchMortalityRecordsForExport(
+        exportStartDate,
+        exportEndDate,
+      );
+
+      if (records.length === 0) {
+        Alert.alert(
+          "No Data",
+          "No mortality records found for the selected date range",
+        );
+        setIsGeneratingReport(false);
+        return;
+      }
+
+      // Load logo
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        },
+      );
+
+      // Create table rows
+      let tableRows = "";
+      records.forEach((record, index) => {
+        const dateOfDeath = formatDateOnly(record.dateOfDeath);
+        const dateReported = formatDateOnly(record.timestamp);
+        const causeOfDeath = record.causeOfDeath || "N/A";
+        const predatorType = record.predatorType || "N/A";
+        const customPredator = record.customPredator || "N/A";
+        const daysCount = record.daysCount || "N/A";
+        const notes = record.notes || "N/A";
+        const reportedBy = record.reportedBy || "N/A";
+        const count = record.count || 0;
+        const batchId = record.batchId || "N/A";
+
+        tableRows += `
+          <tr>
+            <td>${index + 1}</td>
+            <td>${dateOfDeath}</td>
+            <td>${dateReported}</td>
+            <td>${batchId}</td>
+            <td>${count}</td>
+            <td>${causeOfDeath}</td>
+            <td>${predatorType}</td>
+            <td>${customPredator}</td>
+            <td>${daysCount}</td>
+            <td>${notes}</td>
+            <td>${reportedBy}</td>
+          </tr>
+        `;
+      });
+
+      // Generate HTML
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            @page {
+              size: A4 landscape;
+              margin: 0.3in 0.5in 0.3in 0.5in;
+            }
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 0;
+            }
+            .header {
+              margin-bottom: 20px;
+              border-bottom: 2px solid #133E87;
+              padding-bottom: 15px;
+            }
+            .header-top {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-bottom: 10px;
+            }
+            .logo {
+              width: 50px;
+              height: 50px;
+              border-radius: 25px;
+              margin-right: 15px;
+            }
+            .company-name {
+              font-size: 24px;
+              font-weight: bold;
+              color: #133E87;
+            }
+            .report-title {
+              font-size: 16px;
+              color: #333;
+              text-align: center;
+              margin-bottom: 15px;
+              font-weight: bold;
+            }
+            .filter-info {
+              font-size: 12px;
+              color: #666;
+              margin-bottom: 10px;
+              text-align: center;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 20px;
+              font-size: 10px;
+            }
+            th {
+              background-color: #133E87;
+              color: white;
+              padding: 8px;
+              text-align: left;
+              border: 1px solid #ddd;
+              font-weight: bold;
+            }
+            td {
+              padding: 6px;
+              border: 1px solid #ddd;
+              color: #333;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            .page-number {
+              text-align: center;
+              font-size: 10px;
+              color: #666;
+              margin-top: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="header-top">
+              <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
+              <div class="company-name">Internet of Tsiken</div>
+            </div>
+            <div class="report-title">Mortality Report</div>
+            <div class="filter-info">
+              Date Range: ${new Date(exportStartDate).toLocaleDateString()} to ${new Date(exportEndDate).toLocaleDateString()}<br>
+              Report Generated: ${new Date().toLocaleString()}<br>
+              Total Records: ${records.length}
+            </div>
+          </div>
+          
+          <table>
+            <thead>
+              <tr>
+                <th>No</th>
+                <th>Date of Death</th>
+                <th>Date Reported</th>
+                <th>Batch</th>
+                <th>Deaths</th>
+                <th>Cause</th>
+                <th>Predator</th>
+                <th>Custom Predator</th>
+                <th>Age</th>
+                <th>Notes</th>
+                <th>Reported By</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+        </body>
+        </html>
+      `;
+
+      // Generate PDF
+      const pdf = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+      });
+
+      // Create custom filename with date
+      const startDateObj = new Date(exportStartDate);
+      const endDateObj = new Date(exportEndDate);
+      const formatDate = (date) => {
+        const d = new Date(date);
+        const day = String(d.getDate()).padStart(2, "0");
+        const months = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        const month = months[d.getMonth()];
+        const year = d.getFullYear();
+        return `${day}-${month}-${year}`;
+      };
+
+      const customFilename = `MortalityReport_${formatDate(exportStartDate)}_to_${formatDate(exportEndDate)}.pdf`;
+      const newPath = `${FileSystem.documentDirectory}${customFilename}`;
+
+      // Copy the PDF to a new location with custom name
+      await FileSystem.copyAsync({
+        from: pdf.uri,
+        to: newPath,
+      });
+
+      // Log report generation to audit trail
+      await logReportGeneration(customFilename, "Mortality Report");
+
+      // Share PDF with custom filename
+      await Sharing.shareAsync(newPath);
+
+      setExportMortalityModalVisible(false);
+    } catch (error) {
+      console.error("Error generating report:", error);
+      Alert.alert("Error", "Failed to generate report: " + error.message);
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
+  /**
+   * Generate Cause of Death Report PDF
+   * Fetches mortality records for the selected date range,
+   * aggregates by causeOfDeath, calculates percentages,
+   * and generates a comprehensive PDF report.
+   */
+  const generateCauseOfDeathReportPDF = async () => {
+    if (!causeExportStartDate || !causeExportEndDate) {
+      Alert.alert("Error", "Please select both start and end dates");
+      return;
+    }
+
+    setIsGeneratingCauseReport(true);
+    try {
+      console.log(
+        "Starting PDF generation with dates:",
+        causeExportStartDate,
+        causeExportEndDate,
+      );
+
+      const recordsRef = collectionGroup(firestoreDb, "records");
+      const recordsSnapshot = await getDocs(recordsRef);
+
+      // Parse dates for filtering - ensure dates are in YYYY-MM-DD format
+      let startDateStr = causeExportStartDate;
+      let endDateStr = causeExportEndDate;
+
+      // Convert to string if needed
+      if (typeof startDateStr !== "string") {
+        startDateStr = new Date(startDateStr).toISOString().split("T")[0];
+      }
+      if (typeof endDateStr !== "string") {
+        endDateStr = new Date(endDateStr).toISOString().split("T")[0];
+      }
+
+      console.log("Parsed date strings:", startDateStr, endDateStr);
+
+      if (!startDateStr || !endDateStr) {
+        throw new Error("Failed to parse dates");
+      }
+
+      // Ensure dates are strings
+      if (typeof startDateStr !== "string" || typeof endDateStr !== "string") {
+        throw new Error("Dates must be strings in YYYY-MM-DD format");
+      }
+
+      const [startYear, startMonth, startDay] = startDateStr
+        .split("-")
+        .map(Number);
+      const [endYear, endMonth, endDay] = endDateStr.split("-").map(Number);
+
+      // Create date boundaries (user selected dates are in GMT+8)
+      let startDate = new Date(startYear, startMonth - 1, startDay);
+      startDate.setHours(0, 0, 0, 0);
+
+      let endDate = new Date(endYear, endMonth - 1, endDay);
+      endDate.setHours(23, 59, 59, 999);
+
+      // Filter and aggregate records
+      let totalDeaths = 0;
+      let predatorCount = 0;
+      let dehydrationCount = 0;
+      let overfeedingCount = 0;
+      let otherCount = 0;
+      let latestRecord = null;
+      let topPredatorType = null;
+      let predatorTypes = {};
+      const batchSummary = {};
+
+      // First pass: Track the latest record across ALL records (not just filtered ones)
+      for (const recordDoc of recordsSnapshot.docs) {
+        const data = recordDoc.data();
+
+        // Track latest record by timestamp (when it was recorded, not when death occurred)
+        if (!latestRecord) {
+          latestRecord = data;
+        } else {
+          // Compare timestamps
+          let currentTimestamp =
+            latestRecord.timestamp?.seconds ||
+            latestRecord.timestamp?.getTime?.() / 1000 ||
+            0;
+          let newTimestamp =
+            data.timestamp?.seconds || data.timestamp?.getTime?.() / 1000 || 0;
+
+          if (newTimestamp > currentTimestamp) {
+            latestRecord = data;
+          }
+        }
+      }
+
+      // Second pass: Filter by date range and aggregate
+      for (const recordDoc of recordsSnapshot.docs) {
+        const data = recordDoc.data();
+
+        // Parse timestamp (date reported)
+        let recordDate = null;
+        if (data.timestamp) {
+          if (data.timestamp.toDate) {
+            recordDate = data.timestamp.toDate();
+          } else if (data.timestamp.seconds) {
+            recordDate = new Date(data.timestamp.seconds * 1000);
+          }
+        }
+
+        if (!recordDate) continue;
+
+        // Convert record date to GMT+8 for comparison
+        // Add 8 hours to convert from UTC to GMT+8
+        const recordDateGMT8 = new Date(
+          recordDate.getTime() + 8 * 60 * 60 * 1000,
+        );
+
+        // Filter by date range (compare GMT+8 dates)
+        if (recordDateGMT8 < startDate || recordDateGMT8 > endDate) continue;
+
+        const count = data.count || 1;
+        const causeOfDeath = data.causeOfDeath || "Other";
+        const batchId = data.batchId || "Unknown";
+
+        totalDeaths += count;
+
+        // Categorize cause
+        if (causeOfDeath.toLowerCase().includes("predator")) {
+          predatorCount += count;
+          if (data.predatorType) {
+            predatorTypes[data.predatorType] =
+              (predatorTypes[data.predatorType] || 0) + 1;
+          }
+        } else if (causeOfDeath.toLowerCase().includes("dehydration")) {
+          dehydrationCount += count;
+        } else if (causeOfDeath.toLowerCase().includes("overfeeding")) {
+          overfeedingCount += count;
+        } else {
+          otherCount += count;
+        }
+
+        // Track batch summary with detailed breakdown
+        if (!batchSummary[batchId]) {
+          batchSummary[batchId] = {
+            totalDeaths: 0,
+            dog: 0,
+            cat: 0,
+            rat: 0,
+            snake: 0,
+            otherPredator: 0,
+            dehydration: 0,
+            overfeeding: 0,
+            disease: 0,
+            otherCause: 0,
+          };
+        }
+        batchSummary[batchId].totalDeaths += count;
+
+        // Categorize and track by batch
+        if (causeOfDeath.toLowerCase().includes("predator")) {
+          const predatorType = (data.predatorType || "Other").toLowerCase();
+          if (predatorType === "dog") {
+            batchSummary[batchId].dog += count;
+          } else if (predatorType === "cat") {
+            batchSummary[batchId].cat += count;
+          } else if (predatorType === "rat") {
+            batchSummary[batchId].rat += count;
+          } else if (predatorType === "snake") {
+            batchSummary[batchId].snake += count;
+          } else {
+            batchSummary[batchId].otherPredator += count;
+          }
+        } else if (causeOfDeath.toLowerCase().includes("dehydration")) {
+          batchSummary[batchId].dehydration += count;
+        } else if (causeOfDeath.toLowerCase().includes("overfeeding")) {
+          batchSummary[batchId].overfeeding += count;
+        } else if (causeOfDeath.toLowerCase().includes("disease")) {
+          batchSummary[batchId].disease += count;
+        } else {
+          batchSummary[batchId].otherCause += count;
+        }
+      }
+
+      // Find top predator type(s) - show all tied predators
+      let topPredatorCount = 0;
+      if (Object.keys(predatorTypes).length > 0) {
+        // Find the maximum count
+        topPredatorCount = Math.max(...Object.values(predatorTypes));
+        // Get all predators with the maximum count
+        const topPredators = Object.keys(predatorTypes).filter(
+          (predator) => predatorTypes[predator] === topPredatorCount,
+        );
+        // Sort alphabetically and join with commas
+        topPredatorType = topPredators.sort().join(", ");
+      }
+
+      // Calculate percentages
+      const predatorPct =
+        totalDeaths > 0 ? ((predatorCount / totalDeaths) * 100).toFixed(2) : 0;
+      const dehydrationPct =
+        totalDeaths > 0
+          ? ((dehydrationCount / totalDeaths) * 100).toFixed(2)
+          : 0;
+      const overfeedingPct =
+        totalDeaths > 0
+          ? ((overfeedingCount / totalDeaths) * 100).toFixed(2)
+          : 0;
+      const otherPct =
+        totalDeaths > 0 ? ((otherCount / totalDeaths) * 100).toFixed(2) : 0;
+
+      // Format dates for display - moved here so it's available for no-data check
+      const formatDate = (dateStr) => {
+        // Handle Firebase timestamps
+        if (dateStr && typeof dateStr === "object") {
+          if (dateStr.toDate) {
+            dateStr = dateStr.toDate().toISOString().split("T")[0];
+          } else if (dateStr.seconds) {
+            dateStr = new Date(dateStr.seconds * 1000)
+              .toISOString()
+              .split("T")[0];
+          }
+        }
+
+        const [year, month, day] = dateStr.split("-");
+        const date = new Date(year, month - 1, day);
+        const months = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        return `${day}-${months[parseInt(month) - 1]}-${year}`;
+      };
+      if (totalDeaths === 0) {
+        Alert.alert("No Data", "No data for selected date/s");
+        setExportCauseModalVisible(false);
+        setIsGeneratingCauseReport(false);
+        return;
+      }
+
+      // Load logo for report
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        },
+      );
+
+      // Create batch summary rows with detailed breakdown
+      let batchRows = "";
+      let totalDog = 0,
+        totalCat = 0,
+        totalRat = 0,
+        totalSnake = 0,
+        totalOther = 0;
+      let totalDehydrationBreakdown = 0,
+        totalOverfeedingBreakdown = 0,
+        totalDiseaseBreakdown = 0,
+        totalOtherCause = 0;
+
+      Object.entries(batchSummary).forEach(([batchId, summary]) => {
+        batchRows += `
+          <tr>
+            <td>${batchId}</td>
+            <td>${summary.dog}</td>
+            <td>${summary.cat}</td>
+            <td>${summary.rat}</td>
+            <td>${summary.snake}</td>
+            <td>${summary.otherPredator}</td>
+            <td>${summary.dehydration}</td>
+            <td>${summary.overfeeding}</td>
+            <td>${summary.disease}</td>
+            <td>${summary.otherCause}</td>
+            <td>${summary.totalDeaths}</td>
+          </tr>
+        `;
+        totalDog += summary.dog;
+        totalCat += summary.cat;
+        totalRat += summary.rat;
+        totalSnake += summary.snake;
+        totalOther += summary.otherPredator;
+        totalDehydrationBreakdown += summary.dehydration;
+        totalOverfeedingBreakdown += summary.overfeeding;
+        totalDiseaseBreakdown += summary.disease;
+        totalOtherCause += summary.otherCause;
+      });
+
+      // Add total row
+      const grandTotal =
+        totalDog +
+        totalCat +
+        totalRat +
+        totalSnake +
+        totalOther +
+        totalDehydrationBreakdown +
+        totalOverfeedingBreakdown +
+        totalDiseaseBreakdown +
+        totalOtherCause;
+      batchRows += `
+        <tr style="background-color: #e8e8e8; font-weight: bold;">
+          <td>TOTAL</td>
+          <td>${totalDog}</td>
+          <td>${totalCat}</td>
+          <td>${totalRat}</td>
+          <td>${totalSnake}</td>
+          <td>${totalOther}</td>
+          <td>${totalDehydrationBreakdown}</td>
+          <td>${totalOverfeedingBreakdown}</td>
+          <td>${totalDiseaseBreakdown}</td>
+          <td>${totalOtherCause}</td>
+          <td>${grandTotal}</td>
+        </tr>
+      `;
+
+      // Create detailed mortality records rows - sorted by createdAt descending
+      let detailedRecordsRows = "";
+      const allRecords = [];
+
+      for (const recordDoc of recordsSnapshot.docs) {
+        const data = recordDoc.data();
+
+        // Parse dateOfDeath
+        let recordDate = null;
+        if (data.dateOfDeath) {
+          if (data.dateOfDeath.toDate) {
+            recordDate = data.dateOfDeath.toDate();
+          } else if (data.dateOfDeath.seconds) {
+            recordDate = new Date(data.dateOfDeath.seconds * 1000);
+          }
+        }
+
+        if (!recordDate) continue;
+
+        // Convert record date to GMT+8 for comparison
+        const recordDateGMT8 = new Date(
+          recordDate.getTime() + 8 * 60 * 60 * 1000,
+        );
+
+        // Filter by date range (compare GMT+8 dates)
+        if (recordDateGMT8 < startDate || recordDateGMT8 > endDate) continue;
+
+        allRecords.push(data);
+      }
+
+      // Sort by createdAt descending
+      allRecords.sort((a, b) => {
+        const timeA = a.createdAt?.seconds || 0;
+        const timeB = b.createdAt?.seconds || 0;
+        return timeB - timeA;
+      });
+
+      // Generate rows for detailed records
+      allRecords.forEach((record) => {
+        const createdAtDate = record.createdAt?.seconds
+          ? (() => {
+              const date = new Date(record.createdAt.seconds * 1000);
+              const months = [
+                "Jan",
+                "Feb",
+                "Mar",
+                "Apr",
+                "May",
+                "Jun",
+                "Jul",
+                "Aug",
+                "Sep",
+                "Oct",
+                "Nov",
+                "Dec",
+              ];
+              const day = String(date.getDate()).padStart(2, "0");
+              const month = months[date.getMonth()];
+              const year = date.getFullYear();
+              return `${day}-${month}-${year}`;
+            })()
+          : "";
+
+        const dateOfDeathDate = record.dateOfDeath?.seconds
+          ? (() => {
+              const date = new Date(record.dateOfDeath.seconds * 1000);
+              const months = [
+                "Jan",
+                "Feb",
+                "Mar",
+                "Apr",
+                "May",
+                "Jun",
+                "Jul",
+                "Aug",
+                "Sep",
+                "Oct",
+                "Nov",
+                "Dec",
+              ];
+              const day = String(date.getDate()).padStart(2, "0");
+              const month = months[date.getMonth()];
+              const year = date.getFullYear();
+              return `${day}-${month}-${year}`;
+            })()
+          : "";
+
+        const causeOfDeath = record.causeOfDeath || "";
+        const predatorType = record.predatorType || "";
+        const customPredator = record.customPredator || "";
+        const otherCause =
+          !causeOfDeath.toLowerCase().includes("predator") &&
+          causeOfDeath !== "Dehydration" &&
+          causeOfDeath !== "Overfeeding" &&
+          causeOfDeath !== "Disease"
+            ? causeOfDeath
+            : "";
+        const count = record.count || 1;
+        const notes = record.notes || "";
+        const reportedBy = record.reportedBy || "";
+        const daysCount = record.daysCount || "";
+
+        detailedRecordsRows += `
+          <tr>
+            <td>${createdAtDate}</td>
+            <td>${count}</td>
+            <td>${causeOfDeath}</td>
+            <td>${predatorType}</td>
+            <td>${customPredator}</td>
+            <td>${daysCount}</td>
+            <td>${notes}</td>
+            <td>${dateOfDeathDate}</td>
+            <td>${reportedBy}</td>
+          </tr>
+        `;
+      });
+
+      const dateRangeDisplay = `${formatDate(startDateStr)} to ${formatDate(endDateStr)}`;
+
+      // Generate HTML
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 0.3in 0.5in 0.3in 0.5in;
+            }
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 0;
+            }
+            .header {
+              margin-bottom: 20px;
+              border-bottom: 2px solid #133E87;
+              padding-bottom: 15px;
+            }
+            .header-top {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-bottom: 10px;
+            }
+            .logo {
+              width: 50px;
+              height: 50px;
+              border-radius: 25px;
+              margin-right: 15px;
+            }
+            .company-name {
+              font-size: 24px;
+              font-weight: bold;
+              color: #133E87;
+            }
+            .report-title {
+              font-size: 16px;
+              color: #333;
+              text-align: center;
+              margin-bottom: 15px;
+              font-weight: bold;
+            }
+            .filter-info {
+              font-size: 12px;
+              color: #666;
+              margin-bottom: 15px;
+              text-align: center;
+            }
+            .summary-section {
+              margin-bottom: 20px;
+              background-color: #f9f9f9;
+              padding: 10px;
+              border-radius: 5px;
+            }
+            .summary-title {
+              font-size: 14px;
+              font-weight: bold;
+              color: #133E87;
+              margin-bottom: 10px;
+            }
+            .summary-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              font-size: 11px;
+            }
+            .summary-item {
+              padding: 8px;
+              background-color: white;
+              border-left: 3px solid #133E87;
+              border-radius: 3px;
+            }
+            .summary-label {
+              color: #666;
+              font-size: 10px;
+            }
+            .summary-value {
+              color: #133E87;
+              font-weight: bold;
+              font-size: 14px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 20px;
+              font-size: 11px;
+            }
+            th {
+              background-color: #133E87;
+              color: white;
+              padding: 8px;
+              text-align: left;
+              border: 1px solid #ddd;
+              font-weight: bold;
+            }
+            td {
+              padding: 6px;
+              border: 1px solid #ddd;
+              color: #333;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            .page-number {
+              text-align: center;
+              font-size: 10px;
+              color: #666;
+              margin-top: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="header-top">
+              <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
+              <div class="company-name">Internet of Tsiken</div>
+            </div>
+            <div class="report-title">Cause of Death Analysis Report</div>
+            <div class="filter-info">
+              Date Range: ${dateRangeDisplay}<br>
+              Report Generated: ${new Date().toLocaleString()}<br>
+              Total Deaths: ${totalDeaths}
+            </div>
+          </div>
+
+          <div class="summary-section">
+            <div class="summary-title">Mortality Summary</div>
+            <div class="summary-grid">
+              <div class="summary-item">
+                <div class="summary-label">Predatory Attack</div>
+                <div class="summary-value">${predatorPct}%</div>
+                <div class="summary-label">(${predatorCount} ${predatorCount === 1 ? "death" : "deaths"})</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-label">Dehydration</div>
+                <div class="summary-value">${dehydrationPct}%</div>
+                <div class="summary-label">(${dehydrationCount} ${dehydrationCount === 1 ? "death" : "deaths"})</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-label">Overfeeding</div>
+                <div class="summary-value">${overfeedingPct}%</div>
+                <div class="summary-label">(${overfeedingCount} ${overfeedingCount === 1 ? "death" : "deaths"})</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-label">Other</div>
+                <div class="summary-value">${otherPct}%</div>
+                <div class="summary-label">(${otherCount} ${otherCount === 1 ? "death" : "deaths"})</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="summary-section">
+            <div class="summary-title">Predatory Attack </div>
+            <div class="summary-grid">
+              <div class="summary-item">
+                <div class="summary-label">Top Predator Type</div>
+                <div class="summary-value">${topPredatorType || "N/A"}</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-label">Top Predator Attack Deaths</div>
+                <div class="summary-value">${topPredatorCount}</div>
+              </div>
+            </div>
+          </div>
+         
+          <div class="summary-section">
+            <div class="summary-title">Causes of Death</div>
+           
+          <table>
+            <thead>
+              <tr>
+                <th>Batch ID</th>
+                <th>Dog</th>
+                <th>Cat</th>
+                <th>Rat</th>
+                <th>Snake</th>
+                <th>Other</th>
+                <th>Dehydration</th>
+                <th>Overfeeding</th>
+                <th>Disease</th>
+                <th>Other Causes</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${batchRows}
+            </tbody>
+          </table>
+
+          </div>
+
+          <div style="margin-top: 30px; margin-bottom: 20px; background-color: #f9f9f9; padding: 10px; border-radius: 5px;">
+            <div style="font-size: 14px; font-weight: bold; color: #133E87; margin-bottom: 10px;">Detailed Mortality Records</div>
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 11%;">Reported Date</th>
+                  <th style="width: 7%;">Death Count</th>
+                  <th style="width: 13%;">Death Cause</th>
+                  <th style="width: 9%;">Predator Type</th>
+                  <th style="width: 12%;">Custom Predator</th>
+                  <th style="width: 8%;">Age</th>
+                  <th style="width: 12%;">Notes</th>
+                  <th style="width: 11%;">Date of Death</th>
+                  <th style="width: 14%;">Reported By</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${detailedRecordsRows}
+              </tbody>
+            </table>
+          </div>
+           </div>
+        </body>
+        </html>
+      `;
+
+      // Generate PDF
+      const pdf = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+      });
+
+      const customFilename = `CauseOfDeathReport_${formatDate(startDateStr)}_to_${formatDate(endDateStr)}.pdf`;
+      const newPath = `${FileSystem.documentDirectory}${customFilename}`;
+
+      // Copy the PDF to a new location with custom name
+      await FileSystem.copyAsync({
+        from: pdf.uri,
+        to: newPath,
+      });
+
+      // Log report generation to audit trail
+      await logReportGeneration(
+        customFilename,
+        "Cause of Death Report",
+        "Generated death causes",
+        "Generated cause of death report",
+      );
+
+      // Share PDF with custom filename
+      await Sharing.shareAsync(newPath);
+
+      setExportCauseModalVisible(false);
+    } catch (error) {
+      console.error("Error generating cause of death report:", error);
+      try {
+        // Load logo for branded error message
+        const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+        await logoAsset.downloadAsync();
+        const logoBase64 = await FileSystem.readAsStringAsync(
+          logoAsset.localUri,
+          {
+            encoding: FileSystem.EncodingType.Base64,
+          },
+        );
+
+        // Create branded error page
+        const brandedErrorHTML = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <style>
+              body {
+                font-family: Arial, sans-serif;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+                background: linear-gradient(135deg, #133E87 0%, #1e5ba8 100%);
+              }
+              .container {
+                background: white;
+                padding: 40px;
+                border-radius: 10px;
+                text-align: center;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+                max-width: 450px;
+              }
+              .logo {
+                width: 70px;
+                height: 70px;
+                border-radius: 50%;
+                margin: 0 auto 20px;
+              }
+              .company-name {
+                font-size: 22px;
+                font-weight: bold;
+                color: #133E87;
+                margin-bottom: 25px;
+              }
+              .error-icon {
+                font-size: 60px;
+                margin-bottom: 20px;
+              }
+              .error-title {
+                font-size: 24px;
+                color: #d32f2f;
+                font-weight: bold;
+                margin-bottom: 15px;
+              }
+              .error-message {
+                font-size: 14px;
+                color: #666;
+                line-height: 1.6;
+                margin-bottom: 20px;
+              }
+              .error-details {
+                font-size: 12px;
+                color: #999;
+                background-color: #f5f5f5;
+                padding: 12px;
+                border-radius: 5px;
+                margin-top: 20px;
+                text-align: left;
+                border-left: 3px solid #d32f2f;
+                max-height: 150px;
+                overflow-y: auto;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Internet of Tsiken" />
+              <div class="company-name">Internet of Tsiken</div>
+              <div class="error-icon">⚠️</div>
+              <div class="error-title">Report Generation Error</div>
+              <div class="error-message">
+                An error occurred while generating the Cause of Death report. Please try again or contact support.
+              </div>
+              <div class="error-details">
+                <strong>Error Details:</strong><br>
+                ${error.message || "Unknown error"}
+              </div>
+            </div>
+          </body>
+          </html>
+        `;
+
+        // Generate PDF
+        const pdf = await Print.printToFileAsync({
+          html: brandedErrorHTML,
+          base64: false,
+        });
+
+        const timestamp = new Date().toISOString().split("T")[0];
+        const customFilename = `CauseOfDeathReport_${timestamp}_Error.pdf`;
+        const newPath = `${FileSystem.documentDirectory}${customFilename}`;
+
+        // Copy the PDF to a new location with custom name
+        await FileSystem.copyAsync({
+          from: pdf.uri,
+          to: newPath,
+        });
+
+        // Share PDF with custom filename
+        await Sharing.shareAsync(newPath);
+      } catch (fallbackError) {
+        console.error("Error creating branded error page:", fallbackError);
+        // Fallback to alert if branded error page fails
+        Alert.alert("Error", "Failed to generate report: " + error.message);
+      }
+      setExportCauseModalVisible(false);
+    } finally {
+      setIsGeneratingCauseReport(false);
+    }
+  };
+
   // Generate data points based on the number of labels
   const generateDataPoints = (filterData, defaultData) => {
     if (!filterData || !filterData.startDate || !filterData.endDate) {
@@ -706,15 +2337,24 @@ export default function AdminAnalytics({ navigation }) {
     const sevenDaysAgo = new Date(today);
     sevenDaysAgo.setDate(today.getDate() - 6); // -6 to include today as day 7
 
+    // Format dates as YYYY-MM-DD for consistency
+    const formatDateToISO = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
     const defaultFilter = {
-      startDate: sevenDaysAgo.toISOString(),
-      endDate: today.toISOString(),
+      startDate: formatDateToISO(sevenDaysAgo),
+      endDate: formatDateToISO(today),
     };
 
     console.log("[adminAnalytics] Default 7-day filter set:", defaultFilter);
     setChartFilters((prev) => ({
       ...prev,
       mortality: defaultFilter,
+      cause: defaultFilter,
     }));
   }, []);
 
@@ -727,13 +2367,25 @@ export default function AdminAnalytics({ navigation }) {
     fetchMortalityRecords(chartFilters["mortality"]);
   }, [chartFilters["mortality"]]);
 
+  // Fetch brooder stats (total chicks and mortality rate) on mount
+  useEffect(() => {
+    console.log("[adminAnalytics] useEffect: Fetching brooder stats...");
+    fetchBrooderStats();
+  }, []);
+
+  // Fetch cause of death stats on mount and when filter changes
+  useEffect(() => {
+    console.log("[adminAnalytics] useEffect: Fetching cause of death stats...");
+    fetchCauseOfDeathStats(chartFilters["cause"]);
+  }, [chartFilters["cause"]]);
+
   // Note: icon values are MaterialCommunityIcons names
   const metrics = [
     {
       id: 1,
       title: "Mortality Rate",
-      value: "0%",
-      subtitle: "31 chicks active",
+      value: `${mortalityRate}%`,
+      subtitle: `${totalChicksCount} chicks active`,
       icon: "account-group",
     },
     {
@@ -952,11 +2604,11 @@ export default function AdminAnalytics({ navigation }) {
       );
     }
 
-    // Sort by date - dates are already in "DD-MMM" format from formatDateAsDayMonth
+    // Sort by date - dates are already in "MMM DD" format from formatDateAsDayMonth
     const sortedDates = allDates.sort((a, b) => {
       if (a === "Unknown") return 1;
       if (b === "Unknown") return -1;
-      // Both are in "DD-MMM" format, so just do string comparison
+      // Both are in "MMM DD" format, so just do string comparison
       return a.localeCompare(b);
     });
 
@@ -1258,12 +2910,12 @@ export default function AdminAnalytics({ navigation }) {
                 activeOpacity={0.8}
                 onPressIn={() => setPressedBtn("export-mortality")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() =>
-                  Alert.alert(
-                    "Export",
-                    "Export functionality to be implemented",
-                  )
-                }
+                onPress={() => {
+                  setExportStartDate(null);
+                  setExportEndDate(null);
+                  setExportSelectedDate("");
+                  setExportMortalityModalVisible(true);
+                }}
               >
                 <Text
                   style={[
@@ -1424,12 +3076,7 @@ export default function AdminAnalytics({ navigation }) {
                 activeOpacity={0.8}
                 onPressIn={() => setPressedBtn("export-cause")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() =>
-                  Alert.alert(
-                    "Export",
-                    "Export functionality to be implemented",
-                  )
-                }
+                onPress={() => setExportCauseModalVisible(true)}
               >
                 <Text
                   style={[
@@ -1465,34 +3112,25 @@ export default function AdminAnalytics({ navigation }) {
                   const G = RN_SVG.G || RN_SVG.default?.G;
                   const Path = RN_SVG.Path || RN_SVG.default?.Path;
 
-                  const pieData = [
-                    {
-                      name: "Predatory Attack",
-                      population: 45,
-                      color: "#154785",
-                    },
-                    {
-                      name: "Overfeeding",
-                      population: 25,
-                      color: "#FFC107",
-                    },
-                    {
-                      name: "Dehydration",
-                      population: 15,
-                      color: "#F44336",
-                    },
-                    {
-                      name: "Other",
-                      population: 15,
-                      color: "#4CAF50",
-                    },
-                  ];
+                  const pieData = causeOfDeathData;
 
                   // Calculate pie slice paths
                   const total = pieData.reduce(
                     (sum, item) => sum + item.population,
                     0,
                   );
+
+                  // Guard: if no data, show loading/empty state
+                  if (total === 0) {
+                    return (
+                      <View style={styles.fallback}>
+                        <Text style={styles.fallbackText}>
+                          No data on selected date/s
+                        </Text>
+                      </View>
+                    );
+                  }
+
                   const radius = 100;
                   const cx = 110;
                   const cy = 110;
@@ -1622,139 +3260,143 @@ export default function AdminAnalytics({ navigation }) {
                         </View>
                       </View>
 
-                      {/* Custom Legend - Horizontal */}
-                      <View
-                        style={{ paddingHorizontal: 8, alignItems: "center" }}
-                      >
+                      {/* Custom Legend - Horizontal (only show when there's data) */}
+                      {total > 0 && (
                         <View
-                          style={{
-                            flexDirection: "row",
-                            marginBottom: 8,
-                            marginLeft: 35,
-                          }}
+                          style={{ paddingHorizontal: 8, alignItems: "center" }}
                         >
                           <View
                             style={{
                               flexDirection: "row",
-                              alignItems: "center",
-                              width: 165,
+                              marginBottom: 8,
+                              marginLeft: 35,
                             }}
                           >
                             <View
                               style={{
-                                width: 14,
-                                height: 14,
-                                backgroundColor: pieData[0].color,
-                                marginRight: 6,
-                                borderRadius: 2,
+                                flexDirection: "row",
+                                alignItems: "center",
+                                width: 165,
                               }}
-                            />
-                            <Text
-                              style={{
-                                fontSize: 13,
-                                color: "#0b2336",
-                                includeFontPadding: false,
-                                flex: 1,
-                              }}
-                              allowFontScaling={false}
-                              numberOfLines={1}
                             >
-                              {pieData[0].name} ({pieData[0].population}%)
-                            </Text>
+                              <View
+                                style={{
+                                  width: 14,
+                                  height: 14,
+                                  backgroundColor: pieData[0].color,
+                                  marginRight: 6,
+                                  borderRadius: 2,
+                                }}
+                              />
+                              <Text
+                                style={{
+                                  fontSize: 13,
+                                  color: "#0b2336",
+                                  includeFontPadding: false,
+                                  flex: 1,
+                                }}
+                                allowFontScaling={false}
+                                numberOfLines={1}
+                              >
+                                {pieData[0].name} ({pieData[0].population}%)
+                              </Text>
+                            </View>
+                            <View style={{ width: 16 }} />
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                width: 165,
+                              }}
+                            >
+                              <View
+                                style={{
+                                  width: 14,
+                                  height: 14,
+                                  backgroundColor: pieData[1].color,
+                                  marginRight: 6,
+                                  borderRadius: 2,
+                                }}
+                              />
+                              <Text
+                                style={{
+                                  fontSize: 13,
+                                  color: "#0b2336",
+                                  includeFontPadding: false,
+                                  flex: 1,
+                                }}
+                                allowFontScaling={false}
+                                numberOfLines={1}
+                              >
+                                {pieData[1].name} ({pieData[1].population}%)
+                              </Text>
+                            </View>
                           </View>
-                          <View style={{ width: 16 }} />
                           <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              width: 165,
-                            }}
+                            style={{ flexDirection: "row", marginLeft: 35 }}
                           >
                             <View
                               style={{
-                                width: 14,
-                                height: 14,
-                                backgroundColor: pieData[1].color,
-                                marginRight: 6,
-                                borderRadius: 2,
+                                flexDirection: "row",
+                                alignItems: "center",
+                                width: 165,
                               }}
-                            />
-                            <Text
-                              style={{
-                                fontSize: 13,
-                                color: "#0b2336",
-                                includeFontPadding: false,
-                                flex: 1,
-                              }}
-                              allowFontScaling={false}
-                              numberOfLines={1}
                             >
-                              {pieData[1].name} ({pieData[1].population}%)
-                            </Text>
+                              <View
+                                style={{
+                                  width: 14,
+                                  height: 14,
+                                  backgroundColor: pieData[2].color,
+                                  marginRight: 6,
+                                  borderRadius: 2,
+                                }}
+                              />
+                              <Text
+                                style={{
+                                  fontSize: 13,
+                                  color: "#0b2336",
+                                  includeFontPadding: false,
+                                  flex: 1,
+                                }}
+                                allowFontScaling={false}
+                                numberOfLines={1}
+                              >
+                                {pieData[2].name} ({pieData[2].population}%)
+                              </Text>
+                            </View>
+                            <View style={{ width: 16 }} />
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                width: 165,
+                              }}
+                            >
+                              <View
+                                style={{
+                                  width: 14,
+                                  height: 14,
+                                  backgroundColor: pieData[3].color,
+                                  marginRight: 6,
+                                  borderRadius: 2,
+                                }}
+                              />
+                              <Text
+                                style={{
+                                  fontSize: 13,
+                                  color: "#0b2336",
+                                  includeFontPadding: false,
+                                  flex: 1,
+                                }}
+                                allowFontScaling={false}
+                                numberOfLines={1}
+                              >
+                                {pieData[3].name} ({pieData[3].population}%)
+                              </Text>
+                            </View>
                           </View>
                         </View>
-                        <View style={{ flexDirection: "row", marginLeft: 35 }}>
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              width: 165,
-                            }}
-                          >
-                            <View
-                              style={{
-                                width: 14,
-                                height: 14,
-                                backgroundColor: pieData[2].color,
-                                marginRight: 6,
-                                borderRadius: 2,
-                              }}
-                            />
-                            <Text
-                              style={{
-                                fontSize: 13,
-                                color: "#0b2336",
-                                includeFontPadding: false,
-                                flex: 1,
-                              }}
-                              allowFontScaling={false}
-                              numberOfLines={1}
-                            >
-                              {pieData[2].name} ({pieData[2].population}%)
-                            </Text>
-                          </View>
-                          <View style={{ width: 16 }} />
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              width: 165,
-                            }}
-                          >
-                            <View
-                              style={{
-                                width: 14,
-                                height: 14,
-                                backgroundColor: pieData[3].color,
-                                marginRight: 6,
-                                borderRadius: 2,
-                              }}
-                            />
-                            <Text
-                              style={{
-                                fontSize: 13,
-                                color: "#0b2336",
-                                includeFontPadding: false,
-                                flex: 1,
-                              }}
-                              allowFontScaling={false}
-                              numberOfLines={1}
-                            >
-                              {pieData[3].name} ({pieData[3].population}%)
-                            </Text>
-                          </View>
-                        </View>
-                      </View>
+                      )}
                     </View>
                   );
                 } catch (err) {
@@ -3185,48 +4827,33 @@ export default function AdminAnalytics({ navigation }) {
                   onDayPress={(day) => {
                     const selectedDateStr = day.dateString;
 
+                    // Parse date string in local time (not UTC)
+                    const [year, month, day_num] = selectedDateStr
+                      .split("-")
+                      .map(Number);
+                    const selectedDate = new Date(year, month - 1, day_num);
+
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+
+                    // Validate: Do not allow future dates
+                    if (selectedDate > today) {
+                      Alert.alert(
+                        "Invalid Date",
+                        "Future dates are not allowed. Please select today or an earlier date.",
+                        [{ text: "OK" }],
+                      );
+                      return;
+                    }
+
                     if (!startDate || (startDate && endDate)) {
                       // Start new selection
                       setStartDate(selectedDateStr);
                       setEndDate(null);
                     } else if (startDate && !endDate) {
-                      // Calculate the difference in days
-                      const start = new Date(startDate);
-                      const selected = new Date(selectedDateStr);
-                      const diffTime = Math.abs(selected - start);
-                      const diffDays = Math.ceil(
-                        diffTime / (1000 * 60 * 60 * 24),
-                      );
-
-                      // Check if the range exceeds 7 days
-                      if (diffDays > 6) {
-                        // Show alert and don't set the end date
-                        Alert.alert(
-                          "Invalid Range",
-                          "Please select a date range within 7 days.",
-                          [{ text: "OK" }],
-                        );
-                        return;
-                      }
-
                       // Set end date
                       if (new Date(selectedDateStr) < new Date(startDate)) {
-                        // If selected date is before start, swap them (and check again)
-                        const tempStart = new Date(selectedDateStr);
-                        const tempEnd = new Date(startDate);
-                        const tempDiff = Math.ceil(
-                          Math.abs(tempEnd - tempStart) / (1000 * 60 * 60 * 24),
-                        );
-
-                        if (tempDiff > 6) {
-                          Alert.alert(
-                            "Invalid Range",
-                            "Please select a date range within 7 days.",
-                            [{ text: "OK" }],
-                          );
-                          return;
-                        }
-
+                        // If selected date is before start, swap them
                         setEndDate(startDate);
                         setStartDate(selectedDateStr);
                       } else {
@@ -3235,6 +4862,13 @@ export default function AdminAnalytics({ navigation }) {
                     }
                   }}
                   markingType={"period"}
+                  maxDate={(() => {
+                    const today = new Date();
+                    const year = today.getFullYear();
+                    const month = String(today.getMonth() + 1).padStart(2, "0");
+                    const day = String(today.getDate()).padStart(2, "0");
+                    return `${year}-${month}-${day}`;
+                  })()}
                   markedDates={(() => {
                     if (!startDate) return {};
 
@@ -3385,6 +5019,437 @@ export default function AdminAnalytics({ navigation }) {
                   }}
                 >
                   <Text style={styles.modalApplyButtonText}>Apply</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Export Mortality Modal */}
+        <Modal
+          visible={exportMortalityModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setExportMortalityModalVisible(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Export Mortality Report</Text>
+
+              {/* Date Range Display */}
+              <View style={styles.dateRangeHeader}>
+                <View style={styles.dateRangeItem}>
+                  <Text style={styles.dateRangeLabel}>From</Text>
+                  <Text style={styles.dateRangeValue}>
+                    {exportStartDate
+                      ? new Date(exportStartDate).toLocaleDateString("en-US", {
+                          weekday: "short",
+                          day: "2-digit",
+                          month: "short",
+                        })
+                      : "Select date"}
+                  </Text>
+                </View>
+                <View style={styles.dateRangeItem}>
+                  <Text style={styles.dateRangeLabel}>To</Text>
+                  <Text style={styles.dateRangeValue}>
+                    {exportEndDate
+                      ? new Date(exportEndDate).toLocaleDateString("en-US", {
+                          weekday: "short",
+                          day: "2-digit",
+                          month: "short",
+                        })
+                      : "Select date"}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Date Picker */}
+              <View style={styles.datePickerContainer}>
+                <Calendar
+                  onDayPress={(day) => {
+                    const selectedDateStr = day.dateString;
+                    const [year, month, day_num] = selectedDateStr
+                      .split("-")
+                      .map(Number);
+                    const selectedDate = new Date(year, month - 1, day_num);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+
+                    // Validate: Do not allow future dates
+                    if (selectedDate > today) {
+                      Alert.alert(
+                        "Invalid Date",
+                        "Future dates are not allowed. Please select today or an earlier date.",
+                        [{ text: "OK" }],
+                      );
+                      return;
+                    }
+
+                    if (
+                      !exportStartDate ||
+                      (exportStartDate && exportEndDate)
+                    ) {
+                      // Start new selection
+                      setExportStartDate(selectedDateStr);
+                      setExportEndDate(null);
+                    } else if (exportStartDate && !exportEndDate) {
+                      // Calculate the difference in days
+                      const start = new Date(exportStartDate);
+                      const selected = new Date(selectedDateStr);
+                      const diffTime = Math.abs(selected - start);
+                      const diffDays = Math.ceil(
+                        diffTime / (1000 * 60 * 60 * 24),
+                      );
+
+                      // Check if the range exceeds 30 days for export
+                      if (diffDays > 29) {
+                        Alert.alert(
+                          "Invalid Range",
+                          "Please select a date range within 30 days.",
+                          [{ text: "OK" }],
+                        );
+                        return;
+                      }
+
+                      // Set end date
+                      if (
+                        new Date(selectedDateStr) < new Date(exportStartDate)
+                      ) {
+                        setExportEndDate(exportStartDate);
+                        setExportStartDate(selectedDateStr);
+                      } else {
+                        setExportEndDate(selectedDateStr);
+                      }
+                    }
+                  }}
+                  markingType={"period"}
+                  maxDate={(() => {
+                    const today = new Date();
+                    const year = today.getFullYear();
+                    const month = String(today.getMonth() + 1).padStart(2, "0");
+                    const day = String(today.getDate()).padStart(2, "0");
+                    return `${year}-${month}-${day}`;
+                  })()}
+                  markedDates={(() => {
+                    if (!exportStartDate) return {};
+
+                    if (exportStartDate && !exportEndDate) {
+                      return {
+                        [exportStartDate]: {
+                          startingDay: true,
+                          color: "#3B82F6",
+                          textColor: "white",
+                        },
+                      };
+                    }
+
+                    if (exportStartDate && exportEndDate) {
+                      const marks = {};
+                      const start = new Date(exportStartDate);
+                      const end = new Date(exportEndDate);
+
+                      for (
+                        let d = new Date(start);
+                        d <= end;
+                        d.setDate(d.getDate() + 1)
+                      ) {
+                        const dateStr = d.toISOString().split("T")[0];
+
+                        if (dateStr === exportStartDate) {
+                          marks[dateStr] = {
+                            startingDay: true,
+                            color: "#BFDBFE",
+                            textColor: "#000",
+                          };
+                        } else if (dateStr === exportEndDate) {
+                          marks[dateStr] = {
+                            endingDay: true,
+                            color: "#BFDBFE",
+                            textColor: "#000",
+                          };
+                        } else {
+                          marks[dateStr] = {
+                            color: "#BFDBFE",
+                            textColor: "#000",
+                          };
+                        }
+                      }
+
+                      marks[exportStartDate] = {
+                        ...marks[exportStartDate],
+                        startingDay: true,
+                        color: "#BFDBFE",
+                        textColor: "white",
+                        marked: true,
+                        dotColor: "white",
+                        customStyles: {
+                          container: {
+                            backgroundColor: "#3B82F6",
+                            borderRadius: 100,
+                          },
+                          text: {
+                            color: "white",
+                            fontWeight: "bold",
+                          },
+                        },
+                      };
+
+                      marks[exportEndDate] = {
+                        ...marks[exportEndDate],
+                        endingDay: true,
+                        color: "#BFDBFE",
+                        textColor: "white",
+                        marked: true,
+                        dotColor: "white",
+                        customStyles: {
+                          container: {
+                            backgroundColor: "#3B82F6",
+                            borderRadius: 100,
+                          },
+                          text: {
+                            color: "white",
+                            fontWeight: "bold",
+                          },
+                        },
+                      };
+
+                      return marks;
+                    }
+
+                    return {};
+                  })()}
+                  theme={{
+                    calendarBackground: "#ffffff",
+                    textSectionTitleColor: "#3B82F6",
+                    selectedDayBackgroundColor: "#3B82F6",
+                    selectedDayTextColor: "#ffffff",
+                    todayTextColor: "#3B82F6",
+                    dayTextColor: "#2d4150",
+                    textDisabledColor: "#d9e1e8",
+                    monthTextColor: "#2d4150",
+                    indicatorColor: "#3B82F6",
+                    textDayFontWeight: "400",
+                    textMonthFontWeight: "600",
+                    textDayHeaderFontWeight: "500",
+                    textDayFontSize: 14,
+                    textMonthFontSize: 18,
+                    textDayHeaderFontSize: 12,
+                  }}
+                  style={styles.calendar}
+                />
+              </View>
+
+              {/* Generate and Cancel Buttons */}
+              <View style={styles.modalButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.modalActionButton, styles.modalCancelButton]}
+                  onPress={() => {
+                    setExportStartDate(null);
+                    setExportEndDate(null);
+                    setExportMortalityModalVisible(false);
+                  }}
+                  disabled={isGeneratingReport}
+                >
+                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.modalActionButton,
+                    styles.modalApplyButton,
+                    !exportStartDate || !exportEndDate || isGeneratingReport
+                      ? { opacity: 0.5 }
+                      : {},
+                  ]}
+                  onPress={generateMortalityReportPDF}
+                  disabled={
+                    !exportStartDate || !exportEndDate || isGeneratingReport
+                  }
+                >
+                  {isGeneratingReport ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.modalApplyButtonText}>Generate</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Cause of Death Export Modal */}
+        <Modal
+          visible={exportCauseModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setExportCauseModalVisible(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>
+                Export Cause of Death Report
+              </Text>
+
+              {/* Line 4 omitted */}
+              <View style={styles.dateRangeHeader}>
+                <View style={styles.dateRangeItem}>
+                  <Text style={styles.dateRangeLabel}>From</Text>
+                  <Text style={styles.dateRangeValue}>
+                    {causeExportStartDate
+                      ? new Date(causeExportStartDate).toLocaleDateString(
+                          "en-US",
+                          {
+                            weekday: "short",
+                            day: "2-digit",
+                            month: "short",
+                          },
+                        )
+                      : "Select date"}
+                  </Text>
+                </View>
+                <View style={styles.dateRangeItem}>
+                  <Text style={styles.dateRangeLabel}>To</Text>
+                  <Text style={styles.dateRangeValue}>
+                    {causeExportEndDate
+                      ? new Date(causeExportEndDate).toLocaleDateString(
+                          "en-US",
+                          {
+                            weekday: "short",
+                            day: "2-digit",
+                            month: "short",
+                          },
+                        )
+                      : "Select date"}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Line 4 omitted */}
+              <View style={styles.datePickerContainer}>
+                <Calendar
+                  onDayPress={(day) => {
+                    let dateStr = day?.dateString;
+                    // Fallback: construct dateString from year, month, day if not available
+                    if (!dateStr && day?.year && day?.month && day?.day) {
+                      const yearStr = day.year;
+                      const monthStr = String(day.month).padStart(2, "0");
+                      const dayStr = String(day.day).padStart(2, "0");
+                      dateStr = `${yearStr}-${monthStr}-${dayStr}`;
+                    }
+                    if (!dateStr) {
+                      console.log("Invalid day object:", day);
+                      return;
+                    }
+                    if (!causeExportStartDate || causeExportEndDate) {
+                      setCauseExportStartDate(dateStr);
+                      setCauseExportEndDate(null);
+                    } else {
+                      const start = new Date(causeExportStartDate);
+                      const selected = new Date(dateStr);
+                      if (selected < start) {
+                        setCauseExportStartDate(dateStr);
+                      } else {
+                        setCauseExportEndDate(dateStr);
+                      }
+                    }
+                  }}
+                  markingType={"period"}
+                  maxDate={(() => {
+                    const today = new Date();
+                    const year = today.getFullYear();
+                    const month = String(today.getMonth() + 1).padStart(2, "0");
+                    const day = String(today.getDate()).padStart(2, "0");
+                    return `${year}-${month}-${day}`;
+                  })()}
+                  markedDates={(() => {
+                    const marked = {};
+                    if (causeExportStartDate) {
+                      marked[causeExportStartDate] = {
+                        startingDay: true,
+                        color: "#3B82F6",
+                        textColor: "#fff",
+                      };
+                    }
+                    if (causeExportEndDate) {
+                      marked[causeExportEndDate] = {
+                        endingDay: true,
+                        color: "#3B82F6",
+                        textColor: "#fff",
+                      };
+                    }
+                    if (causeExportStartDate && causeExportEndDate) {
+                      const start = new Date(causeExportStartDate);
+                      const end = new Date(causeExportEndDate);
+                      const current = new Date(start);
+                      while (current < end) {
+                        const dateStr = current.toISOString().split("T")[0];
+                        marked[dateStr] = {
+                          color: "#3B82F6",
+                          textColor: "#fff",
+                        };
+                        current.setDate(current.getDate() + 1);
+                      }
+                    }
+                    return marked;
+                  })()}
+                  theme={{
+                    calendarBackground: "#ffffff",
+                    textSectionTitleColor: "#3B82F6",
+                    selectedDayBackgroundColor: "#3B82F6",
+                    selectedDayTextColor: "#ffffff",
+                    todayTextColor: "#3B82F6",
+                    dayTextColor: "#2d4150",
+                    textDisabledColor: "#d9e1e8",
+                    monthTextColor: "#2d4150",
+                    indicatorColor: "#3B82F6",
+                    textDayFontWeight: "400",
+                    textMonthFontWeight: "600",
+                    textDayHeaderFontWeight: "500",
+                    textDayFontSize: 14,
+                    textMonthFontSize: 18,
+                    textDayHeaderFontSize: 12,
+                  }}
+                  style={styles.calendar}
+                />
+              </View>
+
+              {/* Line 4 omitted */}
+              <View style={styles.modalButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.modalActionButton, styles.modalCancelButton]}
+                  onPress={() => {
+                    setCauseExportStartDate(null);
+                    setCauseExportEndDate(null);
+                    setExportCauseModalVisible(false);
+                  }}
+                  disabled={isGeneratingCauseReport}
+                >
+                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.modalActionButton,
+                    styles.modalApplyButton,
+                    !causeExportStartDate ||
+                    !causeExportEndDate ||
+                    isGeneratingCauseReport
+                      ? { opacity: 0.5 }
+                      : {},
+                  ]}
+                  onPress={generateCauseOfDeathReportPDF}
+                  disabled={
+                    !causeExportStartDate ||
+                    !causeExportEndDate ||
+                    isGeneratingCauseReport
+                  }
+                >
+                  {isGeneratingCauseReport ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.modalApplyButtonText}>Generate</Text>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>

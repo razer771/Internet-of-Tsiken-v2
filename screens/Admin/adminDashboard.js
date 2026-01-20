@@ -81,40 +81,69 @@ export default function AdminDashboard() {
       console.log("Total users:", total);
 
       // Fetch brooder batches to calculate mortality rate
-      let totalInitialChicks = 0;
-      let totalCurrentChicks = 0;
+      let totalAliveChicks = 0; // Sum of chicksCount (alive now)
+      let totalDeathCount = 0; // Sum of count from mortality records
       let batchCount = 0;
 
       // Get all brooder info documents
       const brooderRef = collection(db, "brooderInfo");
       const brooderSnapshot = await getDocs(brooderRef);
 
+      // Step 1: Sum all alive chicks from brooderInfo
       brooderSnapshot.forEach((doc) => {
         const data = doc.data();
         batchCount++;
-
-        // Calculate mortality based on initial vs current chick count
-        const initialChicks = data.initialChicksCount || data.chicksCount || 0;
-        const currentChicks = data.chicksCount || 0;
-
-        totalInitialChicks += initialChicks;
-        totalCurrentChicks += currentChicks;
+        const chicksCount = data.chicksCount || 0;
+        totalAliveChicks += chicksCount;
       });
 
-      setTotalBatches(batchCount);
-      setTotalChicks(totalCurrentChicks);
+      console.log("Total alive chicks:", totalAliveChicks);
+      console.log("Total batches:", batchCount);
 
-      // Calculate mortality rate: (initial - current) / initial * 100
+      // Step 2: Sum all deaths from mortality records for all batches
+      const batchPromises = brooderSnapshot.docs.map(async (doc) => {
+        const batchId = doc.id;
+        try {
+          const mortalityRecordsRef = collection(
+            db,
+            "mortality",
+            batchId,
+            "records",
+          );
+          const recordsSnapshot = await getDocs(mortalityRecordsRef);
+
+          recordsSnapshot.docs.forEach((recordDoc) => {
+            const recordData = recordDoc.data();
+            const count = recordData.count || 0;
+            totalDeathCount += count;
+          });
+        } catch (error) {
+          console.warn(`Error fetching mortality for batch ${batchId}:`, error);
+        }
+      });
+
+      await Promise.all(batchPromises);
+
+      console.log("Total deaths:", totalDeathCount);
+
+      // Step 3: Calculate total initial chicks (alive + dead)
+      const totalInitialChicks = totalAliveChicks + totalDeathCount;
+
+      // Step 4: Calculate mortality rate (2 decimal places)
       let mortality = 0;
       if (totalInitialChicks > 0) {
-        const deaths = totalInitialChicks - totalCurrentChicks;
-        mortality = Math.round((deaths / totalInitialChicks) * 100);
+        mortality = parseFloat(
+          ((totalDeathCount / totalInitialChicks) * 100).toFixed(2),
+        );
         mortality = Math.max(0, mortality); // Ensure non-negative
       }
 
+      setTotalBatches(batchCount);
+      setTotalChicks(totalAliveChicks);
       setMortalityRate(mortality);
+
       console.log("Mortality rate:", mortality + "%");
-      console.log("Total batches:", batchCount);
+      console.log("Total initial chicks:", totalInitialChicks);
     } catch (error) {
       console.error("Error fetching farm metrics:", error);
     }

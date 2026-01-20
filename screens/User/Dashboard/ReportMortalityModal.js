@@ -780,7 +780,7 @@ export default function ReportMortalityModal({
 
             {/* Predator Type Dropdown (if Predator Attack selected) */}
             {causeOfDeath === "Predator Attack" && (
-              <View style={styles.inputGroup}>
+              <View key="predator-section" style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Predator Type *</Text>
                 <TouchableOpacity
                   style={styles.dropdownButton}
@@ -820,7 +820,7 @@ export default function ReportMortalityModal({
 
             {/* Custom Predator (if Other selected in predator) */}
             {causeOfDeath === "Predator Attack" && predatorType === "Other" && (
-              <View style={styles.inputGroup}>
+              <View key="custom-predator-section" style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Specify Predator *</Text>
                 <TextInput
                   style={styles.input}
@@ -838,7 +838,7 @@ export default function ReportMortalityModal({
 
             {/* Custom Cause (if Other selected in cause) */}
             {causeOfDeath === "Other" && (
-              <View style={styles.inputGroup}>
+              <View key="custom-cause-section" style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Specify Cause *</Text>
                 <TextInput
                   style={styles.input}
