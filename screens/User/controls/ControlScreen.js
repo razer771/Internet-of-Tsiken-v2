@@ -700,6 +700,39 @@ export default function ControlScreen({ navigation }) {
 
   // Handle light toggle with Firestore sync
   const handleLightToggle = async (newValue) => {
+    // Only check hardware when turning ON
+    if (newValue) {
+      try {
+        // Simulate checking for lighting hardware connection
+        const isLightingConnected = false; // In real implementation, check actual hardware
+
+        if (!isLightingConnected) {
+          showMotorWarning(
+            "Lighting System Not Detected",
+            "Light controller not detected. Please check the connection.\n\nThe operation will be simulated.",
+          );
+          // Don't turn on if hardware not detected - keep it OFF
+          return;
+        }
+
+        // Log lighting activity
+        await logActivity("lightToggle", {
+          action: "Lighting turned ON",
+          description: "User turned on incandescent light",
+          status: isLightingConnected ? "Completed" : "Simulated",
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error("Lighting error:", error);
+        showMotorWarning(
+          "Error",
+          "Lighting system not detected. Please check the connection.",
+        );
+        // Don't turn on if error occurred
+        return;
+      }
+    }
+
     const lightStatus = newValue ? "On" : "Off";
     setLightOn(newValue);
 
@@ -713,7 +746,7 @@ export default function ControlScreen({ navigation }) {
       console.log("[Light] Toggle synced with Firestore:", lightStatus);
     } catch (error) {
       console.error("[Light] Error syncing with Firestore:", error);
-      setLightOn(!newValue); // Revert on error
+      // Don't revert state - keep the UI toggle working even if Firestore fails
     }
   };
 
@@ -1476,6 +1509,50 @@ export default function ControlScreen({ navigation }) {
     } finally {
       setIsSprinklerActive(false);
     }
+  };
+
+  const handleTestLighting = () => {
+    // Simply open the test lighting modal
+    setTestLightingModalVisible(true);
+  };
+
+  const handleTestLightToggle = async (newValue) => {
+    // Only check hardware when turning ON
+    if (newValue) {
+      try {
+        // Simulate checking for lighting hardware connection
+        const isLightingConnected = false; // In real implementation, check actual hardware
+
+        if (!isLightingConnected) {
+          showMotorWarning(
+            "Lighting System Not Detected",
+            "Light controller not detected. Please check the connection.\n\nThe operation will be simulated.",
+          );
+          // Don't turn on if hardware not detected - keep it OFF
+          return;
+        }
+
+        // Log test lighting activity
+        const currentUser = auth.currentUser;
+        await logActivity("lightingTest_logs", {
+          action: "Test lighting turned ON",
+          description: "User turned on test lighting",
+          status: isLightingConnected ? "Completed" : "Simulated",
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error("Test lighting error:", error);
+        showMotorWarning(
+          "Error",
+          "Lighting system not detected. Please check the connection.",
+        );
+        // Don't turn on if error occurred
+        return;
+      }
+    }
+
+    // Update the toggle state only if hardware check passed or turning OFF
+    setTestLightOn(newValue);
   };
 
   // Watering schedule handlers like feeding
@@ -2348,7 +2425,7 @@ export default function ControlScreen({ navigation }) {
           {/* New Test Lighting Button */}
           <TouchableOpacity
             style={[styles.testBtn, { marginTop: 10 }]}
-            onPress={() => setTestLightingModalVisible(true)}
+            onPress={handleTestLighting}
           >
             <Text style={styles.testBtnText}>Test Lighting</Text>
           </TouchableOpacity>
@@ -2360,25 +2437,50 @@ export default function ControlScreen({ navigation }) {
           <View
             style={[
               styles.innerBox,
-              { marginTop: 8, borderColor: BORDER_OVERLAY },
+              { 
+                marginTop: 8, 
+                borderColor: BORDER_OVERLAY, 
+                paddingVertical: 12,
+                paddingHorizontal: 12,
+                flexDirection: "column",
+              },
             ]}
           >
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Ionicons
-                name="sunny-outline"
-                size={18}
-                color="#333"
-                style={{ marginRight: 8 }}
-              />
-              <Text style={{ fontWeight: "600" }}>Incandescent Light</Text>
+            {/* Incandescent Light Control */}
+            <View style={{ width: '100%' }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Text style={{ fontWeight: "600", fontSize: 14 }}>Incandescent Light</Text>
+                <Switch
+                  value={lightOn}
+                  onValueChange={handleLightToggle}
+                  trackColor={{ false: "#B0B0B0", true: PRIMARY }}
+                  ios_backgroundColor="#B0B0B0"
+                  thumbColor="#fff"
+                />
+              </View>
             </View>
-            <Switch
-              value={lightOn}
-              onValueChange={handleLightToggle}
-              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
-              ios_backgroundColor="#B0B0B0"
-              thumbColor="#fff"
-            />
+
+            {/* Brightness Control */}
+            <View style={{ marginTop: 16, width: '100%' }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Text style={{ fontWeight: "600", fontSize: 14 }}>
+                  Brightness
+                </Text>
+                <Text style={{ fontWeight: "600", fontSize: 14, color: '#666' }}>
+                  {testBrightness}%
+                </Text>
+              </View>
+              <Slider
+                minimumValue={0}
+                maximumValue={100}
+                step={1}
+                value={testBrightness}
+                onValueChange={setTestBrightness}
+                minimumTrackTintColor={PRIMARY}
+                maximumTrackTintColor="#e2e8f0"
+                thumbTintColor={PRIMARY}
+              />
+            </View>
           </View>
         </View>
         {/* Power Schedule */}
@@ -3260,65 +3362,35 @@ export default function ControlScreen({ navigation }) {
           <View
             style={[styles.popupBox, { width: 320, alignItems: "stretch" }]}
           >
-            <Text
-              style={{ fontWeight: "700", fontSize: 16, textAlign: "center" }}
-            >
-              Test Lighting
-            </Text>
-            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
-              Adjust the brightness and toggle the light to test.
-            </Text>
-
-            {/* Light Toggle Switch */}
-            <View
-              style={{
-                marginVertical: 16,
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <Text style={{ fontWeight: "600", fontSize: 14 }}>
-                Light Status
-              </Text>
-              <Switch
-                value={testLightOn}
-                onValueChange={setTestLightOn}
-                trackColor={{ false: "#B0B0B0", true: PRIMARY }}
-                ios_backgroundColor="#B0B0B0"
-                thumbColor="#fff"
-              />
-            </View>
-
-            {/* Brightness Slider */}
-            <View style={{ marginVertical: 12 }}>
+            {/* Header with Close Button */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <Text
-                style={{
-                  fontWeight: "600",
-                  marginBottom: 6,
-                  textAlign: "center",
-                }}
+                style={{ fontWeight: "700", fontSize: 16 }}
               >
-                Brightness: {testBrightness}%
+                Test Lighting
               </Text>
-              <Slider
-                minimumValue={0}
-                maximumValue={100}
-                step={1}
-                value={testBrightness}
-                onValueChange={setTestBrightness}
-                minimumTrackTintColor={PRIMARY}
-                maximumTrackTintColor="#e2e8f0"
-                thumbTintColor={PRIMARY}
-                disabled={!testLightOn}
-                style={{ opacity: testLightOn ? 1 : 0.5 }}
-              />
+              <TouchableOpacity
+                onPress={() => setTestLightingModalVisible(false)}
+                style={{ padding: 4 }}
+              >
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
             </View>
+            
+            {/* Toggle Button */}
             <TouchableOpacity
-              style={[styles.primaryBtn, { marginTop: 10 }]}
-              onPress={() => setTestLightingModalVisible(false)}
+              style={[
+                styles.primaryBtn,
+                { 
+                  marginTop: 10,
+                  backgroundColor: testLightOn ? '#4CAF50' : '#F44336'
+                }
+              ]}
+              onPress={() => handleTestLightToggle(!testLightOn)}
             >
-              <Text style={styles.primaryBtnText}>Close</Text>
+              <Text style={styles.primaryBtnText}>
+                {testLightOn ? 'ON' : 'OFF'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
