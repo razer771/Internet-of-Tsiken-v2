@@ -160,70 +160,78 @@ export default function AdminDashboard() {
       let detectionCount = 0;
       let latestDetection = null;
 
-      // Try to fetch from predator_detections or detection_logs collection
+      // Fetch from /predatorAttacks/{batchId}/attacks/ structure
       try {
-        const detectionsRef = collection(db, "predator_detections");
-        const detectionsSnapshot = await getDocs(detectionsRef);
+        const predatorAttacksRef = collection(db, "predatorAttacks");
+        const batchesSnapshot = await getDocs(predatorAttacksRef);
 
-        detectionsSnapshot.forEach((doc) => {
-          const data = doc.data();
-          let detectionDate;
-
-          if (data.timestamp) {
-            if (data.timestamp.toDate) {
-              detectionDate = data.timestamp.toDate();
-            } else if (data.timestamp.seconds) {
-              detectionDate = new Date(data.timestamp.seconds * 1000);
-            } else if (data.timestamp instanceof Date) {
-              detectionDate = data.timestamp;
-            }
-
-            if (detectionDate && detectionDate >= sevenDaysAgo) {
-              detectionCount++;
-
-              // Track the most recent detection
-              if (!latestDetection || detectionDate > latestDetection) {
-                latestDetection = detectionDate;
-              }
-            }
-          }
-        });
-      } catch (e) {
         console.log(
-          "No predator_detections collection found, trying camera_logs...",
+          `Found ${batchesSnapshot.docs.length} batches in predatorAttacks`,
         );
 
-        // Fallback: try camera_logs or object_detection_logs
-        try {
-          const cameraLogsRef = collection(db, "camera_logs");
-          const cameraQuery = query(
-            cameraLogsRef,
-            where("type", "==", "predator_detected"),
-          );
-          const cameraSnapshot = await getDocs(cameraQuery);
+        // Iterate through each batch and fetch its attacks subcollection
+        for (const batchDoc of batchesSnapshot.docs) {
+          const batchId = batchDoc.id;
 
-          cameraSnapshot.forEach((doc) => {
-            const data = doc.data();
-            let detectionDate;
+          try {
+            // Fetch attacks subcollection for this batch
+            const attacksRef = collection(
+              db,
+              "predatorAttacks",
+              batchId,
+              "attacks",
+            );
+            const attacksSnapshot = await getDocs(attacksRef);
 
-            if (data.timestamp) {
-              if (data.timestamp.toDate) {
-                detectionDate = data.timestamp.toDate();
-              } else if (data.timestamp.seconds) {
-                detectionDate = new Date(data.timestamp.seconds * 1000);
-              }
+            console.log(
+              `Found ${attacksSnapshot.docs.length} attacks in batch ${batchId}`,
+            );
 
-              if (detectionDate && detectionDate >= sevenDaysAgo) {
-                detectionCount++;
-                if (!latestDetection || detectionDate > latestDetection) {
-                  latestDetection = detectionDate;
+            // Process attacks and filter by last 7 days
+            attacksSnapshot.docs.forEach((doc) => {
+              const data = doc.data();
+              const attackDatetime = data.attack_datetime;
+
+              if (!attackDatetime) return;
+
+              // Convert Firestore Timestamp to Date
+              let attackDate;
+              try {
+                if (
+                  attackDatetime.toDate &&
+                  typeof attackDatetime.toDate === "function"
+                ) {
+                  attackDate = attackDatetime.toDate();
+                } else if (attackDatetime.seconds) {
+                  attackDate = new Date(attackDatetime.seconds * 1000);
+                } else if (attackDatetime instanceof Date) {
+                  attackDate = attackDatetime;
+                } else {
+                  attackDate = new Date(attackDatetime);
                 }
+
+                // Validate date and check if within last 7 days
+                if (
+                  !isNaN(attackDate.getTime()) &&
+                  attackDate >= sevenDaysAgo
+                ) {
+                  detectionCount++;
+
+                  // Track the most recent detection
+                  if (!latestDetection || attackDate > latestDetection) {
+                    latestDetection = attackDate;
+                  }
+                }
+              } catch (error) {
+                console.warn("Error processing attack timestamp:", error);
               }
-            }
-          });
-        } catch (err) {
-          console.log("No camera_logs collection found either");
+            });
+          } catch (error) {
+            console.warn(`Error fetching attacks for batch ${batchId}:`, error);
+          }
         }
+      } catch (e) {
+        console.warn("Error fetching predatorAttacks collection:", e);
       }
 
       setPredatorDetections(detectionCount);
@@ -496,7 +504,7 @@ export default function AdminDashboard() {
               {predatorDetections === 0
                 ? "No threats detected"
                 : lastDetectionTime
-                  ? `Last: ${getRelativeTime(lastDetectionTime)}`
+                  ? `Last detected: ${getRelativeTime(lastDetectionTime)}`
                   : "Last 7 days"}
             </Text>
           </View>

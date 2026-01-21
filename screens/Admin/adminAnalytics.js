@@ -212,6 +212,22 @@ export default function AdminAnalytics({ navigation }) {
   const [causeExportSelectedDate, setCauseExportSelectedDate] = useState("");
   const [isGeneratingCauseReport, setIsGeneratingCauseReport] = useState(false);
 
+  // Export mortality per batch modal state
+  const [exportBatchModalVisible, setExportBatchModalVisible] = useState(false);
+  const [batchExportStartDate, setBatchExportStartDate] = useState(null);
+  const [batchExportEndDate, setBatchExportEndDate] = useState(null);
+  const [isGeneratingBatchReport, setIsGeneratingBatchReport] = useState(false);
+
+  // Export attacks per batch modal state
+  const [exportAttacksBatchModalVisible, setExportAttacksBatchModalVisible] =
+    useState(false);
+  const [attacksBatchExportStartDate, setAttacksBatchExportStartDate] =
+    useState(null);
+  const [attacksBatchExportEndDate, setAttacksBatchExportEndDate] =
+    useState(null);
+  const [isGeneratingAttacksBatchReport, setIsGeneratingAttacksBatchReport] =
+    useState(false);
+
   // Cause of Death state
   const [causeOfDeathData, setCauseOfDeathData] = useState([
     { name: "Predatory Attack", population: 0, color: "#154785" },
@@ -219,6 +235,22 @@ export default function AdminAnalytics({ navigation }) {
     { name: "Dehydration", population: 0, color: "#F44336" },
     { name: "Other", population: 0, color: "#4CAF50" },
   ]);
+
+  // Mortality per Batch state
+  const [mortalityBatchData, setMortalityBatchData] = useState([]);
+
+  // Predator Attacks state
+  const [predatorAttacksData, setPredatorAttacksData] = useState([]);
+  const [totalPredatorAttacks, setTotalPredatorAttacks] = useState(0);
+  const [attacksPerBatchData, setAttacksPerBatchData] = useState([]);
+
+  // Export predator attacks modal state
+  const [exportPredatorModalVisible, setExportPredatorModalVisible] =
+    useState(false);
+  const [predatorExportStartDate, setPredatorExportStartDate] = useState(null);
+  const [predatorExportEndDate, setPredatorExportEndDate] = useState(null);
+  const [isGeneratingPredatorReport, setIsGeneratingPredatorReport] =
+    useState(false);
 
   const formatFilterDisplay = (filterData) => {
     if (!filterData) return "";
@@ -866,6 +898,553 @@ export default function AdminAnalytics({ navigation }) {
   };
 
   /**
+   * Fetch predator attacks from /predatorAttacks/{Batch 1}/attacks/
+   * Extract attack_datetime field, group by date, count attacks per date
+   * Returns array of { date: "MMM DD", count: <number> }
+   */
+  const fetchPredatorAttacksData = async (filterData = null) => {
+    try {
+      console.log(
+        "[FetchPredatorAttacks] Starting fetch with filter:",
+        filterData,
+      );
+
+      // Determine date range
+      let startDate, endDate;
+
+      if (filterData && filterData.startDate && filterData.endDate) {
+        // Parse filter date strings (format: YYYY-MM-DD)
+        const [startYear, startMonth, startDay] = filterData.startDate
+          .split("-")
+          .map(Number);
+        const [endYear, endMonth, endDay] = filterData.endDate
+          .split("-")
+          .map(Number);
+
+        startDate = new Date(startYear, startMonth - 1, startDay);
+        endDate = new Date(endYear, endMonth - 1, endDay);
+        endDate.setHours(23, 59, 59, 999); // Include entire end day
+      } else {
+        // Default: last 7 days
+        endDate = new Date();
+        endDate.setHours(23, 59, 59, 999);
+        startDate = new Date(endDate);
+        startDate.setDate(startDate.getDate() - 6); // -6 to include today as day 7
+        startDate.setHours(0, 0, 0, 0);
+      }
+
+      console.log(
+        "[FetchPredatorAttacks] Date range:",
+        startDate.toISOString(),
+        "to",
+        endDate.toISOString(),
+      );
+
+      // Create all dates in range with count 0
+      const monthNames = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+
+      const attacksByDate = {};
+      const currentDate = new Date(startDate);
+
+      while (currentDate <= endDate) {
+        const month = monthNames[currentDate.getMonth()];
+        const day = currentDate.getDate();
+        const dateKey = `${month} ${day.toString().padStart(2, "0")}`;
+
+        attacksByDate[dateKey] = {
+          date: dateKey,
+          count: 0,
+          rawDate: new Date(currentDate),
+        };
+
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+
+      console.log(
+        "[FetchPredatorAttacks] Initialized date range:",
+        Object.keys(attacksByDate),
+      );
+
+      // Fetch all batch documents from /predatorAttacks/
+      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
+      const batchesSnapshot = await getDocs(predatorAttacksRef);
+
+      console.log(
+        `[FetchPredatorAttacks] Found ${batchesSnapshot.docs.length} batches in predatorAttacks`,
+      );
+
+      let totalAttacksProcessed = 0;
+
+      // Iterate through each batch and fetch its attacks subcollection
+      for (const batchDoc of batchesSnapshot.docs) {
+        const batchId = batchDoc.id;
+        console.log(`[FetchPredatorAttacks] Processing batch: ${batchId}`);
+
+        try {
+          // Fetch attacks subcollection for this batch
+          const attacksRef = collection(
+            firestoreDb,
+            "predatorAttacks",
+            batchId,
+            "attacks",
+          );
+          const attacksSnapshot = await getDocs(attacksRef);
+
+          console.log(
+            `[FetchPredatorAttacks] Found ${attacksSnapshot.docs.length} attack documents in batch ${batchId}`,
+          );
+
+          // Process attacks and increment counts for dates in range
+          attacksSnapshot.docs.forEach((doc) => {
+            const data = doc.data();
+            const attackDatetime = data.attack_datetime;
+
+            if (!attackDatetime) {
+              console.warn(
+                `[FetchPredatorAttacks] Document ${doc.id} in batch ${batchId} missing attack_datetime`,
+              );
+              return;
+            }
+
+            // Convert Firestore Timestamp to Date
+            let attackDate;
+            try {
+              if (
+                attackDatetime.toDate &&
+                typeof attackDatetime.toDate === "function"
+              ) {
+                attackDate = attackDatetime.toDate();
+              } else if (attackDatetime.seconds) {
+                attackDate = new Date(attackDatetime.seconds * 1000);
+              } else if (attackDatetime instanceof Date) {
+                attackDate = attackDatetime;
+              } else {
+                attackDate = new Date(attackDatetime);
+              }
+
+              // Validate that we got a valid date
+              if (isNaN(attackDate.getTime())) {
+                console.warn(
+                  `[FetchPredatorAttacks] Document ${doc.id} in batch ${batchId} has invalid date:`,
+                  attackDatetime,
+                );
+                return;
+              }
+
+              // Check if attack date is within filter range
+              if (attackDate < startDate || attackDate > endDate) {
+                console.log(
+                  `[FetchPredatorAttacks] Skipping attack in batch ${batchId} outside date range: ${attackDate}`,
+                );
+                return;
+              }
+
+              const month = monthNames[attackDate.getMonth()];
+              const day = attackDate.getDate();
+
+              // Additional validation
+              if (!month || isNaN(day)) {
+                console.warn(
+                  `[FetchPredatorAttacks] Document ${doc.id} in batch ${batchId} produced invalid month/day:`,
+                  { month, day, attackDate },
+                );
+                return;
+              }
+
+              const dateKey = `${month} ${day.toString().padStart(2, "0")}`;
+
+              // Increment count for this date (it already exists from initialization)
+              if (attacksByDate[dateKey]) {
+                attacksByDate[dateKey].count++;
+                totalAttacksProcessed++;
+                console.log(
+                  `[FetchPredatorAttacks] Processed attack in batch ${batchId} on ${dateKey}, total count now: ${attacksByDate[dateKey].count}`,
+                );
+              }
+            } catch (error) {
+              console.warn(
+                `[FetchPredatorAttacks] Error processing attack_datetime for document ${doc.id} in batch ${batchId}:`,
+                error,
+              );
+            }
+          });
+        } catch (error) {
+          console.warn(
+            `[FetchPredatorAttacks] Error fetching attacks for batch ${batchId}:`,
+            error,
+          );
+        }
+      }
+
+      console.log(
+        `[FetchPredatorAttacks] Total attacks processed across all batches: ${totalAttacksProcessed}`,
+      );
+
+      // Convert to array and sort by date
+      const attacksArray = Object.values(attacksByDate)
+        .sort((a, b) => a.rawDate - b.rawDate)
+        .map(({ date, count }) => ({ date, count }));
+
+      console.log(
+        "[FetchPredatorAttacks] Final attacks by date:",
+        attacksArray,
+      );
+
+      setPredatorAttacksData(attacksArray);
+      return attacksArray;
+    } catch (error) {
+      console.error("[FetchPredatorAttacks] Error:", error);
+      setPredatorAttacksData([]);
+      return [];
+    }
+  };
+
+  /**
+   * Fetch total predator attacks count from all batches
+   * Queries all subcollections "attacks" under every batch inside "predatorAttacks"
+   * Returns total count of all attack documents across all batches
+   */
+  const fetchTotalPredatorAttacksCount = async () => {
+    try {
+      console.log("[FetchTotalPredatorAttacks] Starting count fetch...");
+
+      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
+      const batchesSnapshot = await getDocs(predatorAttacksRef);
+
+      let totalAttacks = 0;
+
+      console.log(
+        `[FetchTotalPredatorAttacks] Found ${batchesSnapshot.docs.length} batches`,
+      );
+
+      // Iterate through each batch and fetch its attacks subcollection
+      for (const batchDoc of batchesSnapshot.docs) {
+        const batchId = batchDoc.id;
+
+        try {
+          // Fetch attacks subcollection for this batch
+          const attacksRef = collection(
+            firestoreDb,
+            "predatorAttacks",
+            batchId,
+            "attacks",
+          );
+          const attacksSnapshot = await getDocs(attacksRef);
+
+          const batchAttackCount = attacksSnapshot.docs.length;
+          totalAttacks += batchAttackCount;
+
+          console.log(
+            `[FetchTotalPredatorAttacks] Batch ${batchId}: ${batchAttackCount} attacks`,
+          );
+        } catch (error) {
+          console.warn(
+            `[FetchTotalPredatorAttacks] Error fetching attacks for batch ${batchId}:`,
+            error,
+          );
+        }
+      }
+
+      console.log(
+        `[FetchTotalPredatorAttacks] Total attacks across all batches: ${totalAttacks}`,
+      );
+
+      setTotalPredatorAttacks(totalAttacks);
+      return totalAttacks;
+    } catch (error) {
+      console.error("[FetchTotalPredatorAttacks] Error:", error);
+      setTotalPredatorAttacks(0);
+      return 0;
+    }
+  };
+
+  /**
+   * Fetch attacks per batch from /predatorAttacks/{batchId}/attacks/
+   * Queries all batches, counts attacks per batch (filtered by date range if provided)
+   * Returns sorted array
+   */
+  const fetchAttacksPerBatchData = async (dateFilter = null) => {
+    try {
+      console.log(
+        "[FetchAttacksPerBatch] Starting fetch...",
+        dateFilter
+          ? `from ${dateFilter.startDate} to ${dateFilter.endDate}`
+          : "no filter",
+      );
+
+      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
+      const batchesSnapshot = await getDocs(predatorAttacksRef);
+
+      const batchAttackMap = {};
+
+      console.log(
+        `[FetchAttacksPerBatch] Found ${batchesSnapshot.docs.length} batches`,
+      );
+
+      // Parse date range if provided
+      let startDateObj = null;
+      let endDateObj = null;
+      if (dateFilter && dateFilter.startDate && dateFilter.endDate) {
+        const [startYear, startMonth, startDay] = dateFilter.startDate
+          .split("-")
+          .map(Number);
+        startDateObj = new Date(startYear, startMonth - 1, startDay, 0, 0, 0);
+
+        const [endYear, endMonth, endDay] = dateFilter.endDate
+          .split("-")
+          .map(Number);
+        endDateObj = new Date(endYear, endMonth - 1, endDay, 23, 59, 59);
+
+        console.log(
+          `[FetchAttacksPerBatch] Filtering between ${startDateObj} and ${endDateObj}`,
+        );
+      }
+
+      // Iterate through each batch and fetch its attacks subcollection
+      for (const batchDoc of batchesSnapshot.docs) {
+        const batchId = batchDoc.id;
+
+        try {
+          // Fetch attacks subcollection for this batch
+          const attacksRef = collection(
+            firestoreDb,
+            "predatorAttacks",
+            batchId,
+            "attacks",
+          );
+          const attacksSnapshot = await getDocs(attacksRef);
+
+          // Filter attacks by date range if provided
+          let attackCount = 0;
+          attacksSnapshot.docs.forEach((doc) => {
+            if (startDateObj && endDateObj) {
+              const data = doc.data();
+              let attackDate = null;
+
+              // Convert attack_datetime to Date
+              if (data.attack_datetime?.toDate) {
+                attackDate = data.attack_datetime.toDate();
+              } else if (data.attack_datetime?.seconds) {
+                attackDate = new Date(data.attack_datetime.seconds * 1000);
+              } else if (data.attack_datetime) {
+                attackDate = new Date(data.attack_datetime);
+              }
+
+              // Count only if within date range
+              if (
+                attackDate &&
+                attackDate >= startDateObj &&
+                attackDate <= endDateObj
+              ) {
+                attackCount++;
+              }
+            } else {
+              // No filter, count all attacks
+              attackCount++;
+            }
+          });
+
+          batchAttackMap[batchId] = attackCount;
+
+          console.log(
+            `[FetchAttacksPerBatch] Batch ${batchId}: ${attackCount} attacks`,
+          );
+        } catch (error) {
+          console.warn(
+            `[FetchAttacksPerBatch] Error fetching attacks for batch ${batchId}:`,
+            error,
+          );
+          batchAttackMap[batchId] = 0;
+        }
+      }
+
+      // Convert map to sorted array
+      const batchArray = Object.entries(batchAttackMap)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([batchId, attacks]) => ({
+          batchId,
+          attacks,
+        }));
+
+      console.log(
+        "[FetchAttacksPerBatch] Final batch attack data:",
+        batchArray,
+      );
+
+      setAttacksPerBatchData(batchArray);
+      return batchArray;
+    } catch (error) {
+      console.error("[FetchAttacksPerBatch] Error:", error);
+      setAttacksPerBatchData([]);
+      return [];
+    }
+  };
+
+  /**
+   * Fetch and calculate mortality per batch statistics filtered by date range
+   *
+   * Fetches all records from /mortality/{BatchId}/records and sums the count field
+   * for each batch within the selected date range (based on createdAt/timestamp field)
+   * Returns array of batch data with total deaths per batch
+   */
+  const fetchMortalityBatchData = async (filterData = null) => {
+    try {
+      console.log(
+        "[FetchMortalityPerBatch] Starting fetch with filter:",
+        filterData,
+      );
+
+      // Determine date range
+      let startDate, endDate;
+
+      if (filterData && filterData.startDate && filterData.endDate) {
+        // Parse filter date strings (format: YYYY-MM-DD)
+        const [startYear, startMonth, startDay] = filterData.startDate
+          .split("-")
+          .map(Number);
+        const [endYear, endMonth, endDay] = filterData.endDate
+          .split("-")
+          .map(Number);
+
+        startDate = new Date(startYear, startMonth - 1, startDay);
+        endDate = new Date(endYear, endMonth - 1, endDay);
+        endDate.setHours(23, 59, 59, 999); // Include entire end day
+      } else {
+        // Default: last 7 days
+        endDate = new Date();
+        endDate.setHours(23, 59, 59, 999);
+        startDate = new Date(endDate);
+        startDate.setDate(startDate.getDate() - 6); // -6 to include today as day 7
+        startDate.setHours(0, 0, 0, 0);
+      }
+
+      console.log(
+        "[FetchMortalityPerBatch] Date range:",
+        startDate.toISOString(),
+        "to",
+        endDate.toISOString(),
+      );
+
+      // Get all batches from brooderInfo to know what batches exist
+      const brooderCollection = collection(firestoreDb, "brooderInfo");
+      const brooderDocs = await getDocs(brooderCollection);
+
+      const batchDeathsMap = {}; // Map to store total deaths per batch
+
+      // For each batch, fetch mortality records and sum the count
+      for (const batchDoc of brooderDocs.docs) {
+        const batchId = batchDoc.id;
+        const batchData = batchDoc.data();
+        const batchName = batchData.batchName || batchData.batch || batchId;
+
+        console.log(
+          `[FetchMortalityPerBatch] Processing batch: ${batchId}, name: ${batchName}`,
+        );
+
+        try {
+          // Fetch all mortality records for this batch
+          const mortalityRecordsRef = collection(
+            firestoreDb,
+            "mortality",
+            batchName,
+            "records",
+          );
+          const recordsSnapshot = await getDocs(mortalityRecordsRef);
+
+          let totalDeathsForBatch = 0;
+
+          // Process each record and sum the count
+          recordsSnapshot.docs.forEach((recordDoc) => {
+            const recordData = recordDoc.data();
+            const count = recordData.count || 0;
+
+            // Parse timestamp (report date) for date filtering
+            let recordDate = null;
+            if (recordData.timestamp) {
+              if (recordData.timestamp.toDate) {
+                recordDate = recordData.timestamp.toDate();
+              } else if (recordData.timestamp.seconds) {
+                recordDate = new Date(recordData.timestamp.seconds * 1000);
+              }
+            }
+
+            // Also try using createdAt as fallback
+            if (!recordDate && recordData.createdAt) {
+              if (recordData.createdAt.toDate) {
+                recordDate = recordData.createdAt.toDate();
+              } else if (recordData.createdAt.seconds) {
+                recordDate = new Date(recordData.createdAt.seconds * 1000);
+              }
+            }
+
+            // Filter by date range
+            if (recordDate) {
+              // Convert UTC timestamp to GMT+8 for comparison
+              const recordDateGMT8 = new Date(
+                recordDate.getTime() + 8 * 60 * 60 * 1000,
+              );
+              const recordDateOnly = new Date(
+                recordDateGMT8.getFullYear(),
+                recordDateGMT8.getMonth(),
+                recordDateGMT8.getDate(),
+              );
+
+              if (recordDateOnly >= startDate && recordDateOnly <= endDate) {
+                totalDeathsForBatch += count;
+              }
+            }
+          });
+
+          // Store batch data with total deaths
+          batchDeathsMap[batchName] = {
+            batchId: batchName,
+            deaths: totalDeathsForBatch,
+          };
+
+          console.log(
+            `[FetchMortalityPerBatch] Batch ${batchName}: ${totalDeathsForBatch} total deaths`,
+          );
+        } catch (error) {
+          console.warn(
+            `[FetchMortalityPerBatch] Error fetching mortality for ${batchName}:`,
+            error,
+          );
+          // Initialize with 0 deaths if error
+          batchDeathsMap[batchName] = {
+            batchId: batchName,
+            deaths: 0,
+          };
+        }
+      }
+
+      // Convert map to sorted array
+      const batchArray = Object.values(batchDeathsMap).sort((a, b) =>
+        a.batchId.localeCompare(b.batchId),
+      );
+
+      console.log("[FetchMortalityPerBatch] Final batch data:", batchArray);
+
+      setMortalityBatchData(batchArray);
+    } catch (error) {
+      console.error("[FetchMortalityPerBatch] Error:", error);
+      setMortalityBatchData([]);
+    }
+  };
+
+  /**
    * Fetch and calculate cause of death statistics filtered by date range
    *
    * Counts occurrences of each cause and calculates percentages
@@ -1457,6 +2036,997 @@ export default function AdminAnalytics({ navigation }) {
       Alert.alert("Error", "Failed to generate report: " + error.message);
     } finally {
       setIsGeneratingReport(false);
+    }
+  };
+
+  /**
+   * Generate Mortality Per Batch Report PDF
+   * Fetches mortality records for each batch for the selected date range,
+   * sums the count for each batch, and generates a PDF report.
+   */
+  const generateMortalityBatchReportPDF = async () => {
+    if (!batchExportStartDate || !batchExportEndDate) {
+      Alert.alert("Error", "Please select both start and end dates");
+      return;
+    }
+
+    setIsGeneratingBatchReport(true);
+    try {
+      // Fetch batch mortality data for export date range
+      const brooderCollection = collection(firestoreDb, "brooderInfo");
+      const brooderDocs = await getDocs(brooderCollection);
+
+      const batchTableRows = [];
+
+      // For each batch, fetch mortality records and calculate totals
+      for (const batchDoc of brooderDocs.docs) {
+        const batchId = batchDoc.id;
+        const batchData = batchDoc.data();
+        const batchName = batchData.batchName || batchData.batch || batchId;
+
+        try {
+          // Fetch all mortality records for this batch
+          const mortalityRecordsRef = collection(
+            firestoreDb,
+            "mortality",
+            batchName,
+            "records",
+          );
+          const recordsSnapshot = await getDocs(mortalityRecordsRef);
+
+          let totalDeathsForBatch = 0;
+          let recordCount = 0;
+
+          // Process each record and sum the count
+          recordsSnapshot.docs.forEach((recordDoc) => {
+            const recordData = recordDoc.data();
+            const count = recordData.count || 0;
+
+            // Parse timestamp (report date) for date filtering
+            let recordDate = null;
+            if (recordData.timestamp) {
+              if (recordData.timestamp.toDate) {
+                recordDate = recordData.timestamp.toDate();
+              } else if (recordData.timestamp.seconds) {
+                recordDate = new Date(recordData.timestamp.seconds * 1000);
+              }
+            }
+
+            // Also try using createdAt as fallback
+            if (!recordDate && recordData.createdAt) {
+              if (recordData.createdAt.toDate) {
+                recordDate = recordData.createdAt.toDate();
+              } else if (recordData.createdAt.seconds) {
+                recordDate = new Date(recordData.createdAt.seconds * 1000);
+              }
+            }
+
+            // Filter by date range
+            if (recordDate) {
+              const startDateObj = new Date(batchExportStartDate);
+              const endDateObj = new Date(batchExportEndDate);
+              endDateObj.setHours(23, 59, 59, 999);
+
+              // Convert UTC timestamp to GMT+8 for comparison
+              const recordDateGMT8 = new Date(
+                recordDate.getTime() + 8 * 60 * 60 * 1000,
+              );
+              const recordDateOnly = new Date(
+                recordDateGMT8.getFullYear(),
+                recordDateGMT8.getMonth(),
+                recordDateGMT8.getDate(),
+              );
+
+              if (
+                recordDateOnly >= startDateObj &&
+                recordDateOnly <= endDateObj
+              ) {
+                totalDeathsForBatch += count;
+                recordCount++;
+              }
+            }
+          });
+
+          batchTableRows.push({
+            batchName,
+            totalDeaths: totalDeathsForBatch,
+            recordCount,
+          });
+        } catch (error) {
+          console.warn(
+            `[Export] Error fetching mortality for ${batchName}:`,
+            error,
+          );
+          batchTableRows.push({
+            batchName,
+            totalDeaths: 0,
+            recordCount: 0,
+          });
+        }
+      }
+
+      // Check if any data exists
+      const totalDeaths = batchTableRows.reduce(
+        (sum, row) => sum + row.totalDeaths,
+        0,
+      );
+      if (totalDeaths === 0) {
+        Alert.alert(
+          "No Data",
+          "No mortality data found for the selected date range",
+        );
+        setIsGeneratingBatchReport(false);
+        return;
+      }
+
+      // Load logo
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        },
+      );
+
+      // Create table rows HTML
+      let tableRowsHtml = "";
+      batchTableRows.forEach((row, index) => {
+        tableRowsHtml += `
+          <tr>
+            <td width: 25px;">${index + 1}</td>
+            <td width: 120px;">${row.batchName}</td>
+            <td style="text-align: center; width: 120px;">${row.totalDeaths}</td>
+          </tr>
+        `;
+      });
+
+      // Add total row
+      tableRowsHtml += `
+        <tr style="background-color: #dbdde0; color: white; font-weight: bold;">
+          <td colspan="2" style="text-align: right; padding: 8px;">Total</td>
+          <td style="text-align: center; width: 120px; padding: 8px;">${totalDeaths}</td>
+        </tr>
+      `;
+
+      // Generate HTML
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            @page {
+              size: A4;
+              margin: 0.3in 0.5in 0.3in 0.5in;
+            }
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 0;
+            }
+            .header {
+              margin-bottom: 20px;
+              border-bottom: 2px solid #133E87;
+              padding-bottom: 15px;
+            }
+            .header-top {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-bottom: 10px;
+            }
+            .logo {
+              width: 50px;
+              height: 50px;
+              border-radius: 25px;
+              margin-right: 15px;
+            }
+            .company-name {
+              font-size: 24px;
+              font-weight: bold;
+              color: #133E87;
+            }
+            .report-title {
+              font-size: 16px;
+              color: #333;
+              text-align: center;
+              margin-bottom: 15px;
+              font-weight: bold;
+            }
+            .filter-info {
+              font-size: 12px;
+              color: #666;
+              margin-bottom: 10px;
+              text-align: center;
+            }
+            .table-container {
+              display: flex;
+              justify-content: center;
+              margin-bottom: 20px;
+            }
+            table {
+              width: 500px;
+              border-collapse: collapse;
+              margin-bottom: 20px;
+              font-size: 12px;
+            }
+            th {
+              background-color: #133E87;
+              color: white;
+              padding: 8px;
+              text-align: left;
+              border: 1px solid #ddd;
+              font-weight: bold;
+            }
+            td {
+              padding: 6px;
+              border: 1px solid #ddd;
+              color: #333;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            .page-number {
+              text-align: center;
+              font-size: 10px;
+              color: #666;
+              margin-top: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="header-top">
+              <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
+              <div class="company-name">Internet of Tsiken</div>
+            </div>
+            <div class="report-title">Mortality Per Batch Report</div>
+            <div class="filter-info">
+              Date Range: ${new Date(batchExportStartDate).toLocaleDateString()} to ${new Date(batchExportEndDate).toLocaleDateString()}<br>
+              Report Generated: ${new Date().toLocaleString()}<br>
+              Total Deaths: ${totalDeaths}
+            </div>
+          </div>
+          
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 25px;">No</th>
+                  <th>Batch</th>
+                  <th style="text-align: center; width: 120px;">Deaths</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </body>
+        </html>
+      `;
+
+      // Generate PDF
+      const pdf = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+      });
+
+      // Create custom filename with date
+      const formatDate = (date) => {
+        const d = new Date(date);
+        const day = String(d.getDate()).padStart(2, "0");
+        const months = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        const month = months[d.getMonth()];
+        const year = d.getFullYear();
+        return `${day}-${month}-${year}`;
+      };
+
+      const customFilename = `MortalityPerBatchReport_${formatDate(batchExportStartDate)}_to_${formatDate(batchExportEndDate)}.pdf`;
+      const newPath = `${FileSystem.documentDirectory}${customFilename}`;
+
+      // Copy the PDF to a new location with custom name
+      await FileSystem.copyAsync({
+        from: pdf.uri,
+        to: newPath,
+      });
+
+      // Log report generation to audit trail
+      await logReportGeneration(customFilename, "Mortality Per Batch Report");
+
+      // Share PDF with custom filename
+      await Sharing.shareAsync(newPath);
+
+      setExportBatchModalVisible(false);
+    } catch (error) {
+      console.error("Error generating batch report:", error);
+      Alert.alert("Error", "Failed to generate report: " + error.message);
+    } finally {
+      setIsGeneratingBatchReport(false);
+    }
+  };
+
+  /**
+   * Generate Predator Attacks Report PDF
+   * Fetches all predator attacks from all batches for the selected date range
+   */
+  const generatePredatorAttacksReportPDF = async () => {
+    if (!predatorExportStartDate || !predatorExportEndDate) {
+      Alert.alert("Error", "Please select both start and end dates.");
+      return;
+    }
+
+    setIsGeneratingPredatorReport(true);
+    try {
+      console.log("[GeneratePredatorReport] Starting PDF generation...");
+
+      const startDate = new Date(predatorExportStartDate);
+      const endDate = new Date(predatorExportEndDate);
+      endDate.setHours(23, 59, 59, 999);
+
+      // Fetch all batches from predatorAttacks
+      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
+      const batchesSnapshot = await getDocs(predatorAttacksRef);
+
+      let allAttacks = [];
+
+      // Fetch attacks from each batch
+      for (const batchDoc of batchesSnapshot.docs) {
+        const batchId = batchDoc.id;
+        const attacksRef = collection(
+          firestoreDb,
+          "predatorAttacks",
+          batchId,
+          "attacks",
+        );
+        const attacksSnapshot = await getDocs(attacksRef);
+
+        attacksSnapshot.docs.forEach((doc) => {
+          const data = doc.data();
+          let attackDate;
+
+          // Convert attack_datetime to Date
+          if (data.attack_datetime?.toDate) {
+            attackDate = data.attack_datetime.toDate();
+          } else if (data.attack_datetime?.seconds) {
+            attackDate = new Date(data.attack_datetime.seconds * 1000);
+          } else {
+            attackDate = new Date(data.attack_datetime);
+          }
+
+          // Filter by date range
+          if (attackDate >= startDate && attackDate <= endDate) {
+            allAttacks.push({
+              ...data,
+              attackDate,
+              batchId,
+            });
+          }
+        });
+      }
+
+      // Sort by date (newest first)
+      allAttacks.sort((a, b) => b.attackDate - a.attackDate);
+
+      console.log(
+        `[GeneratePredatorReport] Found ${allAttacks.length} attacks`,
+      );
+
+      if (allAttacks.length === 0) {
+        Alert.alert(
+          "No Data",
+          "No predator attacks found in the selected date range.",
+        );
+        return;
+      }
+
+      // Calculate summary statistics
+      const attacksByDate = {};
+      const attacksByPredator = {};
+
+      allAttacks.forEach((attack) => {
+        const dateKey = attack.attackDate.toDateString();
+        attacksByDate[dateKey] = (attacksByDate[dateKey] || 0) + 1;
+
+        const predator = attack.predator_type || "Unknown";
+        attacksByPredator[predator] = (attacksByPredator[predator] || 0) + 1;
+      });
+
+      const peakDay = Object.keys(attacksByDate).reduce((a, b) =>
+        attacksByDate[a] > attacksByDate[b] ? a : b,
+      );
+      const peakDayFormatted = new Date(peakDay).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+
+      const mostFrequentPredator = Object.keys(attacksByPredator).reduce(
+        (a, b) => (attacksByPredator[a] > attacksByPredator[b] ? a : b),
+      );
+
+      // Load logo
+      let logoBase64 = "";
+      try {
+        const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+        await logoAsset.downloadAsync();
+        logoBase64 = await FileSystem.readAsStringAsync(logoAsset.localUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      } catch (logoError) {
+        console.warn("[GeneratePredatorReport] Logo load warning:", logoError);
+        // Continue without logo if it fails
+      }
+
+      // Format dates for display
+      const formatDateTime = (date) => {
+        const months = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        const day = date.getDate();
+        const month = months[date.getMonth()];
+        const year = date.getFullYear();
+        const hours = date.getHours();
+        const minutes = String(date.getMinutes()).padStart(2, "0");
+        const ampm = hours >= 12 ? "PM" : "AM";
+        const displayHours = hours % 12 || 12;
+        return {
+          date: `${month} ${day}, ${year}`,
+          time: `${displayHours}:${minutes} ${ampm}`,
+        };
+      };
+
+      // Build HTML table
+      let tableRows = "";
+      allAttacks.forEach((attack, index) => {
+        const dateTime = formatDateTime(attack.attackDate);
+        const evidenceThumbnail = attack.evidence_url
+          ? `<a href="${attack.evidence_url}" target="_blank"><img src="${attack.evidence_url}" style="width: 50px; height: 50px; object-fit: cover; border-radius: 4px; cursor: pointer;" /></a>`
+          : "No evidence";
+
+        tableRows += `
+          <tr>
+            <td>${index + 1}</td>
+            <td>${dateTime.date}<br/><small style="color: #666;">${dateTime.time}</small></td>
+            <td>${attack.batchNumber || attack.batchId}</td>
+            <td>${attack.predator_type || "Unknown"}</td>
+            <td>${attack.action_taken || "None"}</td>
+            <td style="text-align: center;">${evidenceThumbnail}</td>
+          </tr>
+        `;
+      });
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <style>
+              @page {
+                size: A4;
+                margin: 0.8in 0.8in 0.8in 0.8in;
+              }
+              body {
+                font-family: Arial, sans-serif;
+                margin: 0;
+                padding: 0;
+              }
+              .header {
+                margin-bottom: 20px;
+                border-bottom: 2px solid #133E87;
+                padding-bottom: 15px;
+              }
+              .header-top {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin-bottom: 10px;
+              }
+              .logo {
+                width: 50px;
+                height: 50px;
+                border-radius: 25px;
+                margin-right: 15px;
+              }
+              .company-name {
+                font-size: 24px;
+                font-weight: bold;
+                color: #133E87;
+              }
+              .report-title {
+                font-size: 16px;
+                color: #333;
+                text-align: center;
+                margin-bottom: 15px;
+                font-weight: bold;
+              }
+              .filter-info {
+                font-size: 12px;
+                color: #666;
+                margin-bottom: 10px;
+                text-align: center;
+              }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 30px;
+              }
+              th {
+                background-color: #133E87;
+                color: white;
+                padding: 10px;
+                text-align: left;
+                font-weight: bold;
+              }
+              td {
+                padding: 8px;
+                border-bottom: 1px solid #ddd;
+              }
+              tr:nth-child(even) {
+                background-color: #f9f9f9;
+              }
+              .summary {
+                background-color: #ffffff;
+                padding: 15px;
+                border-radius: 5px;
+                margin-top: 20px;
+              }
+              .summary h2 {
+                color: #133E87;
+                margin-top: 0;
+                font-size: 18px;
+              }
+              .summary-item {
+                margin: 10px 0;
+                font-size: 14px;
+              }
+              .summary-label {
+                font-weight: bold;
+                color: #133E87;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <div class="header-top">
+                <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
+                <div class="company-name">Internet of Tsiken</div>
+              </div>
+              <div class="report-title">Predator Attacks Report</div>
+              <div class="filter-info">
+                Date Range: ${new Date(predatorExportStartDate).toLocaleDateString()} to ${new Date(predatorExportEndDate).toLocaleDateString()}<br>
+                Report Generated: ${new Date().toLocaleString()}<br>
+              
+              </div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 5%;">No</th>
+                  <th style="width: 18%;">Date & Time</th>
+                  <th style="width: 12%;">Batch</th>
+                  <th style="width: 15%;">Predator Type</th>
+                  <th style="width: 25%;">Action Taken</th>
+                  <th style="width: 13%;">Evidence</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRows}
+              </tbody>
+            </table>
+            <div class="summary">
+              <h2>Summary</h2>
+              <div class="summary-item">
+                <span class="summary-label">Total Attacks:</span> ${allAttacks.length}
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Peak Day:</span> ${peakDayFormatted} 
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Most Frequent Predator:</span> ${mostFrequentPredator} 
+              </div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      const { uri } = await Print.printToFileAsync({ html: htmlContent });
+      console.log("[GeneratePredatorReport] PDF generated at:", uri);
+
+      // Create custom filename with date range: PredatorAttacksReport_21Jan2026_25Jan2026.pdf
+      const formatDateForFilename = (dateStr) => {
+        const date = new Date(dateStr);
+        const day = String(date.getDate()).padStart(2, "0");
+        const monthNames = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        const month = monthNames[date.getMonth()];
+        const year = date.getFullYear();
+        return `${day}${month}${year}`;
+      };
+
+      const startDateFormatted = formatDateForFilename(predatorExportStartDate);
+      const endDateFormatted = formatDateForFilename(predatorExportEndDate);
+      const filename = `PredatorAttacksReport_${startDateFormatted}_${endDateFormatted}.pdf`;
+      console.log("[GeneratePredatorReport] Custom filename:", filename);
+
+      // Copy PDF to documents directory with custom name
+      const customUri = `${FileSystem.documentDirectory}${filename}`;
+      await FileSystem.copyAsync({
+        from: uri,
+        to: customUri,
+      });
+      console.log("[GeneratePredatorReport] PDF copied to:", customUri);
+
+      // Share the renamed PDF
+      await Sharing.shareAsync(customUri, {
+        mimeType: "application/pdf",
+        dialogTitle: "Share Predator Attacks Report",
+      });
+
+      // Log the report generation
+      try {
+        await logReportGeneration(
+          filename,
+          "Predator Attacks Report",
+          "Generated predator attacks report",
+          `Report for ${formatDateTime(startDate).date} to ${formatDateTime(endDate).date}`,
+        );
+        console.log("[GeneratePredatorReport] Report logged successfully");
+      } catch (logError) {
+        console.warn("[GeneratePredatorReport] Logging warning:", logError);
+      }
+
+      setExportPredatorModalVisible(false);
+      setPredatorExportStartDate(null);
+      setPredatorExportEndDate(null);
+    } catch (error) {
+      console.error("[GeneratePredatorReport] Error:", error);
+      Alert.alert("Error", "Failed to generate report. Please try again.");
+    } finally {
+      setIsGeneratingPredatorReport(false);
+    }
+  };
+
+  /**
+   * Generate Attacks Per Batch Report PDF
+   * Fetches all predator attacks from all batches for the selected date range
+   * Groups attacks by batch, generates detailed table with attack information
+   */
+  const generateAttacksPerBatchReportPDF = async () => {
+    if (!attacksBatchExportStartDate || !attacksBatchExportEndDate) {
+      Alert.alert("Error", "Please select both start and end dates");
+      return;
+    }
+
+    setIsGeneratingAttacksBatchReport(true);
+    try {
+      console.log("[GenerateAttacksPerBatchReport] Starting PDF generation...");
+
+      const startDate = new Date(attacksBatchExportStartDate);
+      const endDate = new Date(attacksBatchExportEndDate);
+      endDate.setHours(23, 59, 59, 999);
+
+      // Fetch all batches from predatorAttacks
+      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
+      const batchesSnapshot = await getDocs(predatorAttacksRef);
+
+      let allAttacks = [];
+      const batchAttackMap = {};
+
+      // Fetch attacks from each batch
+      for (const batchDoc of batchesSnapshot.docs) {
+        const batchId = batchDoc.id;
+        const attacksRef = collection(
+          firestoreDb,
+          "predatorAttacks",
+          batchId,
+          "attacks",
+        );
+        const attacksSnapshot = await getDocs(attacksRef);
+
+        let batchAttackCount = 0;
+
+        attacksSnapshot.docs.forEach((doc) => {
+          const data = doc.data();
+          let attackDate;
+
+          // Convert attack_datetime to Date
+          if (data.attack_datetime?.toDate) {
+            attackDate = data.attack_datetime.toDate();
+          } else if (data.attack_datetime?.seconds) {
+            attackDate = new Date(data.attack_datetime.seconds * 1000);
+          } else {
+            attackDate = new Date(data.attack_datetime);
+          }
+
+          // Filter by date range
+          if (attackDate >= startDate && attackDate <= endDate) {
+            allAttacks.push({
+              ...data,
+              attackDate,
+              batchId,
+            });
+            batchAttackCount++;
+          }
+        });
+
+        batchAttackMap[batchId] = batchAttackCount;
+      }
+
+      // Sort by batch ID
+      const sortedBatches = Object.entries(batchAttackMap)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([batchId, count]) => ({ batchId, count }));
+
+      console.log(
+        `[GenerateAttacksPerBatchReport] Found ${sortedBatches.length} batches with ${allAttacks.length} attacks`,
+      );
+
+      if (allAttacks.length === 0) {
+        Alert.alert(
+          "No Data",
+          "No predator attacks found in the selected date range.",
+        );
+        return;
+      }
+
+      // Create table rows
+      let tableRows = "";
+      let totalAttacks = 0;
+      sortedBatches.forEach((batch, index) => {
+        tableRows += `
+          <tr>
+            <td>${index + 1}</td>
+            <td>${batch.batchId}</td>
+            <td style="text-align: center;">${batch.count}</td>
+          </tr>
+        `;
+        totalAttacks += batch.count;
+      });
+
+      // Add total row
+      tableRows += `
+        <tr style="background-color: #dbdde0; color: white; font-weight: bold;">
+          <td colspan="2" style="text-align: right; padding: 8px;">Total</td>
+          <td style="text-align: center; width: 120px; padding: 8px;">${totalAttacks}</td>
+        </tr>
+      `;
+
+      // Load logo
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        },
+      );
+
+      // Format dates for display
+      const formatDisplayDate = (dateStr) => {
+        const [year, month, day] = dateStr.split("-").map(Number);
+        const date = new Date(year, month - 1, day);
+        const months = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        return `${day}-${months[date.getMonth()]}-${year}`;
+      };
+
+      // Generate HTML
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            @page {
+              size: A4;
+              margin: 0.8in 0.8in 0.8in 0.8in;
+            }
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 0;
+            }
+            .header {
+              margin-bottom: 20px;
+              border-bottom: 2px solid #133E87;
+              padding-bottom: 15px;
+            }
+            .header-top {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-bottom: 10px;
+            }
+            .logo {
+              width: 50px;
+              height: 50px;
+              border-radius: 25px;
+              margin-right: 15px;
+            }
+            .company-name {
+              font-size: 24px;
+              font-weight: bold;
+              color: #133E87;
+            }
+            .report-title {
+              font-size: 16px;
+              color: #333;
+              text-align: center;
+              margin-bottom: 15px;
+              font-weight: bold;
+            }
+            .filter-info {
+              font-size: 12px;
+              color: #666;
+              margin-bottom: 10px;
+              text-align: center;
+            }
+            .table-container {
+              display: flex;
+              justify-content: center;
+              margin-bottom: 20px;
+            }
+            table {
+              width: 400px;
+              border-collapse: collapse;
+              margin-bottom: 20px;
+              font-size: 12px;
+            }
+            th {
+              background-color: #133E87;
+              color: white;
+              padding: 8px;
+              text-align: left;
+              border: 1px solid #ddd;
+              font-weight: bold;
+            }
+            td {
+              padding: 8px;
+              border: 1px solid #ddd;
+              color: #333;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            .page-number {
+              text-align: center;
+              font-size: 10px;
+              color: #666;
+              margin-top: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="header-top">
+              <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
+              <div class="company-name">Internet of Tsiken</div>
+            </div>
+            <div class="report-title">Attacks Per Batch Report</div>
+            <div class="filter-info">
+              Date Range: ${formatDisplayDate(attacksBatchExportStartDate)} to ${formatDisplayDate(attacksBatchExportEndDate)}<br>
+              Report Generated: ${new Date().toLocaleString()}<br>
+              Total Attacks: ${allAttacks.length}
+            </div>
+          </div>
+          
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 30px;">No</th>
+                  <th>Batch</th>
+                  <th style="text-align: center; width: 100px;">Attacks</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRows}
+              </tbody>
+            </table>
+          </div>
+        </body>
+        </html>
+      `;
+
+      // Generate PDF
+      const pdf = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+      });
+
+      // Create custom filename with date
+      const formatFileName = (dateStr) => {
+        const [year, month, day] = dateStr.split("-").map(Number);
+        const months = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        return `${day}-${months[month - 1]}-${year}`;
+      };
+
+      const customFilename = `AttacksPerBatch_${formatFileName(attacksBatchExportStartDate)}_to_${formatFileName(attacksBatchExportEndDate)}.pdf`;
+      const newPath = `${FileSystem.documentDirectory}${customFilename}`;
+
+      // Copy the PDF to a new location with custom name
+      await FileSystem.copyAsync({
+        from: pdf.uri,
+        to: newPath,
+      });
+
+      // Log report generation
+      await logReportGeneration(customFilename, "Attacks Per Batch Report");
+
+      // Share PDF with custom filename
+      await Sharing.shareAsync(newPath);
+
+      setExportAttacksBatchModalVisible(false);
+      setAttacksBatchExportStartDate(null);
+      setAttacksBatchExportEndDate(null);
+    } catch (error) {
+      console.error("[GenerateAttacksPerBatchReport] Error:", error);
+      Alert.alert("Error", "Failed to generate report: " + error.message);
+    } finally {
+      setIsGeneratingAttacksBatchReport(false);
     }
   };
 
@@ -2355,6 +3925,7 @@ export default function AdminAnalytics({ navigation }) {
       ...prev,
       mortality: defaultFilter,
       cause: defaultFilter,
+      mortalitybatch: defaultFilter,
     }));
   }, []);
 
@@ -2371,6 +3942,8 @@ export default function AdminAnalytics({ navigation }) {
   useEffect(() => {
     console.log("[adminAnalytics] useEffect: Fetching brooder stats...");
     fetchBrooderStats();
+    fetchTotalPredatorAttacksCount();
+    fetchAttacksPerBatchData();
   }, []);
 
   // Fetch cause of death stats on mount and when filter changes
@@ -2378,6 +3951,33 @@ export default function AdminAnalytics({ navigation }) {
     console.log("[adminAnalytics] useEffect: Fetching cause of death stats...");
     fetchCauseOfDeathStats(chartFilters["cause"]);
   }, [chartFilters["cause"]]);
+
+  // Fetch mortality per batch stats when filter changes
+  useEffect(() => {
+    console.log(
+      "[adminAnalytics] useEffect: Fetching mortality per batch stats...",
+      chartFilters["mortalitybatch"],
+    );
+    fetchMortalityBatchData(chartFilters["mortalitybatch"]);
+  }, [chartFilters["mortalitybatch"]]);
+
+  // Fetch predator attacks data on mount and when filter changes
+  useEffect(() => {
+    console.log(
+      "[adminAnalytics] useEffect: Fetching predator attacks data...",
+      chartFilters["predator"],
+    );
+    fetchPredatorAttacksData(chartFilters["predator"]);
+  }, [chartFilters["predator"]]);
+
+  // Fetch attacks per batch data when filter changes
+  useEffect(() => {
+    console.log(
+      "[adminAnalytics] useEffect: Fetching attacks per batch data...",
+      chartFilters["attacksbatch"],
+    );
+    fetchAttacksPerBatchData(chartFilters["attacksbatch"]);
+  }, [chartFilters["attacksbatch"]]);
 
   // Note: icon values are MaterialCommunityIcons names
   const metrics = [
@@ -2391,8 +3991,9 @@ export default function AdminAnalytics({ navigation }) {
     {
       id: 2,
       title: "Predators Detected",
-      value: 0,
-      subtitle: "No threats detected",
+      value: totalPredatorAttacks,
+      subtitle:
+        totalPredatorAttacks > 0 ? `Threats detected` : "No threats detected",
       icon: "chart-areaspline",
     },
   ];
@@ -2709,71 +4310,47 @@ export default function AdminAnalytics({ navigation }) {
     "2025",
   ];
 
-  const defaultPredatorDailyData = [0, 1, 0, 2, 0, 1, 0];
-  const defaultPredatorMonthlyData = [3, 5, 2, 8, 4, 6, 7];
-  const defaultPredatorYearlyData = [15, 22, 18, 30, 25, 28, 32];
+  // Generate predator chart data from fetched Firestore data
+  const generatePredatorChartData = () => {
+    console.log(
+      "[GeneratePredatorChartData] Called with predatorAttacksData:",
+      predatorAttacksData,
+    );
 
-  const predatorChartDataDaily = {
-    labels: generateDateLabels(
-      chartFilters["predator"],
-      defaultPredatorDailyLabels,
-    ),
-    datasets: [
-      {
-        data: generateDataPoints(
-          chartFilters["predator"],
-          defaultPredatorDailyData,
-        ),
-        color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
-      },
-    ],
-  };
-
-  const predatorChartDataMonthly = {
-    labels: generateDateLabels(
-      chartFilters["predator"],
-      defaultPredatorMonthlyLabels,
-    ),
-    datasets: [
-      {
-        data: generateDataPoints(
-          chartFilters["predator"],
-          defaultPredatorMonthlyData,
-        ),
-        color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
-      },
-    ],
-  };
-
-  const predatorChartDataYearly = {
-    labels: generateDateLabels(
-      chartFilters["predator"],
-      defaultPredatorYearlyLabels,
-    ),
-    datasets: [
-      {
-        data: generateDataPoints(
-          chartFilters["predator"],
-          defaultPredatorYearlyData,
-        ),
-        color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
-      },
-    ],
-  };
-
-  // Get current predator chart data based on selected time range
-  const getCurrentPredatorData = () => {
-    switch (predatorTimeRange) {
-      case "monthly":
-        return predatorChartDataMonthly;
-      case "yearly":
-        return predatorChartDataYearly;
-      default:
-        return predatorChartDataDaily;
+    if (!predatorAttacksData || predatorAttacksData.length === 0) {
+      console.log(
+        "[GeneratePredatorChartData] No data available, returning default",
+      );
+      return {
+        labels: ["No Data"],
+        datasets: [
+          {
+            data: [0],
+            color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+          },
+        ],
+      };
     }
+
+    // Extract labels and counts from fetched data
+    const labels = predatorAttacksData.map((item) => item.date);
+    const counts = predatorAttacksData.map((item) => item.count);
+
+    console.log("[GeneratePredatorChartData] Labels:", labels);
+    console.log("[GeneratePredatorChartData] Counts:", counts);
+
+    return {
+      labels,
+      datasets: [
+        {
+          data: counts.length > 0 ? counts : [0],
+          color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+        },
+      ],
+    };
   };
 
-  const predatorChartData = getCurrentPredatorData();
+  const predatorChartData = generatePredatorChartData();
 
   // Chart data for Feed Consumption - dynamic labels and data based on filter
   const defaultFeedLabels = [
@@ -3456,12 +5033,9 @@ export default function AdminAnalytics({ navigation }) {
                 activeOpacity={0.8}
                 onPressIn={() => setPressedBtn("export-mortalitybatch")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() =>
-                  Alert.alert(
-                    "Export",
-                    "Export functionality to be implemented",
-                  )
-                }
+                onPress={() => {
+                  setExportBatchModalVisible(true);
+                }}
               >
                 <Text
                   style={[
@@ -3488,7 +5062,7 @@ export default function AdminAnalytics({ navigation }) {
                 {formatFilterDisplay(chartFilters["mortalitybatch"])}
               </Text>
             )}
-            <MortalityBatchChart height={220} />
+            <MortalityBatchChart height={220} data={mortalityBatchData} />
           </View>
         </View>
 
@@ -3535,12 +5109,7 @@ export default function AdminAnalytics({ navigation }) {
                 activeOpacity={0.8}
                 onPressIn={() => setPressedBtn("export-predator")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() =>
-                  Alert.alert(
-                    "Export",
-                    "Export functionality to be implemented",
-                  )
-                }
+                onPress={() => setExportPredatorModalVisible(true)}
               >
                 <Text
                   style={[
@@ -3690,12 +5259,9 @@ export default function AdminAnalytics({ navigation }) {
                 activeOpacity={0.8}
                 onPressIn={() => setPressedBtn("export-attacksbatch")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() =>
-                  Alert.alert(
-                    "Export",
-                    "Export functionality to be implemented",
-                  )
-                }
+                onPress={() => {
+                  setExportAttacksBatchModalVisible(true);
+                }}
               >
                 <Text
                   style={[
@@ -3722,7 +5288,7 @@ export default function AdminAnalytics({ navigation }) {
                 {formatFilterDisplay(chartFilters["attacksbatch"])}
               </Text>
             )}
-            <AttacksBatchChart height={220} />
+            <AttacksBatchChart height={220} data={attacksPerBatchData} />
           </View>
         </View>
 
@@ -4851,6 +6417,32 @@ export default function AdminAnalytics({ navigation }) {
                       setStartDate(selectedDateStr);
                       setEndDate(null);
                     } else if (startDate && !endDate) {
+                      // Calculate the difference in days
+                      const start = new Date(selectedDateStr);
+                      const selected = new Date(startDate);
+                      const diffTime = Math.abs(selected - start);
+                      const diffDays = Math.ceil(
+                        diffTime / (1000 * 60 * 60 * 24),
+                      );
+
+                      // Different date range limits based on chart type
+                      // Mortality Trend & Predator Attacks: up to 7 days
+                      // Others (Cause of Death, Mortality Per Batch): up to 30 days
+                      const maxDays =
+                        currentFilterTarget === "mortality" ||
+                        currentFilterTarget === "predator"
+                          ? 7
+                          : 365;
+
+                      if (diffDays > maxDays - 1) {
+                        Alert.alert(
+                          "Invalid Range",
+                          `Please select a date range within ${maxDays} days.`,
+                          [{ text: "OK" }],
+                        );
+                        return;
+                      }
+
                       // Set end date
                       if (new Date(selectedDateStr) < new Date(startDate)) {
                         // If selected date is before start, swap them
@@ -5101,16 +6693,6 @@ export default function AdminAnalytics({ navigation }) {
                       const diffDays = Math.ceil(
                         diffTime / (1000 * 60 * 60 * 24),
                       );
-
-                      // Check if the range exceeds 30 days for export
-                      if (diffDays > 29) {
-                        Alert.alert(
-                          "Invalid Range",
-                          "Please select a date range within 30 days.",
-                          [{ text: "OK" }],
-                        );
-                        return;
-                      }
 
                       // Set end date
                       if (
@@ -5446,6 +7028,739 @@ export default function AdminAnalytics({ navigation }) {
                   }
                 >
                   {isGeneratingCauseReport ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.modalApplyButtonText}>Generate</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Export Mortality Per Batch Modal */}
+        <Modal
+          visible={exportBatchModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setExportBatchModalVisible(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>
+                Export Mortality Per Batch Report
+              </Text>
+
+              {/* Date Range Display */}
+              <View style={styles.dateRangeHeader}>
+                <View style={styles.dateRangeItem}>
+                  <Text style={styles.dateRangeLabel}>From</Text>
+                  <Text style={styles.dateRangeValue}>
+                    {batchExportStartDate
+                      ? new Date(batchExportStartDate).toLocaleDateString(
+                          "en-US",
+                          {
+                            weekday: "short",
+                            day: "2-digit",
+                            month: "short",
+                          },
+                        )
+                      : "Select date"}
+                  </Text>
+                </View>
+                <View style={styles.dateRangeItem}>
+                  <Text style={styles.dateRangeLabel}>To</Text>
+                  <Text style={styles.dateRangeValue}>
+                    {batchExportEndDate
+                      ? new Date(batchExportEndDate).toLocaleDateString(
+                          "en-US",
+                          {
+                            weekday: "short",
+                            day: "2-digit",
+                            month: "short",
+                          },
+                        )
+                      : "Select date"}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Date Picker */}
+              <View style={styles.datePickerContainer}>
+                <Calendar
+                  onDayPress={(day) => {
+                    const selectedDateStr = day.dateString;
+                    const [year, month, day_num] = selectedDateStr
+                      .split("-")
+                      .map(Number);
+                    const selectedDate = new Date(year, month - 1, day_num);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+
+                    // Validate: Do not allow future dates
+                    if (selectedDate > today) {
+                      Alert.alert(
+                        "Invalid Date",
+                        "Future dates are not allowed. Please select today or an earlier date.",
+                        [{ text: "OK" }],
+                      );
+                      return;
+                    }
+
+                    if (
+                      !batchExportStartDate ||
+                      (batchExportStartDate && batchExportEndDate)
+                    ) {
+                      // Start new selection
+                      setBatchExportStartDate(selectedDateStr);
+                      setBatchExportEndDate(null);
+                    } else if (batchExportStartDate && !batchExportEndDate) {
+                      // Calculate the difference in days
+                      const start = new Date(batchExportStartDate);
+                      const selected = new Date(selectedDateStr);
+                      const diffTime = Math.abs(selected - start);
+                      const diffDays = Math.ceil(
+                        diffTime / (1000 * 60 * 60 * 24),
+                      );
+
+                      // Set end date
+                      if (
+                        new Date(selectedDateStr) <
+                        new Date(batchExportStartDate)
+                      ) {
+                        setBatchExportEndDate(batchExportStartDate);
+                        setBatchExportStartDate(selectedDateStr);
+                      } else {
+                        setBatchExportEndDate(selectedDateStr);
+                      }
+                    }
+                  }}
+                  markingType={"period"}
+                  maxDate={(() => {
+                    const today = new Date();
+                    const year = today.getFullYear();
+                    const month = String(today.getMonth() + 1).padStart(2, "0");
+                    const day = String(today.getDate()).padStart(2, "0");
+                    return `${year}-${month}-${day}`;
+                  })()}
+                  markedDates={(() => {
+                    if (!batchExportStartDate) return {};
+
+                    const marks = {};
+                    const start = new Date(batchExportStartDate);
+                    const end = batchExportEndDate
+                      ? new Date(batchExportEndDate)
+                      : start;
+
+                    for (
+                      let d = new Date(start);
+                      d <= end;
+                      d.setDate(d.getDate() + 1)
+                    ) {
+                      const dateStr = d.toISOString().split("T")[0];
+                      marks[dateStr] = {
+                        color: "#DBEAFE",
+                        textColor: "black",
+                        marked: true,
+                      };
+                    }
+
+                    marks[batchExportStartDate] = {
+                      ...marks[batchExportStartDate],
+                      startingDay: true,
+                      color: "#3B82F6",
+                      textColor: "white",
+                      marked: true,
+                      dotColor: "white",
+                      customStyles: {
+                        container: {
+                          backgroundColor: "#3B82F6",
+                          borderRadius: 100,
+                        },
+                        text: {
+                          color: "white",
+                          fontWeight: "bold",
+                        },
+                      },
+                    };
+
+                    if (batchExportEndDate) {
+                      marks[batchExportEndDate] = {
+                        ...marks[batchExportEndDate],
+                        endingDay: true,
+                        color: "#BFDBFE",
+                        textColor: "white",
+                        marked: true,
+                        dotColor: "white",
+                        customStyles: {
+                          container: {
+                            backgroundColor: "#3B82F6",
+                            borderRadius: 100,
+                          },
+                          text: {
+                            color: "white",
+                            fontWeight: "bold",
+                          },
+                        },
+                      };
+                    }
+
+                    return marks;
+                  })()}
+                  theme={{
+                    calendarBackground: "#ffffff",
+                    textSectionTitleColor: "#3B82F6",
+                    selectedDayBackgroundColor: "#3B82F6",
+                    selectedDayTextColor: "#ffffff",
+                    todayTextColor: "#3B82F6",
+                    dayTextColor: "#2d4150",
+                    textDisabledColor: "#d9e1e8",
+                    monthTextColor: "#2d4150",
+                    indicatorColor: "#3B82F6",
+                    textDayFontWeight: "400",
+                    textMonthFontWeight: "600",
+                    textDayHeaderFontWeight: "500",
+                    textDayFontSize: 14,
+                    textMonthFontSize: 18,
+                    textDayHeaderFontSize: 12,
+                  }}
+                  style={styles.calendar}
+                />
+              </View>
+
+              {/* Generate and Cancel Buttons */}
+              <View style={styles.modalButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.modalActionButton, styles.modalCancelButton]}
+                  onPress={() => {
+                    setBatchExportStartDate(null);
+                    setBatchExportEndDate(null);
+                    setExportBatchModalVisible(false);
+                  }}
+                  disabled={isGeneratingBatchReport}
+                >
+                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.modalActionButton,
+                    styles.modalApplyButton,
+                    !batchExportStartDate ||
+                    !batchExportEndDate ||
+                    isGeneratingBatchReport
+                      ? { opacity: 0.5 }
+                      : {},
+                  ]}
+                  onPress={generateMortalityBatchReportPDF}
+                  disabled={
+                    !batchExportStartDate ||
+                    !batchExportEndDate ||
+                    isGeneratingBatchReport
+                  }
+                >
+                  {isGeneratingBatchReport ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.modalApplyButtonText}>Generate</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Export Predator Attacks Modal */}
+        <Modal
+          visible={exportPredatorModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setExportPredatorModalVisible(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>
+                Export Predator Attacks Report
+              </Text>
+
+              {/* Date Range Display */}
+              <View style={styles.dateRangeHeader}>
+                <View style={styles.dateRangeItem}>
+                  <Text style={styles.dateRangeLabel}>From</Text>
+                  <Text style={styles.dateRangeValue}>
+                    {predatorExportStartDate
+                      ? new Date(predatorExportStartDate).toLocaleDateString(
+                          "en-US",
+                          {
+                            weekday: "short",
+                            day: "2-digit",
+                            month: "short",
+                          },
+                        )
+                      : "Select date"}
+                  </Text>
+                </View>
+                <View style={styles.dateRangeItem}>
+                  <Text style={styles.dateRangeLabel}>To</Text>
+                  <Text style={styles.dateRangeValue}>
+                    {predatorExportEndDate
+                      ? new Date(predatorExportEndDate).toLocaleDateString(
+                          "en-US",
+                          {
+                            weekday: "short",
+                            day: "2-digit",
+                            month: "short",
+                          },
+                        )
+                      : "Select date"}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Date Picker */}
+              <View style={styles.datePickerContainer}>
+                <Calendar
+                  onDayPress={(day) => {
+                    const selectedDateStr = day.dateString;
+                    const [year, month, day_num] = selectedDateStr
+                      .split("-")
+                      .map(Number);
+                    const selectedDate = new Date(year, month - 1, day_num);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+
+                    // Validate: Do not allow future dates
+                    if (selectedDate > today) {
+                      Alert.alert(
+                        "Invalid Date",
+                        "Future dates are not allowed. Please select today or an earlier date.",
+                        [{ text: "OK" }],
+                      );
+                      return;
+                    }
+
+                    if (
+                      !predatorExportStartDate ||
+                      (predatorExportStartDate && predatorExportEndDate)
+                    ) {
+                      // Start new selection
+                      setPredatorExportStartDate(selectedDateStr);
+                      setPredatorExportEndDate(null);
+                    } else if (
+                      predatorExportStartDate &&
+                      !predatorExportEndDate
+                    ) {
+                      // Calculate the difference in days
+                      const start = new Date(predatorExportStartDate);
+                      const selected = new Date(selectedDateStr);
+                      const diffTime = Math.abs(selected - start);
+                      const diffDays = Math.ceil(
+                        diffTime / (1000 * 60 * 60 * 24),
+                      );
+
+                      // Set end date
+                      if (
+                        new Date(selectedDateStr) <
+                        new Date(predatorExportStartDate)
+                      ) {
+                        setPredatorExportEndDate(predatorExportStartDate);
+                        setPredatorExportStartDate(selectedDateStr);
+                      } else {
+                        setPredatorExportEndDate(selectedDateStr);
+                      }
+                    }
+                  }}
+                  markingType={"period"}
+                  maxDate={(() => {
+                    const today = new Date();
+                    const year = today.getFullYear();
+                    const month = String(today.getMonth() + 1).padStart(2, "0");
+                    const day = String(today.getDate()).padStart(2, "0");
+                    return `${year}-${month}-${day}`;
+                  })()}
+                  markedDates={(() => {
+                    if (!predatorExportStartDate) return {};
+
+                    const marks = {};
+                    const start = new Date(predatorExportStartDate);
+                    const end = predatorExportEndDate
+                      ? new Date(predatorExportEndDate)
+                      : start;
+
+                    for (
+                      let d = new Date(start);
+                      d <= end;
+                      d.setDate(d.getDate() + 1)
+                    ) {
+                      const dateStr = d.toISOString().split("T")[0];
+                      marks[dateStr] = {
+                        color: "#DBEAFE",
+                        textColor: "black",
+                        marked: true,
+                      };
+                    }
+
+                    marks[predatorExportStartDate] = {
+                      ...marks[predatorExportStartDate],
+                      startingDay: true,
+                      color: "#3B82F6",
+                      textColor: "white",
+                      marked: true,
+                      dotColor: "white",
+                      customStyles: {
+                        container: {
+                          backgroundColor: "#3B82F6",
+                          borderRadius: 100,
+                        },
+                        text: {
+                          color: "white",
+                          fontWeight: "bold",
+                        },
+                      },
+                    };
+
+                    if (predatorExportEndDate) {
+                      marks[predatorExportEndDate] = {
+                        ...marks[predatorExportEndDate],
+                        endingDay: true,
+                        color: "#BFDBFE",
+                        textColor: "white",
+                        marked: true,
+                        dotColor: "white",
+                        customStyles: {
+                          container: {
+                            backgroundColor: "#3B82F6",
+                            borderRadius: 100,
+                          },
+                          text: {
+                            color: "white",
+                            fontWeight: "bold",
+                          },
+                        },
+                      };
+                    }
+
+                    return marks;
+                  })()}
+                  theme={{
+                    calendarBackground: "#ffffff",
+                    textSectionTitleColor: "#3B82F6",
+                    selectedDayBackgroundColor: "#3B82F6",
+                    selectedDayTextColor: "#ffffff",
+                    todayTextColor: "#3B82F6",
+                    dayTextColor: "#2d4150",
+                    textDisabledColor: "#d9e1e8",
+                    monthTextColor: "#2d4150",
+                    indicatorColor: "#3B82F6",
+                    textDayFontWeight: "400",
+                    textMonthFontWeight: "600",
+                    textDayHeaderFontWeight: "500",
+                    textDayFontSize: 14,
+                    textMonthFontSize: 18,
+                    textDayHeaderFontSize: 12,
+                  }}
+                  style={styles.calendar}
+                />
+              </View>
+
+              {/* Generate and Cancel Buttons */}
+              <View style={styles.modalButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.modalActionButton, styles.modalCancelButton]}
+                  onPress={() => {
+                    setPredatorExportStartDate(null);
+                    setPredatorExportEndDate(null);
+                    setExportPredatorModalVisible(false);
+                  }}
+                  disabled={isGeneratingPredatorReport}
+                >
+                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.modalActionButton,
+                    styles.modalApplyButton,
+                    !predatorExportStartDate ||
+                    !predatorExportEndDate ||
+                    isGeneratingPredatorReport
+                      ? { opacity: 0.5 }
+                      : {},
+                  ]}
+                  onPress={generatePredatorAttacksReportPDF}
+                  disabled={
+                    !predatorExportStartDate ||
+                    !predatorExportEndDate ||
+                    isGeneratingPredatorReport
+                  }
+                >
+                  {isGeneratingPredatorReport ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.modalApplyButtonText}>Generate</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Export Attacks Per Batch Modal */}
+        <Modal
+          visible={exportAttacksBatchModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setExportAttacksBatchModalVisible(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>
+                Export Attacks Per Batch Report
+              </Text>
+
+              {/* Date Range Display */}
+              <View style={styles.dateRangeHeader}>
+                <View style={styles.dateRangeItem}>
+                  <Text style={styles.dateRangeLabel}>From</Text>
+                  <Text style={styles.dateRangeValue}>
+                    {attacksBatchExportStartDate
+                      ? new Date(
+                          attacksBatchExportStartDate,
+                        ).toLocaleDateString("en-US", {
+                          weekday: "short",
+                          day: "2-digit",
+                          month: "short",
+                        })
+                      : "Select date"}
+                  </Text>
+                </View>
+                <View style={styles.dateRangeItem}>
+                  <Text style={styles.dateRangeLabel}>To</Text>
+                  <Text style={styles.dateRangeValue}>
+                    {attacksBatchExportEndDate
+                      ? new Date(attacksBatchExportEndDate).toLocaleDateString(
+                          "en-US",
+                          {
+                            weekday: "short",
+                            day: "2-digit",
+                            month: "short",
+                          },
+                        )
+                      : "Select date"}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Date Picker */}
+              <View style={styles.datePickerContainer}>
+                <Calendar
+                  onDayPress={(day) => {
+                    const selectedDateStr = day.dateString;
+                    const [year, month, day_num] = selectedDateStr
+                      .split("-")
+                      .map(Number);
+                    const selectedDate = new Date(year, month - 1, day_num);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+
+                    // Validate: Do not allow future dates
+                    if (selectedDate > today) {
+                      Alert.alert(
+                        "Invalid Date",
+                        "Future dates are not allowed. Please select today or an earlier date.",
+                        [{ text: "OK" }],
+                      );
+                      return;
+                    }
+
+                    if (
+                      !attacksBatchExportStartDate ||
+                      (attacksBatchExportStartDate && attacksBatchExportEndDate)
+                    ) {
+                      // Start new selection
+                      setAttacksBatchExportStartDate(selectedDateStr);
+                      setAttacksBatchExportEndDate(null);
+                    } else if (
+                      attacksBatchExportStartDate &&
+                      !attacksBatchExportEndDate
+                    ) {
+                      // Calculate the difference in days
+                      const start = new Date(selectedDateStr);
+                      const selected = new Date(attacksBatchExportStartDate);
+                      const diffTime = Math.abs(selected - start);
+                      const diffDays = Math.ceil(
+                        diffTime / (1000 * 60 * 60 * 24),
+                      );
+
+                      // Set end date
+                      if (
+                        new Date(selectedDateStr) <
+                        new Date(attacksBatchExportStartDate)
+                      ) {
+                        setAttacksBatchExportEndDate(
+                          attacksBatchExportStartDate,
+                        );
+                        setAttacksBatchExportStartDate(selectedDateStr);
+                      } else {
+                        setAttacksBatchExportEndDate(selectedDateStr);
+                      }
+                    }
+                  }}
+                  markingType={"period"}
+                  maxDate={(() => {
+                    const today = new Date();
+                    const year = today.getFullYear();
+                    const month = String(today.getMonth() + 1).padStart(2, "0");
+                    const day = String(today.getDate()).padStart(2, "0");
+                    return `${year}-${month}-${day}`;
+                  })()}
+                  markedDates={(() => {
+                    if (!attacksBatchExportStartDate) return {};
+
+                    if (
+                      attacksBatchExportStartDate &&
+                      !attacksBatchExportEndDate
+                    ) {
+                      return {
+                        [attacksBatchExportStartDate]: {
+                          startingDay: true,
+                          color: "#3B82F6",
+                          textColor: "white",
+                        },
+                      };
+                    }
+
+                    if (
+                      attacksBatchExportStartDate &&
+                      attacksBatchExportEndDate
+                    ) {
+                      const marks = {};
+                      const start = new Date(attacksBatchExportStartDate);
+                      const end = new Date(attacksBatchExportEndDate);
+
+                      for (
+                        let d = new Date(start);
+                        d <= end;
+                        d.setDate(d.getDate() + 1)
+                      ) {
+                        const dateStr = d.toISOString().split("T")[0];
+
+                        if (dateStr === attacksBatchExportStartDate) {
+                          marks[dateStr] = {
+                            startingDay: true,
+                            color: "#BFDBFE",
+                            textColor: "#000",
+                          };
+                        } else if (dateStr === attacksBatchExportEndDate) {
+                          marks[dateStr] = {
+                            endingDay: true,
+                            color: "#BFDBFE",
+                            textColor: "#000",
+                          };
+                        } else {
+                          marks[dateStr] = {
+                            color: "#BFDBFE",
+                            textColor: "#000",
+                          };
+                        }
+                      }
+
+                      marks[attacksBatchExportStartDate] = {
+                        ...marks[attacksBatchExportStartDate],
+                        startingDay: true,
+                        color: "#BFDBFE",
+                        textColor: "white",
+                        marked: true,
+                        dotColor: "white",
+                        customStyles: {
+                          container: {
+                            backgroundColor: "#3B82F6",
+                            borderRadius: 100,
+                          },
+                          text: {
+                            color: "white",
+                            fontWeight: "bold",
+                          },
+                        },
+                      };
+
+                      marks[attacksBatchExportEndDate] = {
+                        ...marks[attacksBatchExportEndDate],
+                        endingDay: true,
+                        color: "#BFDBFE",
+                        textColor: "white",
+                        marked: true,
+                        dotColor: "white",
+                        customStyles: {
+                          container: {
+                            backgroundColor: "#3B82F6",
+                            borderRadius: 100,
+                          },
+                          text: {
+                            color: "white",
+                            fontWeight: "bold",
+                          },
+                        },
+                      };
+
+                      return marks;
+                    }
+
+                    return {};
+                  })()}
+                  theme={{
+                    calendarBackground: "#ffffff",
+                    textSectionTitleColor: "#3B82F6",
+                    selectedDayBackgroundColor: "#3B82F6",
+                    selectedDayTextColor: "#ffffff",
+                    todayTextColor: "#3B82F6",
+                    dayTextColor: "#2d4150",
+                    textDisabledColor: "#d9e1e8",
+                    monthTextColor: "#2d4150",
+                    indicatorColor: "#3B82F6",
+                    textDayFontWeight: "400",
+                    textMonthFontWeight: "600",
+                    textDayHeaderFontWeight: "500",
+                    textDayFontSize: 14,
+                    textMonthFontSize: 18,
+                    textDayHeaderFontSize: 12,
+                  }}
+                  style={styles.calendar}
+                />
+              </View>
+
+              {/* Generate and Cancel Buttons */}
+              <View style={styles.modalButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.modalActionButton, styles.modalCancelButton]}
+                  onPress={() => {
+                    setAttacksBatchExportStartDate(null);
+                    setAttacksBatchExportEndDate(null);
+                    setExportAttacksBatchModalVisible(false);
+                  }}
+                  disabled={isGeneratingAttacksBatchReport}
+                >
+                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.modalActionButton,
+                    styles.modalApplyButton,
+                    !attacksBatchExportStartDate ||
+                    !attacksBatchExportEndDate ||
+                    isGeneratingAttacksBatchReport
+                      ? { opacity: 0.5 }
+                      : {},
+                  ]}
+                  onPress={generateAttacksPerBatchReportPDF}
+                  disabled={
+                    !attacksBatchExportStartDate ||
+                    !attacksBatchExportEndDate ||
+                    isGeneratingAttacksBatchReport
+                  }
+                >
+                  {isGeneratingAttacksBatchReport ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
                     <Text style={styles.modalApplyButtonText}>Generate</Text>
@@ -6166,21 +8481,13 @@ function MetricCard({ icon = "chart-line", title, value, subtitle }) {
 }
 
 /* -------------------- MortalityBatchChart -------------------- */
-function MortalityBatchChart({ height = 220 }) {
+function MortalityBatchChart({ height = 220, data = [] }) {
   const [layoutWidth, setLayoutWidth] = useState(0);
   const [activeBar, setActiveBar] = useState(null);
   const [tooltipWidth, setTooltipWidth] = useState(0);
 
-  // Sample data - Batch IDs and total deaths per batch
-  const batchData = [
-    { batchId: "B001", deaths: 3 },
-    { batchId: "B002", deaths: 0 },
-    { batchId: "B003", deaths: 5 },
-    { batchId: "B004", deaths: 1 },
-    { batchId: "B005", deaths: 2 },
-    { batchId: "B006", deaths: 0 },
-    { batchId: "B007", deaths: 4 },
-  ];
+  // Use provided data or default to empty array if no data
+  const batchData = data && data.length > 0 ? data : [];
 
   const yAxisWidth = 34;
   const outerPadding = 12;
@@ -6295,16 +8602,20 @@ function MortalityBatchChart({ height = 220 }) {
                     (innerWidth / batchData.length) * 0.7,
                   );
                   const spacing = innerWidth / batchData.length;
-                  const minBarHeight = 8;
+                  const minBarHeight = 2; // Minimum height to make bar visible
 
                   return batchData.map((d, i) => {
+                    // Align bar to nearest gridline position for accurate Y-axis alignment
+                    // Calculate which gridline interval the value falls into
+                    const interval = height / (ticks - 1); // Pixel size of each tick interval
+                    const normalizedPos =
+                      (((finalMax - d.deaths) / finalMax) * height) / interval;
+                    const roundedGridlinePos =
+                      Math.round(normalizedPos) * interval;
                     const barHeight =
                       d.deaths === 0
                         ? minBarHeight
-                        : Math.max(
-                            minBarHeight,
-                            Math.round((d.deaths / finalMax) * height),
-                          );
+                        : Math.max(minBarHeight, height - roundedGridlinePos);
                     const isActive = activeBar && activeBar.index === i;
 
                     return (
@@ -6459,28 +8770,22 @@ function MortalityBatchTooltip({
 }
 
 /* -------------------- AttacksBatchChart -------------------- */
-function AttacksBatchChart({ height = 220 }) {
+function AttacksBatchChart({ height = 220, data = [] }) {
   const [layoutWidth, setLayoutWidth] = useState(0);
   const [activeBar, setActiveBar] = useState(null);
   const [tooltipWidth, setTooltipWidth] = useState(0);
 
-  // Sample data - Batch IDs and total attacks per batch
-  const batchData = [
-    { batchId: "B001", attacks: 2 },
-    { batchId: "B002", attacks: 1 },
-    { batchId: "B003", attacks: 4 },
-    { batchId: "B004", attacks: 1 },
-    { batchId: "B005", attacks: 3 },
-    { batchId: "B006", attacks: 2 },
-    { batchId: "B007", attacks: 3 },
-  ];
+  // Use dynamic data passed as prop, fallback to empty array if not provided
+  const batchData = data && data.length > 0 ? data : [];
 
   const yAxisWidth = 34;
   const outerPadding = 12;
   const barColor = "#133E87";
   const labelHeight = 35;
 
-  const rawMax = Math.max(...batchData.map((d) => d.attacks), 1);
+  // Handle empty data gracefully
+  const rawMax =
+    batchData.length > 0 ? Math.max(...batchData.map((d) => d.attacks), 1) : 1;
   const magnitude = Math.pow(10, Math.floor(Math.log10(rawMax)));
   let niceMax = Math.ceil(rawMax / magnitude) * magnitude;
   if (niceMax / 2 >= rawMax) niceMax = niceMax / 2;
@@ -6583,7 +8888,13 @@ function AttacksBatchChart({ height = 220 }) {
                   const barWidth = spacing * 0.6;
 
                   return batchData.map((d, index) => {
-                    const barHeight = (d.attacks / finalMax) * height;
+                    // Snap bar to nearest gridline
+                    const gridlineSpacing = finalMax / (ticks - 1);
+                    const gridlineIndex = Math.round(
+                      d.attacks / gridlineSpacing,
+                    );
+                    const snappedValue = gridlineIndex * gridlineSpacing;
+                    const barHeight = (snappedValue / finalMax) * height;
                     const isActive = activeBar && activeBar.index === index;
                     return (
                       <View

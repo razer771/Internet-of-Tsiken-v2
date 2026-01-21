@@ -431,6 +431,7 @@ export default function ActivityLogs({ navigation }) {
           Time: formatTimeGMT8(log.timestamp),
           Name: log.userName,
           Action: log.action,
+          Description: log.description,
         }));
 
         exportPages.push({
@@ -586,7 +587,8 @@ export default function ActivityLogs({ navigation }) {
                 <th style="width: 12%;">Date</th>
                 <th style="width: 8%;">Time</th>
                 <th style="width: 15%;">Name</th>
-                <th style="width: 27%;">Action</th>
+                <th style="width: 20%;">Action</th>
+                <th style="width: 20%;">Description</th>
               </tr>
             </thead>
             <tbody>
@@ -601,6 +603,7 @@ export default function ActivityLogs({ navigation }) {
               <td>${entry.Time}</td>
               <td>${entry.Name}</td>
               <td>${entry.Action}</td>
+              <td>${entry.Description}</td>
             </tr>
           `;
         });
