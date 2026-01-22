@@ -181,70 +181,71 @@ export default function EditBatchModal({
   }, [visible]);
 
   const handleChicksChange = (text) => {
-    // Only allow numeric input, max 100
+    // Only allow numeric input
     const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
 
     if (numericText === "") {
       setChicksCount(numericText);
       setChicksError("");
-    } else if (numValue >= 0 && numValue <= 100) {
+    } else if (numValue >= 0) {
       setChicksCount(numericText);
-      setChicksError("");
-    } else {
-      setChicksError("Number of chicks cannot exceed 100");
+      // Show error if exceeds 100
+      if (numValue > 100) {
+        setChicksError("Number of chicks cannot exceed 100");
+      } else {
+        setChicksError("");
+      }
     }
   };
 
   const handleDaysChange = (text) => {
-    // Only allow numeric input, max 365
+    // Only allow numeric input
     const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
 
     if (numericText === "") {
       setDaysCount(numericText);
       setDaysError("");
-    } else if (numValue >= 0 && numValue <= 365) {
+    } else if (numValue >= 0) {
       setDaysCount(numericText);
+      let errors = [];
+      // Check if exceeds 45
+      if (numValue > 45) {
+        errors.push("Number of days cannot exceed 45");
+      }
       // Check if days exceeds harvest days (if harvest is set)
       if (harvestDays && parseInt(harvestDays) > 0) {
         if (numValue > parseInt(harvestDays)) {
-          setDaysError("Number of days cannot exceed expected harvest days");
-        } else {
-          setDaysError("");
+          errors.push("Number of days cannot exceed expected harvest days");
         }
-      } else {
-        setDaysError("");
       }
-    } else {
-      setDaysError("Number of days cannot exceed 365");
+      setDaysError(errors.length > 0 ? errors[0] : "");
     }
   };
 
   const handleHarvestChange = (text) => {
-    // Only allow numeric input, max 365
+    // Only allow numeric input
     const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
 
     if (numericText === "") {
       setHarvestDays(numericText);
       setHarvestError("");
-    } else if (numValue >= 0 && numValue <= 365) {
+    } else if (numValue >= 0) {
       setHarvestDays(numericText);
+      let errors = [];
+      // Check if exceeds 365
+      if (numValue > 365) {
+        errors.push("Expected harvest days cannot exceed 365");
+      }
       // Check if harvest days is less than current days (if days is set)
       if (daysCount && parseInt(daysCount) > 0) {
         if (numValue < parseInt(daysCount)) {
-          setHarvestError(
-            "Expected harvest days cannot be less than current days",
-          );
-        } else {
-          setHarvestError("");
+          errors.push("Expected harvest days cannot be less than current days");
         }
-      } else {
-        setHarvestError("");
       }
-    } else {
-      setHarvestError("Expected harvest days cannot exceed 365");
+      setHarvestError(errors.length > 0 ? errors[0] : "");
     }
   };
 
@@ -450,6 +451,7 @@ export default function EditBatchModal({
               value={chicksCount}
               onChangeText={handleChicksChange}
               keyboardType="numeric"
+              maxLength={5}
             />
             {chicksError ? (
               <Text style={styles.errorText}>{chicksError}</Text>
@@ -465,6 +467,7 @@ export default function EditBatchModal({
               value={daysCount}
               onChangeText={handleDaysChange}
               keyboardType="numeric"
+              maxLength={5}
             />
             {daysError ? (
               <Text style={styles.errorText}>{daysError}</Text>
@@ -480,6 +483,7 @@ export default function EditBatchModal({
               value={harvestDays}
               onChangeText={handleHarvestChange}
               keyboardType="numeric"
+              maxLength={5}
             />
             {harvestError ? (
               <Text style={styles.errorText}>{harvestError}</Text>

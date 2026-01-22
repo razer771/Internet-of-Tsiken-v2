@@ -452,7 +452,7 @@ export default function QuickOverviewSetup({ navigation }) {
       };
 
       refreshSelectedBatch();
-    }, [batches]),
+    }, []),
   );
 
   // ==================== SYNC SELECTED BATCH INDEX ====================

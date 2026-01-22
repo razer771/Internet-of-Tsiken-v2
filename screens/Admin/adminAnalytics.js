@@ -683,195 +683,160 @@ export default function AdminAnalytics({ navigation }) {
   };
 
   /**
-   * Fetch mortality records from /mortality/{batchName}/records collection
-   * Gets batch names from brooderInfo, then fetches records from mortality subcollections
-   * Extracts count and dateOfDeath for aggregation
+   * Fetch mortality records directly from /mortality/{batchName}/records using collectionGroup
+   * Extracts batchName from the "batchId" field in each record
+   * No need to fetch from brooderInfo - mortality collection already has batch info
    */
   const fetchMortalityRecords = async (filterData = null) => {
     try {
       console.log(
-        "[FetchMortalityRecords] Starting fetch from mortality collection...",
+        "[FetchMortalityRecords] Starting fetch from mortality collection using collectionGroup...",
       );
 
       const allRecords = [];
 
-      // Step 1: Get all batches from brooderInfo to get batch names/IDs
-      console.log(
-        "[FetchMortalityRecords] Fetching batch names from brooderInfo...",
-      );
-      const brooderCollection = collection(firestoreDb, "brooderInfo");
-      const brooderDocs = await getDocs(brooderCollection);
+      // Use collectionGroup to query all "records" subcollections directly
+      // This eliminates the need to iterate through brooderInfo first
+      const recordsRef = collectionGroup(firestoreDb, "records");
+      const recordDocs = await getDocs(recordsRef);
 
       console.log(
-        "[FetchMortalityRecords] Found batches in brooderInfo:",
-        brooderDocs.docs.length,
+        "[FetchMortalityRecords] Found",
+        recordDocs.docs.length,
+        "total mortality records across all batches",
       );
 
-      if (brooderDocs.empty) {
-        console.warn("[FetchMortalityRecords] No batches found in brooderInfo");
+      if (recordDocs.empty) {
+        console.warn("[FetchMortalityRecords] No mortality records found");
         setMortalityData([]);
         return [];
       }
 
-      // Step 2: For each batch, try to fetch mortality records
-      for (const batchDoc of brooderDocs.docs) {
-        const docId = batchDoc.id;
-        const batchData = batchDoc.data();
-        const batchName = batchData.batchName || batchData.batch || docId;
-
-        console.log(
-          `[FetchMortalityRecords] Processing batch: docId=${docId}, batchName=${batchName}`,
-        );
-
-        // Try to fetch records by batch name (e.g., "Batch 3")
+      // Process each record - extract count and dateOfDeath for charting
+      recordDocs.forEach((recordDoc) => {
         try {
-          console.log(
-            `[FetchMortalityRecords] Attempting to fetch from /mortality/${batchName}/records`,
-          );
-          const recordsCollection = collection(
-            firestoreDb,
-            "mortality",
-            batchName,
-            "records",
-          );
-          const recordDocs = await getDocs(recordsCollection);
+          const data = recordDoc.data();
+          const batchName = data.batchId; // Extract batchName from the batchId field
 
           console.log(
-            `[FetchMortalityRecords] Found ${recordDocs.docs.length} records in /mortality/${batchName}/records`,
+            `[FetchMortalityRecords] Processing record from batch: ${batchName}`,
           );
 
-          // Process each record - extract count and dateOfDeath for charting
-          recordDocs.forEach((recordDoc) => {
-            try {
-              const data = recordDoc.data();
+          // Convert Firestore Timestamp to JavaScript Date
+          let dateOfDeath = data.dateOfDeath;
+          console.log(
+            `[FetchMortalityRecords] Raw dateOfDeath:`,
+            dateOfDeath,
+            `Type:`,
+            typeof dateOfDeath,
+          );
 
-              // Convert Firestore Timestamp to JavaScript Date
-              let dateOfDeath = data.dateOfDeath;
-              console.log(
-                `[FetchMortalityRecords] Raw dateOfDeath:`,
-                dateOfDeath,
-                `Type:`,
-                typeof dateOfDeath,
-              );
-
-              if (dateOfDeath) {
-                // Try toDate() method first (Firestore Timestamp)
-                if (typeof dateOfDeath.toDate === "function") {
-                  try {
-                    dateOfDeath = dateOfDeath.toDate();
-                    console.log(
-                      `[FetchMortalityRecords] ✓ Converted via toDate(): ${dateOfDeath}`,
-                    );
-                  } catch (e) {
-                    console.error(
-                      `[FetchMortalityRecords] toDate() failed:`,
-                      e,
-                    );
-                    // Fall back to seconds property
-                    if (dateOfDeath.seconds) {
-                      dateOfDeath = new Date(dateOfDeath.seconds * 1000);
-                      console.log(
-                        `[FetchMortalityRecords] ✓ Converted via seconds: ${dateOfDeath}`,
-                      );
-                    }
-                  }
-                }
-                // If it has seconds property (Firestore Timestamp structure)
-                else if (dateOfDeath.seconds) {
+          if (dateOfDeath) {
+            // Try toDate() method first (Firestore Timestamp)
+            if (typeof dateOfDeath.toDate === "function") {
+              try {
+                dateOfDeath = dateOfDeath.toDate();
+                console.log(
+                  `[FetchMortalityRecords] ✓ Converted via toDate(): ${dateOfDeath}`,
+                );
+              } catch (e) {
+                console.error(`[FetchMortalityRecords] toDate() failed:`, e);
+                // Fall back to seconds property
+                if (dateOfDeath.seconds) {
                   dateOfDeath = new Date(dateOfDeath.seconds * 1000);
                   console.log(
-                    `[FetchMortalityRecords] ✓ Converted via seconds property: ${dateOfDeath}`,
-                  );
-                }
-                // If it's already a Date object
-                else if (dateOfDeath instanceof Date) {
-                  console.log(
-                    `[FetchMortalityRecords] ✓ Already a Date object: ${dateOfDeath}`,
-                  );
-                }
-                // If it's a string (like "January 19, 2026 at 3:33:04 AM UTC+8")
-                else if (typeof dateOfDeath === "string") {
-                  dateOfDeath = parseCustomDateFormat(dateOfDeath);
-                  if (dateOfDeath) {
-                    console.log(
-                      `[FetchMortalityRecords] ✓ Converted string to Date using custom parser: ${dateOfDeath}`,
-                    );
-                  } else {
-                    console.warn(
-                      `[FetchMortalityRecords] Custom parser failed for: ${data.dateOfDeath}`,
-                    );
-                  }
-                }
-                // If it's a number (timestamp in ms)
-                else if (typeof dateOfDeath === "number") {
-                  dateOfDeath = new Date(dateOfDeath);
-                  console.log(
-                    `[FetchMortalityRecords] ✓ Converted number to Date: ${dateOfDeath}`,
+                    `[FetchMortalityRecords] ✓ Converted via seconds: ${dateOfDeath}`,
                   );
                 }
               }
-
-              // Fallback to dateOfDeathFormatted if the primary conversion failed
-              if (!dateOfDeath || isNaN(dateOfDeath.getTime())) {
-                if (
-                  data.dateOfDeathFormatted &&
-                  typeof data.dateOfDeathFormatted === "string"
-                ) {
-                  dateOfDeath = parseCustomDateFormat(
-                    data.dateOfDeathFormatted,
-                  );
-                  if (dateOfDeath) {
-                    console.log(
-                      `[FetchMortalityRecords] ✓ Fallback: Converted dateOfDeathFormatted to Date using custom parser: ${dateOfDeath}`,
-                    );
-                  } else {
-                    console.warn(
-                      `[FetchMortalityRecords] Fallback custom parser also failed for: ${data.dateOfDeathFormatted}`,
-                    );
-                  }
-                }
-              }
-
-              const count = parseInt(data.count) || 0;
-
-              console.log(`[FetchMortalityRecords] Processing record:`, {
-                recordId: recordDoc.id,
-                batchName: batchName,
-                count: count,
-                dateOfDeath: dateOfDeath,
-                dateOfDeathType: typeof dateOfDeath,
-                causeOfDeath: data.causeOfDeath,
-              });
-
-              allRecords.push({
-                recordId: recordDoc.id,
-                batchId: data.batchId || batchName,
-                batchName: batchName,
-                count: count,
-                dateOfDeath: dateOfDeath,
-                causeOfDeath: data.causeOfDeath,
-                predatorType: data.predatorType,
-                customPredator: data.customPredator,
-                daysCount: data.daysCount,
-                notes: data.notes,
-                reportedBy: data.reportedBy,
-                userId: data.userId,
-                timestamp: data.timestamp,
-              });
-            } catch (recordError) {
-              console.error(
-                `[FetchMortalityRecords] Error processing record ${recordDoc.id}:`,
-                recordError,
+            }
+            // If it has seconds property (Firestore Timestamp structure)
+            else if (dateOfDeath.seconds) {
+              dateOfDeath = new Date(dateOfDeath.seconds * 1000);
+              console.log(
+                `[FetchMortalityRecords] ✓ Converted via seconds property: ${dateOfDeath}`,
               );
             }
+            // If it's already a Date object
+            else if (dateOfDeath instanceof Date) {
+              console.log(
+                `[FetchMortalityRecords] ✓ Already a Date object: ${dateOfDeath}`,
+              );
+            }
+            // If it's a string (like "January 19, 2026 at 3:33:04 AM UTC+8")
+            else if (typeof dateOfDeath === "string") {
+              dateOfDeath = parseCustomDateFormat(dateOfDeath);
+              if (dateOfDeath) {
+                console.log(
+                  `[FetchMortalityRecords] ✓ Converted string to Date using custom parser: ${dateOfDeath}`,
+                );
+              } else {
+                console.warn(
+                  `[FetchMortalityRecords] Custom parser failed for: ${data.dateOfDeath}`,
+                );
+              }
+            }
+            // If it's a number (timestamp in ms)
+            else if (typeof dateOfDeath === "number") {
+              dateOfDeath = new Date(dateOfDeath);
+              console.log(
+                `[FetchMortalityRecords] ✓ Converted number to Date: ${dateOfDeath}`,
+              );
+            }
+          }
+
+          // Fallback to dateOfDeathFormatted if the primary conversion failed
+          if (!dateOfDeath || isNaN(dateOfDeath.getTime())) {
+            if (
+              data.dateOfDeathFormatted &&
+              typeof data.dateOfDeathFormatted === "string"
+            ) {
+              dateOfDeath = parseCustomDateFormat(data.dateOfDeathFormatted);
+              if (dateOfDeath) {
+                console.log(
+                  `[FetchMortalityRecords] ✓ Fallback: Converted dateOfDeathFormatted to Date using custom parser: ${dateOfDeath}`,
+                );
+              } else {
+                console.warn(
+                  `[FetchMortalityRecords] Fallback custom parser also failed for: ${data.dateOfDeathFormatted}`,
+                );
+              }
+            }
+          }
+
+          const count = parseInt(data.count) || 0;
+
+          console.log(`[FetchMortalityRecords] Processing record:`, {
+            recordId: recordDoc.id,
+            batchName: batchName,
+            count: count,
+            dateOfDeath: dateOfDeath,
+            dateOfDeathType: typeof dateOfDeath,
+            causeOfDeath: data.causeOfDeath,
           });
-        } catch (batchError) {
-          console.warn(
-            `[FetchMortalityRecords] Could not fetch from /mortality/${batchName}/records:`,
-            batchError.message,
+
+          allRecords.push({
+            recordId: recordDoc.id,
+            batchId: batchName,
+            batchName: batchName,
+            count: count,
+            dateOfDeath: dateOfDeath,
+            causeOfDeath: data.causeOfDeath,
+            predatorType: data.predatorType,
+            customPredator: data.customPredator,
+            daysCount: data.daysCount,
+            notes: data.notes,
+            reportedBy: data.reportedBy,
+            userId: data.userId,
+            timestamp: data.timestamp,
+          });
+        } catch (recordError) {
+          console.error(
+            `[FetchMortalityRecords] Error processing record ${recordDoc.id}:`,
+            recordError,
           );
         }
-      }
+      });
 
       console.log("[FetchMortalityRecords] ====== SUMMARY ======");
       console.log(
@@ -940,59 +905,44 @@ export default function AdminAnalytics({ navigation }) {
         "[FetchMortalityExport] Fetching mortality records for export...",
       );
 
-      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
-      const brooderSnapshot = await getDocs(brooderInfoRef);
-
       const startDate = new Date(startDateStr);
       const endDate = new Date(endDateStr);
       endDate.setHours(23, 59, 59, 999);
 
+      // Use collectionGroup to query all records directly from /mortality/{BatchName}/records
+      const recordsRef = collectionGroup(firestoreDb, "records");
+      const recordsSnapshot = await getDocs(recordsRef);
+
       let allRecords = [];
 
-      // Fetch mortality records from each batch
-      const batchPromises = brooderSnapshot.docs.map(async (doc) => {
-        const batchId = doc.id;
+      console.log(
+        "[FetchMortalityExport] Found",
+        recordsSnapshot.docs.length,
+        "total mortality records",
+      );
 
-        try {
-          const mortalityRecordsRef = collection(
-            firestoreDb,
-            "mortality",
-            batchId,
-            "records",
-          );
-          const recordsSnapshot = await getDocs(mortalityRecordsRef);
+      // Process all records and filter by date range
+      recordsSnapshot.docs.forEach((recordDoc) => {
+        const recordData = recordDoc.data();
+        let recordDate;
 
-          recordsSnapshot.docs.forEach((recordDoc) => {
-            const recordData = recordDoc.data();
-            let recordDate;
+        // Parse dateOfDeath
+        if (recordData.dateOfDeath) {
+          if (recordData.dateOfDeath.toDate) {
+            recordDate = recordData.dateOfDeath.toDate();
+          } else if (recordData.dateOfDeath.seconds) {
+            recordDate = new Date(recordData.dateOfDeath.seconds * 1000);
+          }
+        }
 
-            // Parse dateOfDeath
-            if (recordData.dateOfDeath) {
-              if (recordData.dateOfDeath.toDate) {
-                recordDate = recordData.dateOfDeath.toDate();
-              } else if (recordData.dateOfDeath.seconds) {
-                recordDate = new Date(recordData.dateOfDeath.seconds * 1000);
-              }
-            }
-
-            // Filter by date range
-            if (
-              recordDate &&
-              recordDate >= startDate &&
-              recordDate <= endDate
-            ) {
-              allRecords.push({
-                id: recordDoc.id,
-                ...recordData,
-              });
-            }
+        // Filter by date range
+        if (recordDate && recordDate >= startDate && recordDate <= endDate) {
+          allRecords.push({
+            id: recordDoc.id,
+            ...recordData,
           });
-        } catch (error) {
-          console.warn(`Error fetching mortality for batch ${batchId}:`, error);
         }
       });
-
-      await Promise.all(batchPromises);
 
       // Sort by dateOfDeath (descending)
       allRecords.sort((a, b) => {
@@ -1727,97 +1677,74 @@ export default function AdminAnalytics({ navigation }) {
         endDate.toISOString(),
       );
 
-      // Get all batches from brooderInfo to know what batches exist
-      const brooderCollection = collection(firestoreDb, "brooderInfo");
-      const brooderDocs = await getDocs(brooderCollection);
+      // Use collectionGroup to query all records directly from /mortality/{BatchName}/records
+      // No need to fetch from brooderInfo - extract batchId from record data
+      const recordsRef = collectionGroup(firestoreDb, "records");
+      const recordsSnapshot = await getDocs(recordsRef);
 
       const batchDeathsMap = {}; // Map to store total deaths per batch
 
-      // For each batch, fetch mortality records and sum the count
-      for (const batchDoc of brooderDocs.docs) {
-        const batchId = batchDoc.id;
-        const batchData = batchDoc.data();
-        const batchName = batchData.batchName || batchData.batch || batchId;
+      console.log(
+        "[FetchMortalityPerBatch] Found",
+        recordsSnapshot.docs.length,
+        "total mortality records",
+      );
+
+      // Process all records and aggregate deaths by batch
+      recordsSnapshot.docs.forEach((recordDoc) => {
+        const recordData = recordDoc.data();
+        const batchId = recordData.batchId; // Extract batchId from record data
+        const count = recordData.count || 0;
 
         console.log(
-          `[FetchMortalityPerBatch] Processing batch: ${batchId}, name: ${batchName}`,
+          `[FetchMortalityPerBatch] Processing record from batch: ${batchId}`,
         );
 
-        try {
-          // Fetch all mortality records for this batch
-          const mortalityRecordsRef = collection(
-            firestoreDb,
-            "mortality",
-            batchName,
-            "records",
-          );
-          const recordsSnapshot = await getDocs(mortalityRecordsRef);
-
-          let totalDeathsForBatch = 0;
-
-          // Process each record and sum the count
-          recordsSnapshot.docs.forEach((recordDoc) => {
-            const recordData = recordDoc.data();
-            const count = recordData.count || 0;
-
-            // Parse timestamp (report date) for date filtering
-            let recordDate = null;
-            if (recordData.timestamp) {
-              if (recordData.timestamp.toDate) {
-                recordDate = recordData.timestamp.toDate();
-              } else if (recordData.timestamp.seconds) {
-                recordDate = new Date(recordData.timestamp.seconds * 1000);
-              }
-            }
-
-            // Also try using createdAt as fallback
-            if (!recordDate && recordData.createdAt) {
-              if (recordData.createdAt.toDate) {
-                recordDate = recordData.createdAt.toDate();
-              } else if (recordData.createdAt.seconds) {
-                recordDate = new Date(recordData.createdAt.seconds * 1000);
-              }
-            }
-
-            // Filter by date range
-            if (recordDate) {
-              // Convert UTC timestamp to GMT+8 for comparison
-              const recordDateGMT8 = new Date(
-                recordDate.getTime() + 8 * 60 * 60 * 1000,
-              );
-              const recordDateOnly = new Date(
-                recordDateGMT8.getFullYear(),
-                recordDateGMT8.getMonth(),
-                recordDateGMT8.getDate(),
-              );
-
-              if (recordDateOnly >= startDate && recordDateOnly <= endDate) {
-                totalDeathsForBatch += count;
-              }
-            }
-          });
-
-          // Store batch data with total deaths
-          batchDeathsMap[batchName] = {
-            batchId: batchName,
-            deaths: totalDeathsForBatch,
-          };
-
-          console.log(
-            `[FetchMortalityPerBatch] Batch ${batchName}: ${totalDeathsForBatch} total deaths`,
-          );
-        } catch (error) {
-          console.warn(
-            `[FetchMortalityPerBatch] Error fetching mortality for ${batchName}:`,
-            error,
-          );
-          // Initialize with 0 deaths if error
-          batchDeathsMap[batchName] = {
-            batchId: batchName,
-            deaths: 0,
-          };
+        // Parse timestamp (report date) for date filtering
+        let recordDate = null;
+        if (recordData.timestamp) {
+          if (recordData.timestamp.toDate) {
+            recordDate = recordData.timestamp.toDate();
+          } else if (recordData.timestamp.seconds) {
+            recordDate = new Date(recordData.timestamp.seconds * 1000);
+          }
         }
-      }
+
+        // Also try using createdAt as fallback
+        if (!recordDate && recordData.createdAt) {
+          if (recordData.createdAt.toDate) {
+            recordDate = recordData.createdAt.toDate();
+          } else if (recordData.createdAt.seconds) {
+            recordDate = new Date(recordData.createdAt.seconds * 1000);
+          }
+        }
+
+        // Filter by date range
+        if (recordDate) {
+          // Convert UTC timestamp to GMT+8 for comparison
+          const recordDateGMT8 = new Date(
+            recordDate.getTime() + 8 * 60 * 60 * 1000,
+          );
+          const recordDateOnly = new Date(
+            recordDateGMT8.getFullYear(),
+            recordDateGMT8.getMonth(),
+            recordDateGMT8.getDate(),
+          );
+
+          if (recordDateOnly >= startDate && recordDateOnly <= endDate) {
+            // Add to batch deaths map
+            if (!batchDeathsMap[batchId]) {
+              batchDeathsMap[batchId] = {
+                batchId: batchId,
+                deaths: 0,
+              };
+            }
+            batchDeathsMap[batchId].deaths += count;
+          }
+        }
+      });
+
+      console.log("[FetchMortalityPerBatch] Batch deaths map:", batchDeathsMap);
 
       // Convert map to sorted array
       const batchArray = Object.values(batchDeathsMap).sort((a, b) =>
@@ -2453,98 +2380,73 @@ export default function AdminAnalytics({ navigation }) {
 
     setIsGeneratingBatchReport(true);
     try {
-      // Fetch batch mortality data for export date range
-      const brooderCollection = collection(firestoreDb, "brooderInfo");
-      const brooderDocs = await getDocs(brooderCollection);
+      // Use collectionGroup to query all mortality records directly
+      const recordsRef = collectionGroup(firestoreDb, "records");
+      const recordsSnapshot = await getDocs(recordsRef);
 
       const batchTableRows = [];
+      const batchDeathsMap = {}; // Map to aggregate deaths by batch
 
-      // For each batch, fetch mortality records and calculate totals
-      for (const batchDoc of brooderDocs.docs) {
-        const batchId = batchDoc.id;
-        const batchData = batchDoc.data();
-        const batchName = batchData.batchName || batchData.batch || batchId;
+      const startDateObj = new Date(batchExportStartDate);
+      const endDateObj = new Date(batchExportEndDate);
+      endDateObj.setHours(23, 59, 59, 999);
 
-        try {
-          // Fetch all mortality records for this batch
-          const mortalityRecordsRef = collection(
-            firestoreDb,
-            "mortality",
-            batchName,
-            "records",
-          );
-          const recordsSnapshot = await getDocs(mortalityRecordsRef);
+      // Process all records and aggregate by batch
+      recordsSnapshot.docs.forEach((recordDoc) => {
+        const recordData = recordDoc.data();
+        const batchName = recordData.batchId; // Extract batchId from record data
+        const count = recordData.count || 0;
 
-          let totalDeathsForBatch = 0;
-          let recordCount = 0;
-
-          // Process each record and sum the count
-          recordsSnapshot.docs.forEach((recordDoc) => {
-            const recordData = recordDoc.data();
-            const count = recordData.count || 0;
-
-            // Parse timestamp (report date) for date filtering
-            let recordDate = null;
-            if (recordData.timestamp) {
-              if (recordData.timestamp.toDate) {
-                recordDate = recordData.timestamp.toDate();
-              } else if (recordData.timestamp.seconds) {
-                recordDate = new Date(recordData.timestamp.seconds * 1000);
-              }
-            }
-
-            // Also try using createdAt as fallback
-            if (!recordDate && recordData.createdAt) {
-              if (recordData.createdAt.toDate) {
-                recordDate = recordData.createdAt.toDate();
-              } else if (recordData.createdAt.seconds) {
-                recordDate = new Date(recordData.createdAt.seconds * 1000);
-              }
-            }
-
-            // Filter by date range
-            if (recordDate) {
-              const startDateObj = new Date(batchExportStartDate);
-              const endDateObj = new Date(batchExportEndDate);
-              endDateObj.setHours(23, 59, 59, 999);
-
-              // Convert UTC timestamp to GMT+8 for comparison
-              const recordDateGMT8 = new Date(
-                recordDate.getTime() + 8 * 60 * 60 * 1000,
-              );
-              const recordDateOnly = new Date(
-                recordDateGMT8.getFullYear(),
-                recordDateGMT8.getMonth(),
-                recordDateGMT8.getDate(),
-              );
-
-              if (
-                recordDateOnly >= startDateObj &&
-                recordDateOnly <= endDateObj
-              ) {
-                totalDeathsForBatch += count;
-                recordCount++;
-              }
-            }
-          });
-
-          batchTableRows.push({
-            batchName,
-            totalDeaths: totalDeathsForBatch,
-            recordCount,
-          });
-        } catch (error) {
-          console.warn(
-            `[Export] Error fetching mortality for ${batchName}:`,
-            error,
-          );
-          batchTableRows.push({
-            batchName,
-            totalDeaths: 0,
-            recordCount: 0,
-          });
+        // Parse timestamp (report date) for date filtering
+        let recordDate = null;
+        if (recordData.timestamp) {
+          if (recordData.timestamp.toDate) {
+            recordDate = recordData.timestamp.toDate();
+          } else if (recordData.timestamp.seconds) {
+            recordDate = new Date(recordData.timestamp.seconds * 1000);
+          }
         }
-      }
+
+        // Also try using createdAt as fallback
+        if (!recordDate && recordData.createdAt) {
+          if (recordData.createdAt.toDate) {
+            recordDate = recordData.createdAt.toDate();
+          } else if (recordData.createdAt.seconds) {
+            recordDate = new Date(recordData.createdAt.seconds * 1000);
+          }
+        }
+
+        // Filter by date range
+        if (recordDate) {
+          // Convert UTC timestamp to GMT+8 for comparison
+          const recordDateGMT8 = new Date(
+            recordDate.getTime() + 8 * 60 * 60 * 1000,
+          );
+          const recordDateOnly = new Date(
+            recordDateGMT8.getFullYear(),
+            recordDateGMT8.getMonth(),
+            recordDateGMT8.getDate(),
+          );
+
+          if (recordDateOnly >= startDateObj && recordDateOnly <= endDateObj) {
+            // Add to batch deaths map
+            if (!batchDeathsMap[batchName]) {
+              batchDeathsMap[batchName] = {
+                batchName,
+                totalDeaths: 0,
+                recordCount: 0,
+              };
+            }
+            batchDeathsMap[batchName].totalDeaths += count;
+            batchDeathsMap[batchName].recordCount++;
+          }
+        }
+      });
+
+      // Convert map to array
+      Object.values(batchDeathsMap).forEach((batchData) => {
+        batchTableRows.push(batchData);
+      });
 
       // Check if any data exists
       const totalDeaths = batchTableRows.reduce(
@@ -5924,8 +5826,8 @@ export default function AdminAnalytics({ navigation }) {
                           <View
                             style={{
                               flexDirection: "row",
-                              alignItems: "center",
-                              width: 165,
+                              alignItems: "flex-start",
+                              width: 170,
                             }}
                           >
                             <View
@@ -5954,8 +5856,8 @@ export default function AdminAnalytics({ navigation }) {
                           <View
                             style={{
                               flexDirection: "row",
-                              alignItems: "center",
-                              width: 165,
+                              alignItems: "flex-start",
+                              width: 170,
                             }}
                           >
                             <View
@@ -5985,8 +5887,8 @@ export default function AdminAnalytics({ navigation }) {
                           <View
                             style={{
                               flexDirection: "row",
-                              alignItems: "center",
-                              width: 165,
+                              alignItems: "flex-start",
+                              width: 170,
                             }}
                           >
                             <View
@@ -6015,8 +5917,8 @@ export default function AdminAnalytics({ navigation }) {
                           <View
                             style={{
                               flexDirection: "row",
-                              alignItems: "center",
-                              width: 165,
+                              alignItems: "flex-start",
+                              width: 170,
                             }}
                           >
                             <View
@@ -9514,13 +9416,35 @@ function GroupedBarChart({ data = [], height = 180 }) {
   const loginsColor = "#133E87";
   const actionsColor = "#000";
 
-  // nice max for y-axis
+  // Calculate y-axis max to ensure data values align with gridlines
   const rawMax = Math.max(...data.map((d) => Math.max(d.actions, d.logins)), 1);
-  const magnitude = Math.pow(10, Math.floor(Math.log10(rawMax)));
-  let niceMax = Math.ceil(rawMax / magnitude) * magnitude;
-  if (niceMax / 2 >= rawMax) niceMax = niceMax / 2;
-  const finalMax = niceMax;
-  const ticks = 5;
+
+  // Calculate nice maximum for y-axis (prefer round numbers)
+  const getNiceMax = (maxValue, numTicks) => {
+    // If data is less than 5, use fixed scale of 0-5
+    if (maxValue <= 5) {
+      return 5;
+    }
+
+    const roughStep = maxValue / (numTicks - 1);
+    const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+    const normalizedStep = roughStep / magnitude;
+
+    // Round to nearest nice number (1, 2, 5, 10)
+    let niceStep;
+    if (normalizedStep <= 1) niceStep = 1;
+    else if (normalizedStep <= 2) niceStep = 2;
+    else if (normalizedStep <= 5) niceStep = 5;
+    else niceStep = 10;
+
+    const step = niceStep * magnitude;
+    // Calculate finalMax to be a multiple of step that's >= rawMax
+    return Math.ceil(maxValue / step) * step;
+  };
+
+  const finalMax = getNiceMax(rawMax, 6);
+  // Use 6 ticks for small data (0-5), 6 ticks for larger data
+  const ticks = 6;
 
   const onBarPress = (index, val) => {
     if (!layoutWidth) return;
@@ -9554,7 +9478,13 @@ function GroupedBarChart({ data = [], height = 180 }) {
             <View style={{ width: yAxisWidth, height }}>
               {Array.from({ length: ticks }).map((_, i) => {
                 const ratio = i / (ticks - 1);
-                const value = Math.round((1 - ratio) * finalMax);
+                // For small data (rawMax <= 5), show 0-5
+                let value;
+                if (rawMax <= 5) {
+                  value = Math.round((1 - ratio) * finalMax);
+                } else {
+                  value = Math.round((1 - ratio) * finalMax);
+                }
                 const topPos = ratio * height - 8;
                 return (
                   <View
@@ -9618,12 +9548,14 @@ function GroupedBarChart({ data = [], height = 180 }) {
                     (innerWidth / totalSlots) * 0.7,
                   );
                   const spacing = innerWidth / totalSlots;
-                  const minBarHeight = 8;
 
                   return data.map((d, i) => {
-                    const loginsHeight = Math.round(
-                      (d.logins / finalMax) * height,
-                    );
+                    // Calculate exact bar heights based on the data values
+                    // No minimum height - let bars be proportional to actual values
+                    const loginsHeight =
+                      finalMax > 0 ? (d.logins / finalMax) * height : 0;
+                    const actionsHeight =
+                      finalMax > 0 ? (d.actions / finalMax) * height : 0;
 
                     return (
                       <View
@@ -9637,7 +9569,8 @@ function GroupedBarChart({ data = [], height = 180 }) {
                             alignItems: "center",
                           }}
                         >
-                          <View
+                          <TouchableOpacity
+                            onPress={() => onBarPress(i, d.logins)}
                             style={{
                               width: barWidth,
                               height: loginsHeight,
@@ -9646,13 +9579,15 @@ function GroupedBarChart({ data = [], height = 180 }) {
                               borderTopRightRadius: 4,
                             }}
                           />
-                          <View
+                          <TouchableOpacity
+                            onPress={() => onBarPress(i, d.actions)}
                             style={{
                               width: barWidth,
                               height: actionsHeight,
                               backgroundColor: actionsColor,
                               borderTopLeftRadius: 4,
                               borderTopRightRadius: 4,
+                              marginTop: 2,
                             }}
                           />
                         </View>
@@ -10225,7 +10160,7 @@ function MortalityBatchChart({ height = 220, data = [] }) {
   let niceMax = Math.ceil(rawMax / magnitude) * magnitude;
   if (niceMax / 2 >= rawMax) niceMax = niceMax / 2;
   const finalMax = Math.max(niceMax, 5);
-  const ticks = 5;
+  const ticks = 5; // Fixed number for clean appearance
 
   const onBarPress = (index, value) => {
     if (!layoutWidth) return;
@@ -10331,17 +10266,9 @@ function MortalityBatchChart({ height = 220, data = [] }) {
                   const minBarHeight = 2; // Minimum height to make bar visible
 
                   return batchData.map((d, i) => {
-                    // Align bar to nearest gridline position for accurate Y-axis alignment
-                    // Calculate which gridline interval the value falls into
-                    const interval = height / (ticks - 1); // Pixel size of each tick interval
-                    const normalizedPos =
-                      (((finalMax - d.deaths) / finalMax) * height) / interval;
-                    const roundedGridlinePos =
-                      Math.round(normalizedPos) * interval;
-                    const barHeight =
-                      d.deaths === 0
-                        ? minBarHeight
-                        : Math.max(minBarHeight, height - roundedGridlinePos);
+                    // Calculate bar height exact proportionally to value
+                    // bar height = (value / finalMax) * total height
+                    const barHeight = (d.deaths / finalMax) * height;
                     const isActive = activeBar && activeBar.index === i;
 
                     return (
@@ -10512,11 +10439,32 @@ function AttacksBatchChart({ height = 220, data = [] }) {
   // Handle empty data gracefully
   const rawMax =
     batchData.length > 0 ? Math.max(...batchData.map((d) => d.attacks), 1) : 1;
-  const magnitude = Math.pow(10, Math.floor(Math.log10(rawMax)));
-  let niceMax = Math.ceil(rawMax / magnitude) * magnitude;
-  if (niceMax / 2 >= rawMax) niceMax = niceMax / 2;
-  const finalMax = Math.max(niceMax, 5);
-  const ticks = 5;
+
+  // Calculate nice maximum for y-axis
+  const getNiceMax = (maxValue, numTicks) => {
+    // If data is less than 5, use fixed scale of 1-5
+    if (maxValue <= 5) {
+      return 5;
+    }
+
+    const roughStep = maxValue / (numTicks - 1);
+    const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+    const normalizedStep = roughStep / magnitude;
+
+    // Round to nearest nice number (1, 2, 5, 10)
+    let niceStep;
+    if (normalizedStep <= 1) niceStep = 1;
+    else if (normalizedStep <= 2) niceStep = 2;
+    else if (normalizedStep <= 5) niceStep = 5;
+    else niceStep = 10;
+
+    const step = niceStep * magnitude;
+    return Math.ceil(maxValue / step) * step;
+  };
+
+  const finalMax = getNiceMax(rawMax, 6);
+  // Use 6 ticks for small data (0-5), 6 ticks for larger data
+  const ticks = 6;
 
   const onBarPress = (index, value) => {
     if (!layoutWidth) return;
@@ -10555,7 +10503,13 @@ function AttacksBatchChart({ height = 220, data = [] }) {
             <View style={{ width: yAxisWidth, height }}>
               {Array.from({ length: ticks }).map((_, i) => {
                 const ratio = i / (ticks - 1);
-                const value = Math.round((1 - ratio) * finalMax);
+                // For small data (rawMax <= 5), show 0-5
+                let value;
+                if (rawMax <= 5) {
+                  value = Math.round((1 - ratio) * finalMax);
+                } else {
+                  value = Math.round((1 - ratio) * finalMax);
+                }
                 const topPos = ratio * height - 8;
                 return (
                   <View
@@ -10614,13 +10568,9 @@ function AttacksBatchChart({ height = 220, data = [] }) {
                   const barWidth = spacing * 0.6;
 
                   return batchData.map((d, index) => {
-                    // Snap bar to nearest gridline
-                    const gridlineSpacing = finalMax / (ticks - 1);
-                    const gridlineIndex = Math.round(
-                      d.attacks / gridlineSpacing,
-                    );
-                    const snappedValue = gridlineIndex * gridlineSpacing;
-                    const barHeight = (snappedValue / finalMax) * height;
+                    // Calculate bar height exact proportionally to value
+                    // bar height = (value / finalMax) * total height
+                    const barHeight = (d.attacks / finalMax) * height;
                     const isActive = activeBar && activeBar.index === index;
                     return (
                       <View

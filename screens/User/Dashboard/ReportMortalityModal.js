@@ -659,14 +659,20 @@ export default function ReportMortalityModal({
         <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
           <ScrollView showsVerticalScrollIndicator={false}>
             {/* Close Button X */}
-            <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+            <TouchableOpacity
+              key="close-button"
+              onPress={handleClose}
+              style={styles.closeButton}
+            >
               <Text style={styles.closeButtonText}>✕</Text>
             </TouchableOpacity>
 
-            <Text style={styles.sectionTitle}>Report Mortality</Text>
+            <Text key="title" style={styles.sectionTitle}>
+              Report Mortality
+            </Text>
 
             {/* Batch Selection Dropdown */}
-            <View style={styles.inputGroup}>
+            <View key="batch-section" style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Select Batch *</Text>
               <TouchableOpacity
                 style={styles.dropdownButton}
@@ -688,7 +694,7 @@ export default function ReportMortalityModal({
                   nestedScrollEnabled={true}
                 >
                   {batches.filter((b) => !b.deleted).length === 0 ? (
-                    <Text style={styles.dropdownEmptyText}>
+                    <Text key="no-batches" style={styles.dropdownEmptyText}>
                       No batches available
                     </Text>
                   ) : (
@@ -714,7 +720,7 @@ export default function ReportMortalityModal({
             </View>
 
             {/* Date of Death */}
-            <View style={styles.inputGroup}>
+            <View key="date-section" style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Date of Death *</Text>
               <TouchableOpacity
                 style={styles.dateButton}
@@ -741,7 +747,7 @@ export default function ReportMortalityModal({
             </View>
 
             {/* Cause of Death Dropdown */}
-            <View style={styles.inputGroup}>
+            <View key="cause-section" style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Cause of Death *</Text>
               <TouchableOpacity
                 style={styles.dropdownButton}
@@ -780,7 +786,7 @@ export default function ReportMortalityModal({
 
             {/* Predator Type Dropdown (if Predator Attack selected) */}
             {causeOfDeath === "Predator Attack" && (
-              <View key="predator-section" style={styles.inputGroup}>
+              <View key="predator-type-section" style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Predator Type *</Text>
                 <TouchableOpacity
                   style={styles.dropdownButton}
@@ -820,7 +826,7 @@ export default function ReportMortalityModal({
 
             {/* Custom Predator (if Other selected in predator) */}
             {causeOfDeath === "Predator Attack" && predatorType === "Other" && (
-              <View key="custom-predator-section" style={styles.inputGroup}>
+              <View key="custom-predator-input" style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Specify Predator *</Text>
                 <TextInput
                   style={styles.input}
@@ -838,7 +844,7 @@ export default function ReportMortalityModal({
 
             {/* Custom Cause (if Other selected in cause) */}
             {causeOfDeath === "Other" && (
-              <View key="custom-cause-section" style={styles.inputGroup}>
+              <View key="custom-cause-input" style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Specify Cause *</Text>
                 <TextInput
                   style={styles.input}
@@ -855,7 +861,7 @@ export default function ReportMortalityModal({
             )}
 
             {/* Count */}
-            <View style={styles.inputGroup}>
+            <View key="count-section" style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Number of Chicks Died *</Text>
               <TextInput
                 style={styles.input}
@@ -872,7 +878,7 @@ export default function ReportMortalityModal({
             </View>
 
             {/* Notes (Optional) */}
-            <View style={styles.inputGroup}>
+            <View key="notes-section" style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Notes (Optional)</Text>
               <TextInput
                 style={[styles.input, styles.textArea]}
