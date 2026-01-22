@@ -407,6 +407,15 @@ export default function QuickOverviewSetup({ navigation }) {
                   batch.id === latestBatch.id ? latestBatch : batch,
                 );
                 setBatches(updatedBatches);
+              } else {
+                // No latest batch either, clear everything
+                console.log("[ScreenFocus] No batches available, clearing all");
+                await setSelectedBatch(null);
+                setChicksCount("0");
+                setDaysCount("0");
+                setHarvestDays("0");
+                setHasBatchData(false);
+                setBatches([]);
               }
             }
           } else {
@@ -427,6 +436,14 @@ export default function QuickOverviewSetup({ navigation }) {
                 batch.id === latestBatch.id ? latestBatch : batch,
               );
               setBatches(updatedBatches);
+            } else {
+              // No batches at all
+              console.log("[ScreenFocus] No batches available, resetting UI");
+              setChicksCount("0");
+              setDaysCount("0");
+              setHarvestDays("0");
+              setHasBatchData(false);
+              setBatches([]);
             }
           }
         } catch (error) {
@@ -444,7 +461,15 @@ export default function QuickOverviewSetup({ navigation }) {
    * This keeps selectedBatchIndex in sync with the actual batch ID being displayed
    */
   useEffect(() => {
-    if (batches.length > 0 && chicksCount !== "0") {
+    if (batches.length === 0) {
+      // No batches left - ensure UI is completely reset
+      console.log("[SyncIndex] No batches, resetting UI");
+      setChicksCount("0");
+      setDaysCount("0");
+      setHarvestDays("0");
+      setHasBatchData(false);
+      setSelectedBatchIndex(null);
+    } else if (batches.length > 0 && chicksCount !== "0") {
       // Find the batch that matches current display data
       const currentBatchIndex = batches.findIndex(
         (batch) =>
@@ -939,10 +964,10 @@ export default function QuickOverviewSetup({ navigation }) {
         setSelectedBatchIndex(lastIdx);
         await AsyncStorage.setItem("selectedBatchIndex", String(lastIdx));
       } else {
-        // No batches, fallback to saved values or zero
-        setChicksCount(savedChicks ? String(savedChicks) : "0");
-        setDaysCount(savedDays ? String(savedDays) : "0");
-        setHarvestDays(savedHarvest ? String(savedHarvest) : "0");
+        // No batches, reset to zero (don't use old saved values)
+        setChicksCount("0");
+        setDaysCount("0");
+        setHarvestDays("0");
         setHasBatchData(false);
         setSelectedBatchIndex(null);
       }
@@ -1172,6 +1197,8 @@ export default function QuickOverviewSetup({ navigation }) {
                 await AsyncStorage.removeItem("harvestDays");
                 await AsyncStorage.removeItem("batchStartDate");
                 await AsyncStorage.removeItem("selectedBatchIndex");
+                await AsyncStorage.removeItem("selectedBatchId");
+                await AsyncStorage.removeItem("batches");
               }
 
               Alert.alert("Success", "Batch deleted successfully");

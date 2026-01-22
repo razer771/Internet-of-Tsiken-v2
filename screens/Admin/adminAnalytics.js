@@ -19,6 +19,7 @@ import {
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Calendar } from "react-native-calendars";
 import Header2 from "../navigation/adminHeader";
+import { fetchBatches } from "../User/Dashboard/viewallbatchesModal";
 import { db as firestoreDb } from "../../config/firebaseconfig";
 import {
   collection,
@@ -26,6 +27,8 @@ import {
   collectionGroup,
   addDoc,
   serverTimestamp,
+  query,
+  where,
 } from "firebase/firestore";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
@@ -244,6 +247,27 @@ export default function AdminAnalytics({ navigation }) {
   const [totalPredatorAttacks, setTotalPredatorAttacks] = useState(0);
   const [attacksPerBatchData, setAttacksPerBatchData] = useState([]);
 
+  // Predator Types state
+  const [predatorTypesData, setPredatorTypesData] = useState([
+    { name: "Dog", population: 0, color: "#154785" },
+    { name: "Cat", population: 0, color: "#FFC107" },
+    { name: "Snake", population: 0, color: "#F44336" },
+    { name: "Rat", population: 0, color: "#4CAF50" },
+    { name: "Other", population: 0, color: "#E91E63" },
+  ]);
+  const [isLoadingPredatorTypes, setIsLoadingPredatorTypes] = useState(false);
+  const [predatorTypesError, setPredatorTypesError] = useState(null);
+
+  // Export predator types modal state
+  const [exportPredatorTypesModalVisible, setExportPredatorTypesModalVisible] =
+    useState(false);
+  const [predatorTypesExportStartDate, setPredatorTypesExportStartDate] =
+    useState(null);
+  const [predatorTypesExportEndDate, setPredatorTypesExportEndDate] =
+    useState(null);
+  const [isGeneratingPredatorTypesReport, setIsGeneratingPredatorTypesReport] =
+    useState(false);
+
   // Export predator attacks modal state
   const [exportPredatorModalVisible, setExportPredatorModalVisible] =
     useState(false);
@@ -252,8 +276,26 @@ export default function AdminAnalytics({ navigation }) {
   const [isGeneratingPredatorReport, setIsGeneratingPredatorReport] =
     useState(false);
 
+  // Batch selection for feed consumption chart
+  const [availableBatches, setAvailableBatches] = useState([]);
+  const [selectedFeedBatch, setSelectedFeedBatch] = useState("");
+  const [showFeedBatchDropdown, setShowFeedBatchDropdown] = useState(false);
+  const [isFetchingBatches, setIsFetchingBatches] = useState(false);
+  const [batchFetchError, setBatchFetchError] = useState(null);
+
+  // Feed consumption logging data
+  const [feedConsumptionData, setFeedConsumptionData] = useState([]);
+  const [isLoadingFeedConsumption, setIsLoadingFeedConsumption] =
+    useState(false);
+  const [feedConsumptionError, setFeedConsumptionError] = useState(null);
+
   const formatFilterDisplay = (filterData) => {
     if (!filterData) return "";
+
+    // Handle batch selection
+    if (filterData.batchId) {
+      return `${filterData.batchId}`;
+    }
 
     // Handle date range object
     if (filterData.startDate && filterData.endDate) {
@@ -462,6 +504,82 @@ export default function AdminAnalytics({ navigation }) {
   const generateBatchLabels = (filterData, defaultData) => {
     // For batch charts, we'll keep the batch IDs but could filter by date in the future
     return defaultData;
+  };
+
+  /**
+   * Fetch feed consumption data from feedingExecutions_logs collection
+   * Groups data by age and counts the number of documents for each age
+   * Returns formatted data for line chart: { age: number, count: number }
+   */
+  const fetchFeedConsumptionByAge = async (batchId) => {
+    setIsLoadingFeedConsumption(true);
+    setFeedConsumptionError(null);
+    try {
+      if (!batchId) {
+        setFeedConsumptionData([]);
+        setIsLoadingFeedConsumption(false);
+        return;
+      }
+
+      console.log(
+        "[adminAnalytics] Fetching feed consumption for batch:",
+        batchId,
+      );
+
+      // Query feedingExecutions_logs collection for the selected batch
+      const q = query(
+        collection(firestoreDb, "feedingExecutions_logs"),
+        where("batchId", "==", batchId),
+      );
+
+      const querySnapshot = await getDocs(q);
+
+      if (querySnapshot.empty) {
+        console.log(
+          "[adminAnalytics] No feeding logs found for batch:",
+          batchId,
+        );
+        setFeedConsumptionData([]);
+        setIsLoadingFeedConsumption(false);
+        return;
+      }
+
+      // Group documents by age and count them
+      const ageCountMap = {};
+
+      querySnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        const age = data.age;
+
+        if (typeof age === "number") {
+          if (!ageCountMap[age]) {
+            ageCountMap[age] = 0;
+          }
+          ageCountMap[age]++;
+        }
+      });
+
+      // Convert to array and sort by age
+      const consumptionData = Object.entries(ageCountMap)
+        .map(([age, count]) => ({
+          age: parseInt(age, 10),
+          count: count,
+        }))
+        .sort((a, b) => a.age - b.age);
+
+      console.log(
+        "[adminAnalytics] Feed consumption data processed:",
+        consumptionData.length,
+        "age points",
+      );
+      setFeedConsumptionData(consumptionData);
+    } catch (error) {
+      console.error("[adminAnalytics] Error fetching feed consumption:", error);
+      setFeedConsumptionError(error.message || "Failed to load feed data");
+      setFeedConsumptionData([]);
+    } finally {
+      setIsLoadingFeedConsumption(false);
+    }
   };
 
   /**
@@ -1294,6 +1412,277 @@ export default function AdminAnalytics({ navigation }) {
   };
 
   /**
+   * Fetch and categorize predator types from all attacks
+   *
+   * Fetches all attack documents from /predatorAttacks/{BatchId}/attacks/
+   * Extracts predator_type field and categorizes into: Dog, Cat, Rat, Snake, Other
+   * Calculates percentages based on date range filter
+   * Default filter: last 7 days
+   */
+  const fetchPredatorTypesData = async (filterData = null) => {
+    try {
+      console.log(
+        "[FetchPredatorTypes] Starting fetch with filter:",
+        filterData,
+      );
+
+      setIsLoadingPredatorTypes(true);
+      setPredatorTypesError(null);
+
+      // Determine date range
+      let startDate, endDate;
+
+      if (filterData && filterData.startDate && filterData.endDate) {
+        // Parse filter date strings (format: YYYY-MM-DD)
+        const [startYear, startMonth, startDay] = filterData.startDate
+          .split("-")
+          .map(Number);
+        const [endYear, endMonth, endDay] = filterData.endDate
+          .split("-")
+          .map(Number);
+
+        startDate = new Date(startYear, startMonth - 1, startDay);
+        endDate = new Date(endYear, endMonth - 1, endDay);
+        endDate.setHours(23, 59, 59, 999);
+      } else {
+        // Default: last 7 days
+        endDate = new Date();
+        endDate.setHours(23, 59, 59, 999);
+        startDate = new Date(endDate);
+        startDate.setDate(startDate.getDate() - 6); // -6 to include today as day 7
+        startDate.setHours(0, 0, 0, 0);
+      }
+
+      console.log(
+        "[FetchPredatorTypes] Date range:",
+        startDate.toISOString(),
+        "to",
+        endDate.toISOString(),
+      );
+
+      // Initialize predator type counts
+      const predatorCounts = {
+        dog: 0,
+        cat: 0,
+        rat: 0,
+        snake: 0,
+        other: 0,
+      };
+
+      // Fetch all batch documents from /predatorAttacks/
+      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
+      const batchesSnapshot = await getDocs(predatorAttacksRef);
+
+      console.log(
+        `[FetchPredatorTypes] Found ${batchesSnapshot.docs.length} batches in predatorAttacks`,
+      );
+
+      let totalAttacksProcessed = 0;
+
+      // Iterate through each batch and fetch its attacks subcollection
+      for (const batchDoc of batchesSnapshot.docs) {
+        const batchId = batchDoc.id;
+        console.log(`[FetchPredatorTypes] Processing batch: ${batchId}`);
+
+        try {
+          // Fetch attacks subcollection for this batch
+          const attacksRef = collection(
+            firestoreDb,
+            "predatorAttacks",
+            batchId,
+            "attacks",
+          );
+          const attacksSnapshot = await getDocs(attacksRef);
+
+          console.log(
+            `[FetchPredatorTypes] Found ${attacksSnapshot.docs.length} attack documents in batch ${batchId}`,
+          );
+
+          // Process attacks and categorize predator types
+          attacksSnapshot.docs.forEach((doc) => {
+            const data = doc.data();
+            const attackDatetime = data.attack_datetime;
+            const predatorType = data.predator_type;
+
+            if (!attackDatetime) {
+              console.warn(
+                `[FetchPredatorTypes] Document ${doc.id} in batch ${batchId} missing attack_datetime`,
+              );
+              return;
+            }
+
+            if (!predatorType) {
+              console.warn(
+                `[FetchPredatorTypes] Document ${doc.id} in batch ${batchId} missing predator_type`,
+              );
+              return;
+            }
+
+            // Convert Firestore Timestamp to Date
+            let attackDate;
+            try {
+              if (
+                attackDatetime.toDate &&
+                typeof attackDatetime.toDate === "function"
+              ) {
+                attackDate = attackDatetime.toDate();
+              } else if (attackDatetime.seconds) {
+                attackDate = new Date(attackDatetime.seconds * 1000);
+              } else if (attackDatetime instanceof Date) {
+                attackDate = attackDatetime;
+              } else {
+                attackDate = new Date(attackDatetime);
+              }
+
+              // Validate that we got a valid date
+              if (isNaN(attackDate.getTime())) {
+                console.warn(
+                  `[FetchPredatorTypes] Document ${doc.id} in batch ${batchId} has invalid date:`,
+                  attackDatetime,
+                );
+                return;
+              }
+
+              // Check if attack date is within filter range
+              if (attackDate < startDate || attackDate > endDate) {
+                console.log(
+                  `[FetchPredatorTypes] Skipping attack in batch ${batchId} outside date range: ${attackDate}`,
+                );
+                return;
+              }
+
+              // Categorize predator type (normalize to lowercase for comparison)
+              const predatorTypeNormalized = predatorType.toLowerCase().trim();
+
+              if (predatorTypeNormalized.includes("dog")) {
+                predatorCounts.dog++;
+              } else if (predatorTypeNormalized.includes("cat")) {
+                predatorCounts.cat++;
+              } else if (predatorTypeNormalized.includes("rat")) {
+                predatorCounts.rat++;
+              } else if (predatorTypeNormalized.includes("snake")) {
+                predatorCounts.snake++;
+              } else {
+                predatorCounts.other++;
+              }
+
+              totalAttacksProcessed++;
+              console.log(
+                `[FetchPredatorTypes] Categorized ${predatorType} in batch ${batchId}, total processed: ${totalAttacksProcessed}`,
+              );
+            } catch (error) {
+              console.warn(
+                `[FetchPredatorTypes] Error processing attack_datetime for document ${doc.id} in batch ${batchId}:`,
+                error,
+              );
+            }
+          });
+        } catch (error) {
+          console.warn(
+            `[FetchPredatorTypes] Error fetching attacks for batch ${batchId}:`,
+            error,
+          );
+        }
+      }
+
+      console.log(
+        `[FetchPredatorTypes] Total attacks processed across all batches: ${totalAttacksProcessed}`,
+      );
+
+      // Calculate total attacks
+      const totalAttacks =
+        predatorCounts.dog +
+        predatorCounts.cat +
+        predatorCounts.rat +
+        predatorCounts.snake +
+        predatorCounts.other;
+
+      console.log("[FetchPredatorTypes] Total attacks:", totalAttacks);
+      console.log("[FetchPredatorTypes] Predator counts:", predatorCounts);
+
+      // If no data, show empty state
+      if (totalAttacks === 0) {
+        console.log(
+          "[FetchPredatorTypes] No attacks found in date range, showing empty state",
+        );
+        setPredatorTypesData([
+          { name: "Dog", population: 0, color: "#154785" },
+          { name: "Cat", population: 0, color: "#FFC107" },
+          { name: "Snake", population: 0, color: "#F44336" },
+          { name: "Rat", population: 0, color: "#4CAF50" },
+          { name: "Other", population: 0, color: "#E91E63" },
+        ]);
+        setIsLoadingPredatorTypes(false);
+        return [];
+      }
+
+      // Calculate percentages
+      const dogPct = ((predatorCounts.dog / totalAttacks) * 100).toFixed(1);
+      const catPct = ((predatorCounts.cat / totalAttacks) * 100).toFixed(1);
+      const snakePct = ((predatorCounts.snake / totalAttacks) * 100).toFixed(1);
+      const ratPct = ((predatorCounts.rat / totalAttacks) * 100).toFixed(1);
+      const otherPct = ((predatorCounts.other / totalAttacks) * 100).toFixed(1);
+
+      // Build predator types data array
+      const updatedPredatorTypesData = [
+        {
+          name: "Dog",
+          population: parseFloat(dogPct),
+          count: predatorCounts.dog,
+          color: "#154785",
+        },
+        {
+          name: "Cat",
+          population: parseFloat(catPct),
+          count: predatorCounts.cat,
+          color: "#FFC107",
+        },
+        {
+          name: "Snake",
+          population: parseFloat(snakePct),
+          count: predatorCounts.snake,
+          color: "#F44336",
+        },
+        {
+          name: "Rat",
+          population: parseFloat(ratPct),
+          count: predatorCounts.rat,
+          color: "#4CAF50",
+        },
+        {
+          name: "Other",
+          population: parseFloat(otherPct),
+          count: predatorCounts.other,
+          color: "#E91E63",
+        },
+      ];
+
+      console.log(
+        "[FetchPredatorTypes] Final predator types data:",
+        updatedPredatorTypesData,
+      );
+
+      setPredatorTypesData(updatedPredatorTypesData);
+      setIsLoadingPredatorTypes(false);
+      return updatedPredatorTypesData;
+    } catch (error) {
+      console.error("[FetchPredatorTypes] Error:", error);
+      setPredatorTypesError(
+        error.message || "Failed to fetch predator types data",
+      );
+      setPredatorTypesData([
+        { name: "Dog", population: 0, color: "#154785" },
+        { name: "Cat", population: 0, color: "#FFC107" },
+        { name: "Snake", population: 0, color: "#F44336" },
+        { name: "Rat", population: 0, color: "#4CAF50" },
+        { name: "Other", population: 0, color: "#E91E63" },
+      ]);
+      setIsLoadingPredatorTypes(false);
+      return [];
+    }
+  };
+
+  /**
    * Fetch and calculate mortality per batch statistics filtered by date range
    *
    * Fetches all records from /mortality/{BatchId}/records and sums the count field
@@ -1836,6 +2225,7 @@ export default function AdminAnalytics({ navigation }) {
 
       // Create table rows
       let tableRows = "";
+      let totalDeaths = 0;
       records.forEach((record, index) => {
         const dateOfDeath = formatDateOnly(record.dateOfDeath);
         const dateReported = formatDateOnly(record.timestamp);
@@ -1847,6 +2237,8 @@ export default function AdminAnalytics({ navigation }) {
         const reportedBy = record.reportedBy || "N/A";
         const count = record.count || 0;
         const batchId = record.batchId || "N/A";
+
+        totalDeaths += count;
 
         tableRows += `
           <tr>
@@ -1864,6 +2256,15 @@ export default function AdminAnalytics({ navigation }) {
           </tr>
         `;
       });
+
+      // Add total row
+      tableRows += `
+        <tr style="background-color: #e8e8e8; font-weight: bold;">
+          <td colspan="4" style="text-align: center;">TOTAL DEATHS</td>
+          <td>${totalDeaths}</td>
+          <td colspan="6"></td>
+        </tr>
+      `;
 
       // Generate HTML
       const htmlContent = `
@@ -2042,7 +2443,7 @@ export default function AdminAnalytics({ navigation }) {
   /**
    * Generate Mortality Per Batch Report PDF
    * Fetches mortality records for each batch for the selected date range,
-   * sums the count for each batch, and generates a PDF report.
+   * sums the count for each batch, and generates a PDF report
    */
   const generateMortalityBatchReportPDF = async () => {
     if (!batchExportStartDate || !batchExportEndDate) {
@@ -2153,7 +2554,7 @@ export default function AdminAnalytics({ navigation }) {
       if (totalDeaths === 0) {
         Alert.alert(
           "No Data",
-          "No mortality data found for the selected date range",
+          "No mortality records found for the selected date range",
         );
         setIsGeneratingBatchReport(false);
         return;
@@ -2513,7 +2914,7 @@ export default function AdminAnalytics({ navigation }) {
           <tr>
             <td>${index + 1}</td>
             <td>${dateTime.date}<br/><small style="color: #666;">${dateTime.time}</small></td>
-            <td>${attack.batchNumber || attack.batchId}</td>
+            <td>${attack.batchId}</td>
             <td>${attack.predator_type || "Unknown"}</td>
             <td>${attack.action_taken || "None"}</td>
             <td style="text-align: center;">${evidenceThumbnail}</td>
@@ -2629,7 +3030,7 @@ export default function AdminAnalytics({ navigation }) {
                 <tr>
                   <th style="width: 5%;">No</th>
                   <th style="width: 18%;">Date & Time</th>
-                  <th style="width: 12%;">Batch</th>
+                  <th style="width: 12%;">Batch ID</th>
                   <th style="width: 15%;">Predator Type</th>
                   <th style="width: 25%;">Action Taken</th>
                   <th style="width: 13%;">Evidence</th>
@@ -2705,8 +3106,8 @@ export default function AdminAnalytics({ navigation }) {
         await logReportGeneration(
           filename,
           "Predator Attacks Report",
-          "Generated predator attacks report",
-          `Report for ${formatDateTime(startDate).date} to ${formatDateTime(endDate).date}`,
+          "Generated predator report",
+          `Frequency of predator attacks report for ${formatDateTime(startDate).date} to ${formatDateTime(endDate).date}`,
         );
         console.log("[GeneratePredatorReport] Report logged successfully");
       } catch (logError) {
@@ -3268,7 +3669,10 @@ export default function AdminAnalytics({ navigation }) {
         return `${day}-${months[parseInt(month) - 1]}-${year}`;
       };
       if (totalDeaths === 0) {
-        Alert.alert("No Data", "No data for selected date/s");
+        Alert.alert(
+          "No Data",
+          "No mortality records found for the selected date range.",
+        );
         setExportCauseModalVisible(false);
         setIsGeneratingCauseReport(false);
         return;
@@ -3843,6 +4247,535 @@ export default function AdminAnalytics({ navigation }) {
     }
   };
 
+  // Generate Predator Types Report PDF
+  const generatePredatorTypesReportPDF = async () => {
+    if (!predatorTypesExportStartDate || !predatorTypesExportEndDate) {
+      Alert.alert("Error", "Please select both start and end dates");
+      return;
+    }
+
+    setIsGeneratingPredatorTypesReport(true);
+    try {
+      console.log(
+        "Starting Predator Types PDF generation with dates:",
+        predatorTypesExportStartDate,
+        predatorTypesExportEndDate,
+      );
+
+      // Parse dates
+      let startDateStr = predatorTypesExportStartDate;
+      let endDateStr = predatorTypesExportEndDate;
+
+      if (typeof startDateStr !== "string") {
+        startDateStr = new Date(startDateStr).toISOString().split("T")[0];
+      }
+      if (typeof endDateStr !== "string") {
+        endDateStr = new Date(endDateStr).toISOString().split("T")[0];
+      }
+
+      if (!startDateStr || !endDateStr) {
+        throw new Error("Failed to parse dates");
+      }
+
+      const [startYear, startMonth, startDay] = startDateStr
+        .split("-")
+        .map(Number);
+      const [endYear, endMonth, endDay] = endDateStr.split("-").map(Number);
+
+      let startDate = new Date(startYear, startMonth - 1, startDay);
+      startDate.setHours(0, 0, 0, 0);
+
+      let endDate = new Date(endYear, endMonth - 1, endDay);
+      endDate.setHours(23, 59, 59, 999);
+
+      // Fetch predator attacks data for date range
+      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
+      const batchesSnapshot = await getDocs(predatorAttacksRef);
+
+      let predatorCounts = {
+        dog: 0,
+        cat: 0,
+        rat: 0,
+        snake: 0,
+        other: 0,
+      };
+      let totalAttacks = 0;
+
+      // Track batch summaries
+      const batchSummary = {};
+
+      // Iterate through each batch and fetch attacks
+      for (const batchDoc of batchesSnapshot.docs) {
+        const batchId = batchDoc.id;
+
+        try {
+          const attacksRef = collection(
+            firestoreDb,
+            "predatorAttacks",
+            batchId,
+            "attacks",
+          );
+          const attacksSnapshot = await getDocs(attacksRef);
+
+          // Initialize batch summary
+          if (!batchSummary[batchId]) {
+            batchSummary[batchId] = {
+              dog: 0,
+              cat: 0,
+              rat: 0,
+              snake: 0,
+              other: 0,
+              total: 0,
+            };
+          }
+
+          attacksSnapshot.docs.forEach((doc) => {
+            const data = doc.data();
+            const attackDatetime = data.attack_datetime;
+            const predatorType = data.predator_type;
+
+            if (!attackDatetime || !predatorType) return;
+
+            // Convert Firestore Timestamp to Date
+            let attackDate;
+            try {
+              if (
+                attackDatetime.toDate &&
+                typeof attackDatetime.toDate === "function"
+              ) {
+                attackDate = attackDatetime.toDate();
+              } else if (attackDatetime.seconds) {
+                attackDate = new Date(attackDatetime.seconds * 1000);
+              } else if (attackDatetime instanceof Date) {
+                attackDate = attackDatetime;
+              } else {
+                attackDate = new Date(attackDatetime);
+              }
+
+              if (isNaN(attackDate.getTime())) return;
+
+              // Check if within filter range
+              if (attackDate < startDate || attackDate > endDate) return;
+
+              // Categorize predator type
+              const predatorTypeNormalized = predatorType.toLowerCase().trim();
+              let category = "other";
+
+              if (predatorTypeNormalized.includes("dog")) {
+                predatorCounts.dog++;
+                category = "dog";
+              } else if (predatorTypeNormalized.includes("cat")) {
+                predatorCounts.cat++;
+                category = "cat";
+              } else if (predatorTypeNormalized.includes("rat")) {
+                predatorCounts.rat++;
+                category = "rat";
+              } else if (predatorTypeNormalized.includes("snake")) {
+                predatorCounts.snake++;
+                category = "snake";
+              } else {
+                predatorCounts.other++;
+              }
+
+              // Track in batch summary
+              batchSummary[batchId][category]++;
+              batchSummary[batchId].total++;
+
+              totalAttacks++;
+            } catch (error) {
+              console.warn("Error processing attack date:", error);
+            }
+          });
+        } catch (error) {
+          console.warn(`Error fetching attacks for batch ${batchId}:`, error);
+        }
+      }
+
+      if (totalAttacks === 0) {
+        Alert.alert(
+          "No Data",
+          "No predator attacks found for the selected date range.",
+        );
+        setExportPredatorTypesModalVisible(false);
+        setIsGeneratingPredatorTypesReport(false);
+        return;
+      }
+
+      // Calculate percentages
+      const dogPct =
+        totalAttacks > 0
+          ? ((predatorCounts.dog / totalAttacks) * 100).toFixed(2)
+          : 0;
+      const catPct =
+        totalAttacks > 0
+          ? ((predatorCounts.cat / totalAttacks) * 100).toFixed(2)
+          : 0;
+      const ratPct =
+        totalAttacks > 0
+          ? ((predatorCounts.rat / totalAttacks) * 100).toFixed(2)
+          : 0;
+      const snakePct =
+        totalAttacks > 0
+          ? ((predatorCounts.snake / totalAttacks) * 100).toFixed(2)
+          : 0;
+      const otherPct =
+        totalAttacks > 0
+          ? ((predatorCounts.other / totalAttacks) * 100).toFixed(2)
+          : 0;
+
+      // Format dates for display
+      const formatDate = (dateStr) => {
+        const [year, month, day] = dateStr.split("-");
+        const date = new Date(year, month - 1, day);
+        const months = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        return `${day}-${months[parseInt(month) - 1]}-${year}`;
+      };
+
+      const dateRangeDisplay = `${formatDate(startDateStr)} to ${formatDate(endDateStr)}`;
+
+      // Format filename
+      const startFormatted = formatDate(startDateStr);
+      const endFormatted = formatDate(endDateStr);
+      const filename = `PredatorTypes_${startFormatted}_to_${endFormatted}`;
+
+      // Load logo
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        },
+      );
+
+      // Create summary table rows
+      const summaryRows = `
+        <tr>
+          <td>Dog</td>
+          <td>${predatorCounts.dog}</td>
+          <td>${dogPct}%</td>
+        </tr>
+        <tr>
+          <td>Cat</td>
+          <td>${predatorCounts.cat}</td>
+          <td>${catPct}%</td>
+        </tr>
+        <tr>
+          <td>Snake</td>
+          <td>${predatorCounts.snake}</td>
+          <td>${snakePct}%</td>
+        </tr>
+        <tr>
+          <td>Rat</td>
+          <td>${predatorCounts.rat}</td>
+          <td>${ratPct}%</td>
+        </tr>
+        <tr>
+          <td>Other</td>
+          <td>${predatorCounts.other}</td>
+          <td>${otherPct}%</td>
+        </tr>
+        <tr style="background-color: #e8e8e8; font-weight: bold;">
+          <td>TOTAL</td>
+          <td>${totalAttacks}</td>
+          <td>100%</td>
+        </tr>
+      `;
+
+      // Create batch summary table rows
+      let batchTableRows = "";
+      let totalDog = 0,
+        totalCat = 0,
+        totalRat = 0,
+        totalSnake = 0,
+        totalOther = 0,
+        grandTotal = 0;
+
+      Object.entries(batchSummary)
+        .sort(([batchA], [batchB]) => batchA.localeCompare(batchB))
+        .forEach(([batchId, summary]) => {
+          if (summary.total > 0) {
+            batchTableRows += `
+              <tr>
+                <td>${batchId}</td>
+                <td>${summary.dog}</td>
+                <td>${summary.cat}</td>
+                <td>${summary.rat}</td>
+                <td>${summary.snake}</td>
+                <td>${summary.other}</td>
+                <td>${summary.total}</td>
+              </tr>
+            `;
+            totalDog += summary.dog;
+            totalCat += summary.cat;
+            totalRat += summary.rat;
+            totalSnake += summary.snake;
+            totalOther += summary.other;
+            grandTotal += summary.total;
+          }
+        });
+
+      // Add batch total row
+      batchTableRows += `
+        <tr style="background-color: #e8e8e8; font-weight: bold;">
+          <td>TOTAL</td>
+          <td>${totalDog}</td>
+          <td>${totalCat}</td>
+          <td>${totalRat}</td>
+          <td>${totalSnake}</td>
+          <td>${totalOther}</td>
+          <td>${grandTotal}</td>
+        </tr>
+      `;
+
+      // Generate HTML
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 0.3in 0.5in 0.3in 0.5in;
+            }
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 0;
+            }
+            .header {
+              margin-bottom: 20px;
+              border-bottom: 2px solid #133E87;
+              padding-bottom: 15px;
+            }
+            .header-top {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-bottom: 10px;
+            }
+            .logo {
+              width: 50px;
+              height: 50px;
+              border-radius: 25px;
+              margin-right: 15px;
+            }
+            .company-name {
+              font-size: 24px;
+              font-weight: bold;
+              color: #133E87;
+            }
+            .report-title {
+              font-size: 16px;
+              color: #333;
+              text-align: center;
+              margin-bottom: 15px;
+              font-weight: bold;
+            }
+            .filter-info {
+              font-size: 12px;
+              color: #666;
+              margin-bottom: 15px;
+              text-align: center;
+            }
+            .summary-section {
+              margin-bottom: 20px;
+              background-color: #f9f9f9;
+              padding: 10px;
+              border-radius: 5px;
+            }
+            .summary-title {
+              font-size: 14px;
+              font-weight: bold;
+              color: #133E87;
+              margin-bottom: 10px;
+            }
+            .summary-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              font-size: 11px;
+            }
+            .summary-item {
+              padding: 8px;
+              background-color: white;
+              border-left: 3px solid #133E87;
+              border-radius: 3px;
+            }
+            .summary-label {
+              color: #666;
+              font-size: 10px;
+            }
+            .summary-value {
+              color: #133E87;
+              font-weight: bold;
+              font-size: 14px;
+            }
+            table {
+              width: auto;
+              max-width: 400px;
+              border-collapse: collapse;
+              margin: left;
+              font-size: 11px;
+            }
+            th {
+              background-color: #133E87;
+              color: white;
+              padding: 8px;
+              text-align: left;
+              border: 1px solid #ddd;
+              font-weight: bold;
+            }
+            td {
+              padding: 6px;
+              border: 1px solid #ddd;
+              color: #333;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            .page-number {
+              text-align: center;
+              font-size: 10px;
+              color: #666;
+              margin-top: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="header-top">
+              <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
+              <div class="company-name">Internet of Tsiken</div>
+            </div>
+            <div class="report-title">Predator Types Analysis Report</div>
+            <div class="filter-info">
+              Date Range: ${dateRangeDisplay}<br>
+              Report Generated: ${new Date().toLocaleString()}<br>
+              Total Attacks: ${totalAttacks}
+            </div>
+          </div>
+
+          <div class="summary-section">
+            <div class="summary-title">Predator Types Summary</div>
+            <div class="summary-grid">
+              <div class="summary-item">
+                <div class="summary-label">Dog Attacks</div>
+                <div class="summary-value">${dogPct}%</div>
+                <div class="summary-label">(${predatorCounts.dog} ${predatorCounts.dog === 1 ? "attack" : "attacks"})</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-label">Cat Attacks</div>
+                <div class="summary-value">${catPct}%</div>
+                <div class="summary-label">(${predatorCounts.cat} ${predatorCounts.cat === 1 ? "attack" : "attacks"})</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-label">Snake Attacks</div>
+                <div class="summary-value">${snakePct}%</div>
+                <div class="summary-label">(${predatorCounts.snake} ${predatorCounts.snake === 1 ? "attack" : "attacks"})</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-label">Rat Attacks</div>
+                <div class="summary-value">${ratPct}%</div>
+                <div class="summary-label">(${predatorCounts.rat} ${predatorCounts.rat === 1 ? "attack" : "attacks"})</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-label">Other Predators</div>
+                <div class="summary-value">${otherPct}%</div>
+                <div class="summary-label">(${predatorCounts.other} ${predatorCounts.other === 1 ? "attack" : "attacks"})</div>
+              </div>
+            </div>
+          </div>
+
+         
+
+          <div class="summary-section" style="margin-top: 30px; page-break-inside: avoid;">
+            <div class="summary-title">Attacks Per Batch</div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin: 15px auto;">
+              <thead>
+                <tr style="background-color: #f0f0f0;">
+                  <th style="border: 1px solid #ddd; padding: 8px;">Batch ID</th>
+                  <th style="border: 1px solid #ddd; padding: 8px;">Dog</th>
+                  <th style="border: 1px solid #ddd; padding: 8px;">Cat</th>
+                  <th style="border: 1px solid #ddd; padding: 8px;">Rat</th>
+                  <th style="border: 1px solid #ddd; padding: 8px;">Snake</th>
+                  <th style="border: 1px solid #ddd; padding: 8px;">Other</th>
+                  <th style="border: 1px solid #ddd; padding: 8px;">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${batchTableRows}
+              </tbody>
+            </table>
+            
+     </div>
+     <div class="summary-section" style="margin-top: 30px; page-break-inside: avoid;">
+            <div class="summary-title">Summary</div>
+             <table style="margin: 15px auto;">
+            <thead>
+              <tr>
+                <th>Predator Type</th>
+                <th>Count</th>
+                <th>Percentage</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${summaryRows}
+            </tbody>
+          </table>
+          </div>
+
+   
+
+  
+        </body>
+        </html>
+      `;
+
+      // Generate PDF
+      const pdf = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+      });
+
+      const customFilename = `${filename}.pdf`;
+      const newPath = `${FileSystem.documentDirectory}${customFilename}`;
+
+      // Copy the PDF to a new location with custom name
+      await FileSystem.copyAsync({
+        from: pdf.uri,
+        to: newPath,
+      });
+
+      // Share PDF with custom filename
+      await Sharing.shareAsync(newPath);
+
+      setExportPredatorTypesModalVisible(false);
+      setPredatorTypesExportStartDate(null);
+      setPredatorTypesExportEndDate(null);
+    } catch (error) {
+      console.error("Error generating Predator Types report:", error);
+      Alert.alert("Error", "Failed to generate report: " + error.message);
+      setExportPredatorTypesModalVisible(false);
+    } finally {
+      setIsGeneratingPredatorTypesReport(false);
+    }
+  };
+
   // Generate data points based on the number of labels
   const generateDataPoints = (filterData, defaultData) => {
     if (!filterData || !filterData.startDate || !filterData.endDate) {
@@ -3926,6 +4859,9 @@ export default function AdminAnalytics({ navigation }) {
       mortality: defaultFilter,
       cause: defaultFilter,
       mortalitybatch: defaultFilter,
+      predator: defaultFilter,
+      attacksbatch: defaultFilter,
+      predatortypes: defaultFilter,
     }));
   }, []);
 
@@ -3970,6 +4906,15 @@ export default function AdminAnalytics({ navigation }) {
     fetchPredatorAttacksData(chartFilters["predator"]);
   }, [chartFilters["predator"]]);
 
+  // Fetch predator types data on mount and when filter changes
+  useEffect(() => {
+    console.log(
+      "[adminAnalytics] useEffect: Fetching predator types data...",
+      chartFilters["predatortypes"],
+    );
+    fetchPredatorTypesData(chartFilters["predatortypes"]);
+  }, [chartFilters["predatortypes"]]);
+
   // Fetch attacks per batch data when filter changes
   useEffect(() => {
     console.log(
@@ -3978,6 +4923,39 @@ export default function AdminAnalytics({ navigation }) {
     );
     fetchAttacksPerBatchData(chartFilters["attacksbatch"]);
   }, [chartFilters["attacksbatch"]]);
+
+  // Fetch batches when component mounts
+  useEffect(() => {
+    const loadBatches = async () => {
+      setIsFetchingBatches(true);
+      setBatchFetchError(null);
+      try {
+        const batches = await fetchBatches();
+        setAvailableBatches(batches);
+        console.log("[adminAnalytics] Batches loaded:", batches.length);
+      } catch (error) {
+        console.error("[adminAnalytics] Error fetching batches:", error);
+        setBatchFetchError("Failed to load batches");
+      } finally {
+        setIsFetchingBatches(false);
+      }
+    };
+    loadBatches();
+  }, []);
+
+  // Fetch feed consumption data when batch is selected
+  useEffect(() => {
+    if (chartFilters["feed"] && chartFilters["feed"].batchId) {
+      console.log(
+        "[adminAnalytics] useEffect: Fetching feed consumption data...",
+        chartFilters["feed"].batchId,
+      );
+      fetchFeedConsumptionByAge(chartFilters["feed"].batchId);
+    } else {
+      setFeedConsumptionData([]);
+      setFeedConsumptionError(null);
+    }
+  }, [chartFilters["feed"]]);
 
   // Note: icon values are MaterialCommunityIcons names
   const metrics = [
@@ -4281,6 +5259,17 @@ export default function AdminAnalytics({ navigation }) {
     setTimeout(() => setActivePointSolar(null), 2000);
   };
 
+  const handleFeedBatchSelect = (batchId) => {
+    setSelectedFeedBatch(batchId);
+    setShowFeedBatchDropdown(false);
+    setChartFilters((prev) => ({
+      ...prev,
+      feed: { batchId: batchId },
+    }));
+    setFilterModalVisible(false);
+    console.log("[adminAnalytics] Selected batch for feed chart:", batchId);
+  };
+
   // Updated Predator chart data with different time ranges - dynamic labels based on filter
   const defaultPredatorDailyLabels = [
     "Mon",
@@ -4363,15 +5352,39 @@ export default function AdminAnalytics({ navigation }) {
     "Day 42",
   ];
   const defaultFeedData = [5, 8, 12, 15, 18, 20, 22];
-  const feedChartData = {
-    labels: generateDateLabels(chartFilters["feed"], defaultFeedLabels),
-    datasets: [
-      {
-        data: generateDataPoints(chartFilters["feed"], defaultFeedData),
-        color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
-      },
-    ],
-  };
+
+  // Build feed chart data - use actual data if available from feedConsumptionData
+  const feedChartData = (() => {
+    if (
+      feedConsumptionData &&
+      feedConsumptionData.length > 0 &&
+      chartFilters["feed"] &&
+      chartFilters["feed"].batchId
+    ) {
+      // Use actual data from Firestore
+      const labels = feedConsumptionData.map((item) => `Day ${item.age}`);
+      const data = feedConsumptionData.map((item) => item.count);
+      return {
+        labels: labels,
+        datasets: [
+          {
+            data: data,
+            color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+          },
+        ],
+      };
+    }
+    // Use default data when no batch is selected
+    return {
+      labels: defaultFeedLabels,
+      datasets: [
+        {
+          data: defaultFeedData,
+          color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+        },
+      ],
+    };
+  })();
 
   // Chart data for Water Consumption - dynamic labels and data based on filter
   const defaultWaterLabels = [
@@ -4697,25 +5710,21 @@ export default function AdminAnalytics({ navigation }) {
                     0,
                   );
 
-                  // Guard: if no data, show loading/empty state
-                  if (total === 0) {
-                    return (
-                      <View style={styles.fallback}>
-                        <Text style={styles.fallbackText}>
-                          No data on selected date/s
-                        </Text>
-                      </View>
-                    );
-                  }
-
                   const radius = 100;
                   const cx = 110;
                   const cy = 110;
 
                   let currentAngle = -90; // Start at top
                   const slices = pieData.map((item, index) => {
-                    const percentage = item.population / total;
-                    const angle = percentage * 360;
+                    // When total is 0, show gray empty circle for each item (won't render)
+                    let angle = 0;
+                    let percentage = 0;
+
+                    if (total > 0) {
+                      percentage = item.population / total;
+                      angle = percentage * 360;
+                    }
+
                     const startAngle = currentAngle;
                     const endAngle = currentAngle + angle;
                     const midAngle = startAngle + angle / 2;
@@ -4740,12 +5749,35 @@ export default function AdminAnalytics({ navigation }) {
 
                     const largeArcFlag = angle > 180 ? 1 : 0;
 
-                    const pathData = [
-                      `M ${cx} ${cy}`,
-                      `L ${x1} ${y1}`,
-                      `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
-                      "Z",
-                    ].join(" ");
+                    // Special handling for 100% (full circle) - draw as full circle with two semicircles
+                    let pathData;
+                    if (total === 0) {
+                      // Empty circle when no data
+                      pathData = [
+                        `M ${cx} ${cy - radius}`,
+                        `A ${radius} ${radius} 0 0 1 ${cx} ${cy + radius}`,
+                        `A ${radius} ${radius} 0 0 1 ${cx} ${cy - radius}`,
+                        "Z",
+                      ].join(" ");
+                    } else if (Math.abs(angle - 360) < 0.1) {
+                      // Draw full circle as two semicircles
+                      const topX = cx + radius;
+                      const bottomX = cx - radius;
+                      const midY = cy;
+                      pathData = [
+                        `M ${cx} ${cy - radius}`,
+                        `A ${radius} ${radius} 0 0 1 ${cx} ${cy + radius}`,
+                        `A ${radius} ${radius} 0 0 1 ${cx} ${cy - radius}`,
+                        "Z",
+                      ].join(" ");
+                    } else {
+                      pathData = [
+                        `M ${cx} ${cy}`,
+                        `L ${x1} ${y1}`,
+                        `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+                        "Z",
+                      ].join(" ");
+                    }
 
                     currentAngle = endAngle;
 
@@ -4771,28 +5803,69 @@ export default function AdminAnalytics({ navigation }) {
                         <View style={{ position: "relative" }}>
                           <Svg width={220} height={220}>
                             <G>
-                              {slices.map((slice, index) => (
+                              {total === 0 ? (
+                                // Show gray empty circle when no data
                                 <Path
-                                  key={index}
-                                  d={slice.path}
-                                  fill={
-                                    activePieSlice === index
-                                      ? slice.color
-                                      : slice.color.replace("1)", "0.8)")
-                                  }
+                                  d={[
+                                    `M ${cx} ${cy - radius}`,
+                                    `A ${radius} ${radius} 0 0 1 ${cx} ${cy + radius}`,
+                                    `A ${radius} ${radius} 0 0 1 ${cx} ${cy - radius}`,
+                                    "Z",
+                                  ].join(" ")}
+                                  fill="#e0e0e0"
                                   stroke="#fff"
                                   strokeWidth={2}
-                                  onPress={() => {
-                                    setActivePieSlice(index);
-                                    setTimeout(
-                                      () => setActivePieSlice(null),
-                                      3000,
-                                    );
-                                  }}
                                 />
-                              ))}
+                              ) : (
+                                slices.map((slice, index) => (
+                                  <Path
+                                    key={index}
+                                    d={slice.path}
+                                    fill={
+                                      activePieSlice === index
+                                        ? slice.color
+                                        : slice.color.replace("1)", "0.8)")
+                                    }
+                                    stroke="#fff"
+                                    strokeWidth={2}
+                                    onPress={() => {
+                                      setActivePieSlice(index);
+                                      setTimeout(
+                                        () => setActivePieSlice(null),
+                                        3000,
+                                      );
+                                    }}
+                                  />
+                                ))
+                              )}
                             </G>
                           </Svg>
+
+                          {/* "No deaths recorded" text overlay when no data */}
+                          {total === 0 && (
+                            <View
+                              style={{
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                width: 220,
+                                height: 220,
+                                justifyContent: "center",
+                                alignItems: "center",
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  fontSize: 14,
+                                  fontWeight: "600",
+                                  color: "#999",
+                                  textAlign: "center",
+                                }}
+                              >
+                                No deaths recorded
+                              </Text>
+                            </View>
+                          )}
 
                           {/* Tooltip */}
                           {activePieSlice !== null && (
@@ -4837,143 +5910,139 @@ export default function AdminAnalytics({ navigation }) {
                         </View>
                       </View>
 
-                      {/* Custom Legend - Horizontal (only show when there's data) */}
-                      {total > 0 && (
+                      {/* Custom Legend - Horizontal (always show) */}
+                      <View
+                        style={{ paddingHorizontal: 8, alignItems: "center" }}
+                      >
                         <View
-                          style={{ paddingHorizontal: 8, alignItems: "center" }}
+                          style={{
+                            flexDirection: "row",
+                            marginBottom: 8,
+                            marginLeft: 35,
+                          }}
                         >
                           <View
                             style={{
                               flexDirection: "row",
-                              marginBottom: 8,
-                              marginLeft: 35,
+                              alignItems: "center",
+                              width: 165,
                             }}
                           >
                             <View
                               style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                                width: 165,
+                                width: 14,
+                                height: 14,
+                                backgroundColor: pieData[0].color,
+                                marginRight: 6,
+                                borderRadius: 2,
                               }}
-                            >
-                              <View
-                                style={{
-                                  width: 14,
-                                  height: 14,
-                                  backgroundColor: pieData[0].color,
-                                  marginRight: 6,
-                                  borderRadius: 2,
-                                }}
-                              />
-                              <Text
-                                style={{
-                                  fontSize: 13,
-                                  color: "#0b2336",
-                                  includeFontPadding: false,
-                                  flex: 1,
-                                }}
-                                allowFontScaling={false}
-                                numberOfLines={1}
-                              >
-                                {pieData[0].name} ({pieData[0].population}%)
-                              </Text>
-                            </View>
-                            <View style={{ width: 16 }} />
-                            <View
+                            />
+                            <Text
                               style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                                width: 165,
+                                fontSize: 13,
+                                color: "#0b2336",
+                                includeFontPadding: false,
+                                flex: 1,
                               }}
+                              allowFontScaling={false}
+                              numberOfLines={1}
                             >
-                              <View
-                                style={{
-                                  width: 14,
-                                  height: 14,
-                                  backgroundColor: pieData[1].color,
-                                  marginRight: 6,
-                                  borderRadius: 2,
-                                }}
-                              />
-                              <Text
-                                style={{
-                                  fontSize: 13,
-                                  color: "#0b2336",
-                                  includeFontPadding: false,
-                                  flex: 1,
-                                }}
-                                allowFontScaling={false}
-                                numberOfLines={1}
-                              >
-                                {pieData[1].name} ({pieData[1].population}%)
-                              </Text>
-                            </View>
+                              {pieData[0].name} ({pieData[0].population}%)
+                            </Text>
                           </View>
+                          <View style={{ width: 16 }} />
                           <View
-                            style={{ flexDirection: "row", marginLeft: 35 }}
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              width: 165,
+                            }}
                           >
                             <View
                               style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                                width: 165,
+                                width: 14,
+                                height: 14,
+                                backgroundColor: pieData[1].color,
+                                marginRight: 6,
+                                borderRadius: 2,
                               }}
-                            >
-                              <View
-                                style={{
-                                  width: 14,
-                                  height: 14,
-                                  backgroundColor: pieData[2].color,
-                                  marginRight: 6,
-                                  borderRadius: 2,
-                                }}
-                              />
-                              <Text
-                                style={{
-                                  fontSize: 13,
-                                  color: "#0b2336",
-                                  includeFontPadding: false,
-                                  flex: 1,
-                                }}
-                                allowFontScaling={false}
-                                numberOfLines={1}
-                              >
-                                {pieData[2].name} ({pieData[2].population}%)
-                              </Text>
-                            </View>
-                            <View style={{ width: 16 }} />
-                            <View
+                            />
+                            <Text
                               style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                                width: 165,
+                                fontSize: 13,
+                                color: "#0b2336",
+                                includeFontPadding: false,
+                                flex: 1,
                               }}
+                              allowFontScaling={false}
+                              numberOfLines={1}
                             >
-                              <View
-                                style={{
-                                  width: 14,
-                                  height: 14,
-                                  backgroundColor: pieData[3].color,
-                                  marginRight: 6,
-                                  borderRadius: 2,
-                                }}
-                              />
-                              <Text
-                                style={{
-                                  fontSize: 13,
-                                  color: "#0b2336",
-                                  includeFontPadding: false,
-                                  flex: 1,
-                                }}
-                                allowFontScaling={false}
-                                numberOfLines={1}
-                              >
-                                {pieData[3].name} ({pieData[3].population}%)
-                              </Text>
-                            </View>
+                              {pieData[1].name} ({pieData[1].population}%)
+                            </Text>
                           </View>
                         </View>
-                      )}
+                        <View style={{ flexDirection: "row", marginLeft: 35 }}>
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              width: 165,
+                            }}
+                          >
+                            <View
+                              style={{
+                                width: 14,
+                                height: 14,
+                                backgroundColor: pieData[2].color,
+                                marginRight: 6,
+                                borderRadius: 2,
+                              }}
+                            />
+                            <Text
+                              style={{
+                                fontSize: 13,
+                                color: "#0b2336",
+                                includeFontPadding: false,
+                                flex: 1,
+                              }}
+                              allowFontScaling={false}
+                              numberOfLines={1}
+                            >
+                              {pieData[2].name} ({pieData[2].population}%)
+                            </Text>
+                          </View>
+                          <View style={{ width: 16 }} />
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              width: 165,
+                            }}
+                          >
+                            <View
+                              style={{
+                                width: 14,
+                                height: 14,
+                                backgroundColor: pieData[3].color,
+                                marginRight: 6,
+                                borderRadius: 2,
+                              }}
+                            />
+                            <Text
+                              style={{
+                                fontSize: 13,
+                                color: "#0b2336",
+                                includeFontPadding: false,
+                                flex: 1,
+                              }}
+                              allowFontScaling={false}
+                              numberOfLines={1}
+                            >
+                              {pieData[3].name} ({pieData[3].population}%)
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
                     </View>
                   );
                 } catch (err) {
@@ -5136,6 +6205,18 @@ export default function AdminAnalytics({ navigation }) {
                 {formatFilterDisplay(chartFilters["predator"])}
               </Text>
             )}
+            {!chartFilters["predator"] && (
+              <Text
+                style={{
+                  textAlign: "center",
+                  color: "#133E87",
+                  fontWeight: "bold",
+                  marginBottom: 8,
+                }}
+              >
+                Last 7 Days
+              </Text>
+            )}
             {LineChartComp && (
               <View style={{ position: "relative", width: chartWidth }}>
                 <LineChartComp
@@ -5288,6 +6369,18 @@ export default function AdminAnalytics({ navigation }) {
                 {formatFilterDisplay(chartFilters["attacksbatch"])}
               </Text>
             )}
+            {!chartFilters["attacksbatch"] && (
+              <Text
+                style={{
+                  textAlign: "center",
+                  color: "#133E87",
+                  fontWeight: "bold",
+                  marginBottom: 8,
+                }}
+              >
+                Last 7 Days
+              </Text>
+            )}
             <AttacksBatchChart height={220} data={attacksPerBatchData} />
           </View>
         </View>
@@ -5334,12 +6427,7 @@ export default function AdminAnalytics({ navigation }) {
                 activeOpacity={0.8}
                 onPressIn={() => setPressedBtn("export-predatortypes")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() =>
-                  Alert.alert(
-                    "Export",
-                    "Export functionality to be implemented",
-                  )
-                }
+                onPress={() => setExportPredatorTypesModalVisible(true)}
               >
                 <Text
                   style={[
@@ -5366,7 +6454,72 @@ export default function AdminAnalytics({ navigation }) {
                 {formatFilterDisplay(chartFilters["predatortypes"])}
               </Text>
             )}
-            {LineChartComp &&
+
+            {/* Loading State */}
+            {isLoadingPredatorTypes && (
+              <View
+                style={{
+                  justifyContent: "center",
+                  alignItems: "center",
+                  paddingVertical: 40,
+                }}
+              >
+                <ActivityIndicator size="large" color="#133E87" />
+                <Text style={{ marginTop: 12, color: "#666", fontSize: 12 }}>
+                  Loading predator types...
+                </Text>
+              </View>
+            )}
+
+            {/* Error State */}
+            {predatorTypesError && !isLoadingPredatorTypes && (
+              <View
+                style={{
+                  justifyContent: "center",
+                  alignItems: "center",
+                  paddingVertical: 40,
+                  backgroundColor: "#fff3e0",
+                  borderRadius: 8,
+                  marginHorizontal: 8,
+                  paddingHorizontal: 12,
+                }}
+              >
+                <MaterialCommunityIcons
+                  name="alert-circle"
+                  size={32}
+                  color="#ff9800"
+                />
+                <Text
+                  style={{
+                    marginTop: 8,
+                    color: "#ff6f00",
+                    fontSize: 12,
+                    textAlign: "center",
+                    fontWeight: "500",
+                  }}
+                >
+                  {predatorTypesError}
+                </Text>
+                <Text
+                  style={{
+                    marginTop: 4,
+                    color: "#999",
+                    fontSize: 10,
+                    textAlign: "center",
+                  }}
+                >
+                  Please try adjusting the date filter
+                </Text>
+              </View>
+            )}
+
+            {/* Empty State - Show empty pie chart with all 0% legend */}
+            {/* This condition will be handled by the rendering logic below */}
+
+            {/* Chart Rendering - Show pie chart always (even for empty data) */}
+            {!isLoadingPredatorTypes &&
+              !predatorTypesError &&
+              LineChartComp &&
               (() => {
                 try {
                   // eslint-disable-next-line global-require
@@ -5375,36 +6528,11 @@ export default function AdminAnalytics({ navigation }) {
                   const G = RN_SVG.G || RN_SVG.default?.G;
                   const Path = RN_SVG.Path || RN_SVG.default?.Path;
 
-                  const predatorTypesData = [
-                    {
-                      name: "Dog",
-                      population: 40,
-                      color: "#154785",
-                    },
-                    {
-                      name: "Cat",
-                      population: 25,
-                      color: "#FFC107",
-                    },
-                    {
-                      name: "Snake",
-                      population: 20,
-                      color: "#F44336",
-                    },
-                    {
-                      name: "Rat",
-                      population: 10,
-                      color: "#4CAF50",
-                    },
-                    {
-                      name: "Other",
-                      population: 5,
-                      color: "#E91E63",
-                    },
-                  ];
+                  // Use dynamic predatorTypesData from state
+                  const dataToRender = predatorTypesData;
 
                   // Calculate pie slice paths
-                  const total = predatorTypesData.reduce(
+                  const total = dataToRender.reduce(
                     (sum, item) => sum + item.population,
                     0,
                   );
@@ -5413,9 +6541,16 @@ export default function AdminAnalytics({ navigation }) {
                   const cy = 110;
 
                   let currentAngle = -90; // Start at top
-                  const slices = predatorTypesData.map((item, index) => {
-                    const percentage = item.population / total;
-                    const angle = percentage * 360;
+                  const slices = dataToRender.map((item, index) => {
+                    // When total is 0, show gray empty circle for each item (won't render)
+                    let angle = 0;
+                    let percentage = 0;
+
+                    if (total > 0) {
+                      percentage = item.population / total;
+                      angle = percentage * 360;
+                    }
+
                     const startAngle = currentAngle;
                     const endAngle = currentAngle + angle;
                     const midAngle = startAngle + angle / 2;
@@ -5440,12 +6575,35 @@ export default function AdminAnalytics({ navigation }) {
 
                     const largeArcFlag = angle > 180 ? 1 : 0;
 
-                    const pathData = [
-                      `M ${cx} ${cy}`,
-                      `L ${x1} ${y1}`,
-                      `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
-                      "Z",
-                    ].join(" ");
+                    // Special handling for 100% (full circle) - draw as full circle with two semicircles
+                    let pathData;
+                    if (total === 0) {
+                      // Empty circle when no data
+                      pathData = [
+                        `M ${cx} ${cy - radius}`,
+                        `A ${radius} ${radius} 0 0 1 ${cx} ${cy + radius}`,
+                        `A ${radius} ${radius} 0 0 1 ${cx} ${cy - radius}`,
+                        "Z",
+                      ].join(" ");
+                    } else if (Math.abs(angle - 360) < 0.1) {
+                      // Draw full circle as two semicircles
+                      const topX = cx + radius;
+                      const bottomX = cx - radius;
+                      const midY = cy;
+                      pathData = [
+                        `M ${cx} ${cy - radius}`,
+                        `A ${radius} ${radius} 0 0 1 ${cx} ${cy + radius}`,
+                        `A ${radius} ${radius} 0 0 1 ${cx} ${cy - radius}`,
+                        "Z",
+                      ].join(" ");
+                    } else {
+                      pathData = [
+                        `M ${cx} ${cy}`,
+                        `L ${x1} ${y1}`,
+                        `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+                        "Z",
+                      ].join(" ");
+                    }
 
                     currentAngle = endAngle;
 
@@ -5471,28 +6629,69 @@ export default function AdminAnalytics({ navigation }) {
                         <View style={{ position: "relative" }}>
                           <Svg width={220} height={220}>
                             <G>
-                              {slices.map((slice, index) => (
+                              {total === 0 ? (
+                                // Show gray empty circle when no data
                                 <Path
-                                  key={index}
-                                  d={slice.path}
-                                  fill={
-                                    activePieSlicePredator === index
-                                      ? slice.color
-                                      : slice.color.replace("1)", "0.8)")
-                                  }
+                                  d={[
+                                    `M ${cx} ${cy - radius}`,
+                                    `A ${radius} ${radius} 0 0 1 ${cx} ${cy + radius}`,
+                                    `A ${radius} ${radius} 0 0 1 ${cx} ${cy - radius}`,
+                                    "Z",
+                                  ].join(" ")}
+                                  fill="#e0e0e0"
                                   stroke="#fff"
                                   strokeWidth={2}
-                                  onPress={() => {
-                                    setActivePieSlicePredator(index);
-                                    setTimeout(
-                                      () => setActivePieSlicePredator(null),
-                                      3000,
-                                    );
-                                  }}
                                 />
-                              ))}
+                              ) : (
+                                slices.map((slice, index) => (
+                                  <Path
+                                    key={index}
+                                    d={slice.path}
+                                    fill={
+                                      activePieSlicePredator === index
+                                        ? slice.color
+                                        : slice.color.replace("1)", "0.8)")
+                                    }
+                                    stroke="#fff"
+                                    strokeWidth={2}
+                                    onPress={() => {
+                                      setActivePieSlicePredator(index);
+                                      setTimeout(
+                                        () => setActivePieSlicePredator(null),
+                                        3000,
+                                      );
+                                    }}
+                                  />
+                                ))
+                              )}
                             </G>
                           </Svg>
+
+                          {/* "No predator activity" text overlay when no data */}
+                          {total === 0 && (
+                            <View
+                              style={{
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                width: 220,
+                                height: 220,
+                                justifyContent: "center",
+                                alignItems: "center",
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  fontSize: 14,
+                                  fontWeight: "600",
+                                  color: "#999",
+                                  textAlign: "center",
+                                }}
+                              >
+                                No predator activity
+                              </Text>
+                            </View>
+                          )}
 
                           {/* Tooltip */}
                           {activePieSlicePredator !== null && (
@@ -5531,7 +6730,7 @@ export default function AdminAnalytics({ navigation }) {
                                 }}
                               >
                                 {
-                                  predatorTypesData[activePieSlicePredator]
+                                  dataToRender[activePieSlicePredator]
                                     .population
                                 }
                                 %
@@ -5541,130 +6740,41 @@ export default function AdminAnalytics({ navigation }) {
                         </View>
                       </View>
 
-                      {/* Custom Legend - Horizontal */}
+                      {/* Custom Legend - Horizontal 3-column layout (always show) */}
                       <View
-                        style={{ paddingHorizontal: 4, alignItems: "center" }}
+                        style={{
+                          paddingHorizontal: 8,
+                          alignItems: "flex-start",
+                        }}
                       >
-                        <View style={{ flexDirection: "row", marginBottom: 8 }}>
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              width: 100,
-                            }}
-                          >
-                            <View
-                              style={{
-                                width: 14,
-                                height: 14,
-                                backgroundColor: predatorTypesData[0].color,
-                                marginRight: 4,
-                                borderRadius: 2,
-                              }}
-                            />
-                            <Text
-                              style={{
-                                fontSize: 12,
-                                color: "#0b2336",
-                                includeFontPadding: false,
-                                flex: 1,
-                              }}
-                              allowFontScaling={false}
-                              numberOfLines={1}
-                            >
-                              {predatorTypesData[0].name} (
-                              {predatorTypesData[0].population}%)
-                            </Text>
-                          </View>
-                          <View style={{ width: 6 }} />
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              width: 100,
-                            }}
-                          >
-                            <View
-                              style={{
-                                width: 14,
-                                height: 14,
-                                backgroundColor: predatorTypesData[1].color,
-                                marginRight: 4,
-                                borderRadius: 2,
-                              }}
-                            />
-                            <Text
-                              style={{
-                                fontSize: 12,
-                                color: "#0b2336",
-                                includeFontPadding: false,
-                                flex: 1,
-                              }}
-                              allowFontScaling={false}
-                              numberOfLines={1}
-                            >
-                              {predatorTypesData[1].name} (
-                              {predatorTypesData[1].population}%)
-                            </Text>
-                          </View>
-                          <View style={{ width: 6 }} />
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              width: 100,
-                            }}
-                          >
-                            <View
-                              style={{
-                                width: 14,
-                                height: 14,
-                                backgroundColor: predatorTypesData[2].color,
-                                marginRight: 4,
-                                borderRadius: 2,
-                              }}
-                            />
-                            <Text
-                              style={{
-                                fontSize: 12,
-                                color: "#0b2336",
-                                includeFontPadding: false,
-                                flex: 1,
-                              }}
-                              allowFontScaling={false}
-                              numberOfLines={1}
-                            >
-                              {predatorTypesData[2].name} (
-                              {predatorTypesData[2].population}%)
-                            </Text>
-                          </View>
-                        </View>
+                        {/* Row 1: Dog, Cat, Other */}
                         <View
                           style={{
                             flexDirection: "row",
-                            justifyContent: "flex-start",
-                            width: 312,
+                            marginBottom: 8,
+                            marginLeft: 2,
                           }}
                         >
+                          {/* Column 1: Dog */}
                           <View
                             style={{
                               flexDirection: "row",
                               alignItems: "center",
-                              width: 100,
+                              width: 110,
                             }}
                           >
                             <View
                               style={{
                                 width: 14,
                                 height: 14,
-                                backgroundColor: predatorTypesData[3].color,
-                                marginRight: 4,
+                                backgroundColor: dataToRender[0].color,
+                                marginRight: 6,
                                 borderRadius: 2,
                               }}
                             />
                             <Text
                               style={{
-                                fontSize: 12,
+                                fontSize: 13,
                                 color: "#0b2336",
                                 includeFontPadding: false,
                                 flex: 1,
@@ -5672,30 +6782,34 @@ export default function AdminAnalytics({ navigation }) {
                               allowFontScaling={false}
                               numberOfLines={1}
                             >
-                              {predatorTypesData[3].name} (
-                              {predatorTypesData[3].population}%)
+                              {dataToRender[0].name} (
+                              {dataToRender[0].population % 1 === 0
+                                ? Math.floor(dataToRender[0].population)
+                                : dataToRender[0].population.toFixed(1)}
+                              %)
                             </Text>
                           </View>
-                          <View style={{ width: 6 }} />
+                          <View style={{ width: 8 }} />
+                          {/* Column 2: Cat */}
                           <View
                             style={{
                               flexDirection: "row",
                               alignItems: "center",
-                              width: 100,
+                              width: 90,
                             }}
                           >
                             <View
                               style={{
                                 width: 14,
                                 height: 14,
-                                backgroundColor: predatorTypesData[4].color,
-                                marginRight: 4,
+                                backgroundColor: dataToRender[1].color,
+                                marginRight: 6,
                                 borderRadius: 2,
                               }}
                             />
                             <Text
                               style={{
-                                fontSize: 12,
+                                fontSize: 13,
                                 color: "#0b2336",
                                 includeFontPadding: false,
                                 flex: 1,
@@ -5703,8 +6817,123 @@ export default function AdminAnalytics({ navigation }) {
                               allowFontScaling={false}
                               numberOfLines={1}
                             >
-                              {predatorTypesData[4].name} (
-                              {predatorTypesData[4].population}%)
+                              {dataToRender[1].name} (
+                              {dataToRender[1].population % 1 === 0
+                                ? Math.floor(dataToRender[1].population)
+                                : dataToRender[1].population.toFixed(1)}
+                              %)
+                            </Text>
+                          </View>
+                          <View style={{ width: 8 }} />
+                          {/* Column 3: Other */}
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              width: 110,
+                            }}
+                          >
+                            <View
+                              style={{
+                                width: 14,
+                                height: 14,
+                                backgroundColor: dataToRender[4].color,
+                                marginRight: 6,
+                                borderRadius: 2,
+                              }}
+                            />
+                            <Text
+                              style={{
+                                fontSize: 13,
+                                color: "#0b2336",
+                                includeFontPadding: false,
+                                flex: 1,
+                              }}
+                              allowFontScaling={false}
+                              numberOfLines={1}
+                            >
+                              {dataToRender[4].name} (
+                              {dataToRender[4].population % 1 === 0
+                                ? Math.floor(dataToRender[4].population)
+                                : dataToRender[4].population.toFixed(1)}
+                              %)
+                            </Text>
+                          </View>
+                        </View>
+                        {/* Row 2: Snake, Rat (left-aligned) */}
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            marginLeft: 2,
+                          }}
+                        >
+                          {/* Column 1: Snake */}
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              width: 110,
+                            }}
+                          >
+                            <View
+                              style={{
+                                width: 14,
+                                height: 14,
+                                backgroundColor: dataToRender[2].color,
+                                marginRight: 6,
+                                borderRadius: 2,
+                              }}
+                            />
+                            <Text
+                              style={{
+                                fontSize: 13,
+                                color: "#0b2336",
+                                includeFontPadding: false,
+                                flex: 1,
+                              }}
+                              allowFontScaling={false}
+                              numberOfLines={1}
+                            >
+                              {dataToRender[2].name} (
+                              {dataToRender[2].population % 1 === 0
+                                ? Math.floor(dataToRender[2].population)
+                                : dataToRender[2].population.toFixed(1)}
+                              %)
+                            </Text>
+                          </View>
+                          <View style={{ width: 8 }} />
+                          {/* Column 2: Rat */}
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              width: 95,
+                            }}
+                          >
+                            <View
+                              style={{
+                                width: 14,
+                                height: 14,
+                                backgroundColor: dataToRender[3].color,
+                                marginRight: 6,
+                                borderRadius: 2,
+                              }}
+                            />
+                            <Text
+                              style={{
+                                fontSize: 13,
+                                color: "#0b2336",
+                                includeFontPadding: false,
+                                flex: 1,
+                              }}
+                              allowFontScaling={false}
+                              numberOfLines={1}
+                            >
+                              {dataToRender[3].name} (
+                              {dataToRender[3].population % 1 === 0
+                                ? Math.floor(dataToRender[3].population)
+                                : dataToRender[3].population.toFixed(1)}
+                              %)
                             </Text>
                           </View>
                         </View>
@@ -5789,7 +7018,7 @@ export default function AdminAnalytics({ navigation }) {
           </View>
 
           <View style={styles.chartCard}>
-            {chartFilters["feed"] && (
+            {chartFilters["feed"] && chartFilters["feed"].batchId && (
               <Text
                 style={{
                   textAlign: "center",
@@ -5801,84 +7030,267 @@ export default function AdminAnalytics({ navigation }) {
                 {formatFilterDisplay(chartFilters["feed"])}
               </Text>
             )}
-            {LineChartComp && (
-              <View style={{ position: "relative", width: chartWidth }}>
-                <LineChartComp
-                  data={feedChartData}
-                  width={chartWidth}
-                  height={chartHeight}
-                  chartConfig={{
-                    backgroundGradientFrom: "#ffffff",
-                    backgroundGradientTo: "#ffffff",
-                    decimalPlaces: 0,
-                    color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
-                    labelColor: (opacity = 1) => `rgba(44, 62, 80, ${opacity})`,
-                    propsForDots: {
-                      r: "4",
-                      strokeWidth: "2",
-                      stroke: "#154985",
-                    },
-                  }}
-                  bezier
-                  style={{ marginTop: 8 }}
-                  withVerticalLines={false}
-                  withInnerLines={false}
-                  withHorizontalLines={false}
-                  fromZero
-                  onDataPointClick={(data) => {
-                    const point = {
-                      index: data.index,
-                      value: data.value,
-                      label: feedChartData.labels[data.index],
-                      x: data.x,
-                      y: data.y,
-                    };
-                    showPointTooltipFeed(point);
-                  }}
-                />
 
-                {activePointFeed !== null && (
-                  <View
-                    pointerEvents="none"
-                    style={[
-                      styles.tooltipWrapper,
-                      {
-                        left: Math.max(6, activePointFeed.x - 1),
-                        top: 0,
-                        height: chartHeight,
-                      },
-                    ]}
+            {/* Loading State */}
+            {isLoadingFeedConsumption && (
+              <View
+                style={{
+                  justifyContent: "center",
+                  alignItems: "center",
+                  paddingVertical: 40,
+                }}
+              >
+                <ActivityIndicator size="large" color="#133E87" />
+                <Text style={{ marginTop: 12, color: "#666", fontSize: 12 }}>
+                  Loading consumption data...
+                </Text>
+              </View>
+            )}
+
+            {/* Error State */}
+            {feedConsumptionError && !isLoadingFeedConsumption && (
+              <View
+                style={{
+                  justifyContent: "center",
+                  alignItems: "center",
+                  paddingVertical: 40,
+                  backgroundColor: "#fff3e0",
+                  borderRadius: 8,
+                  marginHorizontal: 8,
+                }}
+              >
+                <MaterialCommunityIcons
+                  name="alert-circle"
+                  size={32}
+                  color="#F57C00"
+                />
+                <Text
+                  style={{
+                    marginTop: 12,
+                    color: "#E65100",
+                    fontSize: 12,
+                    textAlign: "center",
+                  }}
+                >
+                  {feedConsumptionError}
+                </Text>
+              </View>
+            )}
+
+            {/* Empty State */}
+            {!isLoadingFeedConsumption &&
+              !feedConsumptionError &&
+              (!chartFilters["feed"] ||
+                !chartFilters["feed"].batchId ||
+                feedConsumptionData.length === 0) && (
+                <View
+                  style={{
+                    justifyContent: "center",
+                    alignItems: "center",
+                    paddingVertical: 40,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: "#999",
+                      fontSize: 14,
+                      textAlign: "center",
+                      marginBottom: 8,
+                    }}
                   >
-                    <View
-                      style={[
-                        styles.tooltipVerticalLine,
-                        {
-                          top: activePointFeed.y + 4,
-                          height: chartHeight - activePointFeed.y - 18,
+                    {!chartFilters["feed"] || !chartFilters["feed"].batchId
+                      ? "Select a batch to view consumption data"
+                      : "No consumption data available"}
+                  </Text>
+                </View>
+              )}
+
+            {/* Chart Display */}
+            {!isLoadingFeedConsumption &&
+              !feedConsumptionError &&
+              feedConsumptionData.length > 0 &&
+              LineChartComp && (
+                <ScrollView
+                  horizontal={true}
+                  showsHorizontalScrollIndicator={true}
+                  scrollEventThrottle={16}
+                  style={{ width: "100%" }}
+                >
+                  <View
+                    style={{
+                      position: "relative",
+                      width: Math.max(
+                        chartWidth,
+                        feedConsumptionData.length * 80,
+                      ),
+                    }}
+                  >
+                    <LineChartComp
+                      data={feedChartData}
+                      width={Math.max(
+                        chartWidth,
+                        feedConsumptionData.length * 80,
+                      )}
+                      height={chartHeight}
+                      chartConfig={{
+                        backgroundGradientFrom: "#ffffff",
+                        backgroundGradientTo: "#ffffff",
+                        decimalPlaces: 0,
+                        color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                        labelColor: (opacity = 1) =>
+                          `rgba(44, 62, 80, ${opacity})`,
+                        propsForDots: {
+                          r: "4",
+                          strokeWidth: "2",
+                          stroke: "#154985",
                         },
-                      ]}
+                      }}
+                      bezier
+                      style={{ marginTop: 8 }}
+                      withVerticalLines={false}
+                      withInnerLines={false}
+                      withHorizontalLines={false}
+                      fromZero
+                      onDataPointClick={(data) => {
+                        const point = {
+                          index: data.index,
+                          value: data.value,
+                          label: feedChartData.labels[data.index],
+                          x: data.x,
+                          y: data.y,
+                        };
+                        showPointTooltipFeed(point);
+                      }}
                     />
+
+                    {activePointFeed !== null && (
+                      <View
+                        pointerEvents="none"
+                        style={[
+                          styles.tooltipWrapper,
+                          {
+                            left: Math.max(6, activePointFeed.x - 1),
+                            top: 0,
+                            height: chartHeight,
+                          },
+                        ]}
+                      >
+                        <View
+                          style={[
+                            styles.tooltipVerticalLine,
+                            {
+                              top: activePointFeed.y + 4,
+                              height: chartHeight - activePointFeed.y - 18,
+                            },
+                          ]}
+                        />
+                        <View
+                          style={[
+                            styles.tooltipBox,
+                            {
+                              position: "absolute",
+                              bottom: chartHeight - activePointFeed.y + 10,
+                              left: -40,
+                            },
+                          ]}
+                        >
+                          <Text style={styles.tooltipLabel}>
+                            {activePointFeed.label}
+                          </Text>
+                          <Text style={styles.tooltipValue}>
+                            Count: {activePointFeed.value}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                </ScrollView>
+              )}
+
+            {/* Default Chart */}
+            {!isLoadingFeedConsumption &&
+              !feedConsumptionError &&
+              feedConsumptionData.length === 0 &&
+              (!chartFilters["feed"] || !chartFilters["feed"].batchId) &&
+              LineChartComp && (
+                <View style={{ position: "relative", width: chartWidth }}>
+                  <LineChartComp
+                    data={feedChartData}
+                    width={chartWidth}
+                    height={chartHeight}
+                    chartConfig={{
+                      backgroundGradientFrom: "#ffffff",
+                      backgroundGradientTo: "#ffffff",
+                      decimalPlaces: 0,
+                      color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                      labelColor: (opacity = 1) =>
+                        `rgba(44, 62, 80, ${opacity})`,
+                      propsForDots: {
+                        r: "4",
+                        strokeWidth: "2",
+                        stroke: "#154985",
+                      },
+                    }}
+                    bezier
+                    style={{ marginTop: 8 }}
+                    withVerticalLines={false}
+                    withInnerLines={false}
+                    withHorizontalLines={false}
+                    fromZero
+                    onDataPointClick={(data) => {
+                      const point = {
+                        index: data.index,
+                        value: data.value,
+                        label: feedChartData.labels[data.index],
+                        x: data.x,
+                        y: data.y,
+                      };
+                      showPointTooltipFeed(point);
+                    }}
+                  />
+
+                  {activePointFeed !== null && (
                     <View
+                      pointerEvents="none"
                       style={[
-                        styles.tooltipBox,
+                        styles.tooltipWrapper,
                         {
-                          position: "absolute",
-                          bottom: chartHeight - activePointFeed.y + 10,
-                          left: -40,
+                          left: Math.max(6, activePointFeed.x - 1),
+                          top: 0,
+                          height: chartHeight,
                         },
                       ]}
                     >
-                      <Text style={styles.tooltipLabel}>
-                        {activePointFeed.label}
-                      </Text>
-                      <Text style={styles.tooltipValue}>
-                        Activations: {activePointFeed.value}
-                      </Text>
+                      <View
+                        style={[
+                          styles.tooltipVerticalLine,
+                          {
+                            top: activePointFeed.y + 4,
+                            height: chartHeight - activePointFeed.y - 18,
+                          },
+                        ]}
+                      />
+                      <View
+                        style={[
+                          styles.tooltipBox,
+                          {
+                            position: "absolute",
+                            bottom: chartHeight - activePointFeed.y + 10,
+                            left: -40,
+                          },
+                        ]}
+                      >
+                        <Text style={styles.tooltipLabel}>
+                          {activePointFeed.label}
+                        </Text>
+                        <Text style={styles.tooltipValue}>
+                          Activations: {activePointFeed.value}
+                        </Text>
+                      </View>
                     </View>
-                  </View>
-                )}
-              </View>
-            )}
+                  )}
+                </View>
+              )}
           </View>
         </View>
 
@@ -6359,260 +7771,392 @@ export default function AdminAnalytics({ navigation }) {
         >
           <View style={styles.modalContainer}>
             <View style={styles.modalContent}>
-              {/* Date Range Display */}
-              <View style={styles.dateRangeHeader}>
-                <View style={styles.dateRangeItem}>
-                  <Text style={styles.dateRangeLabel}>From</Text>
-                  <Text style={styles.dateRangeValue}>
-                    {startDate
-                      ? new Date(startDate).toLocaleDateString("en-US", {
-                          weekday: "short",
-                          day: "2-digit",
-                          month: "short",
-                        })
-                      : "Select date"}
+              {/* Batch Dropdown for Feed Consumption Chart */}
+              {currentFilterTarget === "feed" && (
+                <View style={{ paddingHorizontal: 16, paddingVertical: 16 }}>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: "600",
+                      marginBottom: 12,
+                      color: "#333",
+                    }}
+                  >
+                    Select a Batch
                   </Text>
+
+                  {isFetchingBatches ? (
+                    <View style={{ padding: 16, alignItems: "center" }}>
+                      <ActivityIndicator size="large" color="#133E87" />
+                      <Text
+                        style={{ marginTop: 8, color: "#666", fontSize: 12 }}
+                      >
+                        Loading batches...
+                      </Text>
+                    </View>
+                  ) : batchFetchError ? (
+                    <View
+                      style={{
+                        padding: 16,
+                        backgroundColor: "#ffebee",
+                        borderRadius: 8,
+                      }}
+                    >
+                      <Text style={{ color: "#c62828", fontSize: 12 }}>
+                        {batchFetchError}
+                      </Text>
+                    </View>
+                  ) : (
+                    <>
+                      <TouchableOpacity
+                        style={{
+                          borderWidth: 1,
+                          borderColor: "#ddd",
+                          borderRadius: 8,
+                          paddingHorizontal: 12,
+                          paddingVertical: 12,
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                        onPress={() =>
+                          setShowFeedBatchDropdown(!showFeedBatchDropdown)
+                        }
+                      >
+                        <Text
+                          style={{
+                            color: selectedFeedBatch ? "#333" : "#999",
+                            fontSize: 14,
+                          }}
+                        >
+                          {selectedFeedBatch || "Select a batch"}
+                        </Text>
+                        <Text style={{ color: "#666" }}>▼</Text>
+                      </TouchableOpacity>
+
+                      {showFeedBatchDropdown && (
+                        <ScrollView
+                          style={{
+                            borderWidth: 1,
+                            borderColor: "#ddd",
+                            borderTopWidth: 0,
+                            borderBottomLeftRadius: 8,
+                            borderBottomRightRadius: 8,
+                            maxHeight: 300,
+                            marginTop: -1,
+                          }}
+                          nestedScrollEnabled={true}
+                        >
+                          {availableBatches.length === 0 ? (
+                            <Text
+                              style={{
+                                padding: 16,
+                                color: "#999",
+                                fontSize: 12,
+                                textAlign: "center",
+                              }}
+                            >
+                              No batches available
+                            </Text>
+                          ) : (
+                            availableBatches.map((batch) => (
+                              <TouchableOpacity
+                                key={batch.id}
+                                style={{
+                                  padding: 12,
+                                  borderBottomWidth: 1,
+                                  borderBottomColor: "#eee",
+                                  backgroundColor:
+                                    selectedFeedBatch === batch.id
+                                      ? "#e3f2fd"
+                                      : "#fff",
+                                }}
+                                onPress={() => handleFeedBatchSelect(batch.id)}
+                              >
+                                <Text style={{ color: "#333", fontSize: 14 }}>
+                                  {batch.id}
+                                </Text>
+                                <Text style={{ color: "#999", fontSize: 12 }}>
+                                  Chicks: {batch.chicksCount} | Age:{" "}
+                                  {batch.daysCount} days
+                                </Text>
+                              </TouchableOpacity>
+                            ))
+                          )}
+                        </ScrollView>
+                      )}
+                    </>
+                  )}
                 </View>
-                <View style={styles.dateRangeItem}>
-                  <Text style={styles.dateRangeLabel}>To</Text>
-                  <Text style={styles.dateRangeValue}>
-                    {endDate
-                      ? new Date(endDate).toLocaleDateString("en-US", {
-                          weekday: "short",
-                          day: "2-digit",
-                          month: "short",
-                        })
-                      : "Select date"}
-                  </Text>
-                </View>
-              </View>
+              )}
 
-              {/* Date Picker */}
-              <View style={styles.datePickerContainer}>
-                <Calendar
-                  onDayPress={(day) => {
-                    const selectedDateStr = day.dateString;
+              {/* Date Range Display - Only for non-feed filters */}
+              {currentFilterTarget !== "feed" && (
+                <>
+                  <View style={styles.dateRangeHeader}>
+                    <View style={styles.dateRangeItem}>
+                      <Text style={styles.dateRangeLabel}>From</Text>
+                      <Text style={styles.dateRangeValue}>
+                        {startDate
+                          ? new Date(startDate).toLocaleDateString("en-US", {
+                              weekday: "short",
+                              day: "2-digit",
+                              month: "short",
+                            })
+                          : "Select date"}
+                      </Text>
+                    </View>
+                    <View style={styles.dateRangeItem}>
+                      <Text style={styles.dateRangeLabel}>To</Text>
+                      <Text style={styles.dateRangeValue}>
+                        {endDate
+                          ? new Date(endDate).toLocaleDateString("en-US", {
+                              weekday: "short",
+                              day: "2-digit",
+                              month: "short",
+                            })
+                          : "Select date"}
+                      </Text>
+                    </View>
+                  </View>
 
-                    // Parse date string in local time (not UTC)
-                    const [year, month, day_num] = selectedDateStr
-                      .split("-")
-                      .map(Number);
-                    const selectedDate = new Date(year, month - 1, day_num);
+                  {/* Date Picker */}
+                  <View style={styles.datePickerContainer}>
+                    <Calendar
+                      onDayPress={(day) => {
+                        const selectedDateStr = day.dateString;
 
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
+                        // Parse date string in local time (not UTC)
+                        const [year, month, day_num] = selectedDateStr
+                          .split("-")
+                          .map(Number);
+                        const selectedDate = new Date(year, month - 1, day_num);
 
-                    // Validate: Do not allow future dates
-                    if (selectedDate > today) {
-                      Alert.alert(
-                        "Invalid Date",
-                        "Future dates are not allowed. Please select today or an earlier date.",
-                        [{ text: "OK" }],
-                      );
-                      return;
-                    }
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
 
-                    if (!startDate || (startDate && endDate)) {
-                      // Start new selection
-                      setStartDate(selectedDateStr);
-                      setEndDate(null);
-                    } else if (startDate && !endDate) {
-                      // Calculate the difference in days
-                      const start = new Date(selectedDateStr);
-                      const selected = new Date(startDate);
-                      const diffTime = Math.abs(selected - start);
-                      const diffDays = Math.ceil(
-                        diffTime / (1000 * 60 * 60 * 24),
-                      );
+                        // Validate: Do not allow future dates
+                        if (selectedDate > today) {
+                          Alert.alert(
+                            "Invalid Date",
+                            "Future dates are not allowed. Please select today or an earlier date.",
+                            [{ text: "OK" }],
+                          );
+                          return;
+                        }
 
-                      // Different date range limits based on chart type
-                      // Mortality Trend & Predator Attacks: up to 7 days
-                      // Others (Cause of Death, Mortality Per Batch): up to 30 days
-                      const maxDays =
-                        currentFilterTarget === "mortality" ||
-                        currentFilterTarget === "predator"
-                          ? 7
-                          : 365;
+                        if (!startDate || (startDate && endDate)) {
+                          // Start new selection
+                          setStartDate(selectedDateStr);
+                          setEndDate(null);
+                        } else if (startDate && !endDate) {
+                          // Calculate the difference in days
+                          const start = new Date(selectedDateStr);
+                          const selected = new Date(startDate);
+                          const diffTime = Math.abs(selected - start);
+                          const diffDays = Math.ceil(
+                            diffTime / (1000 * 60 * 60 * 24),
+                          );
 
-                      if (diffDays > maxDays - 1) {
-                        Alert.alert(
-                          "Invalid Range",
-                          `Please select a date range within ${maxDays} days.`,
-                          [{ text: "OK" }],
+                          // Different date range limits based on chart type
+                          // Mortality Trend & Predator Attacks: up to 7 days
+                          // Others (Cause of Death, Mortality Per Batch): up to 30 days
+                          const maxDays =
+                            currentFilterTarget === "mortality" ||
+                            currentFilterTarget === "predator"
+                              ? 7
+                              : 365;
+
+                          if (diffDays > maxDays - 1) {
+                            Alert.alert(
+                              "Invalid Range",
+                              `Please select a date range within ${maxDays} days.`,
+                              [{ text: "OK" }],
+                            );
+                            return;
+                          }
+
+                          // Set end date
+                          if (new Date(selectedDateStr) < new Date(startDate)) {
+                            // If selected date is before start, swap them
+                            setEndDate(startDate);
+                            setStartDate(selectedDateStr);
+                          } else {
+                            setEndDate(selectedDateStr);
+                          }
+                        }
+                      }}
+                      markingType={"period"}
+                      maxDate={(() => {
+                        const today = new Date();
+                        const year = today.getFullYear();
+                        const month = String(today.getMonth() + 1).padStart(
+                          2,
+                          "0",
                         );
-                        return;
-                      }
+                        const day = String(today.getDate()).padStart(2, "0");
+                        return `${year}-${month}-${day}`;
+                      })()}
+                      markedDates={(() => {
+                        if (!startDate) return {};
 
-                      // Set end date
-                      if (new Date(selectedDateStr) < new Date(startDate)) {
-                        // If selected date is before start, swap them
-                        setEndDate(startDate);
-                        setStartDate(selectedDateStr);
-                      } else {
-                        setEndDate(selectedDateStr);
-                      }
-                    }
-                  }}
-                  markingType={"period"}
-                  maxDate={(() => {
-                    const today = new Date();
-                    const year = today.getFullYear();
-                    const month = String(today.getMonth() + 1).padStart(2, "0");
-                    const day = String(today.getDate()).padStart(2, "0");
-                    return `${year}-${month}-${day}`;
-                  })()}
-                  markedDates={(() => {
-                    if (!startDate) return {};
-
-                    if (startDate && !endDate) {
-                      return {
-                        [startDate]: {
-                          startingDay: true,
-                          color: "#3B82F6",
-                          textColor: "white",
-                        },
-                      };
-                    }
-
-                    if (startDate && endDate) {
-                      const marks = {};
-                      const start = new Date(startDate);
-                      const end = new Date(endDate);
-
-                      // Mark all dates in the range
-                      for (
-                        let d = new Date(start);
-                        d <= end;
-                        d.setDate(d.getDate() + 1)
-                      ) {
-                        const dateStr = d.toISOString().split("T")[0];
-
-                        if (dateStr === startDate) {
-                          marks[dateStr] = {
-                            startingDay: true,
-                            color: "#BFDBFE",
-                            textColor: "#000",
-                          };
-                        } else if (dateStr === endDate) {
-                          marks[dateStr] = {
-                            endingDay: true,
-                            color: "#BFDBFE",
-                            textColor: "#000",
-                          };
-                        } else {
-                          marks[dateStr] = {
-                            color: "#BFDBFE",
-                            textColor: "#000",
+                        if (startDate && !endDate) {
+                          return {
+                            [startDate]: {
+                              startingDay: true,
+                              color: "#3B82F6",
+                              textColor: "white",
+                            },
                           };
                         }
-                      }
 
-                      // Override start and end with circular highlights
-                      marks[startDate] = {
-                        ...marks[startDate],
-                        startingDay: true,
-                        color: "#BFDBFE",
-                        textColor: "white",
-                        marked: true,
-                        dotColor: "white",
-                        customStyles: {
-                          container: {
-                            backgroundColor: "#3B82F6",
-                            borderRadius: 100,
-                          },
-                          text: {
-                            color: "white",
-                            fontWeight: "bold",
+                        if (startDate && endDate) {
+                          const marks = {};
+                          const start = new Date(startDate);
+                          const end = new Date(endDate);
+
+                          // Mark all dates in the range
+                          for (
+                            let d = new Date(start);
+                            d <= end;
+                            d.setDate(d.getDate() + 1)
+                          ) {
+                            const dateStr = d.toISOString().split("T")[0];
+
+                            if (dateStr === startDate) {
+                              marks[dateStr] = {
+                                startingDay: true,
+                                color: "#BFDBFE",
+                                textColor: "#000",
+                              };
+                            } else if (dateStr === endDate) {
+                              marks[dateStr] = {
+                                endingDay: true,
+                                color: "#BFDBFE",
+                                textColor: "#000",
+                              };
+                            } else {
+                              marks[dateStr] = {
+                                color: "#BFDBFE",
+                                textColor: "#000",
+                              };
+                            }
+                          }
+
+                          // Override start and end with circular highlights
+                          marks[startDate] = {
+                            ...marks[startDate],
+                            startingDay: true,
+                            color: "#BFDBFE",
+                            textColor: "white",
+                            marked: true,
+                            dotColor: "white",
+                            customStyles: {
+                              container: {
+                                backgroundColor: "#3B82F6",
+                                borderRadius: 100,
+                              },
+                              text: {
+                                color: "white",
+                                fontWeight: "bold",
+                              },
+                            },
+                          };
+
+                          marks[endDate] = {
+                            ...marks[endDate],
+                            endingDay: true,
+                            color: "#BFDBFE",
+                            textColor: "white",
+                            marked: true,
+                            dotColor: "white",
+                            customStyles: {
+                              container: {
+                                backgroundColor: "#3B82F6",
+                                borderRadius: 100,
+                              },
+                              text: {
+                                color: "white",
+                                fontWeight: "bold",
+                              },
+                            },
+                          };
+
+                          return marks;
+                        }
+
+                        return {};
+                      })()}
+                      theme={{
+                        calendarBackground: "#ffffff",
+                        textSectionTitleColor: "#3B82F6",
+                        selectedDayBackgroundColor: "#3B82F6",
+                        selectedDayTextColor: "#ffffff",
+                        todayTextColor: "#3B82F6",
+                        dayTextColor: "#2d4150",
+                        textDisabledColor: "#d9e1e8",
+                        monthTextColor: "#2d4150",
+                        indicatorColor: "#3B82F6",
+                        textDayFontWeight: "400",
+                        textMonthFontWeight: "600",
+                        textDayHeaderFontWeight: "500",
+                        textDayFontSize: 14,
+                        textMonthFontSize: 18,
+                        textDayHeaderFontSize: 12,
+                        "stylesheet.calendar.header": {
+                          week: {
+                            marginTop: 5,
+                            flexDirection: "row",
+                            justifyContent: "space-between",
                           },
                         },
-                      };
+                      }}
+                      style={styles.calendar}
+                    />
+                  </View>
 
-                      marks[endDate] = {
-                        ...marks[endDate],
-                        endingDay: true,
-                        color: "#BFDBFE",
-                        textColor: "white",
-                        marked: true,
-                        dotColor: "white",
-                        customStyles: {
-                          container: {
-                            backgroundColor: "#3B82F6",
-                            borderRadius: 100,
-                          },
-                          text: {
-                            color: "white",
-                            fontWeight: "bold",
-                          },
-                        },
-                      };
+                  {/* Apply and Cancel Buttons */}
+                  <View style={styles.modalButtonsRow}>
+                    <TouchableOpacity
+                      style={[
+                        styles.modalActionButton,
+                        styles.modalCancelButton,
+                      ]}
+                      onPress={() => {
+                        setStartDate(null);
+                        setEndDate(null);
+                        setFilterModalVisible(false);
+                      }}
+                    >
+                      <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                    </TouchableOpacity>
 
-                      return marks;
-                    }
+                    <TouchableOpacity
+                      style={[
+                        styles.modalActionButton,
+                        styles.modalApplyButton,
+                      ]}
+                      onPress={() => {
+                        if (currentFilterTarget && startDate && endDate) {
+                          // Save filter settings for this chart
+                          setChartFilters((prev) => ({
+                            ...prev,
+                            [currentFilterTarget]: { startDate, endDate },
+                          }));
 
-                    return {};
-                  })()}
-                  theme={{
-                    calendarBackground: "#ffffff",
-                    textSectionTitleColor: "#3B82F6",
-                    selectedDayBackgroundColor: "#3B82F6",
-                    selectedDayTextColor: "#ffffff",
-                    todayTextColor: "#3B82F6",
-                    dayTextColor: "#2d4150",
-                    textDisabledColor: "#d9e1e8",
-                    monthTextColor: "#2d4150",
-                    indicatorColor: "#3B82F6",
-                    textDayFontWeight: "400",
-                    textMonthFontWeight: "600",
-                    textDayHeaderFontWeight: "500",
-                    textDayFontSize: 14,
-                    textMonthFontSize: 18,
-                    textDayHeaderFontSize: 12,
-                    "stylesheet.calendar.header": {
-                      week: {
-                        marginTop: 5,
-                        flexDirection: "row",
-                        justifyContent: "space-between",
-                      },
-                    },
-                  }}
-                  style={styles.calendar}
-                />
-              </View>
-
-              {/* Apply and Cancel Buttons */}
-              <View style={styles.modalButtonsRow}>
-                <TouchableOpacity
-                  style={[styles.modalActionButton, styles.modalCancelButton]}
-                  onPress={() => {
-                    setStartDate(null);
-                    setEndDate(null);
-                    setFilterModalVisible(false);
-                  }}
-                >
-                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.modalActionButton, styles.modalApplyButton]}
-                  onPress={() => {
-                    if (currentFilterTarget && startDate && endDate) {
-                      // Save filter settings for this chart
-                      setChartFilters((prev) => ({
-                        ...prev,
-                        [currentFilterTarget]: { startDate, endDate },
-                      }));
-
-                      // Existing logic for Predator Chart time range state
-                      if (currentFilterTarget === "predator") {
-                        setPredatorTimeRange("daily");
-                      }
-                    }
-                    setFilterModalVisible(false);
-                  }}
-                >
-                  <Text style={styles.modalApplyButtonText}>Apply</Text>
-                </TouchableOpacity>
-              </View>
+                          // Existing logic for Predator Chart time range state
+                          if (currentFilterTarget === "predator") {
+                            setPredatorTimeRange("daily");
+                          }
+                        }
+                        setFilterModalVisible(false);
+                      }}
+                    >
+                      <Text style={styles.modalApplyButtonText}>Apply</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
             </View>
           </View>
         </Modal>
@@ -7761,6 +9305,188 @@ export default function AdminAnalytics({ navigation }) {
                   }
                 >
                   {isGeneratingAttacksBatchReport ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.modalApplyButtonText}>Generate</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Export Predator Types Modal */}
+        <Modal
+          visible={exportPredatorTypesModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setExportPredatorTypesModalVisible(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>
+                Export Predator Types Report
+              </Text>
+
+              {/* Date Range Display */}
+              <View style={styles.dateRangeHeader}>
+                <View style={styles.dateRangeItem}>
+                  <Text style={styles.dateRangeLabel}>From</Text>
+                  <Text style={styles.dateRangeValue}>
+                    {predatorTypesExportStartDate
+                      ? new Date(
+                          predatorTypesExportStartDate,
+                        ).toLocaleDateString("en-US", {
+                          weekday: "short",
+                          day: "2-digit",
+                          month: "short",
+                        })
+                      : "Select date"}
+                  </Text>
+                </View>
+                <View style={styles.dateRangeItem}>
+                  <Text style={styles.dateRangeLabel}>To</Text>
+                  <Text style={styles.dateRangeValue}>
+                    {predatorTypesExportEndDate
+                      ? new Date(predatorTypesExportEndDate).toLocaleDateString(
+                          "en-US",
+                          {
+                            weekday: "short",
+                            day: "2-digit",
+                            month: "short",
+                          },
+                        )
+                      : "Select date"}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Date Picker */}
+              <View style={styles.datePickerContainer}>
+                <Calendar
+                  onDayPress={(day) => {
+                    let dateStr = day?.dateString;
+                    if (!dateStr && day?.year && day?.month && day?.day) {
+                      const yearStr = day.year;
+                      const monthStr = String(day.month).padStart(2, "0");
+                      const dayStr = String(day.day).padStart(2, "0");
+                      dateStr = `${yearStr}-${monthStr}-${dayStr}`;
+                    }
+                    if (!dateStr) {
+                      console.log("Invalid day object:", day);
+                      return;
+                    }
+                    if (
+                      !predatorTypesExportStartDate ||
+                      predatorTypesExportEndDate
+                    ) {
+                      setPredatorTypesExportStartDate(dateStr);
+                      setPredatorTypesExportEndDate(null);
+                    } else {
+                      const start = new Date(predatorTypesExportStartDate);
+                      const selected = new Date(dateStr);
+                      if (selected < start) {
+                        setPredatorTypesExportStartDate(dateStr);
+                      } else {
+                        setPredatorTypesExportEndDate(dateStr);
+                      }
+                    }
+                  }}
+                  markingType={"period"}
+                  maxDate={(() => {
+                    const today = new Date();
+                    const year = today.getFullYear();
+                    const month = String(today.getMonth() + 1).padStart(2, "0");
+                    const day = String(today.getDate()).padStart(2, "0");
+                    return `${year}-${month}-${day}`;
+                  })()}
+                  markedDates={(() => {
+                    const marked = {};
+                    if (predatorTypesExportStartDate) {
+                      marked[predatorTypesExportStartDate] = {
+                        startingDay: true,
+                        color: "#3B82F6",
+                        textColor: "#fff",
+                      };
+                    }
+                    if (predatorTypesExportEndDate) {
+                      marked[predatorTypesExportEndDate] = {
+                        endingDay: true,
+                        color: "#3B82F6",
+                        textColor: "#fff",
+                      };
+                    }
+                    if (
+                      predatorTypesExportStartDate &&
+                      predatorTypesExportEndDate
+                    ) {
+                      const start = new Date(predatorTypesExportStartDate);
+                      const end = new Date(predatorTypesExportEndDate);
+                      const current = new Date(start);
+                      while (current < end) {
+                        const dateStr = current.toISOString().split("T")[0];
+                        marked[dateStr] = {
+                          color: "#3B82F6",
+                          textColor: "#fff",
+                        };
+                        current.setDate(current.getDate() + 1);
+                      }
+                    }
+                    return marked;
+                  })()}
+                  theme={{
+                    calendarBackground: "#ffffff",
+                    textSectionTitleColor: "#3B82F6",
+                    selectedDayBackgroundColor: "#3B82F6",
+                    selectedDayTextColor: "#ffffff",
+                    todayTextColor: "#3B82F6",
+                    dayTextColor: "#2d4150",
+                    textDisabledColor: "#d9e1e8",
+                    monthTextColor: "#2d4150",
+                    indicatorColor: "#3B82F6",
+                    textDayFontWeight: "400",
+                    textMonthFontWeight: "600",
+                    textDayHeaderFontWeight: "500",
+                    textDayFontSize: 14,
+                    textMonthFontSize: 18,
+                    textDayHeaderFontSize: 12,
+                  }}
+                  style={styles.calendar}
+                />
+              </View>
+
+              {/* Modal Buttons */}
+              <View style={styles.modalButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.modalActionButton, styles.modalCancelButton]}
+                  onPress={() => {
+                    setPredatorTypesExportStartDate(null);
+                    setPredatorTypesExportEndDate(null);
+                    setExportPredatorTypesModalVisible(false);
+                  }}
+                  disabled={isGeneratingPredatorTypesReport}
+                >
+                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.modalActionButton,
+                    styles.modalApplyButton,
+                    !predatorTypesExportStartDate ||
+                    !predatorTypesExportEndDate ||
+                    isGeneratingPredatorTypesReport
+                      ? { opacity: 0.5 }
+                      : {},
+                  ]}
+                  onPress={generatePredatorTypesReportPDF}
+                  disabled={
+                    !predatorTypesExportStartDate ||
+                    !predatorTypesExportEndDate ||
+                    isGeneratingPredatorTypesReport
+                  }
+                >
+                  {isGeneratingPredatorTypesReport ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
                     <Text style={styles.modalApplyButtonText}>Generate</Text>
