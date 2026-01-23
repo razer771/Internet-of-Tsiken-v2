@@ -344,7 +344,7 @@ export default function ControlScreen({ navigation }) {
 
         // Initialize sensors
         const initResult = await initializeSensors();
-        console.log("Sensor initialization:", initResult);
+        console.log("Sensor initialization:");
 
         // Configure ESP32 with user ID for scheduled watering
         const user = auth.currentUser;

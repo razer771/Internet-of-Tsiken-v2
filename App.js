@@ -417,7 +417,7 @@ export default function App() {
                 style={[styles.content, !isAuthScreen && styles.contentWithNav]}
               >
                 <Stack.Navigator
-                  initialRouteName="LogIn"
+                  initialRouteName="JsonSplash"
                   screenOptions={{
                     headerShown: false,
                     animation: "slide_from_right",
