@@ -23,6 +23,7 @@ import { auth, db } from "../../../config/firebaseconfig";
 import {
   doc,
   getDoc,
+  setDoc,
   updateDoc,
   onSnapshot,
   collection,
@@ -310,17 +311,7 @@ export default function QuickOverviewSetup({ navigation }) {
 
   // Load saved data when component mounts
   useEffect(() => {
-    loadSavedData();
     fetchUserName();
-
-    // Fetch latest batch and all batches from Firestore
-    const initializeBatches = async () => {
-      await fetchLatestBatch();
-      await fetchAllBatchesFromFirestore();
-    };
-
-    initializeBatches();
-
     setupSensorMonitoring();
 
     // Set today's date
@@ -337,7 +328,9 @@ export default function QuickOverviewSetup({ navigation }) {
 
     // Update days count every minute to keep it in sync with real-time
     const interval = setInterval(() => {
-      loadSavedData();
+      if (auth.currentUser) {
+        checkAndIncrementDailyAge(parseInt(daysCount) || 0);
+      }
     }, 60000); // Update every 60 seconds
     return () => {
       clearInterval(interval);
@@ -363,6 +356,7 @@ export default function QuickOverviewSetup({ navigation }) {
           const selectedBatchId = await getSelectedBatch();
 
           if (selectedBatchId) {
+            console.log("[ScreenFocus] Restoring selected batch:", selectedBatchId);
             // Fetch fresh batch from Firestore
             const freshBatch = await getBatchById(selectedBatchId);
 
@@ -403,10 +397,8 @@ export default function QuickOverviewSetup({ navigation }) {
                   setBrooderInfo,
                   setHasBatchData,
                 );
-                const updatedBatches = batches.map((batch) =>
-                  batch.id === latestBatch.id ? latestBatch : batch,
-                );
-                setBatches(updatedBatches);
+                const allBatches = await fetchBatches();
+                setBatches(allBatches || []);
               } else {
                 // No latest batch either, clear everything
                 console.log("[ScreenFocus] No batches available, clearing all");
@@ -432,10 +424,9 @@ export default function QuickOverviewSetup({ navigation }) {
                 setBrooderInfo,
                 setHasBatchData,
               );
-              const updatedBatches = batches.map((batch) =>
-                batch.id === latestBatch.id ? latestBatch : batch,
-              );
-              setBatches(updatedBatches);
+              const allBatches = await fetchBatches();
+              setBatches(allBatches || []);
+              console.log("[ScreenFocus] Latest batch loaded:", latestBatch.id);
             } else {
               // No batches at all
               console.log("[ScreenFocus] No batches available, resetting UI");
@@ -461,13 +452,12 @@ export default function QuickOverviewSetup({ navigation }) {
    * This keeps selectedBatchIndex in sync with the actual batch ID being displayed
    */
   useEffect(() => {
-    if (batches.length === 0) {
-      // No batches left - ensure UI is completely reset
-      console.log("[SyncIndex] No batches, resetting UI");
+    if (batches.length === 0 && !hasBatchData) {
+      // Only reset if we truly have no data
+      console.log("[SyncIndex] No batches and no batch data, resetting UI");
       setChicksCount("0");
       setDaysCount("0");
       setHarvestDays("0");
-      setHasBatchData(false);
       setSelectedBatchIndex(null);
     } else if (batches.length > 0 && chicksCount !== "0") {
       // Find the batch that matches current display data
@@ -728,22 +718,35 @@ export default function QuickOverviewSetup({ navigation }) {
 
   const updateBrooderInfoInFirestore = async (updates) => {
     try {
-      const docRef = doc(firestoreDb, "brooderInfo", "batch1");
+      const q = query(
+        collection(firestoreDb, "brooderInfo"),
+        orderBy("startDate", "desc"),
+        limit(1),
+      );
+      const querySnapshot = await getDocs(q);
 
-      // Prepare update object with timestamp
-      const updateData = {
-        ...updates,
-        updatedAt: new Date().toISOString(),
-      };
+      if (!querySnapshot.empty) {
+        const latestDoc = querySnapshot.docs[0];
+        const docRef = latestDoc.ref;
 
-      // Use updateDoc to update only the specified fields
-      await updateDoc(docRef, updateData);
+        const updateData = {
+          ...updates,
+          updatedAt: new Date().toISOString(),
+        };
 
-      console.log("Brooder info updated in Firestore:", updateData);
-      return true;
+        await updateDoc(docRef, updateData);
+        console.log(
+          "[UpdateBrooderInfo] Updated batch:",
+          latestDoc.id,
+          updateData,
+        );
+        return true;
+      } else {
+        console.error("[UpdateBrooderInfo] No batch found to update");
+        return false;
+      }
     } catch (error) {
       console.error("Error updating brooder info in Firestore:", error);
-      // Alert.alert("Error", "Failed to update brooder information in database");
       return false;
     }
   };

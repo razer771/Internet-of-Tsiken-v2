@@ -171,6 +171,62 @@ function DownloadBadge({
   );
 }
 
+/**
+ * Fetch unique batches from feedingExecutions_logs collection
+ * Groups by batchId and returns array of batch objects
+ */
+const fetchFeedBatches = async () => {
+  try {
+    const feedLogsRef = collection(firestoreDb, "feedingExecutions_logs");
+    const querySnapshot = await getDocs(feedLogsRef);
+
+    const batchMap = new Map();
+
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.batchId && !batchMap.has(data.batchId)) {
+        batchMap.set(data.batchId, {
+          id: data.batchId,
+          chicksCount: 0,
+          daysCount: 0,
+        });
+      }
+    });
+
+    const batches = Array.from(batchMap.values());
+    return batches;
+  } catch (error) {
+    console.error("[fetchFeedBatches] Error fetching batches:", error);
+    throw error;
+  }
+};
+
+const fetchWaterBatches = async () => {
+  try {
+    const waterLogsRef = collection(firestoreDb, "wateringExecutions_logs");
+    const querySnapshot = await getDocs(waterLogsRef);
+
+    const batchMap = new Map();
+
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.batchId && !batchMap.has(data.batchId)) {
+        batchMap.set(data.batchId, {
+          id: data.batchId,
+          name: data.batchId,
+        });
+      }
+    });
+
+    const batches = Array.from(batchMap.values());
+    console.log("[fetchWaterBatches] Found water batches:", batches.length);
+    return batches;
+  } catch (error) {
+    console.error("[fetchWaterBatches] Error fetching water batches:", error);
+    throw error;
+  }
+};
+
 export default function AdminAnalytics({ navigation }) {
   const [LineChartComp, setLineChartComp] = useState(null);
   const [chartError, setChartError] = useState(null);
@@ -231,6 +287,17 @@ export default function AdminAnalytics({ navigation }) {
   const [isGeneratingAttacksBatchReport, setIsGeneratingAttacksBatchReport] =
     useState(false);
 
+  // Export feed per batch state
+  const [isGeneratingFeedBatchReport, setIsGeneratingFeedBatchReport] =
+    useState(false);
+
+  // Export water per batch state
+  const [isGeneratingWaterBatchReport, setIsGeneratingWaterBatchReport] =
+    useState(false);
+
+  // Feed consumption report generation state
+  const [isGeneratingFeedReport, setIsGeneratingFeedReport] = useState(false);
+
   // Cause of Death state
   const [causeOfDeathData, setCauseOfDeathData] = useState([
     { name: "Predatory Attack", population: 0, color: "#154785" },
@@ -246,6 +313,12 @@ export default function AdminAnalytics({ navigation }) {
   const [predatorAttacksData, setPredatorAttacksData] = useState([]);
   const [totalPredatorAttacks, setTotalPredatorAttacks] = useState(0);
   const [attacksPerBatchData, setAttacksPerBatchData] = useState([]);
+
+  // Feed per batch state
+  const [feedPerBatchData, setFeedPerBatchData] = useState([]);
+
+  // Water per batch state
+  const [waterPerBatchData, setWaterPerBatchData] = useState([]);
 
   // Predator Types state
   const [predatorTypesData, setPredatorTypesData] = useState([
@@ -283,11 +356,24 @@ export default function AdminAnalytics({ navigation }) {
   const [isFetchingBatches, setIsFetchingBatches] = useState(false);
   const [batchFetchError, setBatchFetchError] = useState(null);
 
+  // Batch selection for water consumption chart
+  const [selectedWaterBatch, setSelectedWaterBatch] = useState("");
+  const [showWaterBatchDropdown, setShowWaterBatchDropdown] = useState(false);
+  const [availableWaterBatches, setAvailableWaterBatches] = useState([]);
+  const [isFetchingWaterBatches, setIsFetchingWaterBatches] = useState(false);
+  const [waterBatchFetchError, setWaterBatchFetchError] = useState(null);
+
   // Feed consumption logging data
   const [feedConsumptionData, setFeedConsumptionData] = useState([]);
   const [isLoadingFeedConsumption, setIsLoadingFeedConsumption] =
     useState(false);
   const [feedConsumptionError, setFeedConsumptionError] = useState(null);
+
+  // Water consumption logging data (separate from feed)
+  const [waterConsumptionData, setWaterConsumptionData] = useState([]);
+  const [isLoadingWaterConsumption, setIsLoadingWaterConsumption] =
+    useState(false);
+  const [waterConsumptionError, setWaterConsumptionError] = useState(null);
 
   const formatFilterDisplay = (filterData) => {
     if (!filterData) return "";
@@ -549,21 +635,31 @@ export default function AdminAnalytics({ navigation }) {
 
       querySnapshot.docs.forEach((doc) => {
         const data = doc.data();
+
+        // Filter by status === "Success"
+        if (data.status !== "Success") {
+          return;
+        }
+
         const age = data.age;
 
-        if (typeof age === "number") {
-          if (!ageCountMap[age]) {
-            ageCountMap[age] = 0;
+        // Handle age as string or number
+        const ageValue = typeof age === "string" ? age : String(age);
+
+        if (ageValue) {
+          if (!ageCountMap[ageValue]) {
+            ageCountMap[ageValue] = 0;
           }
-          ageCountMap[age]++;
+          ageCountMap[ageValue]++;
         }
       });
 
-      // Convert to array and sort by age
+      // Convert to array and sort by age (as numbers)
       const consumptionData = Object.entries(ageCountMap)
         .map(([age, count]) => ({
-          age: parseInt(age, 10),
+          age: parseInt(age, 10) || 0,
           count: count,
+          ageLabel: `Day ${age}`,
         }))
         .sort((a, b) => a.age - b.age);
 
@@ -579,6 +675,259 @@ export default function AdminAnalytics({ navigation }) {
       setFeedConsumptionData([]);
     } finally {
       setIsLoadingFeedConsumption(false);
+    }
+  };
+
+  /**
+   * Fetch water consumption data from wateringExecutions_logs collection
+   * Groups data by age and counts the number of documents for each age
+   * Returns formatted data for line chart: { age: number, count: number }
+   */
+  const fetchWaterConsumptionByAge = async (batchId) => {
+    try {
+      setIsLoadingWaterConsumption(true);
+      setWaterConsumptionError("");
+
+      if (!batchId) {
+        setWaterConsumptionError("Please select a batch");
+        setWaterConsumptionData([]);
+        return;
+      }
+
+      console.log(
+        "[FetchWaterConsumption] Fetching water data for batch:",
+        batchId,
+      );
+
+      const waterLogsRef = collection(firestoreDb, "wateringExecutions_logs");
+      const q = query(waterLogsRef, where("batchId", "==", batchId));
+      const snapshot = await getDocs(q);
+
+      const ageMap = {};
+      let recordCount = 0;
+
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        if (data.status === "Success" && data.age !== undefined) {
+          const age = data.age || "Unknown";
+          ageMap[age] = (ageMap[age] || 0) + 1;
+          recordCount++;
+        }
+      });
+
+      console.log(
+        `[FetchWaterConsumption] Found ${recordCount} water records for batch`,
+        batchId,
+      );
+
+      // Convert ageMap to array and sort by age
+      const consumptionData = Object.keys(ageMap)
+        .map((age) => ({
+          age: parseInt(age, 10),
+          count: ageMap[age],
+          ageLabel: `Day ${age}`,
+        }))
+        .sort((a, b) => a.age - b.age);
+
+      setWaterConsumptionData(consumptionData);
+    } catch (error) {
+      console.error("[FetchWaterConsumption] Error:", error);
+      setWaterConsumptionError(error.message || "Failed to load water data");
+      setWaterConsumptionData([]);
+    } finally {
+      setIsLoadingWaterConsumption(false);
+    }
+  };
+
+  /**
+   * Fetch feed per batch data from feedingExecutions_logs collection
+   * Groups documents by batchId and counts total documents per batch
+   * Filters by date range if provided
+   * Returns array: [{ batchId: "Batch 1", count: 25 }, ...]
+   */
+  const fetchFeedPerBatchData = async (dateFilter = null) => {
+    try {
+      console.log(
+        "[FetchFeedPerBatch] Starting fetch...",
+        dateFilter
+          ? `from ${dateFilter.startDate} to ${dateFilter.endDate}`
+          : "no filter",
+      );
+
+      const feedLogsRef = collection(firestoreDb, "feedingExecutions_logs");
+      const feedSnapshot = await getDocs(feedLogsRef);
+
+      const batchFeedMap = {};
+
+      // Parse date range if provided
+      let startDateObj = null;
+      let endDateObj = null;
+      if (dateFilter && dateFilter.startDate && dateFilter.endDate) {
+        const [startYear, startMonth, startDay] = dateFilter.startDate
+          .split("-")
+          .map(Number);
+        startDateObj = new Date(startYear, startMonth - 1, startDay, 0, 0, 0);
+
+        const [endYear, endMonth, endDay] = dateFilter.endDate
+          .split("-")
+          .map(Number);
+        endDateObj = new Date(endYear, endMonth - 1, endDay, 23, 59, 59);
+
+        console.log(
+          `[FetchFeedPerBatch] Filtering between ${startDateObj} and ${endDateObj}`,
+        );
+      }
+
+      // Iterate through each feed log document
+      feedSnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        const batchId = data.batchId;
+
+        if (!batchId) return; // Skip if no batchId
+
+        // Check date filter if provided
+        if (startDateObj && endDateObj) {
+          let docDate = null;
+
+          // Convert timestamp to Date
+          if (data.timestamp?.toDate) {
+            docDate = data.timestamp.toDate();
+          } else if (data.timestamp?.seconds) {
+            docDate = new Date(data.timestamp.seconds * 1000);
+          } else if (data.timestamp) {
+            docDate = new Date(data.timestamp);
+          } else if (data.createdAt?.toDate) {
+            docDate = data.createdAt.toDate();
+          }
+
+          // Only count if within date range
+          if (docDate && docDate >= startDateObj && docDate <= endDateObj) {
+            batchFeedMap[batchId] = (batchFeedMap[batchId] || 0) + 1;
+          }
+        } else {
+          // No filter, count all
+          batchFeedMap[batchId] = (batchFeedMap[batchId] || 0) + 1;
+        }
+      });
+
+      // Convert map to sorted array
+      const batchArray = Object.entries(batchFeedMap)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([batchId, count]) => ({
+          batchId,
+          activations: count, // Use "activations" to match FeedBatchChart expectations
+        }));
+
+      console.log("[FetchFeedPerBatch] Final batch feed data:", batchArray);
+
+      setFeedPerBatchData(batchArray);
+      return batchArray;
+    } catch (error) {
+      console.error("[FetchFeedPerBatch] Error:", error);
+      setFeedPerBatchData([]);
+      return [];
+    }
+  };
+
+  /**
+   * Fetch total water per batch from wateringExecutions_logs
+   * Groups documents by batchId and counts total activations per batch
+   * Supports date range filtering
+   */
+  const fetchWaterPerBatchData = async (dateFilter = null) => {
+    try {
+      setWaterPerBatchData([]);
+      console.log(
+        "[FetchWaterPerBatch] Starting fetch with filter:",
+        dateFilter,
+      );
+
+      // Parse date filter to get start and end dates
+      let startDate = null;
+      let endDate = null;
+
+      if (dateFilter && dateFilter.startDate && dateFilter.endDate) {
+        try {
+          startDate = new Date(dateFilter.startDate);
+          endDate = new Date(dateFilter.endDate);
+          endDate.setHours(23, 59, 59, 999);
+          console.log(
+            "[FetchWaterPerBatch] Date range:",
+            startDate,
+            "-",
+            endDate,
+          );
+        } catch (error) {
+          console.error("[FetchWaterPerBatch] Date parse error:", error);
+        }
+      }
+
+      // Query wateringExecutions_logs collection
+      const q = query(collection(firestoreDb, "wateringExecutions_logs"));
+      const snapshot = await getDocs(q);
+
+      console.log(
+        "[FetchWaterPerBatch] Found",
+        snapshot.docs.length,
+        "total documents",
+      );
+
+      // Group by batchId and count documents within date range
+      const batchCounts = {};
+
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        const batchId = data.batchId || "Unknown";
+
+        // Only count if status is "Success"
+        if (data.status !== "Success") return;
+
+        // Check if document is within date range (if filter provided)
+        let isInDateRange = true;
+        if (startDate && endDate) {
+          const docTimestamp = data.timestamp || data.createdAt;
+          let docDate = null;
+
+          if (docTimestamp) {
+            if (docTimestamp.toDate) {
+              // Firestore Timestamp
+              docDate = docTimestamp.toDate();
+            } else if (typeof docTimestamp === "string") {
+              // String date
+              docDate = new Date(docTimestamp);
+            } else if (docTimestamp instanceof Date) {
+              docDate = docTimestamp;
+            }
+          }
+
+          if (docDate) {
+            isInDateRange = docDate >= startDate && docDate <= endDate;
+          }
+        }
+
+        if (isInDateRange) {
+          batchCounts[batchId] = (batchCounts[batchId] || 0) + 1;
+        }
+      });
+
+      console.log("[FetchWaterPerBatch] Batch counts:", batchCounts);
+
+      // Convert to array format and sort by batchId
+      const result = Object.entries(batchCounts)
+        .map(([batchId, count]) => ({
+          batchId: batchId,
+          activations: count,
+        }))
+        .sort((a, b) => a.batchId.localeCompare(b.batchId));
+
+      console.log("[FetchWaterPerBatch] Result:", result);
+
+      setWaterPerBatchData(result);
+      return result;
+    } catch (error) {
+      console.error("[FetchWaterPerBatch] Error:", error);
+      setWaterPerBatchData([]);
+      return [];
     }
   };
 
@@ -961,6 +1310,112 @@ export default function AdminAnalytics({ navigation }) {
       return allRecords;
     } catch (error) {
       console.error("[FetchMortalityExport] Error:", error);
+      return [];
+    }
+  };
+
+  /**
+   * Fetch feed consumption records for export from feedingExecutions_logs
+   * based on the selected batch. Returns sorted array of feed records grouped by age.
+   */
+  const fetchFeedRecordsForExport = async (batchId) => {
+    try {
+      console.log(
+        "[FetchFeedExport] Fetching feed records for batch:",
+        batchId,
+      );
+
+      if (!batchId) {
+        Alert.alert("Error", "Please select a batch from the filter");
+        return [];
+      }
+
+      const feedLogsRef = collection(firestoreDb, "feedingExecutions_logs");
+      const q = query(feedLogsRef, where("batchId", "==", batchId));
+      const feedSnapshot = await getDocs(q);
+
+      let allRecords = [];
+
+      console.log(
+        "[FetchFeedExport] Found",
+        feedSnapshot.docs.length,
+        "total feed records for batch",
+        batchId,
+      );
+
+      // Process all records and filter by status === "Success"
+      feedSnapshot.docs.forEach((recordDoc) => {
+        const recordData = recordDoc.data();
+
+        // Only include records with status === "Success"
+        if (recordData.status === "Success") {
+          allRecords.push({
+            id: recordDoc.id,
+            ...recordData,
+          });
+        }
+      });
+
+      console.log(
+        `[FetchFeedExport] Found ${allRecords.length} successful records`,
+      );
+      return allRecords;
+    } catch (error) {
+      console.error("[FetchFeedExport] Error:", error);
+      Alert.alert("Error", "Failed to fetch feed data: " + error.message);
+      return [];
+    }
+  };
+
+  /**
+   * Fetch water consumption records for export from wateringExecutions_logs
+   * based on the selected batch. Returns sorted array of water records grouped by age.
+   */
+  const fetchWaterRecordsForExport = async (batchId) => {
+    try {
+      console.log(
+        "[FetchWaterExport] Fetching water records for batch:",
+        batchId,
+      );
+
+      if (!batchId) {
+        Alert.alert("Error", "Please select a batch from the filter");
+        return [];
+      }
+
+      const waterLogsRef = collection(firestoreDb, "wateringExecutions_logs");
+      const q = query(waterLogsRef, where("batchId", "==", batchId));
+      const waterSnapshot = await getDocs(q);
+
+      let allRecords = [];
+
+      console.log(
+        "[FetchWaterExport] Found",
+        waterSnapshot.docs.length,
+        "total water records for batch",
+        batchId,
+      );
+
+      // Process all records and filter by status === "Success"
+      waterSnapshot.docs.forEach((recordDoc) => {
+        const recordData = recordDoc.data();
+
+        // Only include records with status === "Success"
+        if (recordData.status === "Success") {
+          allRecords.push({
+            id: recordDoc.id,
+            ...recordData,
+          });
+        }
+      });
+
+      console.log(
+        `[FetchWaterExport] Found ${allRecords.length} successful records`,
+      );
+      return allRecords;
+    } catch (error) {
+      console.error("[FetchWaterExport] Error:", error);
+      Alert.alert("Error", "Failed to fetch water data: " + error.message);
       return [];
     }
   };
@@ -2353,7 +2808,12 @@ export default function AdminAnalytics({ navigation }) {
       });
 
       // Log report generation to audit trail
-      await logReportGeneration(customFilename, "Mortality Report");
+      await logReportGeneration(
+        customFilename,
+        "Mortality Report",
+        "Generate mortality report",
+        "Generated and exported mortality report",
+      );
 
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
@@ -2364,6 +2824,510 @@ export default function AdminAnalytics({ navigation }) {
       Alert.alert("Error", "Failed to generate report: " + error.message);
     } finally {
       setIsGeneratingReport(false);
+    }
+  };
+
+  /**
+   * Generate Feed Consumption Report PDF
+   * Fetches feed records from feedingExecutions_logs for the selected batch,
+   * groups by age, and generates a comprehensive PDF report.
+   */
+  const generateFeedConsumptionReportPDF = async () => {
+    // Get the selected batch from the filter
+    const selectedBatch = chartFilters["feed"]?.batchId;
+    if (!selectedBatch) {
+      Alert.alert("Error", "Please select a batch from the filter");
+      return;
+    }
+
+    setIsGeneratingFeedReport(true);
+    try {
+      const records = await fetchFeedRecordsForExport(selectedBatch);
+
+      if (records.length === 0) {
+        Alert.alert("No Data", "No feed records found for the selected batch");
+        setIsGeneratingFeedReport(false);
+        return;
+      }
+
+      // Load logo
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        },
+      );
+
+      // Group by age and count consumption, also collect dates
+      const ageMap = {};
+      const ageDateMap = {};
+
+      records.forEach((record) => {
+        const age = record.age || "Unknown";
+        if (!ageMap[age]) {
+          ageMap[age] = 0;
+          // Extract date from timestamp (prefer record.timestamp, fallback to record.createdAt)
+          let dateObj = record.timestamp?.toDate
+            ? record.timestamp.toDate()
+            : record.timestamp
+              ? new Date(record.timestamp)
+              : record.createdAt
+                ? new Date(record.createdAt)
+                : null;
+          if (dateObj) {
+            // Format as "DD-MMM-YYYY"
+            const dateStr = dateObj
+              .toLocaleDateString("en-GB", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })
+              .replace(/ /g, "-");
+            ageDateMap[age] = dateStr;
+          } else {
+            ageDateMap[age] = "";
+          }
+        }
+        ageMap[age]++;
+      });
+
+      // Sort ages numerically
+      const sortedAges = Object.keys(ageMap)
+        .map((age) => {
+          const numAge = parseInt(age, 10);
+          return { age, numAge: isNaN(numAge) ? Infinity : numAge };
+        })
+        .sort((a, b) => a.numAge - b.numAge)
+        .map((item) => item.age);
+
+      // Create table rows
+      let tableRows = "";
+      let totalConsumption = 0;
+
+      sortedAges.forEach((age) => {
+        const consumption = ageMap[age];
+        totalConsumption += consumption;
+        const date = ageDateMap[age] || "";
+
+        tableRows += `
+          <tr>
+            <td>${date}</td>
+            <td>Day ${age}</td>
+            <td>${consumption}</td>
+          </tr>
+        `;
+      });
+
+      // Add total row
+      tableRows += `
+        <tr style="background-color: #e8e8e8; font-weight: bold;">
+          <td colspan="1" style="text-align: center;">TOTAL</td>
+          <td colspan="1"></td>
+          <td>${totalConsumption}</td>
+        </tr>
+      `;
+
+      // Generate HTML
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 0.3in 0.5in 0.3in 0.5in;
+            }
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 0;
+            }
+            .header {
+              margin-bottom: 20px;
+              border-bottom: 2px solid #133E87;
+              padding-bottom: 15px;
+            }
+            .header-top {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-bottom: 10px;
+            }
+            .logo {
+              width: 50px;
+              height: 50px;
+              border-radius: 25px;
+              margin-right: 15px;
+            }
+            .company-name {
+              font-size: 24px;
+              font-weight: bold;
+              color: #133E87;
+            }
+            .report-title {
+              font-size: 16px;
+              color: #333;
+              text-align: center;
+              margin-bottom: 15px;
+              font-weight: bold;
+            }
+            .filter-info {
+              font-size: 12px;
+              color: #666;
+              margin-bottom: 10px;
+              text-align: center;
+            }
+            table {
+              width: 75%;
+              border-collapse: collapse;
+              margin-bottom: 20px;
+              margin-left: auto;
+              margin-right: auto;
+              font-size: 11px;
+              table-layout: fixed;
+            }
+            th {
+              background-color: #133E87;
+              color: white;
+              padding: 8px;
+              text-align: left;
+              border: 1px solid #ddd;
+              font-weight: bold;
+            }
+            td {
+              padding: 6px;
+              border: 1px solid #ddd;
+              color: #333;
+              text-align: center;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            .page-number {
+              text-align: center;
+              font-size: 10px;
+              color: #666;
+              margin-top: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="header-top">
+              <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
+              <div class="company-name">Internet of Tsiken</div>
+            </div>
+            <div class="report-title">Feed Consumption Report</div>
+            <div class="filter-info">
+              ${selectedBatch}<br>
+              Report Generated: ${new Date().toLocaleString()}<br>
+              Total Records: ${records.length}
+            </div>
+          </div>
+          
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 20%; text-align: center;">Date</th>
+                <th style="width: 20%; text-align: center;">Age</th>
+                <th style="width: 15%; text-align: center;">Consumption</th>
+
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+        </body>
+        </html>
+      `;
+
+      // Generate PDF
+      const pdf = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+      });
+
+      // Create custom filename with batch and date
+      const customFilename = `FeedConsumptionReport_${selectedBatch}_${new Date().toLocaleDateString().replace(/\//g, "-")}.pdf`;
+      const newPath = `${FileSystem.documentDirectory}${customFilename}`;
+
+      // Copy the PDF to a new location with custom name
+      await FileSystem.copyAsync({
+        from: pdf.uri,
+        to: newPath,
+      });
+
+      // Log report generation to audit trail
+      await logReportGeneration(
+        customFilename,
+        "Feed Consumption Report",
+        "Generate feed consumption report",
+        "Generated and exported feed consumption report",
+      );
+
+      // Share PDF with custom filename
+      await Sharing.shareAsync(newPath);
+    } catch (error) {
+      console.error("Error generating feed report:", error);
+      Alert.alert("Error", "Failed to generate report: " + error.message);
+    } finally {
+      setIsGeneratingFeedReport(false);
+    }
+  };
+
+  /**
+   * Generate Water Consumption Report PDF
+   * Fetches water records from wateringExecutions_logs for the selected batch,
+   * groups by age, and generates a comprehensive PDF report.
+   */
+  const generateWaterConsumptionReportPDF = async () => {
+    // Get the selected batch from the filter
+    const selectedBatch = chartFilters["water"]?.batchId;
+    if (!selectedBatch) {
+      Alert.alert("Error", "Please select a batch from the filter");
+      return;
+    }
+
+    setIsGeneratingFeedReport(true);
+    try {
+      const records = await fetchWaterRecordsForExport(selectedBatch);
+
+      if (records.length === 0) {
+        Alert.alert("No Data", "No water records found for the selected batch");
+        setIsGeneratingFeedReport(false);
+        return;
+      }
+
+      // Load logo
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        },
+      );
+
+      // Group by age and count consumption, also collect dates
+      const ageMap = {};
+      const ageDateMap = {};
+
+      records.forEach((record) => {
+        const age = record.age || "Unknown";
+        if (!ageMap[age]) {
+          ageMap[age] = 0;
+          // Extract date from timestamp (prefer record.timestamp, fallback to record.createdAt)
+          let dateObj = record.timestamp?.toDate
+            ? record.timestamp.toDate()
+            : record.timestamp
+              ? new Date(record.timestamp)
+              : record.createdAt
+                ? new Date(record.createdAt)
+                : null;
+          if (dateObj) {
+            // Format as "DD-MMM-YYYY"
+            const dateStr = dateObj
+              .toLocaleDateString("en-GB", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })
+              .replace(/ /g, "-");
+            ageDateMap[age] = dateStr;
+          } else {
+            ageDateMap[age] = "";
+          }
+        }
+        ageMap[age]++;
+      });
+
+      // Sort ages numerically
+      const sortedAges = Object.keys(ageMap)
+        .map((age) => {
+          const numAge = parseInt(age, 10);
+          return { age, numAge: isNaN(numAge) ? Infinity : numAge };
+        })
+        .sort((a, b) => a.numAge - b.numAge)
+        .map((item) => item.age);
+
+      // Create table rows
+      let tableRows = "";
+      let totalConsumption = 0;
+
+      sortedAges.forEach((age) => {
+        const consumption = ageMap[age];
+        totalConsumption += consumption;
+        const date = ageDateMap[age] || "";
+
+        tableRows += `
+          <tr>
+            <td>${date}</td>
+            <td>Day ${age}</td>
+            <td>${consumption}</td>
+          </tr>
+        `;
+      });
+
+      // Add total row
+      tableRows += `
+        <tr style="background-color: #e8e8e8; font-weight: bold;">
+          <td colspan="1" style="text-align: center;">TOTAL</td>
+          <td colspan="1"></td>
+          <td>${totalConsumption}</td>
+        </tr>
+      `;
+
+      // Generate HTML
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 0.3in 0.5in 0.3in 0.5in;
+            }
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 0;
+            }
+            .header {
+              margin-bottom: 20px;
+              border-bottom: 2px solid #133E87;
+              padding-bottom: 15px;
+            }
+            .header-top {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-bottom: 10px;
+            }
+            .logo {
+              width: 50px;
+              height: 50px;
+              border-radius: 25px;
+              margin-right: 15px;
+            }
+            .company-name {
+              font-size: 24px;
+              font-weight: bold;
+              color: #133E87;
+            }
+            .report-title {
+              font-size: 16px;
+              color: #333;
+              text-align: center;
+              margin-bottom: 15px;
+              font-weight: bold;
+            }
+            .filter-info {
+              font-size: 12px;
+              color: #666;
+              margin-bottom: 10px;
+              text-align: center;
+            }
+            table {
+              width: 75%;
+              border-collapse: collapse;
+              margin-bottom: 20px;
+              margin-left: auto;
+              margin-right: auto;
+              font-size: 11px;
+              table-layout: fixed;
+            }
+            th {
+              background-color: #133E87;
+              color: white;
+              padding: 8px;
+              text-align: left;
+              border: 1px solid #ddd;
+              font-weight: bold;
+            }
+            td {
+              padding: 6px;
+              border: 1px solid #ddd;
+              color: #333;
+              text-align: center;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            .page-number {
+              text-align: center;
+              font-size: 10px;
+              color: #666;
+              margin-top: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="header-top">
+              <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
+              <div class="company-name">Internet of Tsiken</div>
+            </div>
+            <div class="report-title">Water Consumption Report</div>
+            <div class="filter-info">
+              ${selectedBatch}<br>
+              Report Generated: ${new Date().toLocaleString()}<br>
+              Total Records: ${records.length}
+            </div>
+          </div>
+          
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 20%; text-align: center;">Date</th>
+                <th style="width: 20%; text-align: center;">Age</th>
+                <th style="width: 15%; text-align: center;">Consumption</th>
+
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+        </body>
+        </html>
+      `;
+
+      // Generate PDF
+      const pdf = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+      });
+
+      // Create custom filename with batch and date
+      const customFilename = `WaterConsumptionReport_${selectedBatch}_${new Date().toLocaleDateString().replace(/\//g, "-")}.pdf`;
+      const newPath = `${FileSystem.documentDirectory}${customFilename}`;
+
+      // Copy the PDF to a new location with custom name
+      await FileSystem.copyAsync({
+        from: pdf.uri,
+        to: newPath,
+      });
+
+      // Log report generation to audit trail
+      await logReportGeneration(
+        customFilename,
+        "Water Consumption Report",
+        "Generate water consumption report",
+        "Generated and exported water consumption report",
+      );
+
+      // Share PDF with custom filename
+      await Sharing.shareAsync(newPath);
+    } catch (error) {
+      console.error("Error generating water report:", error);
+      Alert.alert("Error", "Failed to generate report: " + error.message);
+    } finally {
+      setIsGeneratingFeedReport(false);
     }
   };
 
@@ -2649,7 +3613,12 @@ export default function AdminAnalytics({ navigation }) {
       });
 
       // Log report generation to audit trail
-      await logReportGeneration(customFilename, "Mortality Per Batch Report");
+      await logReportGeneration(
+        customFilename,
+        "Mortality Per Batch Report",
+        "Generate mortality per batch report",
+        "Generated and exported mortality per batch report",
+      );
 
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
@@ -3334,6 +4303,608 @@ export default function AdminAnalytics({ navigation }) {
   };
 
   /**
+   * Generate Feed Per Batch Report PDF
+   * Fetches all documents from feedingExecutions_logs where status === "Success"
+   * Groups by batchId, counts total activations per batch, filtered by date range
+   */
+  const generateFeedPerBatchReportPDF = async () => {
+    const dateFilter = chartFilters["feedbatch"];
+    if (!dateFilter || !dateFilter.startDate || !dateFilter.endDate) {
+      Alert.alert("Error", "Please set a date range filter first");
+      return;
+    }
+
+    setIsGeneratingFeedBatchReport(true);
+    try {
+      console.log("[GenerateFeedPerBatchReport] Starting PDF generation...");
+
+      // Load logo
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        },
+      );
+
+      const startDate = new Date(dateFilter.startDate);
+      const endDate = new Date(dateFilter.endDate);
+      endDate.setHours(23, 59, 59, 999);
+
+      // Fetch all documents from feedingExecutions_logs
+      const feedingLogsRef = collection(firestoreDb, "feedingExecutions_logs");
+      const feedingSnapshot = await getDocs(feedingLogsRef);
+
+      let batchFeedMap = {};
+      let totalSuccessActivations = 0;
+
+      // Process each document
+      feedingSnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+
+        // Only count if status is "Success"
+        if (data.status !== "Success") return;
+
+        const batchId = data.batchId || "Unknown";
+        let docDate;
+
+        // Convert timestamp to Date
+        if (data.timestamp?.toDate) {
+          docDate = data.timestamp.toDate();
+        } else if (data.createdAt?.toDate) {
+          docDate = data.createdAt.toDate();
+        } else if (typeof data.timestamp === "string") {
+          docDate = new Date(data.timestamp);
+        } else if (typeof data.createdAt === "string") {
+          docDate = new Date(data.createdAt);
+        } else {
+          docDate = new Date(data.timestamp || data.createdAt);
+        }
+
+        // Filter by date range
+        if (docDate >= startDate && docDate <= endDate) {
+          batchFeedMap[batchId] = (batchFeedMap[batchId] || 0) + 1;
+          totalSuccessActivations++;
+        }
+      });
+
+      // Sort by batch ID
+      const sortedBatches = Object.entries(batchFeedMap)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([batchId, count]) => ({ batchId, count }));
+
+      console.log(
+        "[GenerateFeedPerBatchReport] Sorted batches:",
+        sortedBatches,
+      );
+
+      // Check if there is any data
+      if (totalSuccessActivations === 0) {
+        Alert.alert(
+          "No Data",
+          "No successful feed activations found for the selected date range.",
+        );
+        setIsGeneratingFeedBatchReport(false);
+        return;
+      }
+
+      // Format dates for display
+      const formatDisplayDate = (date) => {
+        const d = new Date(date);
+        const day = String(d.getDate()).padStart(2, "0");
+        const months = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        return `${day}-${months[d.getMonth()]}-${d.getFullYear()}`;
+      };
+
+      // Generate table rows
+      let tableRowsHtml = "";
+      sortedBatches.forEach((batch) => {
+        tableRowsHtml += `
+          <tr>
+            <td>${batch.batchId}</td>
+            <td style="text-align: center;">${batch.count}</td>
+          </tr>
+        `;
+      });
+
+      // Add total row
+      tableRowsHtml += `
+        <tr style="background-color: #f0f0f0; font-weight: bold;">
+          <td>TOTAL</td>
+          <td style="text-align: center;">${totalSuccessActivations}</td>
+        </tr>
+      `;
+
+      // Generate HTML
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            @page {
+              size: A4;
+              margin: 0.8in 0.8in 0.8in 0.8in;
+            }
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 0;
+            }
+            .header {
+              margin-bottom: 20px;
+              border-bottom: 2px solid #133E87;
+              padding-bottom: 15px;
+            }
+            .header-top {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-bottom: 10px;
+            }
+            .logo {
+              width: 50px;
+              height: 50px;
+              border-radius: 25px;
+              margin-right: 15px;
+            }
+            .company-name {
+              font-size: 24px;
+              font-weight: bold;
+              color: #133E87;
+            }
+            .report-title {
+              font-size: 18px;
+              font-weight: bold;
+              color: #333;
+              margin-bottom: 10px;
+              text-align: center;
+            }
+            .filter-info {
+              font-size: 12px;
+              color: #666;
+              line-height: 1.6;
+              text-align: center;
+            }
+            .table-container {
+              width: 100%;
+              margin-top: 20px;
+              display: flex;
+              justify-content: center;
+            }
+            table {
+              width: 60%;
+              border-collapse: collapse;
+            }
+            th {
+              background-color: #133E87;
+              color: white;
+              padding: 8px;
+              text-align: left;
+              border: 1px solid #333;
+              font-weight: bold;
+            }
+            td {
+              padding: 8px;
+              border: 1px solid #ddd;
+              color: #333;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            .page-number {
+              text-align: center;
+              font-size: 10px;
+              color: #666;
+              margin-top: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="header-top">
+              <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
+              <div class="company-name">Internet of Tsiken</div>
+            </div>
+            <div class="report-title">Feed Per Batch Report</div>
+            <div class="filter-info">
+              Date Range: ${formatDisplayDate(dateFilter.startDate)} to ${formatDisplayDate(dateFilter.endDate)}<br>
+              Report Generated: ${new Date().toLocaleString()}<br>
+              Total Successful Activations: ${totalSuccessActivations}
+            </div>
+          </div>
+          
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Batch ID</th>
+                  <th style="text-align: center; width: 180px;">Total Activations</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </body>
+        </html>
+      `;
+
+      // Generate PDF
+      const pdf = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+      });
+
+      // Create custom filename with date
+      const formatDate = (date) => {
+        const d = new Date(date);
+        const day = String(d.getDate()).padStart(2, "0");
+        const months = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        const month = months[d.getMonth()];
+        const year = d.getFullYear();
+        return `${day}-${month}-${year}`;
+      };
+
+      const customFilename = `FeedPerBatchReport_${formatDate(dateFilter.startDate)}_to_${formatDate(dateFilter.endDate)}.pdf`;
+      const newPath = `${FileSystem.documentDirectory}${customFilename}`;
+
+      // Copy the PDF to a new location with custom name
+      await FileSystem.copyAsync({
+        from: pdf.uri,
+        to: newPath,
+      });
+
+      // Log report generation to audit trail
+      await logReportGeneration(
+        customFilename,
+        "Feed Per Batch Report",
+        "Generate feed per batch report",
+        "Generated and exported feed per batch report",
+      );
+
+      // Share PDF with custom filename
+      await Sharing.shareAsync(newPath);
+    } catch (error) {
+      console.error("[GenerateFeedPerBatchReport] Error:", error);
+      Alert.alert("Error", "Failed to generate report: " + error.message);
+    } finally {
+      setIsGeneratingFeedBatchReport(false);
+    }
+  };
+
+  /**
+   * Generate Water Per Batch Report PDF
+   * Fetches water per batch data from wateringExecutions_logs,
+   * filters by status "Success", groups by batchId,
+   * and generates a professional PDF report with logo and centered table.
+   */
+  const generateWaterPerBatchReportPDF = async () => {
+    const dateFilter = chartFilters["waterbatch"];
+    if (!dateFilter || !dateFilter.startDate || !dateFilter.endDate) {
+      Alert.alert("Error", "Please set a date range filter first");
+      return;
+    }
+
+    setIsGeneratingWaterBatchReport(true);
+    try {
+      console.log("[GenerateWaterPerBatchReport] Starting PDF generation...");
+
+      // Load logo
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        },
+      );
+
+      const startDate = new Date(dateFilter.startDate);
+      const endDate = new Date(dateFilter.endDate);
+      endDate.setHours(23, 59, 59, 999);
+
+      // Fetch all documents from wateringExecutions_logs
+      const wateringLogsRef = collection(
+        firestoreDb,
+        "wateringExecutions_logs",
+      );
+      const wateringSnapshot = await getDocs(wateringLogsRef);
+
+      let batchWaterMap = {};
+      let totalSuccessActivations = 0;
+
+      // Process each document
+      wateringSnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+
+        // Only count if status is "Success"
+        if (data.status !== "Success") return;
+
+        const batchId = data.batchId || "Unknown";
+        let docDate;
+
+        // Convert timestamp to Date
+        if (data.timestamp?.toDate) {
+          docDate = data.timestamp.toDate();
+        } else if (data.createdAt?.toDate) {
+          docDate = data.createdAt.toDate();
+        } else if (typeof data.timestamp === "string") {
+          docDate = new Date(data.timestamp);
+        } else if (typeof data.createdAt === "string") {
+          docDate = new Date(data.createdAt);
+        } else {
+          docDate = new Date(data.timestamp || data.createdAt);
+        }
+
+        // Filter by date range
+        if (docDate >= startDate && docDate <= endDate) {
+          batchWaterMap[batchId] = (batchWaterMap[batchId] || 0) + 1;
+          totalSuccessActivations++;
+        }
+      });
+
+      // Sort by batch ID
+      const sortedBatches = Object.entries(batchWaterMap)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([batchId, count]) => ({ batchId, count }));
+
+      console.log(
+        "[GenerateWaterPerBatchReport] Sorted batches:",
+        sortedBatches,
+      );
+
+      // Check if there is any data
+      if (totalSuccessActivations === 0) {
+        Alert.alert(
+          "No Data",
+          "No successful water activations found for the selected date range.",
+        );
+        setIsGeneratingWaterBatchReport(false);
+        return;
+      }
+
+      // Format dates for display
+      const formatDisplayDate = (date) => {
+        const d = new Date(date);
+        const day = String(d.getDate()).padStart(2, "0");
+        const months = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        return `${day}-${months[d.getMonth()]}-${d.getFullYear()}`;
+      };
+
+      // Generate table rows
+      let tableRowsHtml = "";
+      sortedBatches.forEach((batch) => {
+        tableRowsHtml += `
+          <tr>
+            <td>${batch.batchId}</td>
+            <td style="text-align: center;">${batch.count}</td>
+          </tr>
+        `;
+      });
+
+      // Add total row
+      tableRowsHtml += `
+        <tr style="background-color: #f0f0f0; font-weight: bold;">
+          <td>TOTAL</td>
+          <td style="text-align: center;">${totalSuccessActivations}</td>
+        </tr>
+      `;
+
+      // Generate HTML
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            @page {
+              size: A4;
+              margin: 0.8in 0.8in 0.8in 0.8in;
+            }
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 0;
+            }
+            .header {
+              margin-bottom: 20px;
+              border-bottom: 2px solid #133E87;
+              padding-bottom: 15px;
+            }
+            .header-top {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-bottom: 10px;
+            }
+            .logo {
+              width: 50px;
+              height: 50px;
+              border-radius: 25px;
+              margin-right: 15px;
+            }
+            .company-name {
+              font-size: 24px;
+              font-weight: bold;
+              color: #133E87;
+            }
+            .report-title {
+              font-size: 18px;
+              font-weight: bold;
+              color: #333;
+              margin-bottom: 10px;
+              text-align: center;
+            }
+            .filter-info {
+              font-size: 12px;
+              color: #666;
+              line-height: 1.6;
+              text-align: center;
+            }
+            .table-container {
+              width: 100%;
+              margin-top: 20px;
+              display: flex;
+              justify-content: center;
+            }
+            table {
+              width: 60%;
+              border-collapse: collapse;
+            }
+            th {
+              background-color: #133E87;
+              color: white;
+              padding: 8px;
+              text-align: left;
+              border: 1px solid #333;
+              font-weight: bold;
+            }
+            td {
+              padding: 8px;
+              border: 1px solid #ddd;
+              color: #333;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            .page-number {
+              text-align: center;
+              font-size: 10px;
+              color: #666;
+              margin-top: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="header-top">
+              <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
+              <div class="company-name">Internet of Tsiken</div>
+            </div>
+            <div class="report-title">Water Per Batch Report</div>
+            <div class="filter-info">
+              Date Range: ${formatDisplayDate(dateFilter.startDate)} to ${formatDisplayDate(dateFilter.endDate)}<br>
+              Report Generated: ${new Date().toLocaleString()}<br>
+              Total Successful Activations: ${totalSuccessActivations}
+            </div>
+          </div>
+          
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Batch ID</th>
+                  <th style="text-align: center; width: 180px;">Total Activations</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </body>
+        </html>
+      `;
+
+      // Generate PDF
+      const pdf = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+      });
+
+      // Create custom filename with date
+      const formatDate = (date) => {
+        const d = new Date(date);
+        const day = String(d.getDate()).padStart(2, "0");
+        const months = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        const month = months[d.getMonth()];
+        const year = d.getFullYear();
+        return `${day}-${month}-${year}`;
+      };
+
+      const customFilename = `WaterPerBatchReport_${formatDate(dateFilter.startDate)}_to_${formatDate(dateFilter.endDate)}.pdf`;
+      const newPath = `${FileSystem.documentDirectory}${customFilename}`;
+
+      // Copy the PDF to a new location with custom name
+      await FileSystem.copyAsync({
+        from: pdf.uri,
+        to: newPath,
+      });
+
+      // Log report generation to audit trail
+      await logReportGeneration(
+        customFilename,
+        "Water Per Batch Report",
+        "Generate water per batch report",
+        "Generated and exported water per batch report",
+      );
+
+      // Share PDF with custom filename
+      await Sharing.shareAsync(newPath);
+    } catch (error) {
+      console.error("[GenerateWaterPerBatchReport] Error:", error);
+      Alert.alert("Error", "Failed to generate report: " + error.message);
+    } finally {
+      setIsGeneratingWaterBatchReport(false);
+    }
+  };
+
+  /**
    * Generate Cause of Death Report PDF
    * Fetches mortality records for the selected date range,
    * aggregates by causeOfDeath, calculates percentages,
@@ -4014,7 +5585,7 @@ export default function AdminAnalytics({ navigation }) {
       await logReportGeneration(
         customFilename,
         "Cause of Death Report",
-        "Generated death causes",
+        "Generate cause of death report",
         "Generated cause of death report",
       );
 
@@ -4663,6 +6234,14 @@ export default function AdminAnalytics({ navigation }) {
         to: newPath,
       });
 
+      // Log report generation to audit trail
+      await logReportGeneration(
+        customFilename,
+        "Predator Types Report",
+        "Generate predator types report",
+        "Generated and exported predator types report",
+      );
+
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
 
@@ -4764,6 +6343,8 @@ export default function AdminAnalytics({ navigation }) {
       predator: defaultFilter,
       attacksbatch: defaultFilter,
       predatortypes: defaultFilter,
+      feedbatch: defaultFilter,
+      waterbatch: defaultFilter,
     }));
   }, []);
 
@@ -4826,23 +6407,81 @@ export default function AdminAnalytics({ navigation }) {
     fetchAttacksPerBatchData(chartFilters["attacksbatch"]);
   }, [chartFilters["attacksbatch"]]);
 
-  // Fetch batches when component mounts
+  // Fetch feed per batch data when filter changes
   useEffect(() => {
-    const loadBatches = async () => {
+    console.log(
+      "[adminAnalytics] useEffect: Fetching feed per batch data...",
+      chartFilters["feedbatch"],
+    );
+    fetchFeedPerBatchData(chartFilters["feedbatch"]);
+  }, [chartFilters["feedbatch"]]);
+
+  // Fetch water per batch data when filter changes
+  useEffect(() => {
+    console.log(
+      "[adminAnalytics] useEffect: Fetching water per batch data...",
+      chartFilters["waterbatch"],
+    );
+    fetchWaterPerBatchData(chartFilters["waterbatch"]);
+  }, [chartFilters["waterbatch"]]);
+
+  // Fetch feed batches when component mounts
+  useEffect(() => {
+    const loadFeedBatches = async () => {
       setIsFetchingBatches(true);
       setBatchFetchError(null);
       try {
-        const batches = await fetchBatches();
+        const batches = await fetchFeedBatches();
         setAvailableBatches(batches);
-        console.log("[adminAnalytics] Batches loaded:", batches.length);
+        console.log("[adminAnalytics] Feed batches loaded:", batches.length);
+        // Set the latest batch (last one) as default for feed
+        if (batches.length > 0) {
+          const latestBatch = batches[batches.length - 1];
+          handleFeedBatchSelect(latestBatch.id);
+          console.log(
+            "[adminAnalytics] Latest feed batch selected:",
+            latestBatch.id,
+          );
+        }
       } catch (error) {
-        console.error("[adminAnalytics] Error fetching batches:", error);
-        setBatchFetchError("Failed to load batches");
+        console.error("[adminAnalytics] Error fetching feed batches:", error);
+        setBatchFetchError("Failed to load feed batches");
       } finally {
         setIsFetchingBatches(false);
       }
     };
-    loadBatches();
+    loadFeedBatches();
+  }, []);
+
+  // Fetch water batches when component mounts
+  useEffect(() => {
+    const loadWaterBatches = async () => {
+      setIsFetchingWaterBatches(true);
+      setWaterBatchFetchError(null);
+      try {
+        const waterBatches = await fetchWaterBatches();
+        setAvailableWaterBatches(waterBatches);
+        console.log(
+          "[adminAnalytics] Water batches loaded:",
+          waterBatches.length,
+        );
+        // Set the latest batch (last one) as default for water
+        if (waterBatches.length > 0) {
+          const latestWaterBatch = waterBatches[waterBatches.length - 1];
+          handleWaterBatchSelect(latestWaterBatch.id);
+          console.log(
+            "[adminAnalytics] Latest water batch selected:",
+            latestWaterBatch.id,
+          );
+        }
+      } catch (error) {
+        console.error("[adminAnalytics] Error fetching water batches:", error);
+        setWaterBatchFetchError("Failed to load water batches");
+      } finally {
+        setIsFetchingWaterBatches(false);
+      }
+    };
+    loadWaterBatches();
   }, []);
 
   // Fetch feed consumption data when batch is selected
@@ -4858,6 +6497,20 @@ export default function AdminAnalytics({ navigation }) {
       setFeedConsumptionError(null);
     }
   }, [chartFilters["feed"]]);
+
+  // Fetch water consumption data when batch is selected
+  useEffect(() => {
+    if (chartFilters["water"] && chartFilters["water"].batchId) {
+      console.log(
+        "[adminAnalytics] useEffect: Fetching water consumption data...",
+        chartFilters["water"].batchId,
+      );
+      fetchWaterConsumptionByAge(chartFilters["water"].batchId);
+    } else {
+      setWaterConsumptionData([]);
+      setWaterConsumptionError(null);
+    }
+  }, [chartFilters["water"]]);
 
   // Note: icon values are MaterialCommunityIcons names
   const metrics = [
@@ -5172,6 +6825,18 @@ export default function AdminAnalytics({ navigation }) {
     console.log("[adminAnalytics] Selected batch for feed chart:", batchId);
   };
 
+  const handleWaterBatchSelect = (batchId) => {
+    setSelectedWaterBatch(batchId);
+    setShowWaterBatchDropdown(false);
+    setChartFilters((prev) => ({
+      ...prev,
+      water: { batchId: batchId },
+    }));
+    fetchWaterConsumptionByAge(batchId);
+    setFilterModalVisible(false);
+    console.log("[adminAnalytics] Selected batch for water chart:", batchId);
+  };
+
   // Updated Predator chart data with different time ranges - dynamic labels based on filter
   const defaultPredatorDailyLabels = [
     "Mon",
@@ -5299,15 +6964,39 @@ export default function AdminAnalytics({ navigation }) {
     "Day 42",
   ];
   const defaultWaterData = [8, 12, 16, 20, 24, 28, 30];
-  const waterChartData = {
-    labels: generateDateLabels(chartFilters["water"], defaultWaterLabels),
-    datasets: [
-      {
-        data: generateDataPoints(chartFilters["water"], defaultWaterData),
-        color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
-      },
-    ],
-  };
+
+  // Build water chart data - use actual data if available from waterConsumptionData
+  const waterChartData = (() => {
+    if (
+      waterConsumptionData &&
+      waterConsumptionData.length > 0 &&
+      chartFilters["water"] &&
+      chartFilters["water"].batchId
+    ) {
+      // Use actual data from Firestore
+      const labels = waterConsumptionData.map((item) => `Day ${item.age}`);
+      const data = waterConsumptionData.map((item) => item.count);
+      return {
+        labels: labels,
+        datasets: [
+          {
+            data: data,
+            color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+          },
+        ],
+      };
+    }
+    // Use default data when no batch is selected
+    return {
+      labels: defaultWaterLabels,
+      datasets: [
+        {
+          data: defaultWaterData,
+          color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+        },
+      ],
+    };
+  })();
 
   // Solar chart data - dynamic labels and data based on filter
   const defaultSolarLabels = [
@@ -6900,12 +8589,7 @@ export default function AdminAnalytics({ navigation }) {
                 activeOpacity={0.8}
                 onPressIn={() => setPressedBtn("export-feed")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() =>
-                  Alert.alert(
-                    "Export",
-                    "Export functionality to be implemented",
-                  )
-                }
+                onPress={generateFeedConsumptionReportPDF}
               >
                 <Text
                   style={[
@@ -7238,12 +8922,7 @@ export default function AdminAnalytics({ navigation }) {
                 activeOpacity={0.8}
                 onPressIn={() => setPressedBtn("export-feedbatch")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() =>
-                  Alert.alert(
-                    "Export",
-                    "Export functionality to be implemented",
-                  )
-                }
+                onPress={() => generateFeedPerBatchReportPDF()}
               >
                 <Text
                   style={[
@@ -7270,7 +8949,7 @@ export default function AdminAnalytics({ navigation }) {
                 {formatFilterDisplay(chartFilters["feedbatch"])}
               </Text>
             )}
-            <FeedBatchChart height={220} />
+            <FeedBatchChart height={220} data={feedPerBatchData} />
           </View>
         </View>
 
@@ -7317,12 +8996,7 @@ export default function AdminAnalytics({ navigation }) {
                 activeOpacity={0.8}
                 onPressIn={() => setPressedBtn("export-water")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() =>
-                  Alert.alert(
-                    "Export",
-                    "Export functionality to be implemented",
-                  )
-                }
+                onPress={() => generateWaterConsumptionReportPDF()}
               >
                 <Text
                   style={[
@@ -7337,7 +9011,7 @@ export default function AdminAnalytics({ navigation }) {
           </View>
 
           <View style={styles.chartCard}>
-            {chartFilters["water"] && (
+            {chartFilters["water"] && chartFilters["water"].batchId && (
               <Text
                 style={{
                   textAlign: "center",
@@ -7349,84 +9023,134 @@ export default function AdminAnalytics({ navigation }) {
                 {formatFilterDisplay(chartFilters["water"])}
               </Text>
             )}
-            {LineChartComp && (
-              <View style={{ position: "relative", width: chartWidth }}>
-                <LineChartComp
-                  data={waterChartData}
-                  width={chartWidth}
-                  height={chartHeight}
-                  chartConfig={{
-                    backgroundGradientFrom: "#ffffff",
-                    backgroundGradientTo: "#ffffff",
-                    decimalPlaces: 0,
-                    color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
-                    labelColor: (opacity = 1) => `rgba(44, 62, 80, ${opacity})`,
-                    propsForDots: {
-                      r: "4",
-                      strokeWidth: "2",
-                      stroke: "#154985",
-                    },
-                  }}
-                  bezier
-                  style={{ marginTop: 8 }}
-                  withVerticalLines={false}
-                  withInnerLines={false}
-                  withHorizontalLines={false}
-                  fromZero
-                  onDataPointClick={(data) => {
-                    const point = {
-                      index: data.index,
-                      value: data.value,
-                      label: waterChartData.labels[data.index],
-                      x: data.x,
-                      y: data.y,
-                    };
-                    showPointTooltipWater(point);
-                  }}
-                />
 
-                {activePointWater !== null && (
-                  <View
-                    pointerEvents="none"
-                    style={[
-                      styles.tooltipWrapper,
-                      {
-                        left: Math.max(6, activePointWater.x - 1),
-                        top: 0,
-                        height: chartHeight,
+            {/* Loading State */}
+            {isLoadingWaterConsumption && (
+              <View
+                style={{
+                  justifyContent: "center",
+                  alignItems: "center",
+                  paddingVertical: 40,
+                }}
+              >
+                <ActivityIndicator size="large" color="#133E87" />
+                <Text style={{ marginTop: 12, color: "#666", fontSize: 12 }}>
+                  Loading water consumption data...
+                </Text>
+              </View>
+            )}
+
+            {/* Error State */}
+            {waterConsumptionError && !isLoadingWaterConsumption && (
+              <View
+                style={{
+                  justifyContent: "center",
+                  alignItems: "center",
+                  paddingVertical: 40,
+                  backgroundColor: "#fff3e0",
+                  borderRadius: 8,
+                  marginHorizontal: 8,
+                }}
+              >
+                <MaterialCommunityIcons
+                  name="alert-circle"
+                  size={32}
+                  color="#F57C00"
+                />
+                <Text
+                  style={{
+                    marginTop: 12,
+                    color: "#E65100",
+                    fontSize: 12,
+                    textAlign: "center",
+                  }}
+                >
+                  {waterConsumptionError}
+                </Text>
+              </View>
+            )}
+
+            {!isLoadingWaterConsumption &&
+              !waterConsumptionError &&
+              LineChartComp && (
+                <View style={{ position: "relative", width: chartWidth }}>
+                  <LineChartComp
+                    data={waterChartData}
+                    width={chartWidth}
+                    height={chartHeight}
+                    chartConfig={{
+                      backgroundGradientFrom: "#ffffff",
+                      backgroundGradientTo: "#ffffff",
+                      decimalPlaces: 0,
+                      color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                      labelColor: (opacity = 1) =>
+                        `rgba(44, 62, 80, ${opacity})`,
+                      propsForDots: {
+                        r: "4",
+                        strokeWidth: "2",
+                        stroke: "#154985",
                       },
-                    ]}
-                  >
+                    }}
+                    bezier
+                    style={{ marginTop: 8 }}
+                    withVerticalLines={false}
+                    withInnerLines={false}
+                    withHorizontalLines={false}
+                    fromZero
+                    onDataPointClick={(data) => {
+                      const point = {
+                        index: data.index,
+                        value: data.value,
+                        label: waterChartData.labels[data.index],
+                        x: data.x,
+                        y: data.y,
+                      };
+                      showPointTooltipWater(point);
+                    }}
+                  />
+
+                  {activePointWater !== null && (
                     <View
+                      pointerEvents="none"
                       style={[
-                        styles.tooltipVerticalLine,
+                        styles.tooltipWrapper,
                         {
-                          top: activePointWater.y + 4,
-                          height: chartHeight - activePointWater.y - 18,
-                        },
-                      ]}
-                    />
-                    <View
-                      style={[
-                        styles.tooltipBox,
-                        {
-                          position: "absolute",
-                          bottom: chartHeight - activePointWater.y + 10,
-                          left: -40,
+                          left: Math.max(6, activePointWater.x - 1),
+                          top: 0,
+                          height: chartHeight,
                         },
                       ]}
                     >
-                      <Text style={styles.tooltipLabel}>
-                        {activePointWater.label}
-                      </Text>
-                      <Text style={styles.tooltipValue}>
-                        Activations: {activePointWater.value}
-                      </Text>
+                      <View
+                        style={[
+                          styles.tooltipVerticalLine,
+                          {
+                            top: activePointWater.y + 4,
+                            height: chartHeight - activePointWater.y - 18,
+                          },
+                        ]}
+                      />
+                      <View
+                        style={[
+                          styles.tooltipBox,
+                          {
+                            position: "absolute",
+                            bottom: chartHeight - activePointWater.y + 10,
+                            left: -40,
+                          },
+                        ]}
+                      >
+                        <Text style={styles.tooltipLabel}>
+                          {activePointWater.label}
+                        </Text>
+                        <Text style={styles.tooltipValue}>
+                          Activations: {activePointWater.value}
+                        </Text>
+                      </View>
                     </View>
-                  </View>
-                )}
-              </View>
-            )}
+                  )}
+                </View>
+              )}
           </View>
         </View>
 
@@ -7472,12 +9196,7 @@ export default function AdminAnalytics({ navigation }) {
                 activeOpacity={0.8}
                 onPressIn={() => setPressedBtn("export-waterbatch")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() =>
-                  Alert.alert(
-                    "Export",
-                    "Export functionality to be implemented",
-                  )
-                }
+                onPress={() => generateWaterPerBatchReportPDF()}
               >
                 <Text
                   style={[
@@ -7504,7 +9223,8 @@ export default function AdminAnalytics({ navigation }) {
                 {formatFilterDisplay(chartFilters["waterbatch"])}
               </Text>
             )}
-            <WaterBatchChart height={220} />
+            {console.log("Water per batch data:", waterPerBatchData)}
+            <WaterBatchChart height={220} data={waterPerBatchData} />
           </View>
         </View>
 
@@ -7671,45 +9391,179 @@ export default function AdminAnalytics({ navigation }) {
           transparent={true}
           onRequestClose={() => setFilterModalVisible(false)}
         >
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              {/* Batch Dropdown for Feed Consumption Chart */}
-              {currentFilterTarget === "feed" && (
-                <View style={{ paddingHorizontal: 16, paddingVertical: 16 }}>
-                  <Text
-                    style={{
-                      fontSize: 14,
-                      fontWeight: "600",
-                      marginBottom: 12,
-                      color: "#333",
-                    }}
-                  >
-                    Select a Batch
-                  </Text>
-
-                  {isFetchingBatches ? (
-                    <View style={{ padding: 16, alignItems: "center" }}>
-                      <ActivityIndicator size="large" color="#133E87" />
-                      <Text
-                        style={{ marginTop: 8, color: "#666", fontSize: 12 }}
-                      >
-                        Loading batches...
-                      </Text>
-                    </View>
-                  ) : batchFetchError ? (
+          <TouchableOpacity
+            activeOpacity={1}
+            style={{ flex: 1 }}
+            onPress={() => {
+              // Close all dropdowns and modals when tapping outside
+              setShowFeedBatchDropdown(false);
+              setFilterModalVisible(false);
+            }}
+          >
+            <View style={styles.modalContainer}>
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={(e) => e.stopPropagation()}
+              >
+                <View style={styles.modalContent}>
+                  {/* Batch Dropdown for Feed Consumption Chart */}
+                  {currentFilterTarget === "feed" && (
                     <View
-                      style={{
-                        padding: 16,
-                        backgroundColor: "#ffebee",
-                        borderRadius: 8,
-                      }}
+                      style={{ paddingHorizontal: 16, paddingVertical: 16 }}
                     >
-                      <Text style={{ color: "#c62828", fontSize: 12 }}>
-                        {batchFetchError}
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          fontWeight: "600",
+                          marginBottom: 12,
+                          color: "#333",
+                        }}
+                      >
+                        Select a Batch
                       </Text>
+
+                      {isFetchingBatches ? (
+                        <View style={{ padding: 1, alignItems: "center" }}>
+                          <ActivityIndicator size="large" color="#133E87" />
+                          <Text
+                            style={{
+                              marginTop: 8,
+                              color: "#666",
+                              fontSize: 12,
+                            }}
+                          >
+                            Loading batches...
+                          </Text>
+                        </View>
+                      ) : batchFetchError ? (
+                        <View
+                          style={{
+                            padding: 16,
+                            backgroundColor: "#ffebee",
+                            borderRadius: 8,
+                          }}
+                        >
+                          <Text style={{ color: "#c62828", fontSize: 12 }}>
+                            {batchFetchError}
+                          </Text>
+                        </View>
+                      ) : (
+                        <>
+                          <TouchableOpacity
+                            style={{
+                              borderWidth: 1,
+                              borderColor: "#ddd",
+                              borderRadius: 8,
+                              paddingHorizontal: 12,
+                              paddingVertical: 12,
+                              flexDirection: "row",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                            }}
+                            onPress={() =>
+                              setShowFeedBatchDropdown(!showFeedBatchDropdown)
+                            }
+                          >
+                            <Text
+                              style={{
+                                color: selectedFeedBatch ? "#333" : "#999",
+                                fontSize: 14,
+                              }}
+                            >
+                              {selectedFeedBatch || "Select a batch"}
+                            </Text>
+                            <Text style={{ color: "#666" }}>▼</Text>
+                          </TouchableOpacity>
+
+                          {showFeedBatchDropdown && (
+                            <>
+                              <TouchableOpacity
+                                activeOpacity={1}
+                                style={{
+                                  position: "absolute",
+                                  top: 0,
+                                  left: 0,
+                                  right: 0,
+                                  bottom: -5000,
+                                  zIndex: 1,
+                                }}
+                                onPress={() => setShowFeedBatchDropdown(false)}
+                              />
+                              <ScrollView
+                                style={{
+                                  borderWidth: 1,
+                                  borderColor: "#ddd",
+                                  borderTopWidth: 0,
+                                  borderBottomLeftRadius: 8,
+                                  borderBottomRightRadius: 8,
+                                  maxHeight: 300,
+                                  marginTop: -1,
+                                  zIndex: 2,
+                                  backgroundColor: "#fff",
+                                }}
+                                nestedScrollEnabled={true}
+                              >
+                                {availableBatches.length === 0 ? (
+                                  <Text
+                                    style={{
+                                      padding: 12,
+                                      color: "#999",
+                                      fontSize: 12,
+                                      textAlign: "center",
+                                    }}
+                                  >
+                                    No batches available
+                                  </Text>
+                                ) : (
+                                  availableBatches.map((batch) => (
+                                    <TouchableOpacity
+                                      key={batch.id}
+                                      style={{
+                                        padding: 12,
+                                        borderBottomWidth: 1,
+                                        borderBottomColor: "#eee",
+                                        backgroundColor:
+                                          selectedFeedBatch === batch.id
+                                            ? "#e3f2fd"
+                                            : "#fff",
+                                        zIndex: 3,
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        minHeight: 44,
+                                        width: "100%",
+                                      }}
+                                      onPress={() =>
+                                        handleFeedBatchSelect(batch.id)
+                                      }
+                                    >
+                                      <Text
+                                        style={{ color: "#333", fontSize: 14 }}
+                                      >
+                                        {batch.id}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  ))
+                                )}
+                              </ScrollView>
+                            </>
+                          )}
+                        </>
+                      )}
                     </View>
-                  ) : (
+                  )}
+
+                  {/* Water Batch Selection */}
+                  {currentFilterTarget === "water" && (
                     <>
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          fontWeight: "600",
+                          marginBottom: 8,
+                        }}
+                      >
+                        Select a Batch
+                      </Text>
                       <TouchableOpacity
                         style={{
                           borderWidth: 1,
@@ -7722,345 +9576,392 @@ export default function AdminAnalytics({ navigation }) {
                           alignItems: "center",
                         }}
                         onPress={() =>
-                          setShowFeedBatchDropdown(!showFeedBatchDropdown)
+                          setShowWaterBatchDropdown(!showWaterBatchDropdown)
                         }
                       >
                         <Text
                           style={{
-                            color: selectedFeedBatch ? "#333" : "#999",
+                            color: selectedWaterBatch ? "#333" : "#999",
                             fontSize: 14,
                           }}
                         >
-                          {selectedFeedBatch || "Select a batch"}
+                          {selectedWaterBatch || "Select a batch"}
                         </Text>
                         <Text style={{ color: "#666" }}>▼</Text>
                       </TouchableOpacity>
 
-                      {showFeedBatchDropdown && (
-                        <ScrollView
-                          style={{
-                            borderWidth: 1,
-                            borderColor: "#ddd",
-                            borderTopWidth: 0,
-                            borderBottomLeftRadius: 8,
-                            borderBottomRightRadius: 8,
-                            maxHeight: 300,
-                            marginTop: -1,
-                          }}
-                          nestedScrollEnabled={true}
-                        >
-                          {availableBatches.length === 0 ? (
-                            <Text
-                              style={{
-                                padding: 16,
-                                color: "#999",
-                                fontSize: 12,
-                                textAlign: "center",
-                              }}
-                            >
-                              No batches available
-                            </Text>
-                          ) : (
-                            availableBatches.map((batch) => (
-                              <TouchableOpacity
-                                key={batch.id}
+                      {showWaterBatchDropdown && (
+                        <>
+                          <TouchableOpacity
+                            activeOpacity={1}
+                            style={{
+                              position: "absolute",
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              bottom: -5000,
+                              zIndex: 1,
+                            }}
+                            onPress={() => setShowWaterBatchDropdown(false)}
+                          />
+                          <ScrollView
+                            style={{
+                              borderWidth: 1,
+                              borderColor: "#ddd",
+                              borderTopWidth: 0,
+                              borderBottomLeftRadius: 8,
+                              borderBottomRightRadius: 8,
+                              maxHeight: 300,
+                              marginTop: -1,
+                              zIndex: 2,
+                              backgroundColor: "#fff",
+                            }}
+                            nestedScrollEnabled={true}
+                          >
+                            {availableWaterBatches.length === 0 ? (
+                              <Text
                                 style={{
-                                  padding: 12,
-                                  borderBottomWidth: 1,
-                                  borderBottomColor: "#eee",
-                                  backgroundColor:
-                                    selectedFeedBatch === batch.id
-                                      ? "#e3f2fd"
-                                      : "#fff",
+                                  padding: 16,
+                                  color: "#999",
+                                  fontSize: 12,
+                                  textAlign: "center",
                                 }}
-                                onPress={() => handleFeedBatchSelect(batch.id)}
                               >
-                                <Text style={{ color: "#333", fontSize: 14 }}>
-                                  {batch.id}
-                                </Text>
-                                <Text style={{ color: "#999", fontSize: 12 }}>
-                                  Chicks: {batch.chicksCount} | Age:{" "}
-                                  {batch.daysCount} days
-                                </Text>
-                              </TouchableOpacity>
-                            ))
-                          )}
-                        </ScrollView>
+                                {isFetchingWaterBatches
+                                  ? "Loading water batches..."
+                                  : "No water batches available"}
+                              </Text>
+                            ) : (
+                              availableWaterBatches.map((batch) => (
+                                <TouchableOpacity
+                                  key={batch.id}
+                                  style={{
+                                    padding: 12,
+                                    borderBottomWidth: 1,
+                                    borderBottomColor: "#eee",
+                                    backgroundColor:
+                                      selectedWaterBatch === batch.id
+                                        ? "#e3f2fd"
+                                        : "#fff",
+                                    zIndex: 3,
+                                    alignItems: "center",
+                                    justifyContent: "flex-end",
+                                  }}
+                                  onPress={() =>
+                                    handleWaterBatchSelect(batch.id)
+                                  }
+                                >
+                                  <Text
+                                    style={{
+                                      color:
+                                        selectedWaterBatch === batch.id
+                                          ? "#133E87"
+                                          : "#333",
+                                      fontSize: 14,
+                                    }}
+                                  >
+                                    {batch.name}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))
+                            )}
+                          </ScrollView>
+                        </>
                       )}
                     </>
                   )}
+
+                  {/* Date Range Display - Only for non-feed/non-water filters */}
+                  {currentFilterTarget !== "feed" &&
+                    currentFilterTarget !== "water" && (
+                      <>
+                        <View style={styles.dateRangeHeader}>
+                          <View style={styles.dateRangeItem}>
+                            <Text style={styles.dateRangeLabel}>From</Text>
+                            <Text style={styles.dateRangeValue}>
+                              {startDate
+                                ? new Date(startDate).toLocaleDateString(
+                                    "en-US",
+                                    {
+                                      weekday: "short",
+                                      day: "2-digit",
+                                      month: "short",
+                                    },
+                                  )
+                                : "Select date"}
+                            </Text>
+                          </View>
+                          <View style={styles.dateRangeItem}>
+                            <Text style={styles.dateRangeLabel}>To</Text>
+                            <Text style={styles.dateRangeValue}>
+                              {endDate
+                                ? new Date(endDate).toLocaleDateString(
+                                    "en-US",
+                                    {
+                                      weekday: "short",
+                                      day: "2-digit",
+                                      month: "short",
+                                    },
+                                  )
+                                : "Select date"}
+                            </Text>
+                          </View>
+                        </View>
+
+                        {/* Date Picker */}
+                        <View style={styles.datePickerContainer}>
+                          <Calendar
+                            onDayPress={(day) => {
+                              const selectedDateStr = day.dateString;
+
+                              // Parse date string in local time (not UTC)
+                              const [year, month, day_num] = selectedDateStr
+                                .split("-")
+                                .map(Number);
+                              const selectedDate = new Date(
+                                year,
+                                month - 1,
+                                day_num,
+                              );
+
+                              const today = new Date();
+                              today.setHours(0, 0, 0, 0);
+
+                              // Validate: Do not allow future dates
+                              if (selectedDate > today) {
+                                Alert.alert(
+                                  "Invalid Date",
+                                  "Future dates are not allowed. Please select today or an earlier date.",
+                                  [{ text: "OK" }],
+                                );
+                                return;
+                              }
+
+                              if (!startDate || (startDate && endDate)) {
+                                // Start new selection
+                                setStartDate(selectedDateStr);
+                                setEndDate(null);
+                              } else if (startDate && !endDate) {
+                                // Calculate the difference in days
+                                const start = new Date(selectedDateStr);
+                                const selected = new Date(startDate);
+                                const diffTime = Math.abs(selected - start);
+                                const diffDays = Math.ceil(
+                                  diffTime / (1000 * 60 * 60 * 24),
+                                );
+
+                                // Different date range limits based on chart type
+                                // Mortality Trend & Predator Attacks: up to 7 days
+                                // Others (Cause of Death, Mortality Per Batch): up to 30 days
+                                const maxDays =
+                                  currentFilterTarget === "mortality" ||
+                                  currentFilterTarget === "predator"
+                                    ? 7
+                                    : 365;
+
+                                if (diffDays > maxDays - 1) {
+                                  Alert.alert(
+                                    "Invalid Range",
+                                    `Please select a date range within ${maxDays} days.`,
+                                    [{ text: "OK" }],
+                                  );
+                                  return;
+                                }
+
+                                // Set end date
+                                if (
+                                  new Date(selectedDateStr) <
+                                  new Date(startDate)
+                                ) {
+                                  // If selected date is before start, swap them
+                                  setEndDate(startDate);
+                                  setStartDate(selectedDateStr);
+                                } else {
+                                  setEndDate(selectedDateStr);
+                                }
+                              }
+                            }}
+                            markingType={"period"}
+                            maxDate={(() => {
+                              const today = new Date();
+                              const year = today.getFullYear();
+                              const month = String(
+                                today.getMonth() + 1,
+                              ).padStart(2, "0");
+                              const day = String(today.getDate()).padStart(
+                                2,
+                                "0",
+                              );
+                              return `${year}-${month}-${day}`;
+                            })()}
+                            markedDates={(() => {
+                              if (!startDate) return {};
+
+                              if (startDate && !endDate) {
+                                return {
+                                  [startDate]: {
+                                    startingDay: true,
+                                    color: "#3B82F6",
+                                    textColor: "white",
+                                  },
+                                };
+                              }
+
+                              if (startDate && endDate) {
+                                const marks = {};
+                                const start = new Date(startDate);
+                                const end = new Date(endDate);
+
+                                // Mark all dates in the range
+                                for (
+                                  let d = new Date(start);
+                                  d <= end;
+                                  d.setDate(d.getDate() + 1)
+                                ) {
+                                  const dateStr = d.toISOString().split("T")[0];
+
+                                  if (dateStr === startDate) {
+                                    marks[dateStr] = {
+                                      startingDay: true,
+                                      color: "#BFDBFE",
+                                      textColor: "#000",
+                                    };
+                                  } else if (dateStr === endDate) {
+                                    marks[dateStr] = {
+                                      endingDay: true,
+                                      color: "#BFDBFE",
+                                      textColor: "#000",
+                                    };
+                                  } else {
+                                    marks[dateStr] = {
+                                      color: "#BFDBFE",
+                                      textColor: "#000",
+                                    };
+                                  }
+                                }
+
+                                // Override start and end with circular highlights
+                                marks[startDate] = {
+                                  ...marks[startDate],
+                                  startingDay: true,
+                                  color: "#BFDBFE",
+                                  textColor: "white",
+                                  marked: true,
+                                  dotColor: "white",
+                                  customStyles: {
+                                    container: {
+                                      backgroundColor: "#3B82F6",
+                                      borderRadius: 100,
+                                    },
+                                    text: {
+                                      color: "white",
+                                      fontWeight: "bold",
+                                    },
+                                  },
+                                };
+
+                                marks[endDate] = {
+                                  ...marks[endDate],
+                                  endingDay: true,
+                                  color: "#BFDBFE",
+                                  textColor: "white",
+                                  marked: true,
+                                  dotColor: "white",
+                                  customStyles: {
+                                    container: {
+                                      backgroundColor: "#3B82F6",
+                                      borderRadius: 100,
+                                    },
+                                    text: {
+                                      color: "white",
+                                      fontWeight: "bold",
+                                    },
+                                  },
+                                };
+
+                                return marks;
+                              }
+
+                              return {};
+                            })()}
+                            theme={{
+                              calendarBackground: "#ffffff",
+                              textSectionTitleColor: "#3B82F6",
+                              selectedDayBackgroundColor: "#3B82F6",
+                              selectedDayTextColor: "#ffffff",
+                              todayTextColor: "#3B82F6",
+                              dayTextColor: "#2d4150",
+                              textDisabledColor: "#d9e1e8",
+                              monthTextColor: "#2d4150",
+                              indicatorColor: "#3B82F6",
+                              textDayFontWeight: "400",
+                              textMonthFontWeight: "600",
+                              textDayHeaderFontWeight: "500",
+                              textDayFontSize: 14,
+                              textMonthFontSize: 18,
+                              textDayHeaderFontSize: 12,
+                              "stylesheet.calendar.header": {
+                                week: {
+                                  marginTop: 5,
+                                  flexDirection: "row",
+                                  justifyContent: "space-between",
+                                },
+                              },
+                            }}
+                            style={styles.calendar}
+                          />
+                        </View>
+
+                        {/* Apply and Cancel Buttons */}
+                        <View style={styles.modalButtonsRow}>
+                          <TouchableOpacity
+                            style={[
+                              styles.modalActionButton,
+                              styles.modalCancelButton,
+                            ]}
+                            onPress={() => {
+                              setStartDate(null);
+                              setEndDate(null);
+                              setFilterModalVisible(false);
+                            }}
+                          >
+                            <Text style={styles.modalCancelButtonText}>
+                              Cancel
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.modalActionButton,
+                              styles.modalApplyButton,
+                            ]}
+                            onPress={() => {
+                              if (currentFilterTarget && startDate && endDate) {
+                                // Save filter settings for this chart
+                                setChartFilters((prev) => ({
+                                  ...prev,
+                                  [currentFilterTarget]: { startDate, endDate },
+                                }));
+
+                                // Existing logic for Predator Chart time range state
+                                if (currentFilterTarget === "predator") {
+                                  setPredatorTimeRange("daily");
+                                }
+                              }
+                              setFilterModalVisible(false);
+                            }}
+                          >
+                            <Text style={styles.modalApplyButtonText}>
+                              Apply
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </>
+                    )}
                 </View>
-              )}
-
-              {/* Date Range Display - Only for non-feed filters */}
-              {currentFilterTarget !== "feed" && (
-                <>
-                  <View style={styles.dateRangeHeader}>
-                    <View style={styles.dateRangeItem}>
-                      <Text style={styles.dateRangeLabel}>From</Text>
-                      <Text style={styles.dateRangeValue}>
-                        {startDate
-                          ? new Date(startDate).toLocaleDateString("en-US", {
-                              weekday: "short",
-                              day: "2-digit",
-                              month: "short",
-                            })
-                          : "Select date"}
-                      </Text>
-                    </View>
-                    <View style={styles.dateRangeItem}>
-                      <Text style={styles.dateRangeLabel}>To</Text>
-                      <Text style={styles.dateRangeValue}>
-                        {endDate
-                          ? new Date(endDate).toLocaleDateString("en-US", {
-                              weekday: "short",
-                              day: "2-digit",
-                              month: "short",
-                            })
-                          : "Select date"}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Date Picker */}
-                  <View style={styles.datePickerContainer}>
-                    <Calendar
-                      onDayPress={(day) => {
-                        const selectedDateStr = day.dateString;
-
-                        // Parse date string in local time (not UTC)
-                        const [year, month, day_num] = selectedDateStr
-                          .split("-")
-                          .map(Number);
-                        const selectedDate = new Date(year, month - 1, day_num);
-
-                        const today = new Date();
-                        today.setHours(0, 0, 0, 0);
-
-                        // Validate: Do not allow future dates
-                        if (selectedDate > today) {
-                          Alert.alert(
-                            "Invalid Date",
-                            "Future dates are not allowed. Please select today or an earlier date.",
-                            [{ text: "OK" }],
-                          );
-                          return;
-                        }
-
-                        if (!startDate || (startDate && endDate)) {
-                          // Start new selection
-                          setStartDate(selectedDateStr);
-                          setEndDate(null);
-                        } else if (startDate && !endDate) {
-                          // Calculate the difference in days
-                          const start = new Date(selectedDateStr);
-                          const selected = new Date(startDate);
-                          const diffTime = Math.abs(selected - start);
-                          const diffDays = Math.ceil(
-                            diffTime / (1000 * 60 * 60 * 24),
-                          );
-
-                          // Different date range limits based on chart type
-                          // Mortality Trend & Predator Attacks: up to 7 days
-                          // Others (Cause of Death, Mortality Per Batch): up to 30 days
-                          const maxDays =
-                            currentFilterTarget === "mortality" ||
-                            currentFilterTarget === "predator"
-                              ? 7
-                              : 365;
-
-                          if (diffDays > maxDays - 1) {
-                            Alert.alert(
-                              "Invalid Range",
-                              `Please select a date range within ${maxDays} days.`,
-                              [{ text: "OK" }],
-                            );
-                            return;
-                          }
-
-                          // Set end date
-                          if (new Date(selectedDateStr) < new Date(startDate)) {
-                            // If selected date is before start, swap them
-                            setEndDate(startDate);
-                            setStartDate(selectedDateStr);
-                          } else {
-                            setEndDate(selectedDateStr);
-                          }
-                        }
-                      }}
-                      markingType={"period"}
-                      maxDate={(() => {
-                        const today = new Date();
-                        const year = today.getFullYear();
-                        const month = String(today.getMonth() + 1).padStart(
-                          2,
-                          "0",
-                        );
-                        const day = String(today.getDate()).padStart(2, "0");
-                        return `${year}-${month}-${day}`;
-                      })()}
-                      markedDates={(() => {
-                        if (!startDate) return {};
-
-                        if (startDate && !endDate) {
-                          return {
-                            [startDate]: {
-                              startingDay: true,
-                              color: "#3B82F6",
-                              textColor: "white",
-                            },
-                          };
-                        }
-
-                        if (startDate && endDate) {
-                          const marks = {};
-                          const start = new Date(startDate);
-                          const end = new Date(endDate);
-
-                          // Mark all dates in the range
-                          for (
-                            let d = new Date(start);
-                            d <= end;
-                            d.setDate(d.getDate() + 1)
-                          ) {
-                            const dateStr = d.toISOString().split("T")[0];
-
-                            if (dateStr === startDate) {
-                              marks[dateStr] = {
-                                startingDay: true,
-                                color: "#BFDBFE",
-                                textColor: "#000",
-                              };
-                            } else if (dateStr === endDate) {
-                              marks[dateStr] = {
-                                endingDay: true,
-                                color: "#BFDBFE",
-                                textColor: "#000",
-                              };
-                            } else {
-                              marks[dateStr] = {
-                                color: "#BFDBFE",
-                                textColor: "#000",
-                              };
-                            }
-                          }
-
-                          // Override start and end with circular highlights
-                          marks[startDate] = {
-                            ...marks[startDate],
-                            startingDay: true,
-                            color: "#BFDBFE",
-                            textColor: "white",
-                            marked: true,
-                            dotColor: "white",
-                            customStyles: {
-                              container: {
-                                backgroundColor: "#3B82F6",
-                                borderRadius: 100,
-                              },
-                              text: {
-                                color: "white",
-                                fontWeight: "bold",
-                              },
-                            },
-                          };
-
-                          marks[endDate] = {
-                            ...marks[endDate],
-                            endingDay: true,
-                            color: "#BFDBFE",
-                            textColor: "white",
-                            marked: true,
-                            dotColor: "white",
-                            customStyles: {
-                              container: {
-                                backgroundColor: "#3B82F6",
-                                borderRadius: 100,
-                              },
-                              text: {
-                                color: "white",
-                                fontWeight: "bold",
-                              },
-                            },
-                          };
-
-                          return marks;
-                        }
-
-                        return {};
-                      })()}
-                      theme={{
-                        calendarBackground: "#ffffff",
-                        textSectionTitleColor: "#3B82F6",
-                        selectedDayBackgroundColor: "#3B82F6",
-                        selectedDayTextColor: "#ffffff",
-                        todayTextColor: "#3B82F6",
-                        dayTextColor: "#2d4150",
-                        textDisabledColor: "#d9e1e8",
-                        monthTextColor: "#2d4150",
-                        indicatorColor: "#3B82F6",
-                        textDayFontWeight: "400",
-                        textMonthFontWeight: "600",
-                        textDayHeaderFontWeight: "500",
-                        textDayFontSize: 14,
-                        textMonthFontSize: 18,
-                        textDayHeaderFontSize: 12,
-                        "stylesheet.calendar.header": {
-                          week: {
-                            marginTop: 5,
-                            flexDirection: "row",
-                            justifyContent: "space-between",
-                          },
-                        },
-                      }}
-                      style={styles.calendar}
-                    />
-                  </View>
-
-                  {/* Apply and Cancel Buttons */}
-                  <View style={styles.modalButtonsRow}>
-                    <TouchableOpacity
-                      style={[
-                        styles.modalActionButton,
-                        styles.modalCancelButton,
-                      ]}
-                      onPress={() => {
-                        setStartDate(null);
-                        setEndDate(null);
-                        setFilterModalVisible(false);
-                      }}
-                    >
-                      <Text style={styles.modalCancelButtonText}>Cancel</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.modalActionButton,
-                        styles.modalApplyButton,
-                      ]}
-                      onPress={() => {
-                        if (currentFilterTarget && startDate && endDate) {
-                          // Save filter settings for this chart
-                          setChartFilters((prev) => ({
-                            ...prev,
-                            [currentFilterTarget]: { startDate, endDate },
-                          }));
-
-                          // Existing logic for Predator Chart time range state
-                          if (currentFilterTarget === "predator") {
-                            setPredatorTimeRange("daily");
-                          }
-                        }
-                        setFilterModalVisible(false);
-                      }}
-                    >
-                      <Text style={styles.modalApplyButtonText}>Apply</Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              )}
+              </TouchableOpacity>
             </View>
-          </View>
+          </TouchableOpacity>
         </Modal>
 
         {/* Export Mortality Modal */}
@@ -10721,21 +12622,13 @@ function AttacksBatchTooltip({
 }
 
 /* -------------------- FeedBatchChart -------------------- */
-function FeedBatchChart({ height = 220 }) {
+function FeedBatchChart({ height = 220, data = [] }) {
   const [layoutWidth, setLayoutWidth] = useState(0);
   const [activeBar, setActiveBar] = useState(null);
   const [tooltipWidth, setTooltipWidth] = useState(0);
 
-  // Sample data - Batch IDs and feeder activations per batch
-  const batchData = [
-    { batchId: "B001", activations: 62 },
-    { batchId: "B002", activations: 55 },
-    { batchId: "B003", activations: 71 },
-    { batchId: "B004", activations: 68 },
-    { batchId: "B005", activations: 59 },
-    { batchId: "B006", activations: 64 },
-    { batchId: "B007", activations: 67 },
-  ];
+  // Use only fetched data for the chart
+  const batchData = data && data.length > 0 ? data : [];
 
   const yAxisWidth = 34;
   const outerPadding = 12;
@@ -11010,27 +12903,19 @@ function FeedBatchTooltip({
 }
 
 /* -------------------- WaterBatchChart -------------------- */
-function WaterBatchChart({ height = 220 }) {
+function WaterBatchChart({ height = 220, data = [] }) {
   const [layoutWidth, setLayoutWidth] = useState(0);
   const [activeBar, setActiveBar] = useState(null);
   const [tooltipWidth, setTooltipWidth] = useState(0);
 
-  // Sample data
-  const batchData = [
-    { batchId: "B001", consumption: 125 },
-    { batchId: "B002", consumption: 98 },
-    { batchId: "B003", consumption: 145 },
-    { batchId: "B004", consumption: 130 },
-    { batchId: "B005", consumption: 112 },
-    { batchId: "B006", consumption: 156 },
-    { batchId: "B007", consumption: 138 },
-  ];
+  // Use only fetched data for the chart
+  const batchData = data && data.length > 0 ? data : [];
 
   const yAxisWidth = 34;
   const outerPadding = 12;
   const barColor = "#133E87";
 
-  const rawMax = Math.max(...batchData.map((d) => d.consumption), 1);
+  const rawMax = Math.max(...batchData.map((d) => d.activations), 1);
   const magnitude = Math.pow(10, Math.floor(Math.log10(rawMax)));
   let niceMax = Math.ceil(rawMax / magnitude) * magnitude;
   if (niceMax / 2 >= rawMax) niceMax = niceMax / 2;
@@ -11136,7 +13021,7 @@ function WaterBatchChart({ height = 220 }) {
                   );
 
                   return batchData.map((d, i) => {
-                    const barHeight = (d.consumption / finalMax) * height;
+                    const barHeight = (d.activations / finalMax) * height;
                     const isActive = activeBar && activeBar.index === i;
                     return (
                       <View
@@ -11150,7 +13035,7 @@ function WaterBatchChart({ height = 220 }) {
                       >
                         <TouchableOpacity
                           activeOpacity={0.8}
-                          onPress={() => onBarPress(i, d.consumption)}
+                          onPress={() => onBarPress(i, d.activations)}
                           style={{
                             width: barWidth,
                             height: barHeight,

@@ -1276,7 +1276,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
 
-  horizontalScroll: { maxHeight: 600 },
+  horizontalScroll: { flexShrink: 1 },
 
   table: {
     borderLeftWidth: 1,
