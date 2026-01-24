@@ -365,11 +365,11 @@ export default function ControlScreen({ navigation }) {
         }, 5000);
       } catch (error) {
         console.error("Sensor initialization error:", error);
-        setSensorError("Failed to initialize sensors. Using simulated data.");
+        setSensorError("Failed to initialize sensors.");
         setIsSimulated(true);
         // Set default values on error
-        setWaterNow(85);
-        setFeederNow(62);
+        setWaterNow(0);
+        setFeederNow(0);
       } finally {
         setSensorLoading(false);
       }
@@ -401,7 +401,7 @@ export default function ControlScreen({ navigation }) {
         }
       } catch (error) {
         console.warn(
-          "[Solar] Failed to fetch from ESP32, using simulated data:",
+          "[Solar] Failed to fetch from ESP32.",
           error.message,
         );
         setSolarPowerLevel(30); // Fallback to simulated
@@ -2109,7 +2109,7 @@ export default function ControlScreen({ navigation }) {
           <View style={styles.sensorBanner}>
             <Ionicons name="warning-outline" size={16} color="#856404" />
             <Text style={styles.sensorBannerText}>
-              Sensor module not detected. Using simulated data.
+              Sensor module not detected.
             </Text>
           </View>
         )}
@@ -2506,7 +2506,7 @@ export default function ControlScreen({ navigation }) {
               <Text
                 style={{ fontSize: 12, color: "#856404", fontWeight: "600" }}
               >
-                ⚠️ Using simulated data - ESP32 offline
+                ⚠️ ESP32 offline
               </Text>
             </View>
           )}
