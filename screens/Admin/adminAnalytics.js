@@ -219,13 +219,255 @@ const fetchWaterBatches = async () => {
     });
 
     const batches = Array.from(batchMap.values());
-    console.log("[fetchWaterBatches] Found water batches:", batches.length);
+
     return batches;
   } catch (error) {
     console.error("[fetchWaterBatches] Error fetching water batches:", error);
     throw error;
   }
 };
+
+// Helper function to format date/time for PDF reports: DD-Mmm-YYYY, HH:MM AM/PM
+const formatReportDateTime = (date = new Date()) => {
+  // Example: 25-Jan-2026, 10:30 AM
+  const day = String(date.getDate()).padStart(2, "0");
+  const monthNames = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  const month = monthNames[date.getMonth()];
+  const year = date.getFullYear();
+  let hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  return `${day}-${month}-${year}, ${hours}:${minutes} ${ampm}`;
+};
+
+// Standalone function for chart x-axis label intervals
+function generateDateLabels(startDate, endDate) {
+  const dateLabels = [];
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const diffTime = Math.abs(end - start);
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+  if (diffDays <= 7) {
+    // Show every date
+    for (let i = 0; i < diffDays; i++) {
+      const current = new Date(start);
+      current.setDate(start.getDate() + i);
+      dateLabels.push(`${current.getMonth() + 1}/${current.getDate()}`);
+    }
+  } else {
+    // Show exactly 6 evenly spaced labels (including start and end)
+    const numLabels = 6;
+    for (let i = 0; i < numLabels; i++) {
+      const dayIndex = Math.round((i * (diffDays - 1)) / (numLabels - 1));
+      const current = new Date(start);
+      current.setDate(start.getDate() + dayIndex);
+      dateLabels.push(`${current.getMonth() + 1}/${current.getDate()}`);
+    }
+  }
+  return dateLabels;
+}
+
+// Helper function to generate x-axis label positions based on data length
+function generateXAxisLabels(dataLength) {
+  if (dataLength <= 8) {
+    // Show all positions for 8 days or below
+    return Array.from({ length: dataLength }, (_, i) => i);
+  } else if (dataLength <= 14) {
+    // For 9–14 data points: show [0, mid1, mid2, end] - max 4 labels
+    const step = Math.ceil(dataLength / 4);
+    const positions = [0];
+    for (let i = step; i < dataLength - 1; i += step) {
+      positions.push(i);
+    }
+    positions.push(dataLength - 1);
+    return positions;
+  } else if (dataLength <= 19) {
+    // For 15–19 data points: show exactly 5 labels evenly spaced
+    const positions = [];
+    const targetLabels = 5;
+    const step = (dataLength - 1) / (targetLabels - 1);
+    for (let i = 0; i < targetLabels; i++) {
+      const position = Math.round(i * step);
+      if (!positions.includes(position)) {
+        positions.push(position);
+      }
+    }
+    return positions.sort((a, b) => a - b);
+  } else {
+    // For 20+ days: show exactly 4 labels evenly spaced with last label right-aligned
+    const positions = [];
+    const targetLabels = 4;
+    const step = (dataLength - 1) / (targetLabels - 1);
+    for (let i = 0; i < targetLabels; i++) {
+      let position;
+      if (i === targetLabels - 1) {
+        // Ensure last label is aligned to the right (at the end)
+        position = dataLength - 1;
+      } else {
+        position = Math.round(i * step);
+      }
+      if (!positions.includes(position)) {
+        positions.push(position);
+      }
+    }
+    return positions.sort((a, b) => a - b);
+  }
+}
+
+// Helper function to format date for date ranges: DD-Mmm-YYYY (without time)
+const formatDateRange = (dateInput) => {
+  if (!dateInput) return "";
+
+  const monthNames = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+
+  let date;
+
+  // Handle string input (YYYY-MM-DD format)
+  if (typeof dateInput === "string") {
+    date = new Date(dateInput);
+  } else {
+    date = new Date(dateInput);
+  }
+
+  if (isNaN(date.getTime())) {
+    return "";
+  }
+
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = monthNames[date.getMonth()];
+  const year = date.getFullYear();
+
+  return `${day}-${month}-${year}`;
+};
+
+// Fetch and aggregate solar usage data from Firestore with ~7 evenly spaced x-axis labels
+async function fetchSolarUsageData(startDate, endDate) {
+  try {
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0); // Set to beginning of start date
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999); // Set to end of end date
+
+    // Query solarUsage collection
+    const solarRef = collection(firestoreDb, "solarUsage");
+    const q = query(
+      solarRef,
+      where("timestamp", ">=", start),
+      where("timestamp", "<=", end),
+    );
+    const snapshot = await getDocs(q);
+
+    console.log(
+      "[fetchSolarUsageData] Found",
+      snapshot.docs.length,
+      "documents",
+    );
+
+    // Aggregate usage by date (sum for same dates)
+    const dateMap = {};
+    snapshot.docs.forEach((doc) => {
+      const data = doc.data();
+      const timestamp = data.timestamp?.toDate
+        ? data.timestamp.toDate()
+        : new Date(data.timestamp);
+      const dateKey = `${timestamp.getMonth() + 1}/${timestamp.getDate()}/${timestamp.getFullYear()}`;
+      const usage = parseFloat(data.usage) || 0;
+      dateMap[dateKey] = (dateMap[dateKey] || 0) + usage;
+    });
+
+    console.log("[fetchSolarUsageData] Aggregated data:", dateMap);
+
+    // Convert to arrays sorted by date
+    const sortedDates = Object.keys(dateMap).sort((a, b) => {
+      const [aM, aD, aY] = a.split("/").map(Number);
+      const [bM, bD, bY] = b.split("/").map(Number);
+      return new Date(aY, aM - 1, aD) - new Date(bY, bM - 1, bD);
+    });
+
+    // Calculate equal positions for ~7 evenly spaced labels across the x-axis
+    const totalDays = sortedDates.length;
+    const targetLabels = Math.min(7, totalDays); // Don't exceed number of data points
+
+    // Use helper function to get label positions based on data length
+    const labelIndices = generateXAxisLabels(totalDays);
+
+    console.log(
+      `[fetchSolarUsageData] Total days: ${totalDays}, Label positions:`,
+      labelIndices,
+    );
+
+    // Generate labels only at calculated positions (equal spacing on x-axis)
+    const labels = [];
+    const data = [];
+    sortedDates.forEach((dateStr, index) => {
+      const [month, day] = dateStr.split("/");
+      const monthNames = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+      const formattedLabel = `${monthNames[parseInt(month) - 1]} ${String(parseInt(day)).padStart(2, "0")}`;
+
+      // Show label at calculated equal positions
+      if (labelIndices.includes(index)) {
+        labels.push(formattedLabel);
+      } else {
+        // Empty string for non-label positions (chart lib will skip rendering these labels)
+        labels.push("");
+      }
+      data.push(dateMap[dateStr]);
+    });
+
+    console.log(
+      "[fetchSolarUsageData] Final labels:",
+      labels.filter((l) => l !== ""),
+      "Data points:",
+      data.length,
+    );
+
+    return { labels, data };
+  } catch (error) {
+    console.error("[fetchSolarUsageData] Error:", error);
+    return { labels: [], data: [] };
+  }
+}
 
 export default function AdminAnalytics({ navigation }) {
   const [LineChartComp, setLineChartComp] = useState(null);
@@ -253,7 +495,32 @@ export default function AdminAnalytics({ navigation }) {
   const [currentFilterTarget, setCurrentFilterTarget] = useState(null);
 
   // Filters for each chart
-  const [chartFilters, setChartFilters] = useState({});
+  // Initialize with 7-day default range for solar and cause charts
+  const initializeSolarFilter = () => {
+    const today = new Date();
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+
+    // Format dates as YYYY-MM-DD strings for cause filter
+    const formatDateString = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
+    return {
+      solar: {
+        startDate: sevenDaysAgo,
+        endDate: today,
+      },
+      cause: {
+        startDate: formatDateString(sevenDaysAgo),
+        endDate: formatDateString(today),
+      },
+    };
+  };
+  const [chartFilters, setChartFilters] = useState(initializeSolarFilter());
 
   // Export mortality modal state
   const [exportMortalityModalVisible, setExportMortalityModalVisible] =
@@ -271,10 +538,7 @@ export default function AdminAnalytics({ navigation }) {
   const [causeExportSelectedDate, setCauseExportSelectedDate] = useState("");
   const [isGeneratingCauseReport, setIsGeneratingCauseReport] = useState(false);
 
-  // Export mortality per batch modal state
-  const [exportBatchModalVisible, setExportBatchModalVisible] = useState(false);
-  const [batchExportStartDate, setBatchExportStartDate] = useState(null);
-  const [batchExportEndDate, setBatchExportEndDate] = useState(null);
+  // Export mortality per batch modal state (removed - using filter dates instead)
   const [isGeneratingBatchReport, setIsGeneratingBatchReport] = useState(false);
 
   // Export attacks per batch modal state
@@ -467,7 +731,19 @@ export default function AdminAnalytics({ navigation }) {
       return [`${month} ${day}`];
     }
 
-    // Generate labels for each day in the range (inclusive)
+    // Dynamically determine interval based on number of days
+    let interval = 1; // Show all days by default (7 days or less)
+    if (diffDays > 7 && diffDays <= 14) {
+      interval = 2; // Show every 2nd day (8-14 days)
+    } else if (diffDays > 14 && diffDays <= 30) {
+      interval = 3; // Show every 3rd day (15-30 days)
+    } else if (diffDays > 30 && diffDays <= 45) {
+      interval = Math.ceil(diffDays / 6); // Show ~6 labels (every 7-8 days for 45 days)
+    } else if (diffDays > 45) {
+      interval = Math.ceil(diffDays / 5); // Show ~5 labels for larger ranges (60+ days)
+    }
+
+    // Generate labels with smart intervals
     const labels = [];
 
     for (let i = 0; i <= diffDays; i++) {
@@ -477,7 +753,12 @@ export default function AdminAnalytics({ navigation }) {
       const month = currentDate.toLocaleDateString("en-US", { month: "short" });
       const day = currentDate.getDate();
 
-      labels.push(`${month} ${day}`);
+      // Show label only at intervals, plus always show the last day
+      if (i % interval === 0 || i === diffDays) {
+        labels.push(`${month} ${day}`);
+      } else {
+        labels.push(""); // Empty string for non-interval days
+      }
     }
 
     return labels;
@@ -694,11 +975,6 @@ export default function AdminAnalytics({ navigation }) {
         return;
       }
 
-      console.log(
-        "[FetchWaterConsumption] Fetching water data for batch:",
-        batchId,
-      );
-
       const waterLogsRef = collection(firestoreDb, "wateringExecutions_logs");
       const q = query(waterLogsRef, where("batchId", "==", batchId));
       const snapshot = await getDocs(q);
@@ -714,11 +990,6 @@ export default function AdminAnalytics({ navigation }) {
           recordCount++;
         }
       });
-
-      console.log(
-        `[FetchWaterConsumption] Found ${recordCount} water records for batch`,
-        batchId,
-      );
 
       // Convert ageMap to array and sort by age
       const consumptionData = Object.keys(ageMap)
@@ -818,8 +1089,6 @@ export default function AdminAnalytics({ navigation }) {
           activations: count, // Use "activations" to match FeedBatchChart expectations
         }));
 
-      console.log("[FetchFeedPerBatch] Final batch feed data:", batchArray);
-
       setFeedPerBatchData(batchArray);
       return batchArray;
     } catch (error) {
@@ -910,8 +1179,6 @@ export default function AdminAnalytics({ navigation }) {
         }
       });
 
-      console.log("[FetchWaterPerBatch] Batch counts:", batchCounts);
-
       // Convert to array format and sort by batchId
       const result = Object.entries(batchCounts)
         .map(([batchId, count]) => ({
@@ -919,8 +1186,6 @@ export default function AdminAnalytics({ navigation }) {
           activations: count,
         }))
         .sort((a, b) => a.batchId.localeCompare(b.batchId));
-
-      console.log("[FetchWaterPerBatch] Result:", result);
 
       setWaterPerBatchData(result);
       return result;
@@ -1448,12 +1713,11 @@ export default function AdminAnalytics({ navigation }) {
         endDate = new Date(endYear, endMonth - 1, endDay);
         endDate.setHours(23, 59, 59, 999); // Include entire end day
       } else {
-        // Default: last 7 days
+        // Default: No filter - show all-time attacks (from year 2000 to now)
+        startDate = new Date(2000, 0, 1);
+        startDate.setHours(0, 0, 0, 0);
         endDate = new Date();
         endDate.setHours(23, 59, 59, 999);
-        startDate = new Date(endDate);
-        startDate.setDate(startDate.getDate() - 6); // -6 to include today as day 7
-        startDate.setHours(0, 0, 0, 0);
       }
 
       console.log(
@@ -2572,21 +2836,110 @@ export default function AdminAnalytics({ navigation }) {
 
   /**
    * Generate and export mortality report as PDF
+   * Uses date range from filter if set, otherwise defaults to last 7 days
    */
   const generateMortalityReportPDF = async () => {
-    if (!exportStartDate || !exportEndDate) {
-      Alert.alert("Error", "Please select both start and end dates");
+    // Get date range from filter or use default (last 7 days)
+    let startDateStr, endDateStr;
+
+    console.log(
+      "[GenerateMortalityReportPDF] Starting mortality report generation",
+    );
+
+    // Helper function to convert date to string format (handles both Date objects and strings)
+    const convertDateToString = (date) => {
+      console.log(
+        "[GenerateMortalityReportPDF] Converting date:",
+        date,
+        "Type:",
+        typeof date,
+        "Is Date?",
+        date instanceof Date,
+      );
+
+      if (!date) {
+        console.error(
+          "[GenerateMortalityReportPDF] Date is null or undefined!",
+        );
+        return null;
+      }
+
+      // If already a string, return it
+      if (typeof date === "string") {
+        console.log(
+          "[GenerateMortalityReportPDF] Date is already a string:",
+          date,
+        );
+        return date.substring(0, 10); // Extract YYYY-MM-DD
+      }
+
+      // If it's a Date object, convert it
+      if (date instanceof Date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+      }
+
+      console.error(
+        "[GenerateMortalityReportPDF] Unexpected date type:",
+        typeof date,
+      );
+      return null;
+    };
+
+    if (
+      chartFilters["mortality"]?.startDate &&
+      chartFilters["mortality"]?.endDate
+    ) {
+      startDateStr = convertDateToString(chartFilters["mortality"].startDate);
+      endDateStr = convertDateToString(chartFilters["mortality"].endDate);
+      console.log(
+        "[GenerateMortalityReportPDF] Using filter dates:",
+        startDateStr,
+        "to",
+        endDateStr,
+      );
+    } else {
+      // Default: last 7 days
+      const today = new Date();
+      const sevenDaysAgo = new Date(today);
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+
+      startDateStr = convertDateToString(sevenDaysAgo);
+      endDateStr = convertDateToString(today);
+      console.log(
+        "[GenerateMortalityReportPDF] Using default dates (7 days):",
+        startDateStr,
+        "to",
+        endDateStr,
+      );
+    }
+
+    if (!startDateStr || !endDateStr) {
+      console.error("[GenerateMortalityReportPDF] Failed to convert dates!");
+      Alert.alert("Error", "Failed to process date range");
+      setIsGeneratingReport(false);
       return;
     }
 
     setIsGeneratingReport(true);
     try {
+      console.log("[GenerateMortalityReportPDF] Fetching records...");
       const records = await fetchMortalityRecordsForExport(
-        exportStartDate,
-        exportEndDate,
+        startDateStr,
+        endDateStr,
+      );
+      console.log(
+        "[GenerateMortalityReportPDF] Fetched",
+        records.length,
+        "records",
       );
 
       if (records.length === 0) {
+        console.warn(
+          "[GenerateMortalityReportPDF] No records found, showing alert",
+        );
         Alert.alert(
           "No Data",
           "No mortality records found for the selected date range",
@@ -2596,6 +2949,7 @@ export default function AdminAnalytics({ navigation }) {
       }
 
       // Load logo
+      console.log("[GenerateMortalityReportPDF] Loading logo asset...");
       const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
       await logoAsset.downloadAsync();
       const logoBase64 = await FileSystem.readAsStringAsync(
@@ -2604,8 +2958,10 @@ export default function AdminAnalytics({ navigation }) {
           encoding: FileSystem.EncodingType.Base64,
         },
       );
+      console.log("[GenerateMortalityReportPDF] Logo loaded successfully");
 
       // Create table rows
+      console.log("[GenerateMortalityReportPDF] Creating table rows...");
       let tableRows = "";
       let totalDeaths = 0;
       records.forEach((record, index) => {
@@ -2737,8 +3093,8 @@ export default function AdminAnalytics({ navigation }) {
             </div>
             <div class="report-title">Mortality Report</div>
             <div class="filter-info">
-              Date Range: ${new Date(exportStartDate).toLocaleDateString()} to ${new Date(exportEndDate).toLocaleDateString()}<br>
-              Report Generated: ${new Date().toLocaleString()}<br>
+              Date Range: ${formatDateRange(exportStartDate)} to ${formatDateRange(exportEndDate)}<br>
+              Report Generated: ${formatReportDateTime()}<br>
               Total Records: ${records.length}
             </div>
           </div>
@@ -2768,17 +3124,28 @@ export default function AdminAnalytics({ navigation }) {
       `;
 
       // Generate PDF
+      console.log("[GenerateMortalityReportPDF] Generating PDF from HTML...");
       const pdf = await Print.printToFileAsync({
         html: htmlContent,
         base64: false,
       });
+      console.log(
+        "[GenerateMortalityReportPDF] PDF generated successfully at:",
+        pdf.uri,
+      );
 
       // Create custom filename with date
-      const startDateObj = new Date(exportStartDate);
-      const endDateObj = new Date(exportEndDate);
+      console.log("[GenerateMortalityReportPDF] Creating custom filename...");
       const formatDate = (date) => {
-        const d = new Date(date);
-        const day = String(d.getDate()).padStart(2, "0");
+        let d;
+        if (typeof date === "string") {
+          // If it's a string like "2026-01-25"
+          const [year, month, day] = date.split("-");
+          d = new Date(year, parseInt(month, 10) - 1, parseInt(day, 10));
+        } else {
+          d = new Date(date);
+        }
+        const dayStr = String(d.getDate()).padStart(2, "0");
         const months = [
           "Jan",
           "Feb",
@@ -2793,34 +3160,41 @@ export default function AdminAnalytics({ navigation }) {
           "Nov",
           "Dec",
         ];
-        const month = months[d.getMonth()];
+        const monthStr = months[d.getMonth()];
         const year = d.getFullYear();
-        return `${day}-${month}-${year}`;
+        return `${dayStr}-${monthStr}-${year}`;
       };
 
-      const customFilename = `MortalityReport_${formatDate(exportStartDate)}_to_${formatDate(exportEndDate)}.pdf`;
+      const customFilename = `MortalityReport_${formatDate(startDateStr)}_to_${formatDate(endDateStr)}.pdf`;
       const newPath = `${FileSystem.documentDirectory}${customFilename}`;
+      console.log("[GenerateMortalityReportPDF] Copying PDF to:", newPath);
 
       // Copy the PDF to a new location with custom name
       await FileSystem.copyAsync({
         from: pdf.uri,
         to: newPath,
       });
+      console.log("[GenerateMortalityReportPDF] PDF copied successfully");
 
       // Log report generation to audit trail
+      console.log("[GenerateMortalityReportPDF] Logging report generation...");
       await logReportGeneration(
         customFilename,
         "Mortality Report",
         "Generate mortality report",
-        "Generated and exported mortality report",
+        `Generated and exported mortality report for ${formatDate(startDateStr)} to ${formatDate(endDateStr)}`,
       );
+      console.log("[GenerateMortalityReportPDF] Report logged successfully");
 
       // Share PDF with custom filename
+      console.log("[GenerateMortalityReportPDF] Sharing PDF...");
       await Sharing.shareAsync(newPath);
+      console.log("[GenerateMortalityReportPDF] PDF shared successfully");
 
-      setExportMortalityModalVisible(false);
+      Alert.alert("Success", "Mortality report exported successfully!");
     } catch (error) {
       console.error("Error generating report:", error);
+      console.error("Error stack:", error.stack);
       Alert.alert("Error", "Failed to generate report: " + error.message);
     } finally {
       setIsGeneratingReport(false);
@@ -3023,7 +3397,7 @@ export default function AdminAnalytics({ navigation }) {
             <div class="report-title">Feed Consumption Report</div>
             <div class="filter-info">
               ${selectedBatch}<br>
-              Report Generated: ${new Date().toLocaleString()}<br>
+              Report Generated: ${formatReportDateTime()}<br>
               Total Records: ${records.length}
             </div>
           </div>
@@ -3066,11 +3440,13 @@ export default function AdminAnalytics({ navigation }) {
         customFilename,
         "Feed Consumption Report",
         "Generate feed consumption report",
-        "Generated and exported feed consumption report",
+        `Generated and exported feed consumption report for batch ${selectedBatch} on ${new Date().toLocaleDateString()}`,
       );
 
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
+
+      Alert.alert("Success", "Feed Consumption report exported successfully!");
     } catch (error) {
       console.error("Error generating feed report:", error);
       Alert.alert("Error", "Failed to generate report: " + error.message);
@@ -3275,7 +3651,7 @@ export default function AdminAnalytics({ navigation }) {
             <div class="report-title">Water Consumption Report</div>
             <div class="filter-info">
               ${selectedBatch}<br>
-              Report Generated: ${new Date().toLocaleString()}<br>
+              Report Generated: ${formatReportDateTime()}<br>
               Total Records: ${records.length}
             </div>
           </div>
@@ -3318,13 +3694,287 @@ export default function AdminAnalytics({ navigation }) {
         customFilename,
         "Water Consumption Report",
         "Generate water consumption report",
-        "Generated and exported water consumption report",
+        `Generated and exported water consumption report for batch ${selectedBatch} on ${new Date().toLocaleDateString()}`,
       );
 
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
+
+      Alert.alert("Success", "Water Consumption report exported successfully!");
+      Alert.alert("Error", "Failed to generate report: " + error.message);
+    } finally {
+      setIsGeneratingFeedReport(false);
+    }
+  };
+
+  /**
+   * Generate Energy Trends Report PDF
+   * Fetches solar usage records from solarUsage collection for the selected date range,
+   * aggregates by date, and generates a comprehensive PDF report.
+   */
+  const generateEnergyTrendsReportPDF = async () => {
+    // Get the date range from the filter
+    const startDateFilter = chartFilters["solar"]?.startDate;
+    const endDateFilter = chartFilters["solar"]?.endDate;
+
+    if (!startDateFilter || !endDateFilter) {
+      Alert.alert("Error", "Please select a date range from the filter");
+      return;
+    }
+
+    setIsGeneratingFeedReport(true);
+    try {
+      // Fetch all solar usage records for the date range
+      const solarRef = collection(firestoreDb, "solarUsage");
+      const startDate = new Date(startDateFilter);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(endDateFilter);
+      endDate.setHours(23, 59, 59, 999);
+
+      const q = query(
+        solarRef,
+        where("timestamp", ">=", startDate),
+        where("timestamp", "<=", endDate),
+      );
+      const snapshot = await getDocs(q);
+
+      if (snapshot.docs.length === 0) {
+        Alert.alert(
+          "No Data",
+          "No energy usage records found for the selected date range",
+        );
+        setIsGeneratingFeedReport(false);
+        return;
+      }
+
+      // Aggregate usage by date
+      const dateMap = {};
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        const timestamp = data.timestamp?.toDate
+          ? data.timestamp.toDate()
+          : new Date(data.timestamp);
+        const dateKey = `${timestamp.getMonth() + 1}/${timestamp.getDate()}/${timestamp.getFullYear()}`;
+        const usage = parseFloat(data.usage) || 0;
+        dateMap[dateKey] = (dateMap[dateKey] || 0) + usage;
+      });
+
+      // Sort dates chronologically
+      const sortedDates = Object.keys(dateMap).sort((a, b) => {
+        const [aM, aD, aY] = a.split("/").map(Number);
+        const [bM, bD, bY] = b.split("/").map(Number);
+        return new Date(aY, aM - 1, aD) - new Date(bY, bM - 1, bD);
+      });
+
+      // Load logo
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        },
+      );
+
+      // Create table rows
+      let tableRows = "";
+      let totalUsage = 0;
+
+      sortedDates.forEach((dateKey) => {
+        const usage = dateMap[dateKey];
+        totalUsage += usage;
+        const [month, day, year] = dateKey.split("/").map(Number);
+        const monthNames = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        const formattedDate = `${String(day).padStart(2, "0")}-${monthNames[month - 1]}-${year}`;
+
+        tableRows += `
+          <tr>
+            <td>${formattedDate}</td>
+            <td>${usage.toFixed(2)}</td>
+          </tr>
+        `;
+      });
+
+      // Add total row
+      tableRows += `
+        <tr style="background-color: #e8e8e8; font-weight: bold;">
+          <td style="text-align: center;">TOTAL</td>
+          <td>${totalUsage.toFixed(2)}</td>
+        </tr>
+      `;
+
+      // Format date range for display and filename
+      const startDateObj = new Date(startDateFilter);
+      const endDateObj = new Date(endDateFilter);
+      const monthNames = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+      const formatDate = (date) => {
+        return `${String(date.getDate()).padStart(2, "0")}-${monthNames[date.getMonth()]}-${date.getFullYear()}`;
+      };
+      const startDateStr = formatDate(startDateObj);
+      const endDateStr = formatDate(endDateObj);
+
+      // Generate HTML
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 0.3in 0.5in 0.3in 0.5in;
+            }
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 0;
+            }
+            .header {
+              margin-bottom: 20px;
+              border-bottom: 2px solid #133E87;
+              padding-bottom: 15px;
+            }
+            .header-top {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-bottom: 10px;
+            }
+            .logo {
+              width: 50px;
+              height: 50px;
+              border-radius: 25px;
+              margin-right: 15px;
+            }
+            .company-name {
+              font-size: 24px;
+              font-weight: bold;
+              color: #133E87;
+            }
+            .report-title {
+              font-size: 16px;
+              color: #333;
+              text-align: center;
+              margin-bottom: 15px;
+              font-weight: bold;
+            }
+            .filter-info {
+              font-size: 12px;
+              color: #666;
+              margin-bottom: 10px;
+              text-align: center;
+            }
+            table {
+              width: 40%;
+              border-collapse: collapse;
+              margin-bottom: 20px;
+              margin-left: auto;
+              margin-right: auto;
+              font-size: 11px;
+              table-layout: fixed;
+            }
+            th {
+              background-color: #133E87;
+              color: white;
+              padding: 8px;
+              text-align: left;
+              border: 1px solid #ddd;
+              font-weight: bold;
+            }
+            td {
+              padding: 6px;
+              border: 1px solid #ddd;
+              color: #333;
+              text-align: center;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            .page-number {
+              text-align: center;
+              font-size: 10px;
+              color: #666;
+              margin-top: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="header-top">
+              <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
+              <div class="company-name">Internet of Tsiken</div>
+            </div>
+            <div class="report-title">Energy Trends Report</div>
+            <div class="filter-info">
+              Date Range: ${startDateStr} to ${endDateStr}<br>
+              Report Generated: ${formatReportDateTime()}<br>
+              Total Records: ${sortedDates.length}
+            </div>
+          </div>
+          
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 20%; text-align: center;">Date</th>
+                <th style="width: 20%; text-align: center;">Usage (kWh)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+        </body>
+        </html>
+      `;
+
+      // Generate PDF
+      const pdf = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+      });
+
+      // Create custom filename with date range
+      const customFilename = `EnergyTrends_${startDateStr}_to_${endDateStr}.pdf`;
+      const newPath = `${FileSystem.documentDirectory}${customFilename}`;
+
+      // Move file to new path with custom name
+      await FileSystem.moveAsync({
+        from: pdf.uri,
+        to: newPath,
+      });
+
+      // Share PDF with custom filename
+      await Sharing.shareAsync(newPath);
+
+      Alert.alert("Success", "Energy Trends report exported successfully!");
     } catch (error) {
-      console.error("Error generating water report:", error);
+      console.error("[generateEnergyTrendsReportPDF] Error:", error);
       Alert.alert("Error", "Failed to generate report: " + error.message);
     } finally {
       setIsGeneratingFeedReport(false);
@@ -3336,8 +3986,8 @@ export default function AdminAnalytics({ navigation }) {
    * Fetches mortality records for each batch for the selected date range,
    * sums the count for each batch, and generates a PDF report
    */
-  const generateMortalityBatchReportPDF = async () => {
-    if (!batchExportStartDate || !batchExportEndDate) {
+  const generateMortalityBatchReportPDF = async (startDateStr, endDateStr) => {
+    if (!startDateStr || !endDateStr) {
       Alert.alert("Error", "Please select both start and end dates");
       return;
     }
@@ -3351,8 +4001,8 @@ export default function AdminAnalytics({ navigation }) {
       const batchTableRows = [];
       const batchDeathsMap = {}; // Map to aggregate deaths by batch
 
-      const startDateObj = new Date(batchExportStartDate);
-      const endDateObj = new Date(batchExportEndDate);
+      const startDateObj = new Date(startDateStr);
+      const endDateObj = new Date(endDateStr);
       endDateObj.setHours(23, 59, 59, 999);
 
       // Process all records and aggregate by batch
@@ -3441,8 +4091,7 @@ export default function AdminAnalytics({ navigation }) {
       batchTableRows.forEach((row, index) => {
         tableRowsHtml += `
           <tr>
-            <td width: 25px;">${index + 1}</td>
-            <td width: 120px;">${row.batchName}</td>
+            <td>${row.batchName}</td>
             <td style="text-align: center; width: 120px;">${row.totalDeaths}</td>
           </tr>
         `;
@@ -3451,7 +4100,7 @@ export default function AdminAnalytics({ navigation }) {
       // Add total row
       tableRowsHtml += `
         <tr style="background-color: #dbdde0; color: white; font-weight: bold;">
-          <td colspan="2" style="text-align: right; padding: 8px;">Total</td>
+          <td style="text-align: right; padding: 8px;">Total</td>
           <td style="text-align: center; width: 120px; padding: 8px;">${totalDeaths}</td>
         </tr>
       `;
@@ -3513,7 +4162,7 @@ export default function AdminAnalytics({ navigation }) {
               margin-bottom: 20px;
             }
             table {
-              width: 500px;
+              width: 350px;
               border-collapse: collapse;
               margin-bottom: 20px;
               font-size: 12px;
@@ -3550,8 +4199,8 @@ export default function AdminAnalytics({ navigation }) {
             </div>
             <div class="report-title">Mortality Per Batch Report</div>
             <div class="filter-info">
-              Date Range: ${new Date(batchExportStartDate).toLocaleDateString()} to ${new Date(batchExportEndDate).toLocaleDateString()}<br>
-              Report Generated: ${new Date().toLocaleString()}<br>
+              Date Range: ${formatDateRange(startDateStr)} to ${formatDateRange(endDateStr)}<br>
+              Report Generated: ${formatReportDateTime()}<br>
               Total Deaths: ${totalDeaths}
             </div>
           </div>
@@ -3560,7 +4209,6 @@ export default function AdminAnalytics({ navigation }) {
             <table>
               <thead>
                 <tr>
-                  <th style="width: 25px;">No</th>
                   <th>Batch</th>
                   <th style="text-align: center; width: 120px;">Deaths</th>
                 </tr>
@@ -3603,7 +4251,7 @@ export default function AdminAnalytics({ navigation }) {
         return `${day}-${month}-${year}`;
       };
 
-      const customFilename = `MortalityPerBatchReport_${formatDate(batchExportStartDate)}_to_${formatDate(batchExportEndDate)}.pdf`;
+      const customFilename = `MortalityPerBatchReport_${formatDate(startDateStr)}_to_${formatDate(endDateStr)}.pdf`;
       const newPath = `${FileSystem.documentDirectory}${customFilename}`;
 
       // Copy the PDF to a new location with custom name
@@ -3617,13 +4265,18 @@ export default function AdminAnalytics({ navigation }) {
         customFilename,
         "Mortality Per Batch Report",
         "Generate mortality per batch report",
-        "Generated and exported mortality per batch report",
+        `Generated and exported mortality per batch report for ${formatDateRange(startDateStr)} to ${formatDateRange(endDateStr)}`,
       );
 
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
 
-      setExportBatchModalVisible(false);
+      Alert.alert(
+        "Success",
+        "Mortality Per Batch report exported successfully!",
+      );
+
+      // Modal closed automatically - no need to set state
     } catch (error) {
       console.error("Error generating batch report:", error);
       Alert.alert("Error", "Failed to generate report: " + error.message);
@@ -3635,20 +4288,45 @@ export default function AdminAnalytics({ navigation }) {
   /**
    * Generate Predator Attacks Report PDF
    * Fetches all predator attacks from all batches for the selected date range
+   * Uses filter date range, or defaults to last 7 days if no filter is set
    */
   const generatePredatorAttacksReportPDF = async () => {
-    if (!predatorExportStartDate || !predatorExportEndDate) {
-      Alert.alert("Error", "Please select both start and end dates.");
-      return;
-    }
-
     setIsGeneratingPredatorReport(true);
     try {
       console.log("[GeneratePredatorReport] Starting PDF generation...");
 
-      const startDate = new Date(predatorExportStartDate);
-      const endDate = new Date(predatorExportEndDate);
-      endDate.setHours(23, 59, 59, 999);
+      // Get date range from filter or use default (last 7 days)
+      let startDate, endDate;
+
+      if (
+        chartFilters["predatorAttacks"]?.startDate &&
+        chartFilters["predatorAttacks"]?.endDate
+      ) {
+        // Use filter dates
+        startDate = new Date(chartFilters["predatorAttacks"].startDate);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(chartFilters["predatorAttacks"].endDate);
+        endDate.setHours(23, 59, 59, 999);
+        console.log(
+          "[GeneratePredatorReport] Using filter dates:",
+          startDate,
+          "to",
+          endDate,
+        );
+      } else {
+        // Default: last 7 days
+        endDate = new Date();
+        endDate.setHours(23, 59, 59, 999);
+        startDate = new Date(endDate);
+        startDate.setDate(startDate.getDate() - 6); // -6 to include today as day 7
+        startDate.setHours(0, 0, 0, 0);
+        console.log(
+          "[GeneratePredatorReport] Using default dates (7 days):",
+          startDate,
+          "to",
+          endDate,
+        );
+      }
 
       // Fetch all batches from predatorAttacks
       const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
@@ -3777,9 +4455,6 @@ export default function AdminAnalytics({ navigation }) {
       let tableRows = "";
       allAttacks.forEach((attack, index) => {
         const dateTime = formatDateTime(attack.attackDate);
-        const evidenceThumbnail = attack.evidence_url
-          ? `<a href="${attack.evidence_url}" target="_blank"><img src="${attack.evidence_url}" style="width: 50px; height: 50px; object-fit: cover; border-radius: 4px; cursor: pointer;" /></a>`
-          : "No evidence";
 
         tableRows += `
           <tr>
@@ -3788,7 +4463,6 @@ export default function AdminAnalytics({ navigation }) {
             <td>${attack.batchId}</td>
             <td>${attack.predator_type || "Unknown"}</td>
             <td>${attack.action_taken || "None"}</td>
-            <td style="text-align: center;">${evidenceThumbnail}</td>
           </tr>
         `;
       });
@@ -3891,8 +4565,8 @@ export default function AdminAnalytics({ navigation }) {
               </div>
               <div class="report-title">Predator Attacks Report</div>
               <div class="filter-info">
-                Date Range: ${new Date(predatorExportStartDate).toLocaleDateString()} to ${new Date(predatorExportEndDate).toLocaleDateString()}<br>
-                Report Generated: ${new Date().toLocaleString()}<br>
+                Date Range: ${formatDateRange(predatorExportStartDate)} to ${formatDateRange(predatorExportEndDate)}<br>
+                Report Generated: ${formatReportDateTime()}<br>
               
               </div>
             </div>
@@ -3900,11 +4574,10 @@ export default function AdminAnalytics({ navigation }) {
               <thead>
                 <tr>
                   <th style="width: 5%;">No</th>
-                  <th style="width: 18%;">Date & Time</th>
-                  <th style="width: 12%;">Batch ID</th>
-                  <th style="width: 15%;">Predator Type</th>
-                  <th style="width: 25%;">Action Taken</th>
-                  <th style="width: 13%;">Evidence</th>
+                  <th style="width: 20%;">Date & Time</th>
+                  <th style="width: 15%;">Batch ID</th>
+                  <th style="width: 20%;">Predator Type</th>
+                  <th style="width: 35%;">Action Taken</th>
                 </tr>
               </thead>
               <tbody>
@@ -3930,7 +4603,7 @@ export default function AdminAnalytics({ navigation }) {
       const { uri } = await Print.printToFileAsync({ html: htmlContent });
       console.log("[GeneratePredatorReport] PDF generated at:", uri);
 
-      // Create custom filename with date range: PredatorAttacksReport_21Jan2026_25Jan2026.pdf
+      // Create custom filename with date range: AttacksFrequencyReport_21Jan2026_25Jan2026.pdf
       const formatDateForFilename = (dateStr) => {
         const date = new Date(dateStr);
         const day = String(date.getDate()).padStart(2, "0");
@@ -3955,7 +4628,7 @@ export default function AdminAnalytics({ navigation }) {
 
       const startDateFormatted = formatDateForFilename(predatorExportStartDate);
       const endDateFormatted = formatDateForFilename(predatorExportEndDate);
-      const filename = `PredatorAttacksReport_${startDateFormatted}_${endDateFormatted}.pdf`;
+      const filename = `AttacksFrequencyReport_${startDateFormatted}_${endDateFormatted}.pdf`;
       console.log("[GeneratePredatorReport] Custom filename:", filename);
 
       // Copy PDF to documents directory with custom name
@@ -3972,6 +4645,10 @@ export default function AdminAnalytics({ navigation }) {
         dialogTitle: "Share Predator Attacks Report",
       });
 
+      Alert.alert("Success", "Predator Attacks report exported successfully!");
+
+      Alert.alert("Success", "Predator Attacks report exported successfully!");
+
       // Log the report generation
       try {
         await logReportGeneration(
@@ -3984,10 +4661,6 @@ export default function AdminAnalytics({ navigation }) {
       } catch (logError) {
         console.warn("[GeneratePredatorReport] Logging warning:", logError);
       }
-
-      setExportPredatorModalVisible(false);
-      setPredatorExportStartDate(null);
-      setPredatorExportEndDate(null);
     } catch (error) {
       console.error("[GeneratePredatorReport] Error:", error);
       Alert.alert("Error", "Failed to generate report. Please try again.");
@@ -4002,17 +4675,39 @@ export default function AdminAnalytics({ navigation }) {
    * Groups attacks by batch, generates detailed table with attack information
    */
   const generateAttacksPerBatchReportPDF = async () => {
-    if (!attacksBatchExportStartDate || !attacksBatchExportEndDate) {
-      Alert.alert("Error", "Please select both start and end dates");
+    const dateFilter = chartFilters["attacksbatch"];
+    let startDateStr, endDateStr;
+
+    if (dateFilter && dateFilter.startDate && dateFilter.endDate) {
+      startDateStr = dateFilter.startDate;
+      endDateStr = dateFilter.endDate;
+    } else {
+      // Default: last 7 days
+      const endDate = new Date();
+      startDateStr = new Date(endDate.getTime() - 6 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split("T")[0];
+      endDateStr = endDate.toISOString().split("T")[0];
+    }
+
+    // Validate dates are set
+    if (!startDateStr || !endDateStr) {
+      Alert.alert("Error", "Unable to determine date range for export.");
       return;
     }
 
     setIsGeneratingAttacksBatchReport(true);
     try {
       console.log("[GenerateAttacksPerBatchReport] Starting PDF generation...");
+      console.log(
+        "[GenerateAttacksPerBatchReport] Date range:",
+        startDateStr,
+        "to",
+        endDateStr,
+      );
 
-      const startDate = new Date(attacksBatchExportStartDate);
-      const endDate = new Date(attacksBatchExportEndDate);
+      const startDate = new Date(startDateStr);
+      const endDate = new Date(endDateStr);
       endDate.setHours(23, 59, 59, 999);
 
       // Fetch all batches from predatorAttacks
@@ -4085,7 +4780,6 @@ export default function AdminAnalytics({ navigation }) {
       sortedBatches.forEach((batch, index) => {
         tableRows += `
           <tr>
-            <td>${index + 1}</td>
             <td>${batch.batchId}</td>
             <td style="text-align: center;">${batch.count}</td>
           </tr>
@@ -4096,7 +4790,7 @@ export default function AdminAnalytics({ navigation }) {
       // Add total row
       tableRows += `
         <tr style="background-color: #dbdde0; color: white; font-weight: bold;">
-          <td colspan="2" style="text-align: right; padding: 8px;">Total</td>
+          <td style="text-align: right; padding: 8px;">Total</td>
           <td style="text-align: center; width: 120px; padding: 8px;">${totalAttacks}</td>
         </tr>
       `;
@@ -4113,6 +4807,7 @@ export default function AdminAnalytics({ navigation }) {
 
       // Format dates for display
       const formatDisplayDate = (dateStr) => {
+        if (!dateStr) return "N/A";
         const [year, month, day] = dateStr.split("-").map(Number);
         const date = new Date(year, month - 1, day);
         const months = [
@@ -4189,7 +4884,7 @@ export default function AdminAnalytics({ navigation }) {
               margin-bottom: 20px;
             }
             table {
-              width: 400px;
+              width: 300px;
               border-collapse: collapse;
               margin-bottom: 20px;
               font-size: 12px;
@@ -4226,8 +4921,8 @@ export default function AdminAnalytics({ navigation }) {
             </div>
             <div class="report-title">Attacks Per Batch Report</div>
             <div class="filter-info">
-              Date Range: ${formatDisplayDate(attacksBatchExportStartDate)} to ${formatDisplayDate(attacksBatchExportEndDate)}<br>
-              Report Generated: ${new Date().toLocaleString()}<br>
+              Date Range: ${formatDisplayDate(startDateStr)} to ${formatDisplayDate(endDateStr)}<br>
+              Report Generated: ${formatReportDateTime()}<br>
               Total Attacks: ${allAttacks.length}
             </div>
           </div>
@@ -4236,7 +4931,6 @@ export default function AdminAnalytics({ navigation }) {
             <table>
               <thead>
                 <tr>
-                  <th style="width: 30px;">No</th>
                   <th>Batch</th>
                   <th style="text-align: center; width: 100px;">Attacks</th>
                 </tr>
@@ -4258,6 +4952,7 @@ export default function AdminAnalytics({ navigation }) {
 
       // Create custom filename with date
       const formatFileName = (dateStr) => {
+        if (!dateStr) return "unknown";
         const [year, month, day] = dateStr.split("-").map(Number);
         const months = [
           "Jan",
@@ -4276,7 +4971,7 @@ export default function AdminAnalytics({ navigation }) {
         return `${day}-${months[month - 1]}-${year}`;
       };
 
-      const customFilename = `AttacksPerBatch_${formatFileName(attacksBatchExportStartDate)}_to_${formatFileName(attacksBatchExportEndDate)}.pdf`;
+      const customFilename = `AttacksPerBatch_${formatFileName(startDateStr)}_to_${formatFileName(endDateStr)}.pdf`;
       const newPath = `${FileSystem.documentDirectory}${customFilename}`;
 
       // Copy the PDF to a new location with custom name
@@ -4286,14 +4981,17 @@ export default function AdminAnalytics({ navigation }) {
       });
 
       // Log report generation
-      await logReportGeneration(customFilename, "Attacks Per Batch Report");
+      await logReportGeneration(
+        customFilename,
+        "Attacks Per Batch Report",
+        "Generated attacks per batch report",
+        `Attacks per batch report for ${formatDisplayDate(startDateStr)} to ${formatDisplayDate(endDateStr)}`,
+      );
 
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
 
-      setExportAttacksBatchModalVisible(false);
-      setAttacksBatchExportStartDate(null);
-      setAttacksBatchExportEndDate(null);
+      Alert.alert("Success", "Attacks Per Batch report exported successfully!");
     } catch (error) {
       console.error("[GenerateAttacksPerBatchReport] Error:", error);
       Alert.alert("Error", "Failed to generate report: " + error.message);
@@ -4523,7 +5221,7 @@ export default function AdminAnalytics({ navigation }) {
             <div class="report-title">Feed Per Batch Report</div>
             <div class="filter-info">
               Date Range: ${formatDisplayDate(dateFilter.startDate)} to ${formatDisplayDate(dateFilter.endDate)}<br>
-              Report Generated: ${new Date().toLocaleString()}<br>
+              Report Generated: ${formatReportDateTime()}<br>
               Total Successful Activations: ${totalSuccessActivations}
             </div>
           </div>
@@ -4588,11 +5286,13 @@ export default function AdminAnalytics({ navigation }) {
         customFilename,
         "Feed Per Batch Report",
         "Generate feed per batch report",
-        "Generated and exported feed per batch report",
+        `Generated and exported feed per batch report for ${formatDate(dateFilter.startDate)} to ${formatDate(dateFilter.endDate)}`,
       );
 
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
+
+      Alert.alert("Success", "Feed Per Batch report exported successfully!");
     } catch (error) {
       console.error("[GenerateFeedPerBatchReport] Error:", error);
       Alert.alert("Error", "Failed to generate report: " + error.message);
@@ -4826,7 +5526,7 @@ export default function AdminAnalytics({ navigation }) {
             <div class="report-title">Water Per Batch Report</div>
             <div class="filter-info">
               Date Range: ${formatDisplayDate(dateFilter.startDate)} to ${formatDisplayDate(dateFilter.endDate)}<br>
-              Report Generated: ${new Date().toLocaleString()}<br>
+              Report Generated: ${formatReportDateTime()}<br>
               Total Successful Activations: ${totalSuccessActivations}
             </div>
           </div>
@@ -4891,11 +5591,13 @@ export default function AdminAnalytics({ navigation }) {
         customFilename,
         "Water Per Batch Report",
         "Generate water per batch report",
-        "Generated and exported water per batch report",
+        `Generated and exported water per batch report for ${formatDate(dateFilter.startDate)} to ${formatDate(dateFilter.endDate)}`,
       );
 
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
+
+      Alert.alert("Success", "Water Per Batch report exported successfully!");
     } catch (error) {
       console.error("[GenerateWaterPerBatchReport] Error:", error);
       Alert.alert("Error", "Failed to generate report: " + error.message);
@@ -4911,25 +5613,40 @@ export default function AdminAnalytics({ navigation }) {
    * and generates a comprehensive PDF report.
    */
   const generateCauseOfDeathReportPDF = async () => {
-    if (!causeExportStartDate || !causeExportEndDate) {
-      Alert.alert("Error", "Please select both start and end dates");
-      return;
+    // Set default dates to last 7 days if not selected
+    let startDateStr = causeExportStartDate;
+    let endDateStr = causeExportEndDate;
+
+    if (!startDateStr || !endDateStr) {
+      const today = new Date();
+      const sevenDaysAgo = new Date(today);
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6); // -6 to include 7 days total
+
+      // Format as YYYY-MM-DD
+      const formatDateString = (date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+      };
+
+      startDateStr = formatDateString(sevenDaysAgo);
+      endDateStr = formatDateString(today);
+
+      setCauseExportStartDate(startDateStr);
+      setCauseExportEndDate(endDateStr);
     }
 
     setIsGeneratingCauseReport(true);
     try {
       console.log(
         "Starting PDF generation with dates:",
-        causeExportStartDate,
-        causeExportEndDate,
+        startDateStr,
+        endDateStr,
       );
 
       const recordsRef = collectionGroup(firestoreDb, "records");
       const recordsSnapshot = await getDocs(recordsRef);
-
-      // Parse dates for filtering - ensure dates are in YYYY-MM-DD format
-      let startDateStr = causeExportStartDate;
-      let endDateStr = causeExportEndDate;
 
       // Convert to string if needed
       if (typeof startDateStr !== "string") {
@@ -5227,123 +5944,6 @@ export default function AdminAnalytics({ navigation }) {
         </tr>
       `;
 
-      // Create detailed mortality records rows - sorted by createdAt descending
-      let detailedRecordsRows = "";
-      const allRecords = [];
-
-      for (const recordDoc of recordsSnapshot.docs) {
-        const data = recordDoc.data();
-
-        // Parse dateOfDeath
-        let recordDate = null;
-        if (data.dateOfDeath) {
-          if (data.dateOfDeath.toDate) {
-            recordDate = data.dateOfDeath.toDate();
-          } else if (data.dateOfDeath.seconds) {
-            recordDate = new Date(data.dateOfDeath.seconds * 1000);
-          }
-        }
-
-        if (!recordDate) continue;
-
-        // Convert record date to GMT+8 for comparison
-        const recordDateGMT8 = new Date(
-          recordDate.getTime() + 8 * 60 * 60 * 1000,
-        );
-
-        // Filter by date range (compare GMT+8 dates)
-        if (recordDateGMT8 < startDate || recordDateGMT8 > endDate) continue;
-
-        allRecords.push(data);
-      }
-
-      // Sort by createdAt descending
-      allRecords.sort((a, b) => {
-        const timeA = a.createdAt?.seconds || 0;
-        const timeB = b.createdAt?.seconds || 0;
-        return timeB - timeA;
-      });
-
-      // Generate rows for detailed records
-      allRecords.forEach((record) => {
-        const createdAtDate = record.createdAt?.seconds
-          ? (() => {
-              const date = new Date(record.createdAt.seconds * 1000);
-              const months = [
-                "Jan",
-                "Feb",
-                "Mar",
-                "Apr",
-                "May",
-                "Jun",
-                "Jul",
-                "Aug",
-                "Sep",
-                "Oct",
-                "Nov",
-                "Dec",
-              ];
-              const day = String(date.getDate()).padStart(2, "0");
-              const month = months[date.getMonth()];
-              const year = date.getFullYear();
-              return `${day}-${month}-${year}`;
-            })()
-          : "";
-
-        const dateOfDeathDate = record.dateOfDeath?.seconds
-          ? (() => {
-              const date = new Date(record.dateOfDeath.seconds * 1000);
-              const months = [
-                "Jan",
-                "Feb",
-                "Mar",
-                "Apr",
-                "May",
-                "Jun",
-                "Jul",
-                "Aug",
-                "Sep",
-                "Oct",
-                "Nov",
-                "Dec",
-              ];
-              const day = String(date.getDate()).padStart(2, "0");
-              const month = months[date.getMonth()];
-              const year = date.getFullYear();
-              return `${day}-${month}-${year}`;
-            })()
-          : "";
-
-        const causeOfDeath = record.causeOfDeath || "";
-        const predatorType = record.predatorType || "";
-        const customPredator = record.customPredator || "";
-        const otherCause =
-          !causeOfDeath.toLowerCase().includes("predator") &&
-          causeOfDeath !== "Dehydration" &&
-          causeOfDeath !== "Overfeeding" &&
-          causeOfDeath !== "Disease"
-            ? causeOfDeath
-            : "";
-        const count = record.count || 1;
-        const notes = record.notes || "";
-        const reportedBy = record.reportedBy || "";
-        const daysCount = record.daysCount || "";
-
-        detailedRecordsRows += `
-          <tr>
-            <td>${createdAtDate}</td>
-            <td>${count}</td>
-            <td>${causeOfDeath}</td>
-            <td>${predatorType}</td>
-            <td>${customPredator}</td>
-            <td>${daysCount}</td>
-            <td>${notes}</td>
-            <td>${dateOfDeathDate}</td>
-            <td>${reportedBy}</td>
-          </tr>
-        `;
-      });
-
       const dateRangeDisplay = `${formatDate(startDateStr)} to ${formatDate(endDateStr)}`;
 
       // Generate HTML
@@ -5469,7 +6069,7 @@ export default function AdminAnalytics({ navigation }) {
             <div class="report-title">Cause of Death Analysis Report</div>
             <div class="filter-info">
               Date Range: ${dateRangeDisplay}<br>
-              Report Generated: ${new Date().toLocaleString()}<br>
+              Report Generated: ${formatReportDateTime()}<br>
               Total Deaths: ${totalDeaths}
             </div>
           </div>
@@ -5539,29 +6139,7 @@ export default function AdminAnalytics({ navigation }) {
           </table>
 
           </div>
-
-          <div style="margin-top: 30px; margin-bottom: 20px; background-color: #f9f9f9; padding: 10px; border-radius: 5px;">
-            <div style="font-size: 14px; font-weight: bold; color: #133E87; margin-bottom: 10px;">Detailed Mortality Records</div>
-            <table>
-              <thead>
-                <tr>
-                  <th style="width: 11%;">Reported Date</th>
-                  <th style="width: 7%;">Death Count</th>
-                  <th style="width: 13%;">Death Cause</th>
-                  <th style="width: 9%;">Predator Type</th>
-                  <th style="width: 12%;">Custom Predator</th>
-                  <th style="width: 8%;">Age</th>
-                  <th style="width: 12%;">Notes</th>
-                  <th style="width: 11%;">Date of Death</th>
-                  <th style="width: 14%;">Reported By</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${detailedRecordsRows}
-              </tbody>
-            </table>
-          </div>
-           </div>
+        </div>
         </body>
         </html>
       `;
@@ -5586,12 +6164,13 @@ export default function AdminAnalytics({ navigation }) {
         customFilename,
         "Cause of Death Report",
         "Generate cause of death report",
-        "Generated cause of death report",
+        `Generated cause of death report for ${formatDateRange(causeExportStartDate)} to ${formatDateRange(causeExportEndDate)}`,
       );
 
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
 
+      Alert.alert("Success", "Cause of Death report exported successfully!");
       setExportCauseModalVisible(false);
     } catch (error) {
       console.error("Error generating cause of death report:", error);
@@ -5709,6 +6288,8 @@ export default function AdminAnalytics({ navigation }) {
 
         // Share PDF with custom filename
         await Sharing.shareAsync(newPath);
+
+        Alert.alert("Success", "System Overview report exported successfully!");
       } catch (fallbackError) {
         console.error("Error creating branded error page:", fallbackError);
         // Fallback to alert if branded error page fails
@@ -5722,33 +6303,40 @@ export default function AdminAnalytics({ navigation }) {
 
   // Generate Predator Types Report PDF
   const generatePredatorTypesReportPDF = async () => {
-    if (!predatorTypesExportStartDate || !predatorTypesExportEndDate) {
-      Alert.alert("Error", "Please select both start and end dates");
-      return;
-    }
-
     setIsGeneratingPredatorTypesReport(true);
     try {
+      // Get date range from chartFilters or use default 7 days
+      let startDateStr = null;
+      let endDateStr = null;
+
+      if (
+        chartFilters["predatortypes"] &&
+        chartFilters["predatortypes"].startDate &&
+        chartFilters["predatortypes"].endDate
+      ) {
+        startDateStr = chartFilters["predatortypes"].startDate;
+        endDateStr = chartFilters["predatortypes"].endDate;
+      } else {
+        // Default to last 7 days
+        const today = new Date();
+        endDateStr = today.toISOString().split("T")[0];
+        const sevenDaysAgo = new Date(
+          today.getTime() - 7 * 24 * 60 * 60 * 1000,
+        );
+        startDateStr = sevenDaysAgo.toISOString().split("T")[0];
+      }
+
+      // Validate dates
+      if (!startDateStr || !endDateStr) {
+        Alert.alert("Error", "Failed to determine date range");
+        return;
+      }
+
       console.log(
         "Starting Predator Types PDF generation with dates:",
-        predatorTypesExportStartDate,
-        predatorTypesExportEndDate,
+        startDateStr,
+        endDateStr,
       );
-
-      // Parse dates
-      let startDateStr = predatorTypesExportStartDate;
-      let endDateStr = predatorTypesExportEndDate;
-
-      if (typeof startDateStr !== "string") {
-        startDateStr = new Date(startDateStr).toISOString().split("T")[0];
-      }
-      if (typeof endDateStr !== "string") {
-        endDateStr = new Date(endDateStr).toISOString().split("T")[0];
-      }
-
-      if (!startDateStr || !endDateStr) {
-        throw new Error("Failed to parse dates");
-      }
 
       const [startYear, startMonth, startDay] = startDateStr
         .split("-")
@@ -6138,7 +6726,7 @@ export default function AdminAnalytics({ navigation }) {
             <div class="report-title">Predator Types Analysis Report</div>
             <div class="filter-info">
               Date Range: ${dateRangeDisplay}<br>
-              Report Generated: ${new Date().toLocaleString()}<br>
+              Report Generated: ${formatReportDateTime()}<br>
               Total Attacks: ${totalAttacks}
             </div>
           </div>
@@ -6239,19 +6827,16 @@ export default function AdminAnalytics({ navigation }) {
         customFilename,
         "Predator Types Report",
         "Generate predator types report",
-        "Generated and exported predator types report",
+        `Generated and exported predator types report for ${formatDateRange(exportPredatorTypesStartDate)} to ${formatDateRange(exportPredatorTypesEndDate)}`,
       );
 
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
 
-      setExportPredatorTypesModalVisible(false);
-      setPredatorTypesExportStartDate(null);
-      setPredatorTypesExportEndDate(null);
+      Alert.alert("Success", "Predator Types report exported successfully!");
     } catch (error) {
       console.error("Error generating Predator Types report:", error);
       Alert.alert("Error", "Failed to generate report: " + error.message);
-      setExportPredatorTypesModalVisible(false);
     } finally {
       setIsGeneratingPredatorTypesReport(false);
     }
@@ -6313,13 +6898,17 @@ export default function AdminAnalytics({ navigation }) {
   // Fetch mortality data on component mount
   useEffect(() => {
     console.log(
-      "[adminAnalytics] useEffect: Mounting component, setting default 7-day filter",
+      "[adminAnalytics] useEffect: Mounting component, setting default filters",
     );
 
     // Set default filter to last 7 days
     const today = new Date();
     const sevenDaysAgo = new Date(today);
     sevenDaysAgo.setDate(today.getDate() - 6); // -6 to include today as day 7
+
+    // Set default filter to last 30 days for water batch
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(today.getDate() - 29); // -29 to include today as day 30
 
     // Format dates as YYYY-MM-DD for consistency
     const formatDateToISO = (date) => {
@@ -6334,7 +6923,16 @@ export default function AdminAnalytics({ navigation }) {
       endDate: formatDateToISO(today),
     };
 
+    const defaultWaterBatchFilter = {
+      startDate: formatDateToISO(thirtyDaysAgo),
+      endDate: formatDateToISO(today),
+    };
+
     console.log("[adminAnalytics] Default 7-day filter set:", defaultFilter);
+    console.log(
+      "[adminAnalytics] Default 30-day filter set for water batch:",
+      defaultWaterBatchFilter,
+    );
     setChartFilters((prev) => ({
       ...prev,
       mortality: defaultFilter,
@@ -6344,7 +6942,7 @@ export default function AdminAnalytics({ navigation }) {
       attacksbatch: defaultFilter,
       predatortypes: defaultFilter,
       feedbatch: defaultFilter,
-      waterbatch: defaultFilter,
+      waterbatch: defaultWaterBatchFilter,
     }));
   }, []);
 
@@ -6434,14 +7032,11 @@ export default function AdminAnalytics({ navigation }) {
         const batches = await fetchFeedBatches();
         setAvailableBatches(batches);
         console.log("[adminAnalytics] Feed batches loaded:", batches.length);
-        // Set the latest batch (last one) as default for feed
+        // Set the first batch (Batch 1) as default for feed
         if (batches.length > 0) {
-          const latestBatch = batches[batches.length - 1];
-          handleFeedBatchSelect(latestBatch.id);
-          console.log(
-            "[adminAnalytics] Latest feed batch selected:",
-            latestBatch.id,
-          );
+          const firstBatch = batches[0];
+          handleFeedBatchSelect(firstBatch.id);
+          console.log("[adminAnalytics] First batch selected:", firstBatch.id);
         }
       } catch (error) {
         console.error("[adminAnalytics] Error fetching feed batches:", error);
@@ -6533,16 +7128,7 @@ export default function AdminAnalytics({ navigation }) {
 
   // Mortality chart data - dynamic labels and data based on filter
   const generateMortalityChartData = () => {
-    console.log(
-      "[GenerateMortalityChartData] Called with mortalityData length:",
-      mortalityData?.length,
-    );
-    console.log("[GenerateMortalityChartData] mortalityData:", mortalityData);
-
     if (!mortalityData || mortalityData.length === 0) {
-      console.log(
-        "[GenerateMortalityChartData] No data available, showing default",
-      );
       return {
         labels: ["No data"],
         datasets: [
@@ -6562,123 +7148,47 @@ export default function AdminAnalytics({ navigation }) {
         let dateStr = "Unknown";
         let convertedDate = null;
 
-        console.log(
-          `[GenerateMortalityChartData] Record ${idx} FULL DATA:`,
-          JSON.stringify(record, null, 2),
-        );
-        console.log(
-          `[GenerateMortalityChartData] Record ${idx} dateOfDeath:`,
-          record.dateOfDeath,
-          `Type:`,
-          typeof record.dateOfDeath,
-        );
-        console.log(
-          `[GenerateMortalityChartData] Record ${idx} dateOfDeathFormatted:`,
-          record.dateOfDeathFormatted,
-        );
-        console.log(
-          `[GenerateMortalityChartData] Record ${idx} dateOfDeath.toDate:`,
-          typeof record.dateOfDeath?.toDate,
-        );
-        console.log(
-          `[GenerateMortalityChartData] Record ${idx} dateOfDeath.seconds:`,
-          record.dateOfDeath?.seconds,
-        );
-
         if (record.dateOfDeath) {
           try {
             // Try toDate() first (Firestore Timestamp)
             if (typeof record.dateOfDeath.toDate === "function") {
               convertedDate = record.dateOfDeath.toDate();
-              console.log(
-                `[GenerateMortalityChartData] Record ${idx}: ✓ Used toDate() method, result:`,
-                convertedDate,
-              );
             }
             // If it has seconds property (Firestore Timestamp structure)
             else if (record.dateOfDeath.seconds) {
               convertedDate = new Date(record.dateOfDeath.seconds * 1000);
-              console.log(
-                `[GenerateMortalityChartData] Record ${idx}: ✓ Used seconds property, result:`,
-                convertedDate,
-              );
             }
             // If it's already a Date object
             else if (record.dateOfDeath instanceof Date) {
               convertedDate = record.dateOfDeath;
-              console.log(
-                `[GenerateMortalityChartData] Record ${idx}: ✓ Already a Date`,
-              );
             }
             // If it's a string like "January 19, 2026 at 3:33:04 AM UTC+8"
             else if (typeof record.dateOfDeath === "string") {
-              console.log(
-                `[GenerateMortalityChartData] Record ${idx}: String detected, calling parseCustomDateFormat`,
-              );
               convertedDate = parseCustomDateFormat(record.dateOfDeath);
-              if (convertedDate) {
-                console.log(
-                  `[GenerateMortalityChartData] Record ${idx}: ✓ Parsed string using custom parser, result:`,
-                  convertedDate,
-                );
-              } else {
-                console.warn(
-                  `[GenerateMortalityChartData] Record ${idx}: Custom parser FAILED for: ${record.dateOfDeath}`,
-                );
-              }
             }
             // If it's a number
             else if (typeof record.dateOfDeath === "number") {
               convertedDate = new Date(record.dateOfDeath);
-              console.log(
-                `[GenerateMortalityChartData] Record ${idx}: ✓ Parsed number`,
-              );
             }
-
-            console.log(
-              `[GenerateMortalityChartData] Record ${idx}: After conversion, convertedDate:`,
-              convertedDate,
-              `isValid:`,
-              convertedDate && !isNaN(convertedDate.getTime()),
-            );
 
             // Validate the converted date
             if (convertedDate && !isNaN(convertedDate.getTime())) {
               dateStr = formatDateAsDayMonth(convertedDate);
-              console.log(
-                `[GenerateMortalityChartData] Record ${idx}: ✓✓ Final date string: ${dateStr}`,
-              );
             } else {
-              console.warn(
-                `[GenerateMortalityChartData] Record ${idx}: Date conversion failed, attempting fallback with dateOfDeathFormatted`,
-              );
               // Fallback to dateOfDeathFormatted
               if (
                 record.dateOfDeathFormatted &&
                 typeof record.dateOfDeathFormatted === "string"
               ) {
-                console.log(
-                  `[GenerateMortalityChartData] Record ${idx}: Fallback - parsing dateOfDeathFormatted: ${record.dateOfDeathFormatted}`,
-                );
                 convertedDate = parseCustomDateFormat(
                   record.dateOfDeathFormatted,
                 );
                 if (convertedDate && !isNaN(convertedDate.getTime())) {
                   dateStr = formatDateAsDayMonth(convertedDate);
-                  console.log(
-                    `[GenerateMortalityChartData] Record ${idx}: ✓✓ Fallback to dateOfDeathFormatted using custom parser: ${dateStr}`,
-                  );
                 } else {
-                  console.error(
-                    `[GenerateMortalityChartData] Record ${idx}: Invalid date after fallback conversion`,
-                    convertedDate,
-                  );
                   dateStr = "Unknown";
                 }
               } else {
-                console.error(
-                  `[GenerateMortalityChartData] Record ${idx}: No dateOfDeathFormatted available`,
-                );
                 dateStr = "Unknown";
               }
             }
@@ -6705,14 +7215,9 @@ export default function AdminAnalytics({ navigation }) {
           `[GenerateMortalityChartData] Date: ${dateStr}, Count: ${count}, Running total: ${dateMap[dateStr]}`,
         );
       } catch (e) {
-        console.error(
-          `[GenerateMortalityChartData] Error processing record ${idx}:`,
-          e,
-        );
+        // Error processing record
       }
     });
-
-    console.log("[GenerateMortalityChartData] Final dateMap:", dateMap);
 
     // If we have a filter with date range, fill in missing dates with 0
     let allDates = Object.keys(dateMap);
@@ -6746,13 +7251,16 @@ export default function AdminAnalytics({ navigation }) {
       return a.localeCompare(b);
     });
 
-    // Dates are already formatted as "20-Jan", use them directly
-    const labels = sortedDates;
+    // Apply intelligent X-axis label generation to reduce clutter
+    const totalDataPoints = sortedDates.length;
+    const labelIndices = generateXAxisLabels(totalDataPoints);
+
+    // Create labels with empty strings for non-label positions
+    const labels = sortedDates.map((date, index) => {
+      return labelIndices.includes(index) ? date : "";
+    });
 
     const data = sortedDates.map((date) => dateMap[date]);
-
-    console.log("[GenerateMortalityChartData] Final labels:", labels);
-    console.log("[GenerateMortalityChartData] Final data:", data);
 
     return {
       labels: labels.length > 0 ? labels : ["No data"],
@@ -6766,15 +7274,10 @@ export default function AdminAnalytics({ navigation }) {
   };
 
   const chartData = (() => {
-    console.log(
-      "[adminAnalytics] Generating chart data. mortalityData length:",
-      mortalityData?.length,
-    );
     const data = generateMortalityChartData();
-    console.log("[adminAnalytics] Generated chartData:", data);
     return data;
   })();
-  const chartWidth = Math.max(windowWidth - 48, 200);
+  const chartWidth = Math.max(windowWidth - 32, 200);
   const chartHeight = 220;
 
   const barData = [
@@ -6834,7 +7337,6 @@ export default function AdminAnalytics({ navigation }) {
     }));
     fetchWaterConsumptionByAge(batchId);
     setFilterModalVisible(false);
-    console.log("[adminAnalytics] Selected batch for water chart:", batchId);
   };
 
   // Updated Predator chart data with different time ranges - dynamic labels based on filter
@@ -6868,15 +7370,7 @@ export default function AdminAnalytics({ navigation }) {
 
   // Generate predator chart data from fetched Firestore data
   const generatePredatorChartData = () => {
-    console.log(
-      "[GeneratePredatorChartData] Called with predatorAttacksData:",
-      predatorAttacksData,
-    );
-
     if (!predatorAttacksData || predatorAttacksData.length === 0) {
-      console.log(
-        "[GeneratePredatorChartData] No data available, returning default",
-      );
       return {
         labels: ["No Data"],
         datasets: [
@@ -6889,11 +7383,17 @@ export default function AdminAnalytics({ navigation }) {
     }
 
     // Extract labels and counts from fetched data
-    const labels = predatorAttacksData.map((item) => item.date);
+    const allLabels = predatorAttacksData.map((item) => item.date);
     const counts = predatorAttacksData.map((item) => item.count);
 
-    console.log("[GeneratePredatorChartData] Labels:", labels);
-    console.log("[GeneratePredatorChartData] Counts:", counts);
+    // Apply intelligent X-axis label generation
+    const totalDataPoints = allLabels.length;
+    const labelIndices = generateXAxisLabels(totalDataPoints);
+
+    // Create labels array with empty strings for non-label positions
+    const labels = allLabels.map((label, index) =>
+      labelIndices.includes(index) ? label : "",
+    );
 
     return {
       labels,
@@ -6929,8 +7429,33 @@ export default function AdminAnalytics({ navigation }) {
       chartFilters["feed"].batchId
     ) {
       // Use actual data from Firestore
-      const labels = feedConsumptionData.map((item) => `Day ${item.age}`);
+      const allLabels = feedConsumptionData.map((item) => `Day ${item.age}`);
       const data = feedConsumptionData.map((item) => item.count);
+
+      // Custom X-axis label logic for feed chart:
+      // ≤6 days: Show all days
+      // 6+ days: Show 4 labels
+      const totalDataPoints = allLabels.length;
+      let labelIndices = [];
+
+      if (totalDataPoints <= 6) {
+        // Show all labels
+        labelIndices = Array.from({ length: totalDataPoints }, (_, i) => i);
+      } else {
+        // Show 4 labels: first, ~1/3, ~2/3, last
+        labelIndices = [
+          0,
+          Math.floor(totalDataPoints / 3),
+          Math.floor((2 * totalDataPoints) / 3),
+          totalDataPoints - 1,
+        ];
+      }
+
+      // Create labels array with empty strings for non-label positions
+      const labels = allLabels.map((label, index) =>
+        labelIndices.includes(index) ? label : "",
+      );
+
       return {
         labels: labels,
         datasets: [
@@ -6954,17 +7479,6 @@ export default function AdminAnalytics({ navigation }) {
   })();
 
   // Chart data for Water Consumption - dynamic labels and data based on filter
-  const defaultWaterLabels = [
-    "Day 1",
-    "Day 7",
-    "Day 14",
-    "Day 21",
-    "Day 28",
-    "Day 35",
-    "Day 42",
-  ];
-  const defaultWaterData = [8, 12, 16, 20, 24, 28, 30];
-
   // Build water chart data - use actual data if available from waterConsumptionData
   const waterChartData = (() => {
     if (
@@ -6974,8 +7488,33 @@ export default function AdminAnalytics({ navigation }) {
       chartFilters["water"].batchId
     ) {
       // Use actual data from Firestore
-      const labels = waterConsumptionData.map((item) => `Day ${item.age}`);
+      const allLabels = waterConsumptionData.map((item) => `Day ${item.age}`);
       const data = waterConsumptionData.map((item) => item.count);
+
+      // Custom X-axis label logic for water chart:
+      // ≤6 days: Show all days
+      // 6+ days: Show 4 labels
+      const totalDataPoints = allLabels.length;
+      let labelIndices = [];
+
+      if (totalDataPoints <= 6) {
+        // Show all labels
+        labelIndices = Array.from({ length: totalDataPoints }, (_, i) => i);
+      } else {
+        // Show 4 labels: first, ~1/3, ~2/3, last
+        labelIndices = [
+          0,
+          Math.floor(totalDataPoints / 3),
+          Math.floor((2 * totalDataPoints) / 3),
+          totalDataPoints - 1,
+        ];
+      }
+
+      // Create labels array with empty strings for non-label positions
+      const labels = allLabels.map((label, index) =>
+        labelIndices.includes(index) ? label : "",
+      );
+
       return {
         labels: labels,
         datasets: [
@@ -6986,12 +7525,12 @@ export default function AdminAnalytics({ navigation }) {
         ],
       };
     }
-    // Use default data when no batch is selected
+    // Return empty chart when no batch is selected
     return {
-      labels: defaultWaterLabels,
+      labels: [],
       datasets: [
         {
-          data: defaultWaterData,
+          data: [],
           color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
         },
       ],
@@ -7009,11 +7548,83 @@ export default function AdminAnalytics({ navigation }) {
     "Jan 07",
   ];
   const defaultSolarData = [12.4, 10.8, 13.6, 14.1, 12.9, 11.7, 13.2];
+
+  // State for fetched solar data
+  const [solarFetchedData, setSolarFetchedData] = useState({
+    labels: [],
+    data: [],
+  });
+  const [solarDataLoading, setSolarDataLoading] = useState(true);
+
+  // Get start and end date from filter or use defaults
+  let solarStartDate = null;
+  let solarEndDate = null;
+  if (
+    chartFilters["solar"] &&
+    chartFilters["solar"].startDate &&
+    chartFilters["solar"].endDate
+  ) {
+    solarStartDate = chartFilters["solar"].startDate;
+    solarEndDate = chartFilters["solar"].endDate;
+  } else {
+    // Fallback: use last 7 days
+    const today = new Date();
+    solarEndDate = today;
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    solarStartDate = sevenDaysAgo;
+  }
+
+  // Fetch solar data when filter changes
+  useEffect(() => {
+    const loadSolarData = async () => {
+      try {
+        setSolarDataLoading(true);
+        if (solarStartDate && solarEndDate) {
+          const result = await fetchSolarUsageData(
+            solarStartDate,
+            solarEndDate,
+          );
+          if (result.labels.length > 0 && result.data.length > 0) {
+            setSolarFetchedData(result);
+          } else {
+            setSolarFetchedData({
+              labels: defaultSolarLabels,
+              data: defaultSolarData,
+            });
+          }
+        } else {
+          setSolarFetchedData({
+            labels: defaultSolarLabels,
+            data: defaultSolarData,
+          });
+        }
+      } catch (error) {
+        console.error("Error loading solar data:", error);
+        setSolarFetchedData({
+          labels: defaultSolarLabels,
+          data: defaultSolarData,
+        });
+      } finally {
+        setSolarDataLoading(false);
+      }
+    };
+    loadSolarData();
+  }, [chartFilters["solar"]]);
+
+  // Use fetched data or fallback to defaults
+  const solarLabels =
+    solarFetchedData.labels.length > 0
+      ? solarFetchedData.labels
+      : defaultSolarLabels;
+  const solarData =
+    solarFetchedData.data.length > 0 ? solarFetchedData.data : defaultSolarData;
+
   const solarChartData = {
-    labels: generateDateLabels(chartFilters["solar"], defaultSolarLabels),
+    labels: solarLabels,
     datasets: [
       {
-        data: generateDataPoints(chartFilters["solar"], defaultSolarData),
+        data: solarData,
         color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
       },
     ],
@@ -7087,25 +7698,42 @@ export default function AdminAnalytics({ navigation }) {
                     backgroundColor: "#133E87",
                     borderColor: "#133E87",
                   },
+                  isGeneratingReport && { opacity: 0.6 },
                 ]}
                 activeOpacity={0.8}
                 onPressIn={() => setPressedBtn("export-mortality")}
                 onPressOut={() => setPressedBtn(null)}
                 onPress={() => {
-                  setExportStartDate(null);
-                  setExportEndDate(null);
-                  setExportSelectedDate("");
-                  setExportMortalityModalVisible(true);
+                  console.log(
+                    "[Export Button] Export mortality button pressed, isGeneratingReport:",
+                    isGeneratingReport,
+                  );
+                  if (!isGeneratingReport) {
+                    console.log(
+                      "[Export Button] Calling generateMortalityReportPDF...",
+                    );
+                    generateMortalityReportPDF().catch((err) => {
+                      console.error(
+                        "[Export Button] Error calling generateMortalityReportPDF:",
+                        err,
+                      );
+                    });
+                  }
                 }}
+                disabled={isGeneratingReport}
               >
-                <Text
-                  style={[
-                    styles.chartExportText,
-                    pressedBtn === "export-mortality" && { color: "#fff" },
-                  ]}
-                >
-                  Export
-                </Text>
+                {isGeneratingReport ? (
+                  <ActivityIndicator color="#133E87" size="small" />
+                ) : (
+                  <Text
+                    style={[
+                      styles.chartExportText,
+                      pressedBtn === "export-mortality" && { color: "#fff" },
+                    ]}
+                  >
+                    Export
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -7257,7 +7885,32 @@ export default function AdminAnalytics({ navigation }) {
                 activeOpacity={0.8}
                 onPressIn={() => setPressedBtn("export-cause")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() => setExportCauseModalVisible(true)}
+                onPress={() => {
+                  if (
+                    chartFilters["cause"]?.startDate &&
+                    chartFilters["cause"]?.endDate
+                  ) {
+                    setCauseExportStartDate(chartFilters["cause"].startDate);
+                    setCauseExportEndDate(chartFilters["cause"].endDate);
+                  } else {
+                    // Use default: previous 7 days
+                    const today = new Date();
+                    const endDate = new Date(today);
+                    endDate.setHours(23, 59, 59, 999);
+
+                    const startDate = new Date(today);
+                    startDate.setDate(startDate.getDate() - 7);
+                    startDate.setHours(0, 0, 0, 0);
+
+                    const startDateStr = startDate.toISOString().split("T")[0];
+                    const endDateStr = endDate.toISOString().split("T")[0];
+
+                    setCauseExportStartDate(startDateStr);
+                    setCauseExportEndDate(endDateStr);
+                  }
+                  // Add a small delay to ensure state is updated before calling function
+                  setTimeout(() => generateCauseOfDeathReportPDF(), 100);
+                }}
               >
                 <Text
                   style={[
@@ -7694,7 +8347,37 @@ export default function AdminAnalytics({ navigation }) {
                 onPressIn={() => setPressedBtn("export-mortalitybatch")}
                 onPressOut={() => setPressedBtn(null)}
                 onPress={() => {
-                  setExportBatchModalVisible(true);
+                  // Check if filter has date range set
+                  if (
+                    chartFilters["mortalitybatch"] &&
+                    chartFilters["mortalitybatch"].startDate &&
+                    chartFilters["mortalitybatch"].endDate
+                  ) {
+                    // Use filter dates
+                    const filterStartDate =
+                      chartFilters["mortalitybatch"].startDate;
+                    const filterEndDate =
+                      chartFilters["mortalitybatch"].endDate;
+
+                    generateMortalityBatchReportPDF(
+                      filterStartDate,
+                      filterEndDate,
+                    );
+                  } else {
+                    // Use default previous 7 days
+                    const today = new Date();
+                    const endDate = new Date(today);
+                    endDate.setHours(0, 0, 0, 0);
+
+                    const startDate = new Date(today);
+                    startDate.setDate(startDate.getDate() - 7);
+                    startDate.setHours(0, 0, 0, 0);
+
+                    const startDateStr = startDate.toISOString().split("T")[0];
+                    const endDateStr = endDate.toISOString().split("T")[0];
+
+                    generateMortalityBatchReportPDF(startDateStr, endDateStr);
+                  }
                 }}
               >
                 <Text
@@ -7769,7 +8452,7 @@ export default function AdminAnalytics({ navigation }) {
                 activeOpacity={0.8}
                 onPressIn={() => setPressedBtn("export-predator")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() => setExportPredatorModalVisible(true)}
+                onPress={generatePredatorAttacksReportPDF}
               >
                 <Text
                   style={[
@@ -7932,7 +8615,7 @@ export default function AdminAnalytics({ navigation }) {
                 onPressIn={() => setPressedBtn("export-attacksbatch")}
                 onPressOut={() => setPressedBtn(null)}
                 onPress={() => {
-                  setExportAttacksBatchModalVisible(true);
+                  generateAttacksPerBatchReportPDF();
                 }}
               >
                 <Text
@@ -8018,7 +8701,7 @@ export default function AdminAnalytics({ navigation }) {
                 activeOpacity={0.8}
                 onPressIn={() => setPressedBtn("export-predatortypes")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() => setExportPredatorTypesModalVisible(true)}
+                onPress={generatePredatorTypesReportPDF}
               >
                 <Text
                   style={[
@@ -8696,101 +9379,83 @@ export default function AdminAnalytics({ navigation }) {
               !feedConsumptionError &&
               feedConsumptionData.length > 0 &&
               LineChartComp && (
-                <ScrollView
-                  horizontal={true}
-                  showsHorizontalScrollIndicator={true}
-                  scrollEventThrottle={16}
-                  style={{ width: "100%" }}
-                >
-                  <View
-                    style={{
-                      position: "relative",
-                      width: Math.max(
-                        chartWidth,
-                        feedConsumptionData.length * 80,
-                      ),
+                <View style={{ position: "relative", width: chartWidth }}>
+                  <LineChartComp
+                    data={feedChartData}
+                    width={chartWidth}
+                    height={chartHeight}
+                    chartConfig={{
+                      backgroundGradientFrom: "#ffffff",
+                      backgroundGradientTo: "#ffffff",
+                      decimalPlaces: 0,
+                      color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                      labelColor: (opacity = 1) =>
+                        `rgba(44, 62, 80, ${opacity})`,
+                      propsForDots: {
+                        r: "4",
+                        strokeWidth: "2",
+                        stroke: "#154985",
+                      },
                     }}
-                  >
-                    <LineChartComp
-                      data={feedChartData}
-                      width={Math.max(
-                        chartWidth,
-                        feedConsumptionData.length * 80,
-                      )}
-                      height={chartHeight}
-                      chartConfig={{
-                        backgroundGradientFrom: "#ffffff",
-                        backgroundGradientTo: "#ffffff",
-                        decimalPlaces: 0,
-                        color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
-                        labelColor: (opacity = 1) =>
-                          `rgba(44, 62, 80, ${opacity})`,
-                        propsForDots: {
-                          r: "4",
-                          strokeWidth: "2",
-                          stroke: "#154985",
-                        },
-                      }}
-                      bezier
-                      style={{ marginTop: 8 }}
-                      withVerticalLines={false}
-                      withInnerLines={false}
-                      withHorizontalLines={false}
-                      fromZero
-                      onDataPointClick={(data) => {
-                        const point = {
-                          index: data.index,
-                          value: data.value,
-                          label: feedChartData.labels[data.index],
-                          x: data.x,
-                          y: data.y,
-                        };
-                        showPointTooltipFeed(point);
-                      }}
-                    />
+                    bezier
+                    style={{ marginTop: 8 }}
+                    withVerticalLines={false}
+                    withInnerLines={false}
+                    withHorizontalLines={false}
+                    fromZero
+                    onDataPointClick={(data) => {
+                      const point = {
+                        index: data.index,
+                        value: data.value,
+                        label: feedChartData.labels[data.index],
+                        x: data.x,
+                        y: data.y,
+                      };
+                      showPointTooltipFeed(point);
+                    }}
+                  />
 
-                    {activePointFeed !== null && (
+                  {activePointFeed !== null && (
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.tooltipWrapper,
+                        {
+                          left: Math.max(6, activePointFeed.x - 1),
+                          top: 0,
+                          height: chartHeight,
+                        },
+                      ]}
+                    >
                       <View
-                        pointerEvents="none"
                         style={[
-                          styles.tooltipWrapper,
+                          styles.tooltipVerticalLine,
                           {
-                            left: Math.max(6, activePointFeed.x - 1),
-                            top: 0,
-                            height: chartHeight,
+                            top: activePointFeed.y + 4,
+                            height: chartHeight - activePointFeed.y - 18,
+                          },
+                        ]}
+                      />
+                      <View
+                        style={[
+                          styles.tooltipBox,
+                          {
+                            position: "absolute",
+                            bottom: chartHeight - activePointFeed.y + 10,
+                            left: -40,
                           },
                         ]}
                       >
-                        <View
-                          style={[
-                            styles.tooltipVerticalLine,
-                            {
-                              top: activePointFeed.y + 4,
-                              height: chartHeight - activePointFeed.y - 18,
-                            },
-                          ]}
-                        />
-                        <View
-                          style={[
-                            styles.tooltipBox,
-                            {
-                              position: "absolute",
-                              bottom: chartHeight - activePointFeed.y + 10,
-                              left: -40,
-                            },
-                          ]}
-                        >
-                          <Text style={styles.tooltipLabel}>
-                            {activePointFeed.label}
-                          </Text>
-                          <Text style={styles.tooltipValue}>
-                            Count: {activePointFeed.value}
-                          </Text>
-                        </View>
+                        <Text style={styles.tooltipLabel}>
+                          {activePointFeed.label}
+                        </Text>
+                        <Text style={styles.tooltipValue}>
+                          Count: {activePointFeed.value}
+                        </Text>
                       </View>
-                    )}
-                  </View>
-                </ScrollView>
+                    </View>
+                  )}
+                </View>
               )}
 
             {/* Default Chart */}
@@ -9072,6 +9737,7 @@ export default function AdminAnalytics({ navigation }) {
 
             {!isLoadingWaterConsumption &&
               !waterConsumptionError &&
+              waterConsumptionData.length > 0 &&
               LineChartComp && (
                 <View style={{ position: "relative", width: chartWidth }}>
                   <LineChartComp
@@ -9149,6 +9815,22 @@ export default function AdminAnalytics({ navigation }) {
                       </View>
                     </View>
                   )}
+                </View>
+              )}
+
+            {!isLoadingWaterConsumption &&
+              !waterConsumptionError &&
+              waterConsumptionData.length === 0 && (
+                <View
+                  style={{
+                    height: chartHeight,
+                    justifyContent: "center",
+                    alignItems: "center",
+                  }}
+                >
+                  <Text style={{ fontSize: 14, color: "#888" }}>
+                    Select a batch to view water consumption data
+                  </Text>
                 </View>
               )}
           </View>
@@ -9271,12 +9953,7 @@ export default function AdminAnalytics({ navigation }) {
                 activeOpacity={0.8}
                 onPressIn={() => setPressedBtn("export-solar")}
                 onPressOut={() => setPressedBtn(null)}
-                onPress={() =>
-                  Alert.alert(
-                    "Export",
-                    "Export functionality to be implemented",
-                  )
-                }
+                onPress={generateEnergyTrendsReportPDF}
               >
                 <Text
                   style={[
@@ -9304,7 +9981,13 @@ export default function AdminAnalytics({ navigation }) {
               </Text>
             )}
             {LineChartComp && (
-              <View style={{ position: "relative", width: chartWidth }}>
+              <View
+                style={{
+                  position: "relative",
+                  width: chartWidth,
+                  overflow: "hidden",
+                }}
+              >
                 <LineChartComp
                   data={solarChartData}
                   width={chartWidth}
@@ -9391,179 +10074,49 @@ export default function AdminAnalytics({ navigation }) {
           transparent={true}
           onRequestClose={() => setFilterModalVisible(false)}
         >
-          <TouchableOpacity
-            activeOpacity={1}
-            style={{ flex: 1 }}
-            onPress={() => {
-              // Close all dropdowns and modals when tapping outside
-              setShowFeedBatchDropdown(false);
-              setFilterModalVisible(false);
-            }}
-          >
-            <View style={styles.modalContainer}>
-              <TouchableOpacity
-                activeOpacity={1}
-                onPress={(e) => e.stopPropagation()}
-              >
-                <View style={styles.modalContent}>
-                  {/* Batch Dropdown for Feed Consumption Chart */}
-                  {currentFilterTarget === "feed" && (
-                    <View
-                      style={{ paddingHorizontal: 16, paddingVertical: 16 }}
-                    >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              {/* Batch Dropdown for Feed Consumption Chart */}
+              {currentFilterTarget === "feed" && (
+                <View style={{ paddingHorizontal: 16, paddingVertical: 16 }}>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: "600",
+                      marginBottom: 12,
+                      color: "#333",
+                    }}
+                  >
+                    Select a Batch
+                  </Text>
+
+                  {isFetchingBatches ? (
+                    <View style={{ padding: 1, alignItems: "center" }}>
+                      <ActivityIndicator size="large" color="#133E87" />
                       <Text
                         style={{
-                          fontSize: 14,
-                          fontWeight: "600",
-                          marginBottom: 12,
-                          color: "#333",
+                          marginTop: 8,
+                          color: "#666",
+                          fontSize: 12,
                         }}
                       >
-                        Select a Batch
+                        Loading batches...
                       </Text>
-
-                      {isFetchingBatches ? (
-                        <View style={{ padding: 1, alignItems: "center" }}>
-                          <ActivityIndicator size="large" color="#133E87" />
-                          <Text
-                            style={{
-                              marginTop: 8,
-                              color: "#666",
-                              fontSize: 12,
-                            }}
-                          >
-                            Loading batches...
-                          </Text>
-                        </View>
-                      ) : batchFetchError ? (
-                        <View
-                          style={{
-                            padding: 16,
-                            backgroundColor: "#ffebee",
-                            borderRadius: 8,
-                          }}
-                        >
-                          <Text style={{ color: "#c62828", fontSize: 12 }}>
-                            {batchFetchError}
-                          </Text>
-                        </View>
-                      ) : (
-                        <>
-                          <TouchableOpacity
-                            style={{
-                              borderWidth: 1,
-                              borderColor: "#ddd",
-                              borderRadius: 8,
-                              paddingHorizontal: 12,
-                              paddingVertical: 12,
-                              flexDirection: "row",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                            }}
-                            onPress={() =>
-                              setShowFeedBatchDropdown(!showFeedBatchDropdown)
-                            }
-                          >
-                            <Text
-                              style={{
-                                color: selectedFeedBatch ? "#333" : "#999",
-                                fontSize: 14,
-                              }}
-                            >
-                              {selectedFeedBatch || "Select a batch"}
-                            </Text>
-                            <Text style={{ color: "#666" }}>▼</Text>
-                          </TouchableOpacity>
-
-                          {showFeedBatchDropdown && (
-                            <>
-                              <TouchableOpacity
-                                activeOpacity={1}
-                                style={{
-                                  position: "absolute",
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: -5000,
-                                  zIndex: 1,
-                                }}
-                                onPress={() => setShowFeedBatchDropdown(false)}
-                              />
-                              <ScrollView
-                                style={{
-                                  borderWidth: 1,
-                                  borderColor: "#ddd",
-                                  borderTopWidth: 0,
-                                  borderBottomLeftRadius: 8,
-                                  borderBottomRightRadius: 8,
-                                  maxHeight: 300,
-                                  marginTop: -1,
-                                  zIndex: 2,
-                                  backgroundColor: "#fff",
-                                }}
-                                nestedScrollEnabled={true}
-                              >
-                                {availableBatches.length === 0 ? (
-                                  <Text
-                                    style={{
-                                      padding: 12,
-                                      color: "#999",
-                                      fontSize: 12,
-                                      textAlign: "center",
-                                    }}
-                                  >
-                                    No batches available
-                                  </Text>
-                                ) : (
-                                  availableBatches.map((batch) => (
-                                    <TouchableOpacity
-                                      key={batch.id}
-                                      style={{
-                                        padding: 12,
-                                        borderBottomWidth: 1,
-                                        borderBottomColor: "#eee",
-                                        backgroundColor:
-                                          selectedFeedBatch === batch.id
-                                            ? "#e3f2fd"
-                                            : "#fff",
-                                        zIndex: 3,
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        minHeight: 44,
-                                        width: "100%",
-                                      }}
-                                      onPress={() =>
-                                        handleFeedBatchSelect(batch.id)
-                                      }
-                                    >
-                                      <Text
-                                        style={{ color: "#333", fontSize: 14 }}
-                                      >
-                                        {batch.id}
-                                      </Text>
-                                    </TouchableOpacity>
-                                  ))
-                                )}
-                              </ScrollView>
-                            </>
-                          )}
-                        </>
-                      )}
                     </View>
-                  )}
-
-                  {/* Water Batch Selection */}
-                  {currentFilterTarget === "water" && (
-                    <>
-                      <Text
-                        style={{
-                          fontSize: 14,
-                          fontWeight: "600",
-                          marginBottom: 8,
-                        }}
-                      >
-                        Select a Batch
+                  ) : batchFetchError ? (
+                    <View
+                      style={{
+                        padding: 16,
+                        backgroundColor: "#ffebee",
+                        borderRadius: 8,
+                      }}
+                    >
+                      <Text style={{ color: "#c62828", fontSize: 12 }}>
+                        {batchFetchError}
                       </Text>
+                    </View>
+                  ) : (
+                    <>
                       <TouchableOpacity
                         style={{
                           borderWidth: 1,
@@ -9576,21 +10129,21 @@ export default function AdminAnalytics({ navigation }) {
                           alignItems: "center",
                         }}
                         onPress={() =>
-                          setShowWaterBatchDropdown(!showWaterBatchDropdown)
+                          setShowFeedBatchDropdown(!showFeedBatchDropdown)
                         }
                       >
                         <Text
                           style={{
-                            color: selectedWaterBatch ? "#333" : "#999",
+                            color: selectedFeedBatch ? "#333" : "#999",
                             fontSize: 14,
                           }}
                         >
-                          {selectedWaterBatch || "Select a batch"}
+                          {selectedFeedBatch || "Select a batch"}
                         </Text>
                         <Text style={{ color: "#666" }}>▼</Text>
                       </TouchableOpacity>
 
-                      {showWaterBatchDropdown && (
+                      {showFeedBatchDropdown && (
                         <>
                           <TouchableOpacity
                             activeOpacity={1}
@@ -9602,7 +10155,7 @@ export default function AdminAnalytics({ navigation }) {
                               bottom: -5000,
                               zIndex: 1,
                             }}
-                            onPress={() => setShowWaterBatchDropdown(false)}
+                            onPress={() => setShowFeedBatchDropdown(false)}
                           />
                           <ScrollView
                             style={{
@@ -9618,21 +10171,19 @@ export default function AdminAnalytics({ navigation }) {
                             }}
                             nestedScrollEnabled={true}
                           >
-                            {availableWaterBatches.length === 0 ? (
+                            {availableBatches.length === 0 ? (
                               <Text
                                 style={{
-                                  padding: 16,
+                                  padding: 12,
                                   color: "#999",
                                   fontSize: 12,
                                   textAlign: "center",
                                 }}
                               >
-                                {isFetchingWaterBatches
-                                  ? "Loading water batches..."
-                                  : "No water batches available"}
+                                No batches available
                               </Text>
                             ) : (
-                              availableWaterBatches.map((batch) => (
+                              availableBatches.map((batch) => (
                                 <TouchableOpacity
                                   key={batch.id}
                                   style={{
@@ -9640,27 +10191,21 @@ export default function AdminAnalytics({ navigation }) {
                                     borderBottomWidth: 1,
                                     borderBottomColor: "#eee",
                                     backgroundColor:
-                                      selectedWaterBatch === batch.id
+                                      selectedFeedBatch === batch.id
                                         ? "#e3f2fd"
                                         : "#fff",
                                     zIndex: 3,
                                     alignItems: "center",
-                                    justifyContent: "flex-end",
+                                    justifyContent: "center",
+                                    minHeight: 44,
+                                    width: "100%",
                                   }}
                                   onPress={() =>
-                                    handleWaterBatchSelect(batch.id)
+                                    handleFeedBatchSelect(batch.id)
                                   }
                                 >
-                                  <Text
-                                    style={{
-                                      color:
-                                        selectedWaterBatch === batch.id
-                                          ? "#133E87"
-                                          : "#333",
-                                      fontSize: 14,
-                                    }}
-                                  >
-                                    {batch.name}
+                                  <Text style={{ color: "#333", fontSize: 14 }}>
+                                    {batch.id}
                                   </Text>
                                 </TouchableOpacity>
                               ))
@@ -9670,949 +10215,405 @@ export default function AdminAnalytics({ navigation }) {
                       )}
                     </>
                   )}
+                </View>
+              )}
 
-                  {/* Date Range Display - Only for non-feed/non-water filters */}
-                  {currentFilterTarget !== "feed" &&
-                    currentFilterTarget !== "water" && (
-                      <>
-                        <View style={styles.dateRangeHeader}>
-                          <View style={styles.dateRangeItem}>
-                            <Text style={styles.dateRangeLabel}>From</Text>
-                            <Text style={styles.dateRangeValue}>
-                              {startDate
-                                ? new Date(startDate).toLocaleDateString(
-                                    "en-US",
-                                    {
-                                      weekday: "short",
-                                      day: "2-digit",
-                                      month: "short",
-                                    },
-                                  )
-                                : "Select date"}
-                            </Text>
-                          </View>
-                          <View style={styles.dateRangeItem}>
-                            <Text style={styles.dateRangeLabel}>To</Text>
-                            <Text style={styles.dateRangeValue}>
-                              {endDate
-                                ? new Date(endDate).toLocaleDateString(
-                                    "en-US",
-                                    {
-                                      weekday: "short",
-                                      day: "2-digit",
-                                      month: "short",
-                                    },
-                                  )
-                                : "Select date"}
-                            </Text>
-                          </View>
-                        </View>
+              {/* Water Batch Selection */}
+              {currentFilterTarget === "water" && (
+                <>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: "600",
+                      marginBottom: 8,
+                    }}
+                  >
+                    Select a Batch
+                  </Text>
+                  <TouchableOpacity
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#ddd",
+                      borderRadius: 8,
+                      paddingHorizontal: 12,
+                      paddingVertical: 12,
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                    onPress={() =>
+                      setShowWaterBatchDropdown(!showWaterBatchDropdown)
+                    }
+                  >
+                    <Text
+                      style={{
+                        color: selectedWaterBatch ? "#333" : "#999",
+                        fontSize: 14,
+                      }}
+                    >
+                      {selectedWaterBatch || "Select a batch"}
+                    </Text>
+                    <Text style={{ color: "#666" }}>▼</Text>
+                  </TouchableOpacity>
 
-                        {/* Date Picker */}
-                        <View style={styles.datePickerContainer}>
-                          <Calendar
-                            onDayPress={(day) => {
-                              const selectedDateStr = day.dateString;
-
-                              // Parse date string in local time (not UTC)
-                              const [year, month, day_num] = selectedDateStr
-                                .split("-")
-                                .map(Number);
-                              const selectedDate = new Date(
-                                year,
-                                month - 1,
-                                day_num,
-                              );
-
-                              const today = new Date();
-                              today.setHours(0, 0, 0, 0);
-
-                              // Validate: Do not allow future dates
-                              if (selectedDate > today) {
-                                Alert.alert(
-                                  "Invalid Date",
-                                  "Future dates are not allowed. Please select today or an earlier date.",
-                                  [{ text: "OK" }],
-                                );
-                                return;
-                              }
-
-                              if (!startDate || (startDate && endDate)) {
-                                // Start new selection
-                                setStartDate(selectedDateStr);
-                                setEndDate(null);
-                              } else if (startDate && !endDate) {
-                                // Calculate the difference in days
-                                const start = new Date(selectedDateStr);
-                                const selected = new Date(startDate);
-                                const diffTime = Math.abs(selected - start);
-                                const diffDays = Math.ceil(
-                                  diffTime / (1000 * 60 * 60 * 24),
-                                );
-
-                                // Different date range limits based on chart type
-                                // Mortality Trend & Predator Attacks: up to 7 days
-                                // Others (Cause of Death, Mortality Per Batch): up to 30 days
-                                const maxDays =
-                                  currentFilterTarget === "mortality" ||
-                                  currentFilterTarget === "predator"
-                                    ? 7
-                                    : 365;
-
-                                if (diffDays > maxDays - 1) {
-                                  Alert.alert(
-                                    "Invalid Range",
-                                    `Please select a date range within ${maxDays} days.`,
-                                    [{ text: "OK" }],
-                                  );
-                                  return;
-                                }
-
-                                // Set end date
-                                if (
-                                  new Date(selectedDateStr) <
-                                  new Date(startDate)
-                                ) {
-                                  // If selected date is before start, swap them
-                                  setEndDate(startDate);
-                                  setStartDate(selectedDateStr);
-                                } else {
-                                  setEndDate(selectedDateStr);
-                                }
-                              }
+                  {showWaterBatchDropdown && (
+                    <>
+                      <TouchableOpacity
+                        activeOpacity={1}
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: -5000,
+                          zIndex: 1,
+                        }}
+                        onPress={() => setShowWaterBatchDropdown(false)}
+                      />
+                      <ScrollView
+                        style={{
+                          borderWidth: 1,
+                          borderColor: "#ddd",
+                          borderTopWidth: 0,
+                          borderBottomLeftRadius: 8,
+                          borderBottomRightRadius: 8,
+                          maxHeight: 300,
+                          marginTop: -1,
+                          zIndex: 2,
+                          backgroundColor: "#fff",
+                        }}
+                        nestedScrollEnabled={true}
+                      >
+                        {availableWaterBatches.length === 0 ? (
+                          <Text
+                            style={{
+                              padding: 16,
+                              color: "#999",
+                              fontSize: 12,
+                              textAlign: "center",
                             }}
-                            markingType={"period"}
-                            maxDate={(() => {
-                              const today = new Date();
-                              const year = today.getFullYear();
-                              const month = String(
-                                today.getMonth() + 1,
-                              ).padStart(2, "0");
-                              const day = String(today.getDate()).padStart(
-                                2,
-                                "0",
+                          >
+                            {isFetchingWaterBatches
+                              ? "Loading water batches..."
+                              : "No water batches available"}
+                          </Text>
+                        ) : (
+                          availableWaterBatches.map((batch) => (
+                            <TouchableOpacity
+                              key={batch.id}
+                              style={{
+                                padding: 12,
+                                borderBottomWidth: 1,
+                                borderBottomColor: "#eee",
+                                backgroundColor:
+                                  selectedWaterBatch === batch.id
+                                    ? "#e3f2fd"
+                                    : "#fff",
+                                zIndex: 3,
+                                alignItems: "center",
+                                justifyContent: "flex-end",
+                              }}
+                              onPress={() => handleWaterBatchSelect(batch.id)}
+                            >
+                              <Text
+                                style={{
+                                  color:
+                                    selectedWaterBatch === batch.id
+                                      ? "#133E87"
+                                      : "#333",
+                                  fontSize: 14,
+                                }}
+                              >
+                                {batch.name}
+                              </Text>
+                            </TouchableOpacity>
+                          ))
+                        )}
+                      </ScrollView>
+                    </>
+                  )}
+                </>
+              )}
+
+              {/* Date Range Display - Only for non-feed/non-water filters */}
+              {currentFilterTarget !== "feed" &&
+                currentFilterTarget !== "water" && (
+                  <>
+                    <View style={styles.dateRangeHeader}>
+                      <View style={styles.dateRangeItem}>
+                        <Text style={styles.dateRangeLabel}>From</Text>
+                        <Text style={styles.dateRangeValue}>
+                          {startDate
+                            ? new Date(startDate).toLocaleDateString("en-US", {
+                                weekday: "short",
+                                day: "2-digit",
+                                month: "short",
+                              })
+                            : "Select date"}
+                        </Text>
+                      </View>
+                      <View style={styles.dateRangeItem}>
+                        <Text style={styles.dateRangeLabel}>To</Text>
+                        <Text style={styles.dateRangeValue}>
+                          {endDate
+                            ? new Date(endDate).toLocaleDateString("en-US", {
+                                weekday: "short",
+                                day: "2-digit",
+                                month: "short",
+                              })
+                            : "Select date"}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Date Picker */}
+                    <View style={styles.datePickerContainer}>
+                      <Calendar
+                        onDayPress={(day) => {
+                          const selectedDateStr = day.dateString;
+
+                          // Parse date string in local time (not UTC)
+                          const [year, month, day_num] = selectedDateStr
+                            .split("-")
+                            .map(Number);
+                          const selectedDate = new Date(
+                            year,
+                            month - 1,
+                            day_num,
+                          );
+
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+
+                          // Validate: Do not allow future dates
+                          if (selectedDate > today) {
+                            Alert.alert(
+                              "Invalid Date",
+                              "Future dates are not allowed. Please select today or an earlier date.",
+                              [{ text: "OK" }],
+                            );
+                            return;
+                          }
+
+                          if (!startDate || (startDate && endDate)) {
+                            // Start new selection
+                            setStartDate(selectedDateStr);
+                            setEndDate(null);
+                          } else if (startDate && !endDate) {
+                            // Calculate the difference in days
+                            const start = new Date(selectedDateStr);
+                            const selected = new Date(startDate);
+                            const diffTime = Math.abs(selected - start);
+                            const diffDays = Math.ceil(
+                              diffTime / (1000 * 60 * 60 * 24),
+                            );
+
+                            // Different date range limits based on chart type
+                            // All charts: up to 365 days
+                            const maxDays = 365;
+
+                            if (diffDays > maxDays - 1) {
+                              Alert.alert(
+                                "Invalid Range",
+                                `Please select a date range within ${maxDays} days.`,
+                                [{ text: "OK" }],
                               );
-                              return `${year}-${month}-${day}`;
-                            })()}
-                            markedDates={(() => {
-                              if (!startDate) return {};
+                              return;
+                            }
 
-                              if (startDate && !endDate) {
-                                return {
-                                  [startDate]: {
-                                    startingDay: true,
-                                    color: "#3B82F6",
-                                    textColor: "white",
-                                  },
-                                };
-                              }
+                            // Set end date
+                            if (
+                              new Date(selectedDateStr) < new Date(startDate)
+                            ) {
+                              // If selected date is before start, swap them
+                              setEndDate(startDate);
+                              setStartDate(selectedDateStr);
+                            } else {
+                              setEndDate(selectedDateStr);
+                            }
+                          }
+                        }}
+                        markingType={"period"}
+                        maxDate={(() => {
+                          const today = new Date();
+                          const year = today.getFullYear();
+                          const month = String(today.getMonth() + 1).padStart(
+                            2,
+                            "0",
+                          );
+                          const day = String(today.getDate()).padStart(2, "0");
+                          return `${year}-${month}-${day}`;
+                        })()}
+                        markedDates={(() => {
+                          if (!startDate) return {};
 
-                              if (startDate && endDate) {
-                                const marks = {};
-                                const start = new Date(startDate);
-                                const end = new Date(endDate);
+                          if (startDate && !endDate) {
+                            return {
+                              [startDate]: {
+                                startingDay: true,
+                                color: "#3B82F6",
+                                textColor: "white",
+                              },
+                            };
+                          }
 
-                                // Mark all dates in the range
-                                for (
-                                  let d = new Date(start);
-                                  d <= end;
-                                  d.setDate(d.getDate() + 1)
-                                ) {
-                                  const dateStr = d.toISOString().split("T")[0];
+                          if (startDate && endDate) {
+                            const marks = {};
+                            const start = new Date(startDate);
+                            const end = new Date(endDate);
 
-                                  if (dateStr === startDate) {
-                                    marks[dateStr] = {
-                                      startingDay: true,
-                                      color: "#BFDBFE",
-                                      textColor: "#000",
-                                    };
-                                  } else if (dateStr === endDate) {
-                                    marks[dateStr] = {
-                                      endingDay: true,
-                                      color: "#BFDBFE",
-                                      textColor: "#000",
-                                    };
-                                  } else {
-                                    marks[dateStr] = {
-                                      color: "#BFDBFE",
-                                      textColor: "#000",
-                                    };
-                                  }
-                                }
+                            // Mark all dates in the range
+                            for (
+                              let d = new Date(start);
+                              d <= end;
+                              d.setDate(d.getDate() + 1)
+                            ) {
+                              const dateStr = d.toISOString().split("T")[0];
 
-                                // Override start and end with circular highlights
-                                marks[startDate] = {
-                                  ...marks[startDate],
+                              if (dateStr === startDate) {
+                                marks[dateStr] = {
                                   startingDay: true,
                                   color: "#BFDBFE",
-                                  textColor: "white",
-                                  marked: true,
-                                  dotColor: "white",
-                                  customStyles: {
-                                    container: {
-                                      backgroundColor: "#3B82F6",
-                                      borderRadius: 100,
-                                    },
-                                    text: {
-                                      color: "white",
-                                      fontWeight: "bold",
-                                    },
-                                  },
+                                  textColor: "#000",
                                 };
-
-                                marks[endDate] = {
-                                  ...marks[endDate],
+                              } else if (dateStr === endDate) {
+                                marks[dateStr] = {
                                   endingDay: true,
                                   color: "#BFDBFE",
-                                  textColor: "white",
-                                  marked: true,
-                                  dotColor: "white",
-                                  customStyles: {
-                                    container: {
-                                      backgroundColor: "#3B82F6",
-                                      borderRadius: 100,
-                                    },
-                                    text: {
-                                      color: "white",
-                                      fontWeight: "bold",
-                                    },
-                                  },
+                                  textColor: "#000",
                                 };
-
-                                return marks;
+                              } else {
+                                marks[dateStr] = {
+                                  color: "#BFDBFE",
+                                  textColor: "#000",
+                                };
                               }
+                            }
 
-                              return {};
-                            })()}
-                            theme={{
-                              calendarBackground: "#ffffff",
-                              textSectionTitleColor: "#3B82F6",
-                              selectedDayBackgroundColor: "#3B82F6",
-                              selectedDayTextColor: "#ffffff",
-                              todayTextColor: "#3B82F6",
-                              dayTextColor: "#2d4150",
-                              textDisabledColor: "#d9e1e8",
-                              monthTextColor: "#2d4150",
-                              indicatorColor: "#3B82F6",
-                              textDayFontWeight: "400",
-                              textMonthFontWeight: "600",
-                              textDayHeaderFontWeight: "500",
-                              textDayFontSize: 14,
-                              textMonthFontSize: 18,
-                              textDayHeaderFontSize: 12,
-                              "stylesheet.calendar.header": {
-                                week: {
-                                  marginTop: 5,
-                                  flexDirection: "row",
-                                  justifyContent: "space-between",
+                            // Override start and end with circular highlights
+                            marks[startDate] = {
+                              ...marks[startDate],
+                              startingDay: true,
+                              color: "#BFDBFE",
+                              textColor: "white",
+                              marked: true,
+                              dotColor: "white",
+                              customStyles: {
+                                container: {
+                                  backgroundColor: "#3B82F6",
+                                  borderRadius: 100,
+                                },
+                                text: {
+                                  color: "white",
+                                  fontWeight: "bold",
                                 },
                               },
-                            }}
-                            style={styles.calendar}
-                          />
-                        </View>
+                            };
 
-                        {/* Apply and Cancel Buttons */}
-                        <View style={styles.modalButtonsRow}>
-                          <TouchableOpacity
-                            style={[
-                              styles.modalActionButton,
-                              styles.modalCancelButton,
-                            ]}
-                            onPress={() => {
-                              setStartDate(null);
-                              setEndDate(null);
-                              setFilterModalVisible(false);
-                            }}
-                          >
-                            <Text style={styles.modalCancelButtonText}>
-                              Cancel
-                            </Text>
-                          </TouchableOpacity>
+                            marks[endDate] = {
+                              ...marks[endDate],
+                              endingDay: true,
+                              color: "#BFDBFE",
+                              textColor: "white",
+                              marked: true,
+                              dotColor: "white",
+                              customStyles: {
+                                container: {
+                                  backgroundColor: "#3B82F6",
+                                  borderRadius: 100,
+                                },
+                                text: {
+                                  color: "white",
+                                  fontWeight: "bold",
+                                },
+                              },
+                            };
 
-                          <TouchableOpacity
-                            style={[
-                              styles.modalActionButton,
-                              styles.modalApplyButton,
-                            ]}
-                            onPress={() => {
-                              if (currentFilterTarget && startDate && endDate) {
-                                // Save filter settings for this chart
-                                setChartFilters((prev) => ({
-                                  ...prev,
-                                  [currentFilterTarget]: { startDate, endDate },
-                                }));
+                            return marks;
+                          }
 
-                                // Existing logic for Predator Chart time range state
-                                if (currentFilterTarget === "predator") {
-                                  setPredatorTimeRange("daily");
-                                }
-                              }
-                              setFilterModalVisible(false);
-                            }}
-                          >
-                            <Text style={styles.modalApplyButtonText}>
-                              Apply
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      </>
-                    )}
-                </View>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </Modal>
-
-        {/* Export Mortality Modal */}
-        <Modal
-          visible={exportMortalityModalVisible}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={() => setExportMortalityModalVisible(false)}
-        >
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Export Mortality Report</Text>
-
-              {/* Date Range Display */}
-              <View style={styles.dateRangeHeader}>
-                <View style={styles.dateRangeItem}>
-                  <Text style={styles.dateRangeLabel}>From</Text>
-                  <Text style={styles.dateRangeValue}>
-                    {exportStartDate
-                      ? new Date(exportStartDate).toLocaleDateString("en-US", {
-                          weekday: "short",
-                          day: "2-digit",
-                          month: "short",
-                        })
-                      : "Select date"}
-                  </Text>
-                </View>
-                <View style={styles.dateRangeItem}>
-                  <Text style={styles.dateRangeLabel}>To</Text>
-                  <Text style={styles.dateRangeValue}>
-                    {exportEndDate
-                      ? new Date(exportEndDate).toLocaleDateString("en-US", {
-                          weekday: "short",
-                          day: "2-digit",
-                          month: "short",
-                        })
-                      : "Select date"}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Date Picker */}
-              <View style={styles.datePickerContainer}>
-                <Calendar
-                  onDayPress={(day) => {
-                    const selectedDateStr = day.dateString;
-                    const [year, month, day_num] = selectedDateStr
-                      .split("-")
-                      .map(Number);
-                    const selectedDate = new Date(year, month - 1, day_num);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-
-                    // Validate: Do not allow future dates
-                    if (selectedDate > today) {
-                      Alert.alert(
-                        "Invalid Date",
-                        "Future dates are not allowed. Please select today or an earlier date.",
-                        [{ text: "OK" }],
-                      );
-                      return;
-                    }
-
-                    if (
-                      !exportStartDate ||
-                      (exportStartDate && exportEndDate)
-                    ) {
-                      // Start new selection
-                      setExportStartDate(selectedDateStr);
-                      setExportEndDate(null);
-                    } else if (exportStartDate && !exportEndDate) {
-                      // Calculate the difference in days
-                      const start = new Date(exportStartDate);
-                      const selected = new Date(selectedDateStr);
-                      const diffTime = Math.abs(selected - start);
-                      const diffDays = Math.ceil(
-                        diffTime / (1000 * 60 * 60 * 24),
-                      );
-
-                      // Set end date
-                      if (
-                        new Date(selectedDateStr) < new Date(exportStartDate)
-                      ) {
-                        setExportEndDate(exportStartDate);
-                        setExportStartDate(selectedDateStr);
-                      } else {
-                        setExportEndDate(selectedDateStr);
-                      }
-                    }
-                  }}
-                  markingType={"period"}
-                  maxDate={(() => {
-                    const today = new Date();
-                    const year = today.getFullYear();
-                    const month = String(today.getMonth() + 1).padStart(2, "0");
-                    const day = String(today.getDate()).padStart(2, "0");
-                    return `${year}-${month}-${day}`;
-                  })()}
-                  markedDates={(() => {
-                    if (!exportStartDate) return {};
-
-                    if (exportStartDate && !exportEndDate) {
-                      return {
-                        [exportStartDate]: {
-                          startingDay: true,
-                          color: "#3B82F6",
-                          textColor: "white",
-                        },
-                      };
-                    }
-
-                    if (exportStartDate && exportEndDate) {
-                      const marks = {};
-                      const start = new Date(exportStartDate);
-                      const end = new Date(exportEndDate);
-
-                      for (
-                        let d = new Date(start);
-                        d <= end;
-                        d.setDate(d.getDate() + 1)
-                      ) {
-                        const dateStr = d.toISOString().split("T")[0];
-
-                        if (dateStr === exportStartDate) {
-                          marks[dateStr] = {
-                            startingDay: true,
-                            color: "#BFDBFE",
-                            textColor: "#000",
-                          };
-                        } else if (dateStr === exportEndDate) {
-                          marks[dateStr] = {
-                            endingDay: true,
-                            color: "#BFDBFE",
-                            textColor: "#000",
-                          };
-                        } else {
-                          marks[dateStr] = {
-                            color: "#BFDBFE",
-                            textColor: "#000",
-                          };
-                        }
-                      }
-
-                      marks[exportStartDate] = {
-                        ...marks[exportStartDate],
-                        startingDay: true,
-                        color: "#BFDBFE",
-                        textColor: "white",
-                        marked: true,
-                        dotColor: "white",
-                        customStyles: {
-                          container: {
-                            backgroundColor: "#3B82F6",
-                            borderRadius: 100,
+                          return {};
+                        })()}
+                        theme={{
+                          calendarBackground: "#ffffff",
+                          textSectionTitleColor: "#3B82F6",
+                          selectedDayBackgroundColor: "#3B82F6",
+                          selectedDayTextColor: "#ffffff",
+                          todayTextColor: "#3B82F6",
+                          dayTextColor: "#2d4150",
+                          textDisabledColor: "#d9e1e8",
+                          monthTextColor: "#2d4150",
+                          indicatorColor: "#3B82F6",
+                          textDayFontWeight: "400",
+                          textMonthFontWeight: "600",
+                          textDayHeaderFontWeight: "500",
+                          textDayFontSize: 14,
+                          textMonthFontSize: 18,
+                          textDayHeaderFontSize: 12,
+                          "stylesheet.calendar.header": {
+                            week: {
+                              marginTop: 5,
+                              flexDirection: "row",
+                              justifyContent: "space-between",
+                            },
                           },
-                          text: {
-                            color: "white",
-                            fontWeight: "bold",
-                          },
-                        },
-                      };
+                        }}
+                        style={styles.calendar}
+                      />
+                    </View>
 
-                      marks[exportEndDate] = {
-                        ...marks[exportEndDate],
-                        endingDay: true,
-                        color: "#BFDBFE",
-                        textColor: "white",
-                        marked: true,
-                        dotColor: "white",
-                        customStyles: {
-                          container: {
-                            backgroundColor: "#3B82F6",
-                            borderRadius: 100,
-                          },
-                          text: {
-                            color: "white",
-                            fontWeight: "bold",
-                          },
-                        },
-                      };
+                    {/* Apply and Cancel Buttons */}
+                    <View style={styles.modalButtonsRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.modalActionButton,
+                          styles.modalCancelButton,
+                        ]}
+                        onPress={() => {
+                          setStartDate(null);
+                          setEndDate(null);
+                          setFilterModalVisible(false);
+                        }}
+                      >
+                        <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                      </TouchableOpacity>
 
-                      return marks;
-                    }
+                      <TouchableOpacity
+                        style={[
+                          styles.modalActionButton,
+                          styles.modalApplyButton,
+                        ]}
+                        onPress={() => {
+                          if (currentFilterTarget && startDate && endDate) {
+                            // Check for Frequency of Attacks chart 7-day limit
+                            if (currentFilterTarget === "predator") {
+                              const start = new Date(startDate);
+                              const end = new Date(endDate);
+                              const diffMs = end - start;
+                              const diffDays = Math.ceil(
+                                diffMs / (1000 * 60 * 60 * 24),
+                              );
+                            }
 
-                    return {};
-                  })()}
-                  theme={{
-                    calendarBackground: "#ffffff",
-                    textSectionTitleColor: "#3B82F6",
-                    selectedDayBackgroundColor: "#3B82F6",
-                    selectedDayTextColor: "#ffffff",
-                    todayTextColor: "#3B82F6",
-                    dayTextColor: "#2d4150",
-                    textDisabledColor: "#d9e1e8",
-                    monthTextColor: "#2d4150",
-                    indicatorColor: "#3B82F6",
-                    textDayFontWeight: "400",
-                    textMonthFontWeight: "600",
-                    textDayHeaderFontWeight: "500",
-                    textDayFontSize: 14,
-                    textMonthFontSize: 18,
-                    textDayHeaderFontSize: 12,
-                  }}
-                  style={styles.calendar}
-                />
-              </View>
+                            // Save filter settings for this chart
+                            setChartFilters((prev) => ({
+                              ...prev,
+                              [currentFilterTarget]: { startDate, endDate },
+                            }));
 
-              {/* Generate and Cancel Buttons */}
-              <View style={styles.modalButtonsRow}>
-                <TouchableOpacity
-                  style={[styles.modalActionButton, styles.modalCancelButton]}
-                  onPress={() => {
-                    setExportStartDate(null);
-                    setExportEndDate(null);
-                    setExportMortalityModalVisible(false);
-                  }}
-                  disabled={isGeneratingReport}
-                >
-                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.modalActionButton,
-                    styles.modalApplyButton,
-                    !exportStartDate || !exportEndDate || isGeneratingReport
-                      ? { opacity: 0.5 }
-                      : {},
-                  ]}
-                  onPress={generateMortalityReportPDF}
-                  disabled={
-                    !exportStartDate || !exportEndDate || isGeneratingReport
-                  }
-                >
-                  {isGeneratingReport ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.modalApplyButtonText}>Generate</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Cause of Death Export Modal */}
-        <Modal
-          visible={exportCauseModalVisible}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={() => setExportCauseModalVisible(false)}
-        >
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>
-                Export Cause of Death Report
-              </Text>
-
-              {/* Line 4 omitted */}
-              <View style={styles.dateRangeHeader}>
-                <View style={styles.dateRangeItem}>
-                  <Text style={styles.dateRangeLabel}>From</Text>
-                  <Text style={styles.dateRangeValue}>
-                    {causeExportStartDate
-                      ? new Date(causeExportStartDate).toLocaleDateString(
-                          "en-US",
-                          {
-                            weekday: "short",
-                            day: "2-digit",
-                            month: "short",
-                          },
-                        )
-                      : "Select date"}
-                  </Text>
-                </View>
-                <View style={styles.dateRangeItem}>
-                  <Text style={styles.dateRangeLabel}>To</Text>
-                  <Text style={styles.dateRangeValue}>
-                    {causeExportEndDate
-                      ? new Date(causeExportEndDate).toLocaleDateString(
-                          "en-US",
-                          {
-                            weekday: "short",
-                            day: "2-digit",
-                            month: "short",
-                          },
-                        )
-                      : "Select date"}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Line 4 omitted */}
-              <View style={styles.datePickerContainer}>
-                <Calendar
-                  onDayPress={(day) => {
-                    let dateStr = day?.dateString;
-                    // Fallback: construct dateString from year, month, day if not available
-                    if (!dateStr && day?.year && day?.month && day?.day) {
-                      const yearStr = day.year;
-                      const monthStr = String(day.month).padStart(2, "0");
-                      const dayStr = String(day.day).padStart(2, "0");
-                      dateStr = `${yearStr}-${monthStr}-${dayStr}`;
-                    }
-                    if (!dateStr) {
-                      console.log("Invalid day object:", day);
-                      return;
-                    }
-                    if (!causeExportStartDate || causeExportEndDate) {
-                      setCauseExportStartDate(dateStr);
-                      setCauseExportEndDate(null);
-                    } else {
-                      const start = new Date(causeExportStartDate);
-                      const selected = new Date(dateStr);
-                      if (selected < start) {
-                        setCauseExportStartDate(dateStr);
-                      } else {
-                        setCauseExportEndDate(dateStr);
-                      }
-                    }
-                  }}
-                  markingType={"period"}
-                  maxDate={(() => {
-                    const today = new Date();
-                    const year = today.getFullYear();
-                    const month = String(today.getMonth() + 1).padStart(2, "0");
-                    const day = String(today.getDate()).padStart(2, "0");
-                    return `${year}-${month}-${day}`;
-                  })()}
-                  markedDates={(() => {
-                    const marked = {};
-                    if (causeExportStartDate) {
-                      marked[causeExportStartDate] = {
-                        startingDay: true,
-                        color: "#3B82F6",
-                        textColor: "#fff",
-                      };
-                    }
-                    if (causeExportEndDate) {
-                      marked[causeExportEndDate] = {
-                        endingDay: true,
-                        color: "#3B82F6",
-                        textColor: "#fff",
-                      };
-                    }
-                    if (causeExportStartDate && causeExportEndDate) {
-                      const start = new Date(causeExportStartDate);
-                      const end = new Date(causeExportEndDate);
-                      const current = new Date(start);
-                      while (current < end) {
-                        const dateStr = current.toISOString().split("T")[0];
-                        marked[dateStr] = {
-                          color: "#3B82F6",
-                          textColor: "#fff",
-                        };
-                        current.setDate(current.getDate() + 1);
-                      }
-                    }
-                    return marked;
-                  })()}
-                  theme={{
-                    calendarBackground: "#ffffff",
-                    textSectionTitleColor: "#3B82F6",
-                    selectedDayBackgroundColor: "#3B82F6",
-                    selectedDayTextColor: "#ffffff",
-                    todayTextColor: "#3B82F6",
-                    dayTextColor: "#2d4150",
-                    textDisabledColor: "#d9e1e8",
-                    monthTextColor: "#2d4150",
-                    indicatorColor: "#3B82F6",
-                    textDayFontWeight: "400",
-                    textMonthFontWeight: "600",
-                    textDayHeaderFontWeight: "500",
-                    textDayFontSize: 14,
-                    textMonthFontSize: 18,
-                    textDayHeaderFontSize: 12,
-                  }}
-                  style={styles.calendar}
-                />
-              </View>
-
-              {/* Line 4 omitted */}
-              <View style={styles.modalButtonsRow}>
-                <TouchableOpacity
-                  style={[styles.modalActionButton, styles.modalCancelButton]}
-                  onPress={() => {
-                    setCauseExportStartDate(null);
-                    setCauseExportEndDate(null);
-                    setExportCauseModalVisible(false);
-                  }}
-                  disabled={isGeneratingCauseReport}
-                >
-                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.modalActionButton,
-                    styles.modalApplyButton,
-                    !causeExportStartDate ||
-                    !causeExportEndDate ||
-                    isGeneratingCauseReport
-                      ? { opacity: 0.5 }
-                      : {},
-                  ]}
-                  onPress={generateCauseOfDeathReportPDF}
-                  disabled={
-                    !causeExportStartDate ||
-                    !causeExportEndDate ||
-                    isGeneratingCauseReport
-                  }
-                >
-                  {isGeneratingCauseReport ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.modalApplyButtonText}>Generate</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Export Mortality Per Batch Modal */}
-        <Modal
-          visible={exportBatchModalVisible}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={() => setExportBatchModalVisible(false)}
-        >
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>
-                Export Mortality Per Batch Report
-              </Text>
-
-              {/* Date Range Display */}
-              <View style={styles.dateRangeHeader}>
-                <View style={styles.dateRangeItem}>
-                  <Text style={styles.dateRangeLabel}>From</Text>
-                  <Text style={styles.dateRangeValue}>
-                    {batchExportStartDate
-                      ? new Date(batchExportStartDate).toLocaleDateString(
-                          "en-US",
-                          {
-                            weekday: "short",
-                            day: "2-digit",
-                            month: "short",
-                          },
-                        )
-                      : "Select date"}
-                  </Text>
-                </View>
-                <View style={styles.dateRangeItem}>
-                  <Text style={styles.dateRangeLabel}>To</Text>
-                  <Text style={styles.dateRangeValue}>
-                    {batchExportEndDate
-                      ? new Date(batchExportEndDate).toLocaleDateString(
-                          "en-US",
-                          {
-                            weekday: "short",
-                            day: "2-digit",
-                            month: "short",
-                          },
-                        )
-                      : "Select date"}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Date Picker */}
-              <View style={styles.datePickerContainer}>
-                <Calendar
-                  onDayPress={(day) => {
-                    const selectedDateStr = day.dateString;
-                    const [year, month, day_num] = selectedDateStr
-                      .split("-")
-                      .map(Number);
-                    const selectedDate = new Date(year, month - 1, day_num);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-
-                    // Validate: Do not allow future dates
-                    if (selectedDate > today) {
-                      Alert.alert(
-                        "Invalid Date",
-                        "Future dates are not allowed. Please select today or an earlier date.",
-                        [{ text: "OK" }],
-                      );
-                      return;
-                    }
-
-                    if (
-                      !batchExportStartDate ||
-                      (batchExportStartDate && batchExportEndDate)
-                    ) {
-                      // Start new selection
-                      setBatchExportStartDate(selectedDateStr);
-                      setBatchExportEndDate(null);
-                    } else if (batchExportStartDate && !batchExportEndDate) {
-                      // Calculate the difference in days
-                      const start = new Date(batchExportStartDate);
-                      const selected = new Date(selectedDateStr);
-                      const diffTime = Math.abs(selected - start);
-                      const diffDays = Math.ceil(
-                        diffTime / (1000 * 60 * 60 * 24),
-                      );
-
-                      // Set end date
-                      if (
-                        new Date(selectedDateStr) <
-                        new Date(batchExportStartDate)
-                      ) {
-                        setBatchExportEndDate(batchExportStartDate);
-                        setBatchExportStartDate(selectedDateStr);
-                      } else {
-                        setBatchExportEndDate(selectedDateStr);
-                      }
-                    }
-                  }}
-                  markingType={"period"}
-                  maxDate={(() => {
-                    const today = new Date();
-                    const year = today.getFullYear();
-                    const month = String(today.getMonth() + 1).padStart(2, "0");
-                    const day = String(today.getDate()).padStart(2, "0");
-                    return `${year}-${month}-${day}`;
-                  })()}
-                  markedDates={(() => {
-                    if (!batchExportStartDate) return {};
-
-                    const marks = {};
-                    const start = new Date(batchExportStartDate);
-                    const end = batchExportEndDate
-                      ? new Date(batchExportEndDate)
-                      : start;
-
-                    for (
-                      let d = new Date(start);
-                      d <= end;
-                      d.setDate(d.getDate() + 1)
-                    ) {
-                      const dateStr = d.toISOString().split("T")[0];
-                      marks[dateStr] = {
-                        color: "#DBEAFE",
-                        textColor: "black",
-                        marked: true,
-                      };
-                    }
-
-                    marks[batchExportStartDate] = {
-                      ...marks[batchExportStartDate],
-                      startingDay: true,
-                      color: "#3B82F6",
-                      textColor: "white",
-                      marked: true,
-                      dotColor: "white",
-                      customStyles: {
-                        container: {
-                          backgroundColor: "#3B82F6",
-                          borderRadius: 100,
-                        },
-                        text: {
-                          color: "white",
-                          fontWeight: "bold",
-                        },
-                      },
-                    };
-
-                    if (batchExportEndDate) {
-                      marks[batchExportEndDate] = {
-                        ...marks[batchExportEndDate],
-                        endingDay: true,
-                        color: "#BFDBFE",
-                        textColor: "white",
-                        marked: true,
-                        dotColor: "white",
-                        customStyles: {
-                          container: {
-                            backgroundColor: "#3B82F6",
-                            borderRadius: 100,
-                          },
-                          text: {
-                            color: "white",
-                            fontWeight: "bold",
-                          },
-                        },
-                      };
-                    }
-
-                    return marks;
-                  })()}
-                  theme={{
-                    calendarBackground: "#ffffff",
-                    textSectionTitleColor: "#3B82F6",
-                    selectedDayBackgroundColor: "#3B82F6",
-                    selectedDayTextColor: "#ffffff",
-                    todayTextColor: "#3B82F6",
-                    dayTextColor: "#2d4150",
-                    textDisabledColor: "#d9e1e8",
-                    monthTextColor: "#2d4150",
-                    indicatorColor: "#3B82F6",
-                    textDayFontWeight: "400",
-                    textMonthFontWeight: "600",
-                    textDayHeaderFontWeight: "500",
-                    textDayFontSize: 14,
-                    textMonthFontSize: 18,
-                    textDayHeaderFontSize: 12,
-                  }}
-                  style={styles.calendar}
-                />
-              </View>
-
-              {/* Generate and Cancel Buttons */}
-              <View style={styles.modalButtonsRow}>
-                <TouchableOpacity
-                  style={[styles.modalActionButton, styles.modalCancelButton]}
-                  onPress={() => {
-                    setBatchExportStartDate(null);
-                    setBatchExportEndDate(null);
-                    setExportBatchModalVisible(false);
-                  }}
-                  disabled={isGeneratingBatchReport}
-                >
-                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.modalActionButton,
-                    styles.modalApplyButton,
-                    !batchExportStartDate ||
-                    !batchExportEndDate ||
-                    isGeneratingBatchReport
-                      ? { opacity: 0.5 }
-                      : {},
-                  ]}
-                  onPress={generateMortalityBatchReportPDF}
-                  disabled={
-                    !batchExportStartDate ||
-                    !batchExportEndDate ||
-                    isGeneratingBatchReport
-                  }
-                >
-                  {isGeneratingBatchReport ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.modalApplyButtonText}>Generate</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
+                            // Existing logic for Predator Chart time range state
+                            if (currentFilterTarget === "predator") {
+                              setPredatorTimeRange("daily");
+                            }
+                          }
+                          setFilterModalVisible(false);
+                        }}
+                      >
+                        <Text style={styles.modalApplyButtonText}>Apply</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
             </View>
           </View>
         </Modal>
@@ -10852,453 +10853,7 @@ export default function AdminAnalytics({ navigation }) {
           </View>
         </Modal>
 
-        {/* Export Attacks Per Batch Modal */}
-        <Modal
-          visible={exportAttacksBatchModalVisible}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={() => setExportAttacksBatchModalVisible(false)}
-        >
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>
-                Export Attacks Per Batch Report
-              </Text>
-
-              {/* Date Range Display */}
-              <View style={styles.dateRangeHeader}>
-                <View style={styles.dateRangeItem}>
-                  <Text style={styles.dateRangeLabel}>From</Text>
-                  <Text style={styles.dateRangeValue}>
-                    {attacksBatchExportStartDate
-                      ? new Date(
-                          attacksBatchExportStartDate,
-                        ).toLocaleDateString("en-US", {
-                          weekday: "short",
-                          day: "2-digit",
-                          month: "short",
-                        })
-                      : "Select date"}
-                  </Text>
-                </View>
-                <View style={styles.dateRangeItem}>
-                  <Text style={styles.dateRangeLabel}>To</Text>
-                  <Text style={styles.dateRangeValue}>
-                    {attacksBatchExportEndDate
-                      ? new Date(attacksBatchExportEndDate).toLocaleDateString(
-                          "en-US",
-                          {
-                            weekday: "short",
-                            day: "2-digit",
-                            month: "short",
-                          },
-                        )
-                      : "Select date"}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Date Picker */}
-              <View style={styles.datePickerContainer}>
-                <Calendar
-                  onDayPress={(day) => {
-                    const selectedDateStr = day.dateString;
-                    const [year, month, day_num] = selectedDateStr
-                      .split("-")
-                      .map(Number);
-                    const selectedDate = new Date(year, month - 1, day_num);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-
-                    // Validate: Do not allow future dates
-                    if (selectedDate > today) {
-                      Alert.alert(
-                        "Invalid Date",
-                        "Future dates are not allowed. Please select today or an earlier date.",
-                        [{ text: "OK" }],
-                      );
-                      return;
-                    }
-
-                    if (
-                      !attacksBatchExportStartDate ||
-                      (attacksBatchExportStartDate && attacksBatchExportEndDate)
-                    ) {
-                      // Start new selection
-                      setAttacksBatchExportStartDate(selectedDateStr);
-                      setAttacksBatchExportEndDate(null);
-                    } else if (
-                      attacksBatchExportStartDate &&
-                      !attacksBatchExportEndDate
-                    ) {
-                      // Calculate the difference in days
-                      const start = new Date(selectedDateStr);
-                      const selected = new Date(attacksBatchExportStartDate);
-                      const diffTime = Math.abs(selected - start);
-                      const diffDays = Math.ceil(
-                        diffTime / (1000 * 60 * 60 * 24),
-                      );
-
-                      // Set end date
-                      if (
-                        new Date(selectedDateStr) <
-                        new Date(attacksBatchExportStartDate)
-                      ) {
-                        setAttacksBatchExportEndDate(
-                          attacksBatchExportStartDate,
-                        );
-                        setAttacksBatchExportStartDate(selectedDateStr);
-                      } else {
-                        setAttacksBatchExportEndDate(selectedDateStr);
-                      }
-                    }
-                  }}
-                  markingType={"period"}
-                  maxDate={(() => {
-                    const today = new Date();
-                    const year = today.getFullYear();
-                    const month = String(today.getMonth() + 1).padStart(2, "0");
-                    const day = String(today.getDate()).padStart(2, "0");
-                    return `${year}-${month}-${day}`;
-                  })()}
-                  markedDates={(() => {
-                    if (!attacksBatchExportStartDate) return {};
-
-                    if (
-                      attacksBatchExportStartDate &&
-                      !attacksBatchExportEndDate
-                    ) {
-                      return {
-                        [attacksBatchExportStartDate]: {
-                          startingDay: true,
-                          color: "#3B82F6",
-                          textColor: "white",
-                        },
-                      };
-                    }
-
-                    if (
-                      attacksBatchExportStartDate &&
-                      attacksBatchExportEndDate
-                    ) {
-                      const marks = {};
-                      const start = new Date(attacksBatchExportStartDate);
-                      const end = new Date(attacksBatchExportEndDate);
-
-                      for (
-                        let d = new Date(start);
-                        d <= end;
-                        d.setDate(d.getDate() + 1)
-                      ) {
-                        const dateStr = d.toISOString().split("T")[0];
-
-                        if (dateStr === attacksBatchExportStartDate) {
-                          marks[dateStr] = {
-                            startingDay: true,
-                            color: "#BFDBFE",
-                            textColor: "#000",
-                          };
-                        } else if (dateStr === attacksBatchExportEndDate) {
-                          marks[dateStr] = {
-                            endingDay: true,
-                            color: "#BFDBFE",
-                            textColor: "#000",
-                          };
-                        } else {
-                          marks[dateStr] = {
-                            color: "#BFDBFE",
-                            textColor: "#000",
-                          };
-                        }
-                      }
-
-                      marks[attacksBatchExportStartDate] = {
-                        ...marks[attacksBatchExportStartDate],
-                        startingDay: true,
-                        color: "#BFDBFE",
-                        textColor: "white",
-                        marked: true,
-                        dotColor: "white",
-                        customStyles: {
-                          container: {
-                            backgroundColor: "#3B82F6",
-                            borderRadius: 100,
-                          },
-                          text: {
-                            color: "white",
-                            fontWeight: "bold",
-                          },
-                        },
-                      };
-
-                      marks[attacksBatchExportEndDate] = {
-                        ...marks[attacksBatchExportEndDate],
-                        endingDay: true,
-                        color: "#BFDBFE",
-                        textColor: "white",
-                        marked: true,
-                        dotColor: "white",
-                        customStyles: {
-                          container: {
-                            backgroundColor: "#3B82F6",
-                            borderRadius: 100,
-                          },
-                          text: {
-                            color: "white",
-                            fontWeight: "bold",
-                          },
-                        },
-                      };
-
-                      return marks;
-                    }
-
-                    return {};
-                  })()}
-                  theme={{
-                    calendarBackground: "#ffffff",
-                    textSectionTitleColor: "#3B82F6",
-                    selectedDayBackgroundColor: "#3B82F6",
-                    selectedDayTextColor: "#ffffff",
-                    todayTextColor: "#3B82F6",
-                    dayTextColor: "#2d4150",
-                    textDisabledColor: "#d9e1e8",
-                    monthTextColor: "#2d4150",
-                    indicatorColor: "#3B82F6",
-                    textDayFontWeight: "400",
-                    textMonthFontWeight: "600",
-                    textDayHeaderFontWeight: "500",
-                    textDayFontSize: 14,
-                    textMonthFontSize: 18,
-                    textDayHeaderFontSize: 12,
-                  }}
-                  style={styles.calendar}
-                />
-              </View>
-
-              {/* Generate and Cancel Buttons */}
-              <View style={styles.modalButtonsRow}>
-                <TouchableOpacity
-                  style={[styles.modalActionButton, styles.modalCancelButton]}
-                  onPress={() => {
-                    setAttacksBatchExportStartDate(null);
-                    setAttacksBatchExportEndDate(null);
-                    setExportAttacksBatchModalVisible(false);
-                  }}
-                  disabled={isGeneratingAttacksBatchReport}
-                >
-                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.modalActionButton,
-                    styles.modalApplyButton,
-                    !attacksBatchExportStartDate ||
-                    !attacksBatchExportEndDate ||
-                    isGeneratingAttacksBatchReport
-                      ? { opacity: 0.5 }
-                      : {},
-                  ]}
-                  onPress={generateAttacksPerBatchReportPDF}
-                  disabled={
-                    !attacksBatchExportStartDate ||
-                    !attacksBatchExportEndDate ||
-                    isGeneratingAttacksBatchReport
-                  }
-                >
-                  {isGeneratingAttacksBatchReport ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.modalApplyButtonText}>Generate</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-
         {/* Export Predator Types Modal */}
-        <Modal
-          visible={exportPredatorTypesModalVisible}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={() => setExportPredatorTypesModalVisible(false)}
-        >
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>
-                Export Predator Types Report
-              </Text>
-
-              {/* Date Range Display */}
-              <View style={styles.dateRangeHeader}>
-                <View style={styles.dateRangeItem}>
-                  <Text style={styles.dateRangeLabel}>From</Text>
-                  <Text style={styles.dateRangeValue}>
-                    {predatorTypesExportStartDate
-                      ? new Date(
-                          predatorTypesExportStartDate,
-                        ).toLocaleDateString("en-US", {
-                          weekday: "short",
-                          day: "2-digit",
-                          month: "short",
-                        })
-                      : "Select date"}
-                  </Text>
-                </View>
-                <View style={styles.dateRangeItem}>
-                  <Text style={styles.dateRangeLabel}>To</Text>
-                  <Text style={styles.dateRangeValue}>
-                    {predatorTypesExportEndDate
-                      ? new Date(predatorTypesExportEndDate).toLocaleDateString(
-                          "en-US",
-                          {
-                            weekday: "short",
-                            day: "2-digit",
-                            month: "short",
-                          },
-                        )
-                      : "Select date"}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Date Picker */}
-              <View style={styles.datePickerContainer}>
-                <Calendar
-                  onDayPress={(day) => {
-                    let dateStr = day?.dateString;
-                    if (!dateStr && day?.year && day?.month && day?.day) {
-                      const yearStr = day.year;
-                      const monthStr = String(day.month).padStart(2, "0");
-                      const dayStr = String(day.day).padStart(2, "0");
-                      dateStr = `${yearStr}-${monthStr}-${dayStr}`;
-                    }
-                    if (!dateStr) {
-                      console.log("Invalid day object:", day);
-                      return;
-                    }
-                    if (
-                      !predatorTypesExportStartDate ||
-                      predatorTypesExportEndDate
-                    ) {
-                      setPredatorTypesExportStartDate(dateStr);
-                      setPredatorTypesExportEndDate(null);
-                    } else {
-                      const start = new Date(predatorTypesExportStartDate);
-                      const selected = new Date(dateStr);
-                      if (selected < start) {
-                        setPredatorTypesExportStartDate(dateStr);
-                      } else {
-                        setPredatorTypesExportEndDate(dateStr);
-                      }
-                    }
-                  }}
-                  markingType={"period"}
-                  maxDate={(() => {
-                    const today = new Date();
-                    const year = today.getFullYear();
-                    const month = String(today.getMonth() + 1).padStart(2, "0");
-                    const day = String(today.getDate()).padStart(2, "0");
-                    return `${year}-${month}-${day}`;
-                  })()}
-                  markedDates={(() => {
-                    const marked = {};
-                    if (predatorTypesExportStartDate) {
-                      marked[predatorTypesExportStartDate] = {
-                        startingDay: true,
-                        color: "#3B82F6",
-                        textColor: "#fff",
-                      };
-                    }
-                    if (predatorTypesExportEndDate) {
-                      marked[predatorTypesExportEndDate] = {
-                        endingDay: true,
-                        color: "#3B82F6",
-                        textColor: "#fff",
-                      };
-                    }
-                    if (
-                      predatorTypesExportStartDate &&
-                      predatorTypesExportEndDate
-                    ) {
-                      const start = new Date(predatorTypesExportStartDate);
-                      const end = new Date(predatorTypesExportEndDate);
-                      const current = new Date(start);
-                      while (current < end) {
-                        const dateStr = current.toISOString().split("T")[0];
-                        marked[dateStr] = {
-                          color: "#3B82F6",
-                          textColor: "#fff",
-                        };
-                        current.setDate(current.getDate() + 1);
-                      }
-                    }
-                    return marked;
-                  })()}
-                  theme={{
-                    calendarBackground: "#ffffff",
-                    textSectionTitleColor: "#3B82F6",
-                    selectedDayBackgroundColor: "#3B82F6",
-                    selectedDayTextColor: "#ffffff",
-                    todayTextColor: "#3B82F6",
-                    dayTextColor: "#2d4150",
-                    textDisabledColor: "#d9e1e8",
-                    monthTextColor: "#2d4150",
-                    indicatorColor: "#3B82F6",
-                    textDayFontWeight: "400",
-                    textMonthFontWeight: "600",
-                    textDayHeaderFontWeight: "500",
-                    textDayFontSize: 14,
-                    textMonthFontSize: 18,
-                    textDayHeaderFontSize: 12,
-                  }}
-                  style={styles.calendar}
-                />
-              </View>
-
-              {/* Modal Buttons */}
-              <View style={styles.modalButtonsRow}>
-                <TouchableOpacity
-                  style={[styles.modalActionButton, styles.modalCancelButton]}
-                  onPress={() => {
-                    setPredatorTypesExportStartDate(null);
-                    setPredatorTypesExportEndDate(null);
-                    setExportPredatorTypesModalVisible(false);
-                  }}
-                  disabled={isGeneratingPredatorTypesReport}
-                >
-                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.modalActionButton,
-                    styles.modalApplyButton,
-                    !predatorTypesExportStartDate ||
-                    !predatorTypesExportEndDate ||
-                    isGeneratingPredatorTypesReport
-                      ? { opacity: 0.5 }
-                      : {},
-                  ]}
-                  onPress={generatePredatorTypesReportPDF}
-                  disabled={
-                    !predatorTypesExportStartDate ||
-                    !predatorTypesExportEndDate ||
-                    isGeneratingPredatorTypesReport
-                  }
-                >
-                  {isGeneratingPredatorTypesReport ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.modalApplyButtonText}>Generate</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
       </ScrollView>
     </SafeAreaView>
   );
@@ -12056,12 +11611,35 @@ function MortalityBatchChart({ height = 220, data = [] }) {
   const barColor = "#133E87";
   const labelHeight = 35;
 
-  const rawMax = Math.max(...batchData.map((d) => d.deaths), 1);
-  const magnitude = Math.pow(10, Math.floor(Math.log10(rawMax)));
-  let niceMax = Math.ceil(rawMax / magnitude) * magnitude;
-  if (niceMax / 2 >= rawMax) niceMax = niceMax / 2;
-  const finalMax = Math.max(niceMax, 5);
-  const ticks = 5; // Fixed number for clean appearance
+  // Handle empty data gracefully
+  const rawMax =
+    batchData.length > 0 ? Math.max(...batchData.map((d) => d.deaths), 1) : 1;
+
+  // Calculate nice maximum for y-axis
+  const getNiceMax = (maxValue, numTicks) => {
+    // If data is less than 5, use fixed scale of 1-5
+    if (maxValue <= 5) {
+      return 5;
+    }
+
+    const roughStep = maxValue / (numTicks - 1);
+    const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+    const normalizedStep = roughStep / magnitude;
+
+    // Round to nearest nice number (1, 2, 5, 10)
+    let niceStep;
+    if (normalizedStep <= 1) niceStep = 1;
+    else if (normalizedStep <= 2) niceStep = 2;
+    else if (normalizedStep <= 5) niceStep = 5;
+    else niceStep = 10;
+
+    const step = niceStep * magnitude;
+    return Math.ceil(maxValue / step) * step;
+  };
+
+  const finalMax = getNiceMax(rawMax, 6);
+  // Use 6 ticks for small data (0-5), 6 ticks for larger data
+  const ticks = 6;
 
   const onBarPress = (index, value) => {
     if (!layoutWidth) return;
@@ -13178,7 +12756,7 @@ function WaterBatchTooltip({
             fontSize: 12,
           }}
         >
-          Activations: {data[active.index].consumption}
+          Activations: {data[active.index].activations}
         </Text>
       </View>
     </View>
@@ -13262,10 +12840,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1.2,
     borderColor: "#dbeffb",
-    padding: 14,
+    paddingTop: 14,
+    paddingBottom: 14,
+    paddingRight: 14,
+    paddingLeft: 14,
     marginBottom: 18,
     width: "100%",
     alignItems: "center",
+    overflow: "hidden",
   },
   chartHeaderRow: {
     flexDirection: "row",

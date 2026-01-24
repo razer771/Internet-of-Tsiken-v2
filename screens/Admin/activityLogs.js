@@ -118,29 +118,19 @@ export default function ActivityLogs({ navigation }) {
 
   // Calendar filter state
   const [showCalendar, setShowCalendar] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(null);
+  const [startDate, setStartDate] = useState(null);
+  const [endDate, setEndDate] = useState(null);
+  const [selectingStartDate, setSelectingStartDate] = useState(true); // Track which date we're selecting
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
   // Apply sorting - always by Date (newest first)
   useEffect(() => {
-    console.log(`🔄 Sorting logs by Date (newest first)`);
-    console.log(`📊 Total logs before sorting: ${allLogs.length}`);
-
     let sorted = [...allLogs];
     sorted.sort((a, b) => {
       const timeA = a.timestamp.getTime();
       const timeB = b.timestamp.getTime();
       return timeB - timeA; // Newest first
     });
-
-    console.log(`✅ Sorted by Date (newest first)`);
-    console.log(
-      `First 3 dates: ${sorted
-        .slice(0, 3)
-        .map((log) => formatDateGMT8(log.timestamp))
-        .join(", ")}`,
-    );
-    console.log(`📊 Total logs after sorting: ${sorted.length}`);
 
     setFilteredLogs(sorted);
     setCurrentPage(1);
@@ -153,7 +143,6 @@ export default function ActivityLogs({ navigation }) {
   useEffect(() => {
     // Prevent duplicate fetches in React StrictMode (development)
     if (hasFetchedRef.current) {
-      console.log("⏭️  Skipping duplicate fetch (already loaded)");
       return;
     }
 
@@ -164,7 +153,6 @@ export default function ActivityLogs({ navigation }) {
   const fetchAllLogs = async () => {
     try {
       setLoading(true);
-      console.log("📥 Fetching logs from multiple collections...");
 
       const allLogsArray = [];
       const userCacheTemp = {};
@@ -217,9 +205,6 @@ export default function ActivityLogs({ navigation }) {
                 if (!roleCacheTemp[userIdToFetch] && userData.role) {
                   userRole = capitalizeFirstLetter(userData.role);
                   roleCacheTemp[userIdToFetch] = userRole;
-                  console.log(
-                    `👤 Fetched role for user ${userName}: ${userRole}`,
-                  );
                 }
               }
             } catch (error) {
@@ -294,9 +279,6 @@ export default function ActivityLogs({ navigation }) {
           if (config.subcollections === null) {
             // Top-level collection (report_logs, session_logs)
             const logsSnapshot = await getDocs(collection(db, config.parent));
-            console.log(
-              `✅ Fetched ${logsSnapshot.size} logs from ${config.parent}`,
-            );
 
             for (const logDoc of logsSnapshot.docs) {
               await processLog(logDoc, config.parent);
@@ -314,9 +296,6 @@ export default function ActivityLogs({ navigation }) {
                   try {
                     const eventsSnapshot = await getDocs(
                       collection(db, config.parent, subCollectionName, docPath),
-                    );
-                    console.log(
-                      `✅ Fetched ${eventsSnapshot.size} logs from ${config.parent}/${subCollectionName}/${docPath}`,
                     );
 
                     for (const logDoc of eventsSnapshot.docs) {
@@ -348,7 +327,6 @@ export default function ActivityLogs({ navigation }) {
       // Sort by timestamp descending (newest first)
       allLogsArray.sort((a, b) => b.timestamp - a.timestamp);
 
-      console.log(`✅ Fetched total of ${allLogsArray.length} logs`);
       setAllLogs(allLogsArray);
       setUserCache(userCacheTemp);
       setLoading(false);
@@ -395,14 +373,10 @@ export default function ActivityLogs({ navigation }) {
 
   const handleGenerateReport = async () => {
     try {
-      console.log("📊 Generate Report button pressed");
-      console.log(`📤 Exporting ${filteredLogs.length} filtered logs`);
-
       // Use filteredLogs which is already filtered by date (if selected)
       const logsToExport = filteredLogs;
 
       if (logsToExport.length === 0) {
-        console.log("⚠️ No logs to export");
         Alert.alert("No Data", "No logs to export.");
         return;
       }
@@ -410,9 +384,6 @@ export default function ActivityLogs({ navigation }) {
       // Calculate pagination
       const totalPages = Math.ceil(
         logsToExport.length / EXPORT_ENTRIES_PER_PAGE,
-      );
-      console.log(
-        `📄 Export will create ${totalPages} page(s) (${EXPORT_ENTRIES_PER_PAGE} entries per page)`,
       );
 
       // Prepare export data with pagination
@@ -440,23 +411,12 @@ export default function ActivityLogs({ navigation }) {
           entries: formattedEntries,
           entriesCount: formattedEntries.length,
         });
-
-        console.log(
-          `✅ Page ${page + 1} of ${totalPages} prepared (${formattedEntries.length} entries)`,
-        );
       }
 
       // Generate PDF directly with filtered data
-      console.log("🚀 Generating PDF with filtered data...");
-      if (selectedDate) {
-        console.log(
-          `📅 Data filtered by date: ${formatDateGMT8(selectedDate)}`,
-        );
-      }
-
       await generatePDF(exportPages, {
         sortBy: "Date (newest first)",
-        dateFilter: selectedDate ? formatDateGMT8(selectedDate) : "All dates",
+        dateFilter: formatRecordDate(),
       });
     } catch (error) {
       console.error("❌ Error generating report:", error);
@@ -466,8 +426,6 @@ export default function ActivityLogs({ navigation }) {
 
   const generatePDF = async (exportPages, filters) => {
     try {
-      console.log("📄 Starting PDF generation...");
-
       // Load logo as base64
       const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
       await logoAsset.downloadAsync();
@@ -618,10 +576,6 @@ export default function ActivityLogs({ navigation }) {
         if (pageIndex < exportPages.length - 1) {
           htmlContent += '<div class="page-break"></div>';
         }
-
-        console.log(
-          `✅ Page ${pageIndex + 1} of ${exportPages.length} exported`,
-        );
       });
 
       htmlContent += `
@@ -636,18 +590,15 @@ export default function ActivityLogs({ navigation }) {
         width: 612,
         height: 792,
       });
-      console.log("✅ PDF generated successfully:", uri);
 
       // Create a permanent copy in the document directory
-      const dateGenerated = formatDateGMT8(new Date()).replace(/\//g, "-");
-      const fileName = `ActivityLogs_${dateGenerated}.pdf`;
+      const fileName = `${formatPDFFilename()}.pdf`;
       const fileUri = FileSystem.documentDirectory + fileName;
 
       await FileSystem.copyAsync({
         from: uri,
         to: fileUri,
       });
-      console.log("📁 PDF saved to:", fileUri);
 
       // Log the report generation
       try {
@@ -673,7 +624,6 @@ export default function ActivityLogs({ navigation }) {
             userId: currentUser.uid,
             userName: userName,
           });
-          console.log("✅ Report generation logged successfully");
         }
       } catch (logError) {
         console.error("❌ Error logging report generation:", logError);
@@ -685,7 +635,6 @@ export default function ActivityLogs({ navigation }) {
           mimeType: "application/pdf",
           dialogTitle: "Share Activity Logs Report",
         });
-        console.log("📤 PDF shared successfully");
       } else {
         Alert.alert("Success", `PDF saved to: ${fileUri}`, [{ text: "OK" }]);
       }
@@ -704,33 +653,37 @@ export default function ActivityLogs({ navigation }) {
   const handleNextPage = () => {
     if (currentPage < totalPages) {
       setCurrentPage(currentPage + 1);
-      console.log(`➡️ Page ${currentPage + 1} of ${totalPages}`);
     }
   };
 
   const handlePrevPage = () => {
     if (currentPage > 1) {
       setCurrentPage(currentPage - 1);
-      console.log(`⬅️ Page ${currentPage - 1} of ${totalPages}`);
     }
   };
 
   // Apply date filtering
   useEffect(() => {
-    console.log(`🔄 Filtering logs by date`);
-
     let filtered = [...allLogs];
 
-    // Apply date filter if selected
-    if (selectedDate) {
+    // Apply date range filter if both dates are selected
+    if (startDate && endDate) {
       filtered = filtered.filter((log) => {
-        const logDate = formatDateGMT8(log.timestamp);
-        const selectedDateStr = formatDateGMT8(selectedDate);
-        return logDate === selectedDateStr;
+        const logTime = log.timestamp.getTime();
+        const startTime = new Date(startDate);
+        startTime.setHours(0, 0, 0, 0);
+        const endTime = new Date(endDate);
+        endTime.setHours(23, 59, 59, 999);
+        return logTime >= startTime.getTime() && logTime <= endTime.getTime();
       });
-      console.log(
-        `📅 Filtered ${filtered.length} logs for date: ${formatDateGMT8(selectedDate)}`,
-      );
+    } else if (startDate) {
+      // If only start date is selected, show logs from that day onwards
+      filtered = filtered.filter((log) => {
+        const logTime = log.timestamp.getTime();
+        const startTime = new Date(startDate);
+        startTime.setHours(0, 0, 0, 0);
+        return logTime >= startTime.getTime();
+      });
     }
 
     // Sort by timestamp descending (newest first)
@@ -738,7 +691,63 @@ export default function ActivityLogs({ navigation }) {
 
     setFilteredLogs(filtered);
     setCurrentPage(1);
-  }, [allLogs, selectedDate]);
+  }, [allLogs, startDate, endDate]);
+
+  // Format record date for PDF - avoid redundancy like "18-Jan-2026 - 18-Jan-2026"
+  const formatRecordDate = () => {
+    if (!startDate && !endDate) {
+      return "All dates";
+    }
+
+    if (startDate && endDate) {
+      const startStr = formatDateGMT8(startDate);
+      const endStr = formatDateGMT8(endDate);
+
+      // If dates are the same, show only one
+      if (startStr === endStr) {
+        return startStr;
+      }
+
+      // If dates are different, show range
+      return `${startStr} - ${endStr}`;
+    }
+
+    // If only start date is selected
+    if (startDate) {
+      return `From ${formatDateGMT8(startDate)}`;
+    }
+
+    return "All dates";
+  };
+
+  // Format PDF filename based on date range
+  const formatPDFFilename = () => {
+    if (!startDate && !endDate) {
+      // No dates selected - use generation date
+      const dateGenerated = formatDateGMT8(new Date());
+      return `ActivityLogs_${dateGenerated}`;
+    }
+
+    if (startDate && endDate) {
+      const startStr = formatDateGMT8(startDate);
+      const endStr = formatDateGMT8(endDate);
+
+      // If dates are the same, show only one
+      if (startStr === endStr) {
+        return `ActivityLogs_${startStr}`;
+      }
+
+      // If dates are different, show range
+      return `ActivityLogs_${startStr}_to_${endStr}`;
+    }
+
+    // If only start date is selected
+    if (startDate) {
+      return `ActivityLogs_from_${formatDateGMT8(startDate)}`;
+    }
+
+    return "ActivityLogs";
+  };
 
   // Calendar functions
   const getDaysInMonth = (date) => {
@@ -765,15 +774,42 @@ export default function ActivityLogs({ navigation }) {
   };
 
   const handleDateSelect = (date) => {
-    setSelectedDate(date);
-    setShowCalendar(false);
-    console.log(`📅 Date selected: ${formatDateGMT8(date)}`);
+    // Validate: prevent future dates
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const selectedDateNormalized = new Date(date);
+    selectedDateNormalized.setHours(0, 0, 0, 0);
+
+    if (selectedDateNormalized > today) {
+      Alert.alert(
+        "Invalid Date",
+        "You cannot select a future date. Please select today or an earlier date.",
+      );
+      return;
+    }
+
+    if (selectingStartDate) {
+      setStartDate(date);
+      setSelectingStartDate(false); // Switch to selecting end date
+    } else {
+      // Validate: end date must be >= start date
+      if (startDate && new Date(date) < new Date(startDate)) {
+        Alert.alert(
+          "Invalid Range",
+          "End date must be the same as or after the start date.",
+        );
+        return;
+      }
+      setEndDate(date);
+      setShowCalendar(false);
+    }
   };
 
   const handleClearFilter = () => {
-    setSelectedDate(null);
+    setStartDate(null);
+    setEndDate(null);
+    setSelectingStartDate(true);
     setShowCalendar(false);
-    console.log(`🗑️ Date filter cleared`);
   };
 
   const handlePrevMonth = () => {
@@ -877,11 +913,15 @@ export default function ActivityLogs({ navigation }) {
                 color="#000"
               />
               <Text style={styles.dateFilterButtonText}>
-                {selectedDate ? formatDateGMT8(selectedDate) : "Date"}
+                {startDate && endDate
+                  ? `${formatDateGMT8(startDate)} to ${formatDateGMT8(endDate)}`
+                  : startDate
+                    ? `From ${formatDateGMT8(startDate)}`
+                    : "Date Range"}
               </Text>
             </TouchableOpacity>
 
-            {selectedDate && (
+            {(startDate || endDate) && (
               <TouchableOpacity
                 style={styles.clearDateFilterButton}
                 onPress={handleClearFilter}
@@ -918,6 +958,11 @@ export default function ActivityLogs({ navigation }) {
                     {monthNames[currentMonth.getMonth()]}{" "}
                     {currentMonth.getFullYear()}
                   </Text>
+                  <Text style={styles.calendarDateSelectingText}>
+                    {selectingStartDate
+                      ? "Select Start Date"
+                      : "Select End Date"}
+                  </Text>
 
                   <TouchableOpacity
                     onPress={handleNextMonth}
@@ -944,36 +989,66 @@ export default function ActivityLogs({ navigation }) {
 
                 {/* Calendar Grid */}
                 <View style={styles.calendarGrid}>
-                  {getDaysInMonth(currentMonth).map((date, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={[
-                        styles.calendarDayCell,
-                        !date && styles.calendarDayCellEmpty,
-                        date &&
-                          selectedDate &&
-                          date.toDateString() === selectedDate.toDateString() &&
-                          styles.calendarDayCellSelected,
-                      ]}
-                      onPress={() => date && handleDateSelect(date)}
-                      disabled={!date}
-                      activeOpacity={0.7}
-                    >
-                      {date && (
-                        <Text
-                          style={[
-                            styles.calendarDayText,
-                            selectedDate &&
-                              date.toDateString() ===
-                                selectedDate.toDateString() &&
-                              styles.calendarDayTextSelected,
-                          ]}
-                        >
-                          {date.getDate()}
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  ))}
+                  {getDaysInMonth(currentMonth).map((date, index) => {
+                    // Check if date is in the future
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const dateNormalized = date ? new Date(date) : null;
+                    if (dateNormalized) dateNormalized.setHours(0, 0, 0, 0);
+                    const isFutureDate =
+                      dateNormalized && dateNormalized > today;
+
+                    // Check if date is the start date
+                    const isStartDate =
+                      startDate &&
+                      date &&
+                      date.toDateString() ===
+                        new Date(startDate).toDateString();
+
+                    // Check if date is the end date
+                    const isEndDate =
+                      endDate &&
+                      date &&
+                      date.toDateString() === new Date(endDate).toDateString();
+
+                    // Check if date is in range (between start and end)
+                    const isInRange =
+                      startDate &&
+                      endDate &&
+                      dateNormalized &&
+                      dateNormalized > new Date(startDate) &&
+                      dateNormalized < new Date(endDate);
+
+                    return (
+                      <TouchableOpacity
+                        key={index}
+                        style={[
+                          styles.calendarDayCell,
+                          !date && styles.calendarDayCellEmpty,
+                          isFutureDate && styles.calendarDayCellDisabled,
+                          isInRange && styles.calendarDayCellInRange,
+                          (isStartDate || isEndDate) &&
+                            styles.calendarDayCellSelected,
+                        ]}
+                        onPress={() => date && handleDateSelect(date)}
+                        disabled={!date || isFutureDate}
+                        activeOpacity={0.7}
+                      >
+                        {date && (
+                          <Text
+                            style={[
+                              styles.calendarDayText,
+                              isFutureDate && styles.calendarDayTextDisabled,
+                              (isStartDate || isEndDate) &&
+                                styles.calendarDayTextSelected,
+                            ]}
+                          >
+                            {date.getDate()}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
 
                 {/* Calendar Footer */}
@@ -1402,6 +1477,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#000",
   },
+  calendarDateSelectingText: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
+    textAlign: "center",
+  },
   calendarDayNames: {
     flexDirection: "row",
     marginBottom: 10,
@@ -1434,6 +1515,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#1E40AF",
     borderRadius: 8,
   },
+  calendarDayCellInRange: {
+    backgroundColor: "#BFDBFE",
+    borderRadius: 0,
+  },
+  calendarDayCellDisabled: {
+    opacity: 0.4,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 8,
+  },
   calendarDayText: {
     fontSize: 16,
     color: "#000",
@@ -1441,6 +1531,9 @@ const styles = StyleSheet.create({
   calendarDayTextSelected: {
     color: "#fff",
     fontWeight: "600",
+  },
+  calendarDayTextDisabled: {
+    color: "#999",
   },
   calendarFooter: {
     flexDirection: "row",
