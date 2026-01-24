@@ -531,15 +531,15 @@ export default function ControlScreen({ navigation }) {
 
       setFeeds(loadedFeeds);
 
-      console.log("[FetchFeeds] Total feeds fetched:", loadedFeeds.length);
-      console.log(
-        "📋 [SORT] Feeds loaded and sorted in ascending order (GMT+8):",
-      );
-      loadedFeeds.forEach((f) => {
-        console.log(
-          `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`,
-        );
-      });
+      // console.log("[FetchFeeds] Total feeds fetched:", loadedFeeds.length);
+      // console.log(
+      //   "📋 [SORT] Feeds loaded and sorted in ascending order (GMT+8):",
+      // );
+      // loadedFeeds.forEach((f) => {
+      //   console.log(
+      //     `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`,
+      //   );
+      // });
     } catch (err) {
       console.error("Failed to load feeds:", err);
     }
@@ -584,15 +584,15 @@ export default function ControlScreen({ navigation }) {
         (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time),
       );
       setWaterings(loadedWaterings);
-      console.log(
-        `💧 [LOAD] Watering schedules loaded from database: ${loadedWaterings.length} total`,
-      );
-      console.log("💧 [SORT] Watering schedules sorted:");
-      loadedWaterings.forEach((w) => {
-        console.log(
-          `  - ${w.time} (${w.label}) = ${timeToMinutes(w.time)} minutes`,
-        );
-      });
+      // console.log(
+      //   `💧 [LOAD] Watering schedules loaded from database: ${loadedWaterings.length} total`,
+      // );
+      // console.log("💧 [SORT] Watering schedules sorted:");
+      // loadedWaterings.forEach((w) => {
+      //   console.log(
+      //     `  - ${w.time} (${w.label}) = ${timeToMinutes(w.time)} minutes`,
+      //   );
+      // });
     } catch (err) {
       console.error("Failed to load watering schedules:", err);
     }
@@ -2125,7 +2125,7 @@ export default function ControlScreen({ navigation }) {
           />
           <StatCard
             label="Feeder Level"
-            value={sensorLoading ? "..." : `${feederNow}%`}
+            value={sensorLoading ? "..." : `${Math.round(feederNow)}%`}
             dotColor={isSimulated ? "#FFC107" : "#2196F3"}
             loading={sensorLoading}
             isSimulated={isSimulated}

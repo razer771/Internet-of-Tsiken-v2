@@ -1,59 +1,68 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 /**
  * ESP32 Hardware Configuration
  * 
- * Configure your ESP32 device IP addresses here.
+ * Configure your ESP32 device IP address here.
+ * Your ESP32 provides both water and feeder sensor data through a single endpoint.
  * After uploading the Arduino code to your ESP32, update the IP address below.
+ * 
+ * This value can be changed in the app via ESP32 Settings screen.
  */
 
-// ESP32 Configuration
+// ESP32 Configuration (default values)
 export const ESP32_CONFIG = {
-  // Water System (Water Level Sensor + Micro Water Pump)
-  // Find this IP from your ESP32 Serial Monitor after connecting to WiFi
-  waterSystem: {
-    enabled: true,  // Set to true when ESP32 is connected
-    ipAddress: '192.168.137.222', // Change to your ESP32's actual IP address
-    port: 80,
-  },
-  
-  // Feed Dispenser (if using separate ESP32)
-  feedSystem: {
-    enabled: false,  // Set to true when ESP32 is connected
-    ipAddress: '192.168.1.101', // Change to your ESP32's IP address
-    port: 80,
-  },
+  enabled: true,  // Set to true when ESP32 is connected
+  ipAddress: '192.168.137.222', // Change to your ESP32's actual IP address
+  port: 80,
+};
+
+/**
+ * Load ESP32 settings from AsyncStorage
+ * Call this on app startup to load user-configured settings
+ */
+export const loadESP32Settings = async () => {
+  try {
+    const savedIP = await AsyncStorage.getItem("esp32_ip");
+    const savedPort = await AsyncStorage.getItem("esp32_port");
+    const savedEnabled = await AsyncStorage.getItem("esp32_enabled");
+
+    if (savedIP) ESP32_CONFIG.ipAddress = savedIP;
+    if (savedPort) ESP32_CONFIG.port = parseInt(savedPort);
+    if (savedEnabled !== null) ESP32_CONFIG.enabled = savedEnabled === "true";
+
+    console.log("✅ ESP32 settings loaded from storage");
+  } catch (error) {
+    console.error("Error loading ESP32 settings:", error);
+  }
 };
 
 /**
  * Get the base URL for ESP32 endpoints
  */
-export const getWaterSystemUrl = () => {
-  if (!ESP32_CONFIG.waterSystem.enabled) {
+export const getESP32Url = () => {
+  if (!ESP32_CONFIG.enabled) {
     return null;
   }
-  return `http://${ESP32_CONFIG.waterSystem.ipAddress}:${ESP32_CONFIG.waterSystem.port}`;
+  return `http://${ESP32_CONFIG.ipAddress}:${ESP32_CONFIG.port}`;
 };
 
-export const getFeedSystemUrl = () => {
-  if (!ESP32_CONFIG.feedSystem.enabled) {
-    return null;
-  }
-  return `http://${ESP32_CONFIG.feedSystem.ipAddress}:${ESP32_CONFIG.feedSystem.port}`;
-};
+// Backward compatibility - both return the same URL since it's one device
+export const getWaterSystemUrl = () => getESP32Url();
+export const getFeedSystemUrl = () => getESP32Url();
 
 /**
  * Test connection to ESP32
  */
-export const testESP32Connection = async (systemType = 'waterSystem') => {
-  const config = ESP32_CONFIG[systemType];
-  
-  if (!config.enabled) {
+export const testESP32Connection = async () => {
+  if (!ESP32_CONFIG.enabled) {
     return {
       success: false,
-      message: `${systemType} is not enabled in configuration`,
+      message: 'ESP32 is not enabled in configuration',
     };
   }
   
-  const url = `http://${config.ipAddress}:${config.port}/`;
+  const url = `http://${ESP32_CONFIG.ipAddress}:${ESP32_CONFIG.port}/`;
   
   try {
     const response = await fetch(url, {

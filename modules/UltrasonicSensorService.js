@@ -208,12 +208,9 @@ const pingModule = async (endpoint) => {
  * @returns {Promise<Object>} Water level reading
  */
 export const getWaterLevel = async () => {
-  console.log(`💧 getWaterLevel called - simulationMode: ${simulationMode}, connected: ${connectionStatus.waterSensor.connected}`);
-  
   try {
     if (simulationMode || !connectionStatus.waterSensor.connected) {
       // Return simulated value with warning
-      console.log('⚠️ Using simulated water level');
       return {
         success: true,
         level: simulatedValues.waterLevel,
@@ -224,7 +221,7 @@ export const getWaterLevel = async () => {
       };
     }
 
-    console.log('📡 Reading from hardware...');
+    // console.log('📡 Reading from hardware...');
     const level = await readFromHardware('waterSensor');
     
     connectionStatus.waterSensor.lastUpdate = new Date().toISOString();
@@ -340,7 +337,7 @@ const readFromHardware = async (sensorType) => {
   }
   
   try {
-    console.log(`📊 Reading ${sensorType} from: ${sensor.endpoint}`);
+    // console.log(`📊 Reading ${sensorType} from: ${sensor.endpoint}`);
     
     // Call ESP32 /api/sensors endpoint
     const response = await fetch(sensor.endpoint, {
@@ -355,15 +352,15 @@ const readFromHardware = async (sensorType) => {
     }
     
     const data = await response.json();
-    console.log(`📦 Sensor data received:`, JSON.stringify(data));
+    // console.log(`📦 Sensor data received:`, JSON.stringify(data));
     
     // Parse response based on sensor type
     // ESP32 returns: { "water": { "level": 75, ... }, "simulationMode": false, ... }
     if (sensorType === 'waterSensor' && data.water) {
-      console.log(`💧 Water level: ${data.water.level}%`);
+      // console.log(`💧 Water level: ${data.water.level}%`);
       return data.water.level || 0;
     } else if (sensorType === 'feederSensor' && data.feeder) {
-      console.log(`🌾 Feeder level: ${data.feeder.level}%`);
+      // console.log(`🌾 Feeder level: ${data.feeder.level}%`);
       return data.feeder.level || 0;
     }
     

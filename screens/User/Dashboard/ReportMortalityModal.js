@@ -277,7 +277,7 @@ export default function ReportMortalityModal({
   onClose,
   onSuccess,
 }) {
-  console.log("[ReportMortalityModal] Render - visible:", visible);
+  // console.log("[ReportMortalityModal] Render - visible:", visible);
 
   const [selectedBatchId, setSelectedBatchId] = useState("");
   const [causeOfDeath, setCauseOfDeath] = useState("");
