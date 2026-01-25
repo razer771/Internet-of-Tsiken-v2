@@ -24,15 +24,17 @@ const { onValueWritten } = require("firebase-functions/v2/database");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
-const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const {
+  getFirestore,
+  FieldValue,
+  Timestamp,
+} = require("firebase-admin/firestore");
 const { getAuth } = require("firebase-admin/auth");
 const nodemailer = require("nodemailer");
+const axios = require("axios");
 
-// Initialize Twilio
-const accountSid = "ACcc5a4257b42b456747083860b3a61773";
-const authToken = "8448f54ce691e603a6e074d437c90031";
-const twilioClient = require("twilio")(accountSid, authToken);
-const verifyServiceSid = "VAf81f3e93faa06bb33bd946e3a7fb1da5";
+// Load environment variables from .env file (for local development)
+require("dotenv").config();
 
 // Initialize Firebase Admin
 initializeApp();
@@ -40,9 +42,190 @@ initializeApp();
 const db = getFirestore();
 const rtdb = getDatabase();
 
+// Semaphore API Configuration
+const SEMAPHORE_API_URL = "https://semaphore.co/api/v4/messages"; // Use /messages endpoint for custom SMS
+const OTP_EXPIRY_MINUTES = 10;
+
 /**
- * Send SMS OTP using Twilio Verify API
- * Sends a verification code via SMS to the provided phone number
+ * Get Semaphore API Key from environment variable
+/**
+ * Get Semaphore API Key from environment variable or functions config
+ * Supports both .env file (local) and Firebase functions.config (production)
+ * @returns {string} - Semaphore API key
+ */
+function getSemaphoreApiKey() {
+  try {
+    // Try environment variable first (for local development and Cloud Functions with .env)
+    let apiKey = process.env.SEMAPHORE_API_KEY;
+
+    // If not found, try functions.config (deprecated but still works in production)
+    if (!apiKey) {
+      console.log(
+        "📋 SEMAPHORE_API_KEY not in process.env, trying functions.config...",
+      );
+      const functions = require("firebase-functions");
+      apiKey = functions.config().semaphore?.api_key;
+
+      if (apiKey) {
+        console.log("✅ API key found via functions.config");
+      }
+    } else {
+      console.log("✅ API key found in environment variables");
+    }
+
+    if (!apiKey) {
+      throw new Error(
+        "SEMAPHORE_API_KEY not found in environment variables or functions.config",
+      );
+    }
+
+    console.log(
+      `✅ API key found (length: ${apiKey.length}), first 8 chars: ${apiKey.substring(0, 8)}`,
+    );
+    return apiKey;
+  } catch (error) {
+    console.error("❌ Error getting API key:", error.message);
+    throw new Error("Failed to get SEMAPHORE_API_KEY: " + error.message);
+  }
+}
+
+/**
+ * Format phone number from international format to local format
+ * Converts +639171234567 → 09171234567
+ * @param {string} phone - Phone number in any format
+ * @returns {string} - Phone number in local format (09XXXXXXXXX)
+ */
+function formatPhoneNumber(phone) {
+  if (!phone) return null;
+
+  // Remove all spaces, dashes, and parentheses
+  let cleaned = phone.replace(/[\s\-\(\)]/g, "");
+
+  // If it starts with +63, convert to 0 format
+  if (cleaned.startsWith("+63")) {
+    return "0" + cleaned.substring(3);
+  }
+
+  // If it already starts with 09, return as is
+  if (cleaned.startsWith("09")) {
+    return cleaned;
+  }
+
+  // If it starts with 63 (without +), convert to 0 format
+  if (cleaned.startsWith("63")) {
+    return "0" + cleaned.substring(2);
+  }
+
+  return cleaned;
+}
+
+/**
+ * Generate a random 6-digit OTP
+ * @returns {string} - 6-digit OTP
+ */
+function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+/**
+ * Check if OTP has expired
+ * @param {Timestamp} createdAt - Timestamp when OTP was created
+ * @returns {boolean} - True if expired, false otherwise
+ */
+function isOTPExpired(createdAt) {
+  if (!createdAt) return true;
+
+  const now = new Date();
+  const otpAge = (now - createdAt.toDate()) / 1000 / 60; // Age in minutes
+  return otpAge > OTP_EXPIRY_MINUTES;
+}
+
+/**
+ * Send SMS via Semaphore Messages API
+ * Uses the /messages endpoint to send custom SMS content
+ * @param {string} phoneNumber - Local format phone number (09XXXXXXXXX)
+ * @param {string} message - Custom message content to send
+ * @returns {Promise<object>} - Semaphore API response
+ */
+async function sendSemaphoreSMS(phoneNumber, message) {
+  try {
+    console.log(`📞 Starting sendSemaphoreSMS with phone: ${phoneNumber}`);
+
+    // Ensure phone number is in 09... format for Semaphore
+    let localPhone = formatPhoneNumber(phoneNumber);
+    console.log(
+      `📱 Phone number formatted for Semaphore (local format): ${localPhone}`,
+    );
+
+    // Use local format for Semaphore
+    const sendPhone = localPhone; // 09XXXXXXXXX format
+    console.log(`📱 Will send to: ${sendPhone}`);
+
+    // Get API key from environment variable
+    const apiKey = getSemaphoreApiKey();
+    console.log(`✅ API key retrieved successfully`);
+
+    if (!apiKey || apiKey.length === 0) {
+      throw new Error("API key is empty or undefined");
+    }
+
+    console.log(`📤 Sending POST request to Semaphore Messages API...`);
+    console.log(
+      `📋 Request details: phone=${sendPhone}, message_length=${message.length}`,
+    );
+
+    // Semaphore Messages endpoint requires application/x-www-form-urlencoded format
+    const params = new URLSearchParams();
+    params.append("apikey", apiKey.trim());
+    params.append("number", sendPhone); // Use local format (09XXXXXXXXX)
+    params.append("message", message);
+
+    console.log(`📦 Request Parameters:`, {
+      apikey: `${apiKey.substring(0, 8)}...`,
+      number: sendPhone,
+      message: message,
+    });
+
+    const response = await axios.post(SEMAPHORE_API_URL, params, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+    });
+
+    console.log(`✅ SMS sent successfully via Semaphore to ${sendPhone}`);
+    console.log(`📊 Semaphore Response:`, response.data);
+
+    // Semaphore Messages endpoint returns a message object or array
+    if (Array.isArray(response.data) && response.data.length > 0) {
+      console.log(`✅ Message sent with ID: ${response.data[0].message_id}`);
+    } else if (response.data.message_id) {
+      console.log(`✅ Message sent with ID: ${response.data.message_id}`);
+    }
+
+    return response.data;
+  } catch (error) {
+    console.error(`❌ Error sending SMS via Semaphore OTP:`, error.message);
+    console.error(`📋 Full error stack:`, error);
+    if (error.response) {
+      console.error(`📋 Semaphore API Error Response:`, {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data,
+      });
+    }
+    if (error.code === "ENOTFOUND" || error.code === "ECONNREFUSED") {
+      throw new Error(
+        `Network error connecting to Semaphore API: ${error.message}`,
+      );
+    }
+    throw new Error(`Failed to send SMS: ${error.message}`);
+  }
+}
+
+/**
+ * Send SMS OTP using Semaphore API
+ * Generates OTP, stores it in Firestore, and sends it via Semaphore SMS
+ * API key stored as environment variable (SEMAPHORE_API_KEY)
  */
 exports.sendSMSOTP = onCall(async (request) => {
   try {
@@ -55,28 +238,46 @@ exports.sendSMSOTP = onCall(async (request) => {
 
     console.log(`📱 Sending SMS OTP to: ${phone}`);
 
+    // Normalize phone number to local format (09XXXXXXXXX) for database lookup
+    const normalizedPhone = formatPhoneNumber(phone);
+    console.log(`📱 Normalized phone number: ${normalizedPhone}`);
+
     // Check if phone number exists in Firestore users collection
     // Check both "mobile" and "phone" fields for compatibility
     let usersSnapshot = await db
       .collection("users")
-      .where("mobile", "==", phone)
+      .where("mobile", "==", normalizedPhone)
       .limit(1)
       .get();
 
-    // If not found in "mobile" field, try "phone" field
+    // If not found in "mobile" field, try "phone" field with normalized format
     if (usersSnapshot.empty) {
       console.log(
-        `⚠️ Phone not found in "mobile" field, checking "phone" field...`,
+        `⚠️ Phone not found in "mobile" field with ${normalizedPhone}, checking "phone" field...`,
       );
       usersSnapshot = await db
         .collection("users")
-        .where("phone", "==", phone)
+        .where("phone", "==", normalizedPhone)
+        .limit(1)
+        .get();
+    }
+
+    // Also try with + prefix format if still not found
+    if (usersSnapshot.empty) {
+      const internationalPhone = "+63" + normalizedPhone.substring(1);
+      console.log(
+        `⚠️ Phone not found in "phone" field, checking with international format: ${internationalPhone}...`,
+      );
+      usersSnapshot = await db
+        .collection("users")
+        .where("phone", "==", internationalPhone)
         .limit(1)
         .get();
     }
 
     if (usersSnapshot.empty) {
       console.log(`❌ Phone number not found in database: ${phone}`);
+      console.log(`📋 Tried searching for: ${normalizedPhone}`);
       // Log all users for debugging
       const allUsers = await db.collection("users").limit(5).get();
       allUsers.forEach((doc) => {
@@ -92,24 +293,55 @@ exports.sendSMSOTP = onCall(async (request) => {
       );
     }
 
-    console.log(`✅ Phone number found in database: ${phone}`);
+    console.log(`✅ Phone number found in database: ${normalizedPhone}`);
 
-    // Send verification code using Twilio Verify
-    const verification = await twilioClient.verify.v2
-      .services(verifyServiceSid)
-      .verifications.create({
-        to: phone,
-        channel: "sms",
-      });
+    // Generate OTP
+    const otp = generateOTP();
+    console.log(`📝 Generated OTP: ${otp}`);
 
-    console.log(`✅ SMS OTP sent successfully. SID: ${verification.sid}`);
-    console.log(`Status: ${verification.status}`);
+    // Store OTP in Firestore for verification
+    // Use normalized phone for consistent document IDs
+    const otpDocId = `otp_${normalizedPhone.replace(/[+\s\-]/g, "")}`;
+    const now = Timestamp.now();
+    const expiryTime = new Date(
+      now.toDate().getTime() + OTP_EXPIRY_MINUTES * 60 * 1000,
+    );
+
+    await db
+      .collection("otpVerifications")
+      .doc(otpDocId)
+      .set(
+        {
+          phone: normalizedPhone,
+          otp: otp,
+          createdAt: now,
+          expiresAt: Timestamp.fromDate(expiryTime),
+          attempts: 0,
+          verified: false,
+        },
+        { merge: true },
+      );
+
+    console.log(`✅ OTP stored in Firestore with ID: ${otpDocId}`);
+
+    // Send SMS via Semaphore
+    // Use actual generated OTP (not placeholder)
+    const message = `Your Internet of Tsiken OTP code is: ${otp}. This code will expire in ${OTP_EXPIRY_MINUTES} minutes.`;
+
+    try {
+      await sendSemaphoreSMS(normalizedPhone, message);
+    } catch (smsError) {
+      console.error(`⚠️ Failed to send SMS: ${smsError.message}`);
+      // Delete the OTP record if SMS sending failed
+      await db.collection("otpVerifications").doc(otpDocId).delete();
+      throw new HttpsError("internal", "Failed to send SMS. Please try again.");
+    }
 
     return {
       success: true,
       phone: phone,
-      status: verification.status,
-      sid: verification.sid,
+      message: "OTP sent successfully. Check your SMS.",
+      expiresIn: OTP_EXPIRY_MINUTES * 60, // seconds
     };
   } catch (error) {
     console.error("❌ Error sending SMS OTP:", error);
@@ -123,8 +355,8 @@ exports.sendSMSOTP = onCall(async (request) => {
 });
 
 /**
- * Verify SMS OTP using Twilio Verify API
- * Verifies the OTP code entered by the user
+ * Verify SMS OTP using Firestore-based verification
+ * Fetches OTP from Firestore, checks match and expiry
  */
 exports.verifySMSOTP = onCall(async (request) => {
   try {
@@ -132,38 +364,94 @@ exports.verifySMSOTP = onCall(async (request) => {
 
     // Validate input
     if (!phone) {
-      throw new Error("Phone number is required");
+      throw new HttpsError("invalid-argument", "Phone number is required");
     }
     if (!otp) {
-      throw new Error("OTP code is required");
+      throw new HttpsError("invalid-argument", "OTP code is required");
     }
 
     console.log(`🔐 Verifying OTP for: ${phone}`);
 
-    // Verify the OTP code using Twilio Verify
-    const verificationCheck = await twilioClient.verify.v2
-      .services(verifyServiceSid)
-      .verificationChecks.create({
-        to: phone,
-        code: otp,
+    // Fetch OTP from Firestore
+    const otpDocId = `otp_${phone.replace(/[+\s\-]/g, "")}`;
+    const otpDoc = await db.collection("otpVerifications").doc(otpDocId).get();
+
+    if (!otpDoc.exists) {
+      console.log(`❌ OTP not found in Firestore for ${phone}`);
+      throw new HttpsError(
+        "not-found",
+        "No OTP found. Please request a new OTP.",
+      );
+    }
+
+    const otpData = otpDoc.data();
+
+    // Check if OTP has expired
+    if (isOTPExpired(otpData.createdAt)) {
+      console.log(`❌ OTP expired for ${phone}`);
+      // Delete expired OTP
+      await db.collection("otpVerifications").doc(otpDocId).delete();
+      throw new HttpsError(
+        "invalid-argument",
+        "OTP has expired. Please request a new OTP.",
+      );
+    }
+
+    // Check if OTP matches
+    if (otpData.otp !== otp) {
+      console.log(
+        `❌ OTP mismatch for ${phone}. Attempts: ${otpData.attempts + 1}`,
+      );
+
+      // Increment attempts
+      const newAttempts = (otpData.attempts || 0) + 1;
+      const maxAttempts = 5;
+
+      if (newAttempts >= maxAttempts) {
+        console.log(`❌ Max OTP attempts exceeded for ${phone}`);
+        await db.collection("otpVerifications").doc(otpDocId).delete();
+        throw new HttpsError(
+          "permission-denied",
+          "Maximum verification attempts exceeded. Please request a new OTP.",
+        );
+      }
+
+      // Update attempts
+      await db.collection("otpVerifications").doc(otpDocId).update({
+        attempts: newAttempts,
       });
 
-    console.log(`Verification status: ${verificationCheck.status}`);
-
-    if (verificationCheck.status === "approved") {
-      console.log(`✅ OTP verified successfully for ${phone}`);
-      return {
-        success: true,
-        phone: phone,
-        status: verificationCheck.status,
-      };
-    } else {
-      console.log(`❌ OTP verification failed for ${phone}`);
-      throw new Error("Invalid OTP code");
+      throw new HttpsError(
+        "invalid-argument",
+        `Invalid OTP. Ensure the number is correct and try again.`,
+      );
     }
+
+    // OTP is valid
+    console.log(`✅ OTP verified successfully for ${phone}`);
+
+    // Mark as verified in Firestore
+    await db.collection("otpVerifications").doc(otpDocId).update({
+      verified: true,
+      verifiedAt: Timestamp.now(),
+    });
+
+    return {
+      success: true,
+      phone: phone,
+      message: "OTP verified successfully",
+    };
   } catch (error) {
     console.error("❌ Error verifying SMS OTP:", error);
-    throw new Error(error.message || "Failed to verify SMS OTP");
+    // If it's already an HttpsError, throw it as-is
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    // Otherwise, wrap it in an HttpsError
+    throw new HttpsError(
+      "internal",
+      error.message || "Failed to verify SMS OTP",
+    );
   }
 });
 
@@ -387,8 +675,9 @@ exports.createUserAccount = onCall(
         ? `${firstName} ${middleName} ${lastName}`
         : `${firstName} ${lastName}`;
 
-      // Format phone number
-      const formattedPhone = `+63${mobileNumber}`;
+      // Use mobileNumber passed from frontend (already formatted as 09XXXXXXXXX)
+      // Save to both mobileNumber and phone fields with same value
+      const phoneNumber = mobileNumber;
 
       // Get admin info for logging
       const adminData = callerDoc.data();
@@ -408,8 +697,8 @@ exports.createUserAccount = onCall(
           fullname: fullName,
           displayName: fullName,
           role: role.toLowerCase(),
-          mobileNumber: mobileNumber,
-          phone: formattedPhone,
+          mobileNumber: phoneNumber,
+          phone: phoneNumber,
           accountStatus: "active",
           accountType: "standard",
           verified: false,

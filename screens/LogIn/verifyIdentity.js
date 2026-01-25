@@ -122,7 +122,7 @@ export default function VerifyIdentityScreen() {
       }
       try {
         // Format phone number with country code
-        const phoneNumber = `+63${inputValue}`; // Philippines country code
+        const phoneNumber = `0${inputValue}`; // Philippines country code
 
         console.log("🔄 Verifying mobile number:", phoneNumber);
 
@@ -216,8 +216,7 @@ export default function VerifyIdentityScreen() {
 
           console.log("==========================================");
           console.log(`📱 SMS sent to: ${phoneNumber}`);
-          console.log(`✅ SMS OTP sent via Twilio`);
-          console.log(`Verification SID: ${response.data.sid}`);
+          console.log(`✅ SMS OTP sent via Semaphore`);
           console.log("==========================================");
 
           setShowOtpScreen(true);
@@ -572,6 +571,7 @@ export default function VerifyIdentityScreen() {
                   style={styles.input}
                   placeholder="Enter 10-digit mobile number"
                   keyboardType="phone-pad"
+                  n
                   maxLength={10}
                   value={inputValue}
                   onChangeText={setInputValue}

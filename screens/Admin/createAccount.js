@@ -11,6 +11,7 @@ import {
   Platform,
   Modal,
   Alert,
+  LayoutAnimation,
 } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import Header2 from "../navigation/adminHeader";
@@ -243,6 +244,9 @@ export default function CreateAccount({ navigation }) {
       newErrors.role = "Role is required.";
     }
 
+    LayoutAnimation.configureNext(
+      LayoutAnimation.Presets.easeInEaseOut
+    );
     setErrors(newErrors);
 
     // If no errors, proceed with save
@@ -276,13 +280,16 @@ export default function CreateAccount({ navigation }) {
         const functions = getFunctions();
         const createUserAccount = httpsCallable(functions, "createUserAccount");
 
+        // Format mobile number from 9175246023 to 09175246023
+        const formattedMobileNumber = "0" + mobileNumber;
+
         const result = await createUserAccount({
           email: email,
           password: password,
           firstName: firstName,
           middleName: middleName,
           lastName: lastName,
-          mobileNumber: mobileNumber,
+          mobileNumber: formattedMobileNumber,
           role: role,
         });
 
@@ -374,13 +381,18 @@ export default function CreateAccount({ navigation }) {
       <Header2 />
 
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+        style={{ flex: 1 }}
       >
         <ScrollView
+          style={{ flex: 1 }}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          scrollEnabled={true}
+          scrollEventThrottle={16}
+          removeClippedSubviews={false}
+          nestedScrollEnabled={true}
         >
           {/* Card Container */}
           <View style={styles.card}>
@@ -427,9 +439,7 @@ export default function CreateAccount({ navigation }) {
               onFocus={() => setFocusedField("firstName")}
               onBlur={() => setFocusedField(null)}
             />
-            {errors.firstName && (
-              <Text style={styles.errorText}>{errors.firstName}</Text>
-            )}
+            <Text style={styles.errorText}>{errors.firstName || ""}</Text>
 
             {/* Middle Name */}
             <Text style={styles.label}>Middle Name</Text>
@@ -469,9 +479,7 @@ export default function CreateAccount({ navigation }) {
               onFocus={() => setFocusedField("middleName")}
               onBlur={() => setFocusedField(null)}
             />
-            {errors.middleName && (
-              <Text style={styles.errorText}>{errors.middleName}</Text>
-            )}
+            <Text style={styles.errorText}>{errors.middleName || ""}</Text>
 
             {/* Last Name */}
             <View style={styles.labelRow}>
@@ -514,9 +522,7 @@ export default function CreateAccount({ navigation }) {
               onFocus={() => setFocusedField("lastName")}
               onBlur={() => setFocusedField(null)}
             />
-            {errors.lastName && (
-              <Text style={styles.errorText}>{errors.lastName}</Text>
-            )}
+            <Text style={styles.errorText}>{errors.lastName || ""}</Text>
 
             {/* Email */}
             <View style={styles.labelRow}>
@@ -554,9 +560,7 @@ export default function CreateAccount({ navigation }) {
               onFocus={() => setFocusedField("email")}
               onBlur={() => setFocusedField(null)}
             />
-            {errors.email && (
-              <Text style={styles.errorText}>{errors.email}</Text>
-            )}
+            <Text style={styles.errorText}>{errors.email || ""}</Text>
 
             {/* Mobile Number */}
             <View style={styles.labelRow}>
@@ -585,7 +589,7 @@ export default function CreateAccount({ navigation }) {
                   } else if (numericText.length < 10) {
                     setErrors({
                       ...errors,
-                      mobileNumber: `Mobile number must be 10 digits (${numericText.length}/10).`,
+                      mobileNumber: "Mobile number must be 10 digits.",
                     });
                   } else if (numericText.length === 10) {
                     setErrors({ ...errors, mobileNumber: null });
@@ -598,9 +602,7 @@ export default function CreateAccount({ navigation }) {
                 onBlur={() => setFocusedField(null)}
               />
             </View>
-            {errors.mobileNumber && (
-              <Text style={styles.errorText}>{errors.mobileNumber}</Text>
-            )}
+            <Text style={styles.errorText}>{errors.mobileNumber || ""}</Text>
 
             {/* Password */}
             <View style={styles.labelRow}>
@@ -675,9 +677,7 @@ export default function CreateAccount({ navigation }) {
                 />
               </TouchableOpacity>
             </View>
-            {errors.password && (
-              <Text style={styles.errorText}>{errors.password}</Text>
-            )}
+            <Text style={styles.errorText}>{errors.password || ""}</Text>
 
             {/* Confirm Password */}
             <View style={styles.labelRow}>
@@ -723,9 +723,7 @@ export default function CreateAccount({ navigation }) {
                 />
               </TouchableOpacity>
             </View>
-            {errors.confirmPassword && (
-              <Text style={styles.errorText}>{errors.confirmPassword}</Text>
-            )}
+            <Text style={styles.errorText}>{errors.confirmPassword || ""}</Text>
 
             {/* Role */}
             <View style={styles.labelRow}>
@@ -777,7 +775,7 @@ export default function CreateAccount({ navigation }) {
                 </View>
               )}
             </View>
-            {errors.role && <Text style={styles.errorText}>{errors.role}</Text>}
+            <Text style={styles.errorText}>{errors.role || ""}</Text>
 
             {/* Buttons Container - Prevents flickering */}
             <View style={styles.buttonsContainer}>
@@ -866,6 +864,9 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 18,
     paddingBottom: 40,
+    flexGrow: 1,
+    justifyContent: "flex-start",
+    minHeight: "100%",
   },
   card: {
     backgroundColor: "#fff",
@@ -877,6 +878,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
+    width: "100%",
   },
   title: {
     fontSize: 24,
@@ -938,6 +940,7 @@ const styles = StyleSheet.create({
     color: "#DC2626",
     marginTop: 4,
     marginLeft: 2,
+    minHeight: 18,
   },
   passwordContainer: {
     position: "relative",

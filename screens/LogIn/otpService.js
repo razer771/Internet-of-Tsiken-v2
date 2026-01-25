@@ -25,13 +25,12 @@ const generateOTP = () => {
  */
 export const sendOTPViaSMS = async (phoneNumber, otp) => {
   try {
-    // TODO: Integrate with your SMS provider (Twilio, Firebase Cloud Messaging, etc.)
-    // Example with Firebase Cloud Functions:
-    // const response = await fetch('YOUR_CLOUD_FUNCTION_URL', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ phoneNumber, otp })
-    // });
+    // NOTE: SMS sending is handled by Firebase Cloud Functions using Semaphore API
+    // The Cloud Function (sendSMSOTP) handles:
+    // 1. OTP generation
+    // 2. Firestore storage
+    // 3. SMS delivery via Semaphore API
+    // This function is kept for backward compatibility with existing code
 
     // For now, we'll just log it (remove in production)
     console.log(`OTP sent to ${phoneNumber}: ${otp}`);
@@ -63,7 +62,7 @@ export const requestOTP = async (phoneNumber) => {
         // Check if 60 seconds have passed since last resend
         if (timeSinceLastResend < OTP_RESEND_DELAY) {
           const remainingTime = Math.ceil(
-            (OTP_RESEND_DELAY - timeSinceLastResend) / 1000
+            (OTP_RESEND_DELAY - timeSinceLastResend) / 1000,
           );
           return {
             success: false,
@@ -88,7 +87,7 @@ export const requestOTP = async (phoneNumber) => {
         createdAt: now,
         lastResendAt: now,
         expiresAt: now + OTP_EXPIRY_TIME,
-      })
+      }),
     );
 
     // Send OTP via SMS

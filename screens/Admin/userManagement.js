@@ -163,12 +163,9 @@ export default function UserManagement({ navigation }) {
 
   // Fetch users from Firestore and compute their status
   useEffect(() => {
-    console.log("Setting up users listener...");
     const usersRef = collection(db, "users");
 
     const unsubscribe = onSnapshot(usersRef, async (snapshot) => {
-      console.log("Fetched users:", snapshot.size);
-
       const usersData = await Promise.all(
         snapshot.docs.map(async (userDoc) => {
           const userData = userDoc.data();
@@ -187,10 +184,6 @@ export default function UserManagement({ navigation }) {
           let status = "inactive";
           try {
             const sessionSnapshot = await getDocs(loginQuery);
-            console.log(
-              `Fetched session logs for user ${userId} (${userData.firstName} ${userData.lastName}):`,
-              sessionSnapshot.size,
-            );
 
             if (!sessionSnapshot.empty) {
               const lastLogin = sessionSnapshot.docs[0].data().timestamp;
@@ -203,25 +196,13 @@ export default function UserManagement({ navigation }) {
 
                 // Active if logged in within past 3 days
                 status = diffInDays <= 3 ? "active" : "inactive";
-                console.log(
-                  `Last login for user ${userId} (${userData.firstName} ${userData.lastName}): ${diffInDays.toFixed(2)} days ago → ${status}`,
-                );
-              } else {
-                console.log(
-                  `No valid timestamp for user ${userId}, marking as inactive`,
-                );
               }
-            } else {
-              console.log(
-                `No login logs found for user ${userId} (${userData.firstName} ${userData.lastName}), marking as inactive`,
-              );
             }
           } catch (error) {
             console.error(
               `Error fetching session logs for user ${userId}:`,
               error,
             );
-            console.log(`Marking user ${userId} as inactive due to error`);
           }
 
           // Format created date as YYYY-MMM-DD
@@ -232,9 +213,6 @@ export default function UserManagement({ navigation }) {
             const month = createdAt.toLocaleString("en-US", { month: "short" });
             const day = String(createdAt.getDate()).padStart(2, "0");
             created = `${year}-${month}-${day}`;
-            console.log(
-              `User ${userId} (${userData.firstName} ${userData.lastName}) created on ${created}`,
-            );
           }
 
           return {
@@ -251,12 +229,10 @@ export default function UserManagement({ navigation }) {
         }),
       );
 
-      console.log("Users with computed status:", usersData);
       setUsers(usersData);
     });
 
     return () => {
-      console.log("Cleaning up users listener");
       unsubscribe();
     };
   }, []);
@@ -291,10 +267,6 @@ export default function UserManagement({ navigation }) {
 
   // Sort by date - always show newest first by default
   const sortedUsers = [...filteredUsers].sort((a, b) => {
-    console.log(
-      `Sorting users - comparing ${a.firstName} (${a.created}) with ${b.firstName} (${b.created})`,
-    );
-
     if (a.created === "N/A" && b.created === "N/A") return 0;
     if (a.created === "N/A") return 1; // Push N/A to the end
     if (b.created === "N/A") return -1;
@@ -329,20 +301,7 @@ export default function UserManagement({ navigation }) {
     const dateA = parseDate(a.created);
     const dateB = parseDate(b.created);
 
-    console.log(`  Date A: ${dateA.toDateString()} (${dateA.getTime()})`);
-    console.log(`  Date B: ${dateB.toDateString()} (${dateB.getTime()})`);
-    console.log(
-      `  Result: ${dateB - dateA} (${dateB > dateA ? "B is newer" : "A is newer"})`,
-    );
-
     return dateB - dateA; // Most recent first (larger timestamp comes first)
-  });
-
-  console.log("Sorted users order:");
-  sortedUsers.forEach((user, index) => {
-    console.log(
-      `  ${index + 1}. ${user.firstName} ${user.lastName} - Created: ${user.created}`,
-    );
   });
   // Filter by selected calendar date
   const filteredByDate = selectedCalendarDate
@@ -451,12 +410,12 @@ export default function UserManagement({ navigation }) {
     if (!phone) {
       return "Mobile number is required";
     }
-    if (phone.length > 13) {
+    if (phone.length > 11) {
       console.log(`Mobile number too long: ${phone.length} characters`);
-      return "Mobile number must not exceed 13 characters";
+      return "Mobile number must not exceed 11 characters";
     }
-    if (!/^\+639\d{9}$/.test(phone)) {
-      return "Mobile number must be in format +639xxxxxxxxx";
+    if (!/^09\d{9}$/.test(phone)) {
+      return "Mobile number must be in format 09xxxxxxxxx";
     }
     return "";
   };
@@ -526,6 +485,7 @@ export default function UserManagement({ navigation }) {
         lastName: editUser.lastName,
         email: editUser.email,
         phone: editUser.phone,
+        mobileNumber: editUser.phone,
         role: editUser.role.toLowerCase(),
         displayName: displayName,
         fullname: fullname,
@@ -1215,12 +1175,7 @@ export default function UserManagement({ navigation }) {
                     <Text style={styles.statusText}>
                       {(() => {
                         const status = user.accountStatus || "inactive";
-                        const formattedStatus =
-                          status.charAt(0).toUpperCase() + status.slice(1);
-                        console.log(
-                          `Fetched accountStatus for user ${user.firstName} ${user.lastName}: ${formattedStatus}`,
-                        );
-                        return formattedStatus;
+                        return status.charAt(0).toUpperCase() + status.slice(1);
                       })()}
                     </Text>
                   </View>
@@ -1403,14 +1358,20 @@ export default function UserManagement({ navigation }) {
                 ]}
                 value={editUser.phone}
                 onChangeText={(text) => {
-                  setEditUser({ ...editUser, phone: text });
-                  setValidationErrors({
-                    ...validationErrors,
-                    phone: validatePhone(text),
-                  });
+                  // Remove any non-numeric characters
+                  let cleanText = text.replace(/[^0-9]/g, "");
+                  // Limit to 11 digits (09XXXXXXXXX)
+                  if (cleanText.length <= 11) {
+                    setEditUser({ ...editUser, phone: cleanText });
+                    setValidationErrors({
+                      ...validationErrors,
+                      phone: validatePhone(cleanText),
+                    });
+                  }
                 }}
-                placeholder="+639xxxxxxxxx"
+                placeholder="09123456789"
                 keyboardType="phone-pad"
+                maxLength={11}
               />
               {validationErrors.phone ? (
                 <Text style={styles.errorText}>{validationErrors.phone}</Text>

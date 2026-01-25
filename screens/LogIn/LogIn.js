@@ -307,7 +307,7 @@ export default function Login() {
         if (userDoc.exists()) {
           const userData = userDoc.data();
 
-          console.log("🔍 Raw user data from Firestore:", userData);
+          //console.log("🔍 Raw user data from Firestore:", userData);
 
           const accountStatus = (userData.accountStatus || "").toLowerCase();
           const userRole = (userData.role || "").toLowerCase();

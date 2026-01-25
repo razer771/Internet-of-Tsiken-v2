@@ -239,6 +239,31 @@ export default function EditProfile({ navigation }) {
   };
 
   // Format name to Title Case
+  // Format phone number from any format to local format (09XXXXXXXXX)
+  const formatPhoneNumber = (phone) => {
+    if (!phone) return null;
+
+    // Remove all spaces, dashes, and parentheses
+    let cleaned = phone.replace(/[\s\-\(\)]/g, "");
+
+    // If it starts with +63, convert to 0 format
+    if (cleaned.startsWith("+63")) {
+      return "0" + cleaned.substring(3);
+    }
+
+    // If it already starts with 09, return as is
+    if (cleaned.startsWith("09")) {
+      return cleaned;
+    }
+
+    // If it starts with 63 (without +), convert to 0 format
+    if (cleaned.startsWith("63")) {
+      return "0" + cleaned.substring(2);
+    }
+
+    return cleaned;
+  };
+
   const formatToTitleCase = (name) => {
     return name
       .trim()
@@ -398,7 +423,7 @@ export default function EditProfile({ navigation }) {
       const formattedFirstName = formatToTitleCase(firstName);
       const formattedMiddleName = formatToTitleCase(middleName);
       const formattedLastName = formatToTitleCase(lastName);
-      const trimmedPhone = phone.trim();
+      const formattedPhone = formatPhoneNumber(phone.trim());
 
       // Build update object with only changed fields
       const updateData = {};
@@ -426,9 +451,13 @@ export default function EditProfile({ navigation }) {
         );
       }
 
-      if (trimmedPhone !== originalPhone) {
-        updateData.phone = trimmedPhone;
-        fieldsChanged.push(`phone: "${originalPhone}" → "${trimmedPhone}"`);
+      if (formattedPhone && formattedPhone !== originalPhone) {
+        // Update both "phone" and "mobileNumber" fields
+        updateData.phone = formattedPhone;
+        updateData.mobileNumber = formattedPhone;
+        fieldsChanged.push(
+          `phone: "${originalPhone}" → "${formattedPhone}" (both phone and mobileNumber fields)`,
+        );
       }
 
       // Always update timestamp
@@ -479,7 +508,8 @@ export default function EditProfile({ navigation }) {
       setOriginalFirstName(formattedFirstName);
       setOriginalMiddleName(formattedMiddleName);
       setOriginalLastName(formattedLastName);
-      setOriginalPhone(trimmedPhone);
+      setOriginalPhone(formattedPhone);
+      setPhone(formattedPhone); // Update the display value to formatted version
 
       // Clear password fields to prevent unsaved changes warning
       setCurrentPassword("");
@@ -1024,33 +1054,19 @@ export default function EditProfile({ navigation }) {
             </View>
             <TextInput
               style={styles.input}
-              placeholder="+639123456789"
+              placeholder="09123456789"
               keyboardType="phone-pad"
               value={phone}
               onChangeText={(text) => {
-                // Remove any non-numeric characters except +
-                let cleanText = text.replace(/[^0-9+]/g, "");
+                // Remove any non-numeric characters
+                let cleanText = text.replace(/[^0-9]/g, "");
 
-                // If starts with 0, replace with +63
-                if (cleanText.startsWith("0")) {
-                  cleanText = "+63" + cleanText.substring(1);
-                }
-
-                // If doesn't start with +63, add it
-                if (
-                  !cleanText.startsWith("+63") &&
-                  cleanText.length > 0 &&
-                  !cleanText.startsWith("+")
-                ) {
-                  cleanText = "+63" + cleanText;
-                }
-
-                // Limit to +63 + 10 digits = 13 characters
-                if (cleanText.length <= 13) {
+                // Limit to 11 digits (09XXXXXXXXX)
+                if (cleanText.length <= 11) {
                   setPhone(cleanText);
                 }
               }}
-              maxLength={13}
+              maxLength={11}
             />
 
             {/* Save Changes Button */}
