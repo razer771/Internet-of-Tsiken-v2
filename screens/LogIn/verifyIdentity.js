@@ -214,10 +214,10 @@ export default function VerifyIdentityScreen() {
           });
           setVerificationId(phoneNumber);
 
-          console.log("==========================================");
+          console.log("=========================================");
           console.log(`📱 SMS sent to: ${phoneNumber}`);
           console.log(`✅ SMS OTP sent via Semaphore`);
-          console.log("==========================================");
+          console.log("=========================================");
 
           setShowOtpScreen(true);
           setSuccessModalVisible(true);
