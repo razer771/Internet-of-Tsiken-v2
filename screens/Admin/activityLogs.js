@@ -28,7 +28,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { Asset } from "expo-asset";
 
 const COLUMN_WIDTHS = {
-  date: 150,
+  date: 140,
   time: 120,
   name: 200,
   action: 200,
@@ -40,7 +40,6 @@ const TABLE_WIDTH =
   COLUMN_WIDTHS.action;
 
 const LOGS_PER_PAGE = 10;
-const EXPORT_ENTRIES_PER_PAGE = 25;
 
 // Month names for date formatting
 const monthNamesShort = [
@@ -381,39 +380,26 @@ export default function ActivityLogs({ navigation }) {
         return;
       }
 
-      // Calculate pagination
-      const totalPages = Math.ceil(
-        logsToExport.length / EXPORT_ENTRIES_PER_PAGE,
-      );
+      // Prepare all entries in a single export page
+      const formattedEntries = logsToExport.map((log, idx) => ({
+        No: idx + 1,
+        Date: formatDateGMT8(log.timestamp),
+        Time: formatTimeGMT8(log.timestamp),
+        Name: log.userName,
+        Action: log.action,
+        Description: log.description,
+      }));
 
-      // Prepare export data with pagination
-      const exportPages = [];
-      for (let page = 0; page < totalPages; page++) {
-        const startIdx = page * EXPORT_ENTRIES_PER_PAGE;
-        const endIdx = Math.min(
-          startIdx + EXPORT_ENTRIES_PER_PAGE,
-          logsToExport.length,
-        );
-        const pageEntries = logsToExport.slice(startIdx, endIdx);
-
-        const formattedEntries = pageEntries.map((log, idx) => ({
-          No: startIdx + idx + 1,
-          Date: formatDateGMT8(log.timestamp),
-          Time: formatTimeGMT8(log.timestamp),
-          Name: log.userName,
-          Action: log.action,
-          Description: log.description,
-        }));
-
-        exportPages.push({
-          pageNumber: page + 1,
-          totalPages,
+      const exportPages = [
+        {
+          pageNumber: 1,
+          totalPages: 1,
           entries: formattedEntries,
           entriesCount: formattedEntries.length,
-        });
-      }
+        },
+      ];
 
-      // Generate PDF directly with filtered data
+      // Generate PDF directly with all data
       await generatePDF(exportPages, {
         sortBy: "Date (newest first)",
         dateFilter: formatRecordDate(),
@@ -542,11 +528,11 @@ export default function ActivityLogs({ navigation }) {
             <thead>
               <tr>
                 <th style="width: 3%;">No</th>
-                <th style="width: 12%;">Date</th>
+                <th style="width: 10%;">Date</th>
                 <th style="width: 8%;">Time</th>
                 <th style="width: 15%;">Name</th>
                 <th style="width: 20%;">Action</th>
-                <th style="width: 20%;">Description</th>
+                <th style="width: 22%;">Description</th>
               </tr>
             </thead>
             <tbody>

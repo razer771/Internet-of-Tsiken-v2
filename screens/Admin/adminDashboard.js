@@ -151,11 +151,7 @@ export default function AdminDashboard() {
 
   const fetchPredatorDetections = async () => {
     try {
-      console.log("Fetching predator detections from Firestore...");
-
-      // Get detections from the last 7 days
-      const now = new Date();
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      console.log("Fetching ALL-TIME predator detections from Firestore...");
 
       let detectionCount = 0;
       let latestDetection = null;
@@ -187,43 +183,35 @@ export default function AdminDashboard() {
               `Found ${attacksSnapshot.docs.length} attacks in batch ${batchId}`,
             );
 
-            // Process attacks and filter by last 7 days
+            // Process all attacks (no date filter)
             attacksSnapshot.docs.forEach((doc) => {
               const data = doc.data();
               const attackDatetime = data.attack_datetime;
 
-              if (!attackDatetime) return;
+              detectionCount++;
 
-              // Convert Firestore Timestamp to Date
-              let attackDate;
-              try {
-                if (
-                  attackDatetime.toDate &&
-                  typeof attackDatetime.toDate === "function"
-                ) {
-                  attackDate = attackDatetime.toDate();
-                } else if (attackDatetime.seconds) {
-                  attackDate = new Date(attackDatetime.seconds * 1000);
-                } else if (attackDatetime instanceof Date) {
-                  attackDate = attackDatetime;
-                } else {
-                  attackDate = new Date(attackDatetime);
-                }
-
-                // Validate date and check if within last 7 days
-                if (
-                  !isNaN(attackDate.getTime()) &&
-                  attackDate >= sevenDaysAgo
-                ) {
-                  detectionCount++;
-
-                  // Track the most recent detection
+              // Track the most recent detection
+              if (attackDatetime) {
+                let attackDate;
+                try {
+                  if (
+                    attackDatetime.toDate &&
+                    typeof attackDatetime.toDate === "function"
+                  ) {
+                    attackDate = attackDatetime.toDate();
+                  } else if (attackDatetime.seconds) {
+                    attackDate = new Date(attackDatetime.seconds * 1000);
+                  } else if (attackDatetime instanceof Date) {
+                    attackDate = attackDatetime;
+                  } else {
+                    attackDate = new Date(attackDatetime);
+                  }
                   if (!latestDetection || attackDate > latestDetection) {
                     latestDetection = attackDate;
                   }
+                } catch (error) {
+                  console.warn("Error processing attack timestamp:", error);
                 }
-              } catch (error) {
-                console.warn("Error processing attack timestamp:", error);
               }
             });
           } catch (error) {
@@ -237,7 +225,7 @@ export default function AdminDashboard() {
       setPredatorDetections(detectionCount);
       setLastDetectionTime(latestDetection);
 
-      console.log("Predator detections (last 7 days):", detectionCount);
+      console.log("Predator detections (ALL TIME):", detectionCount);
       if (latestDetection) {
         console.log("Last detection:", latestDetection.toLocaleString());
       }
@@ -308,12 +296,19 @@ export default function AdminDashboard() {
       ];
 
       const allLogs = [];
+      const userCache = {};
 
       // Fetch logs from each collection
       for (const collectionPath of logCollections) {
         try {
+          // Use server-side ordering and limit(10)
           const logsRef = collection(db, collectionPath);
-          const logsSnapshot = await getDocs(logsRef);
+          const logsQuery = query(
+            logsRef,
+            orderBy("timestamp", "desc"),
+            limit(10),
+          );
+          const logsSnapshot = await getDocs(logsQuery);
 
           console.log(
             `Fetched ${logsSnapshot.size} logs from ${collectionPath}`,
@@ -323,7 +318,7 @@ export default function AdminDashboard() {
           for (const docSnap of logsSnapshot.docs) {
             const logData = docSnap.data();
 
-            // Fetch user data from users collection
+            // Fetch user data from users collection, with cache
             let firstName = "Unknown";
             let lastName = "User";
 
@@ -331,20 +326,27 @@ export default function AdminDashboard() {
             const userId = logData.userId || logData.adminId;
 
             if (userId) {
-              try {
-                const userRef = doc(db, "users", userId);
-                const userDoc = await getDoc(userRef);
+              if (userCache[userId]) {
+                // Use cached user data
+                firstName = userCache[userId].firstName;
+                lastName = userCache[userId].lastName;
+              } else {
+                try {
+                  const userRef = doc(db, "users", userId);
+                  const userDoc = await getDoc(userRef);
 
-                if (userDoc.exists()) {
-                  const userData = userDoc.data();
-                  firstName = userData.firstName || "Unknown";
-                  lastName = userData.lastName || "User";
+                  if (userDoc.exists()) {
+                    const userData = userDoc.data();
+                    firstName = userData.firstName || "Unknown";
+                    lastName = userData.lastName || "User";
+                    userCache[userId] = { firstName, lastName };
+                  }
+                } catch (userError) {
+                  console.warn(
+                    `Error fetching user ${userId}:`,
+                    userError.message,
+                  );
                 }
-              } catch (userError) {
-                console.warn(
-                  `Error fetching user ${userId}:`,
-                  userError.message,
-                );
               }
             }
 
@@ -372,16 +374,14 @@ export default function AdminDashboard() {
 
       console.log("Merged logs:", allLogs.length);
 
-      // Sort by timestamp descending (latest first)
+      // Merge all logs and sort by timestamp descending (latest first)
       const sortedLogs = allLogs.sort((a, b) => {
         const timeA = a.timestamp?.seconds || 0;
         const timeB = b.timestamp?.seconds || 0;
         return timeB - timeA;
       });
 
-      console.log("Sorted logs:", sortedLogs.length);
-
-      // Limit to 10 most recent
+      // Limit to 10 most recent overall
       const recentLogs = sortedLogs.slice(0, 10);
 
       console.log("Recent logs (limited to 10):", recentLogs.length);

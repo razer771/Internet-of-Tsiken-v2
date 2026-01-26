@@ -452,12 +452,9 @@ export default function EditProfile({ navigation }) {
       }
 
       if (formattedPhone && formattedPhone !== originalPhone) {
-        // Update both "phone" and "mobileNumber" fields
+        // Update only "phone" field
         updateData.phone = formattedPhone;
-        updateData.mobileNumber = formattedPhone;
-        fieldsChanged.push(
-          `phone: "${originalPhone}" → "${formattedPhone}" (both phone and mobileNumber fields)`,
-        );
+        fieldsChanged.push(`phone: "${originalPhone}" → "${formattedPhone}"`);
       }
 
       // Always update timestamp
@@ -488,7 +485,7 @@ export default function EditProfile({ navigation }) {
             {
               userId: currentUser.uid,
               action: "Profile updated",
-              description: `Updated profile fields: ${fieldsChanged.join(", ")}`,
+              description: `Updated profile: ${fieldsChanged.join(", ")}`,
               timestamp: serverTimestamp(),
               deviceInfo: Platform.OS,
               firstName: formattedFirstName,
