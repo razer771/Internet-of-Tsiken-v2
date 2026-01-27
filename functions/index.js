@@ -36,6 +36,9 @@ const axios = require("axios");
 // Load environment variables from .env file (for local development)
 require("dotenv").config();
 
+// Import Google Cloud Secret Manager client
+const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
+
 // Initialize Firebase Admin
 initializeApp();
 
@@ -53,40 +56,40 @@ const OTP_EXPIRY_MINUTES = 10;
  * Supports both .env file (local) and Firebase functions.config (production)
  * @returns {string} - Semaphore API key
  */
-function getSemaphoreApiKey() {
+/**
+ * Get Semaphore API Key from Google Secret Manager (production) or .env (local)
+ * @returns {Promise<string>} - Semaphore API key
+ */
+async function getSemaphoreApiKey() {
+  // 1. Try Google Secret Manager (production)
   try {
-    // Try environment variable first (for local development and Cloud Functions with .env)
-    let apiKey = process.env.SEMAPHORE_API_KEY;
-
-    // If not found, try functions.config (deprecated but still works in production)
-    if (!apiKey) {
+    const client = new SecretManagerServiceClient();
+    const [version] = await client.accessSecretVersion({
+      name: "projects/296742448098/secrets/SEMAPHORE_API_KEY/versions/1",
+    });
+    const apiKey = version.payload.data.toString("utf8");
+    if (apiKey) {
       console.log(
-        "📋 SEMAPHORE_API_KEY not in process.env, trying functions.config...",
+        "✅ [SOURCE: Secret Manager] API key fetched from Secret Manager",
       );
-      const functions = require("firebase-functions");
-      apiKey = functions.config().semaphore?.api_key;
-
-      if (apiKey) {
-        console.log("✅ API key found via functions.config");
-      }
-    } else {
-      console.log("✅ API key found in environment variables");
+      return apiKey;
     }
-
-    if (!apiKey) {
-      throw new Error(
-        "SEMAPHORE_API_KEY not found in environment variables or functions.config",
-      );
-    }
-
-    console.log(
-      `✅ API key found (length: ${apiKey.length}), first 8 chars: ${apiKey.substring(0, 8)}`,
-    );
-    return apiKey;
   } catch (error) {
-    console.error("❌ Error getting API key:", error.message);
-    throw new Error("Failed to get SEMAPHORE_API_KEY: " + error.message);
+    console.warn(
+      "⚠️ Could not fetch API key from Secret Manager:",
+      error.message,
+    );
   }
+
+  // 2. Fallback to environment variable (local development)
+  if (process.env.SEMAPHORE_API_KEY) {
+    console.log("✅ [SOURCE: .env] API key found in environment variables");
+    return process.env.SEMAPHORE_API_KEY;
+  }
+
+  throw new Error(
+    "SEMAPHORE_API_KEY not found in Secret Manager or environment variables",
+  );
 }
 
 /**
@@ -162,7 +165,7 @@ async function sendSemaphoreSMS(phoneNumber, message) {
     console.log(`📱 Will send to: ${sendPhone}`);
 
     // Get API key from environment variable
-    const apiKey = getSemaphoreApiKey();
+    const apiKey = await getSemaphoreApiKey();
     console.log(`✅ API key retrieved successfully`);
 
     if (!apiKey || apiKey.length === 0) {

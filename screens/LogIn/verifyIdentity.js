@@ -301,7 +301,7 @@ export default function VerifyIdentityScreen() {
       if (response.data && response.data.success) {
         // Reset attempts on success
         setOtpAttempts(0);
-        console.log("✅ Phone number verified successfully with Twilio!");
+        console.log("✅ Phone number verified successfully with Semaphore!");
         console.log("Phone:", confirmationResult.phone);
 
         // Update Firestore verification status and fetch user data
