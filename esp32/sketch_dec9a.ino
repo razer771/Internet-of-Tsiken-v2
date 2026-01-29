@@ -17,8 +17,9 @@ const char *FIREBASE_API_KEY = "AIzaSyAOC8S6aOGvfnUzp0Twb-7O727Un9FoUGE";
 const char *FIREBASE_PROJECT_ID = "internet-of-tsiken-690dd";
 
 // ========== WATER SYSTEM PINS ==========
-const int WATER_SENSOR_PIN = 34; // Analog water level sensor (Input)
-const int PUMP_PIN = 27;         // Micro water pump control (Output to Relay)
+const int WATER_TRIGGER_PIN = 25; // HC-SR04 Trigger for water tank (Output)
+const int WATER_ECHO_PIN = 26;    // HC-SR04 Echo for water tank (Input)
+const int PUMP_PIN = 27;          // Micro water pump control (Output to Relay)
 
 // ========== FEED SYSTEM PINS ==========
 const int TRIGGER_PIN = 32; // HC-SR04 Trigger (Output)
@@ -28,10 +29,11 @@ const int SERVO_PIN = 4;    // Servo motor control (PWM)
 // ========== SHARED PIN ==========
 const int LED_PIN = 2; // Built-in LED
 
-// ========== WATER SENSOR CALIBRATION ==========
-const int WATER_SENSOR_MIN = 0;    // ADC value when tank is empty
-const int WATER_SENSOR_MAX = 4095; // ADC value when tank is full
-const int ADC_SAMPLES = 10;        // Number of samples to average
+// ========== WATER SENSOR CALIBRATION (Distance in cm) ==========
+const float WATER_TANK_HEIGHT = 40.0; // Height of water container (cm) - ADJUST THIS
+const float WATER_TANK_EMPTY = 40.0;  // Distance when tank is empty (cm)
+const float WATER_TANK_FULL = 5.0;    // Distance when tank is full (cm)
+const int WATER_DISTANCE_SAMPLES = 5; // Number of samples to average
 
 // ========== FEED SENSOR CALIBRATION (Distance in cm) ==========
 const float TANK_HEIGHT = 30.0; // Height of feeder container (cm) - ADJUST THIS
@@ -67,7 +69,7 @@ Servo feedServo;
 
 // ========== WATER SYSTEM DATA ==========
 float waterLevel = 0;
-int rawSensorValue = 0;
+float waterDistance = 0;
 bool pumpActive = false;
 unsigned long pumpStartTime = 0;
 unsigned long pumpDuration = DEFAULT_PUMP_DURATION;
@@ -143,7 +145,8 @@ void setup()
   Serial.println("╚═══════════════════════════════════════════╝\n");
 
   // Initialize water system pins
-  pinMode(WATER_SENSOR_PIN, INPUT);
+  pinMode(WATER_TRIGGER_PIN, OUTPUT);
+  pinMode(WATER_ECHO_PIN, INPUT);
   pinMode(PUMP_PIN, OUTPUT);
   digitalWrite(PUMP_PIN, LOW);
 
@@ -156,10 +159,6 @@ void setup()
   // Initialize shared pins
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
-
-  // Configure ADC for water sensor
-  analogReadResolution(12);
-  analogSetAttenuation(ADC_11db);
 
   // Generate device ID
   deviceId = getDeviceId();
@@ -307,22 +306,60 @@ void connectWiFi()
 
 void readWaterLevel()
 {
-  long total = 0;
-  for (int i = 0; i < ADC_SAMPLES; i++)
+  float total = 0;
+  int validReadings = 0;
+
+  for (int i = 0; i < WATER_DISTANCE_SAMPLES; i++)
   {
-    total += analogRead(WATER_SENSOR_PIN);
-    delay(10);
+    digitalWrite(WATER_TRIGGER_PIN, LOW);
+    delayMicroseconds(2);
+    digitalWrite(WATER_TRIGGER_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(WATER_TRIGGER_PIN, LOW);
+
+    long duration = pulseIn(WATER_ECHO_PIN, HIGH, 30000);
+
+    if (duration > 0)
+    {
+      float dist = duration * 0.034 / 2;
+      if (dist > 0 && dist < 400)
+      {
+        total += dist;
+        validReadings++;
+      }
+    }
+    delay(50);
   }
-  rawSensorValue = total / ADC_SAMPLES;
 
-  waterLevel = map(rawSensorValue, WATER_SENSOR_MIN, WATER_SENSOR_MAX, 0, 100);
-  waterLevel = constrain(waterLevel, 0, 100);
+  if (validReadings > 0)
+  {
+    waterDistance = total / validReadings;
 
-  Serial.print("💧 Water: ");
-  Serial.print(waterLevel);
-  Serial.print("% (ADC: ");
-  Serial.print(rawSensorValue);
-  Serial.println(")");
+    if (waterDistance <= WATER_TANK_FULL)
+    {
+      waterLevel = 100.0;
+    }
+    else if (waterDistance >= WATER_TANK_EMPTY)
+    {
+      waterLevel = 0.0;
+    }
+    else
+    {
+      waterLevel = ((WATER_TANK_EMPTY - waterDistance) / (WATER_TANK_EMPTY - WATER_TANK_FULL)) * 100.0;
+    }
+
+    waterLevel = constrain(waterLevel, 0, 100);
+
+    Serial.print("💧 Water: ");
+    Serial.print(waterLevel);
+    Serial.print("% (Distance: ");
+    Serial.print(waterDistance);
+    Serial.println(" cm)");
+  }
+  else
+  {
+    Serial.println("⚠️  Failed to read water ultrasonic sensor");
+  }
 }
 
 void startPump(unsigned long duration)
@@ -710,11 +747,11 @@ void handleRoot()
   StaticJsonDocument<512> doc;
   doc["device"] = "ESP32 Combined Water & Feed System";
   doc["id"] = deviceId;
-  doc["version"] = "2.0.0";
+  doc["version"] = "2.1.0";
   doc["status"] = "online";
   doc["ip"] = WiFi.localIP().toString();
   doc["rssi"] = WiFi.RSSI();
-  doc["waterSystem"] = "analog sensor";
+  doc["waterSystem"] = "ultrasonic sensor";
   doc["feedSystem"] = "ultrasonic + servo";
 
   String response;
@@ -726,8 +763,8 @@ void handleGetWaterLevel()
 {
   StaticJsonDocument<256> doc;
   doc["level"] = waterLevel;
-  doc["sensorValue"] = rawSensorValue;
-  doc["sensorType"] = "analog";
+  doc["distance"] = waterDistance;
+  doc["sensorType"] = "ultrasonic";
   doc["unit"] = "%";
   doc["timestamp"] = millis();
   doc["isSimulated"] = false;
@@ -758,8 +795,8 @@ void handleGetSensors()
 
   JsonObject water = doc.createNestedObject("water");
   water["level"] = waterLevel;
-  water["sensorValue"] = rawSensorValue;
-  water["sensorType"] = "analog";
+  water["distance"] = waterDistance;
+  water["sensorType"] = "ultrasonic";
   water["unit"] = "%";
   water["isSimulated"] = false;
 

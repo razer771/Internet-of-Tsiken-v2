@@ -11,14 +11,14 @@ export const ESP32_CONFIG = {
   // Find this IP from your ESP32 Serial Monitor after connecting to WiFi
   waterSystem: {
     enabled: true,  // Set to true when ESP32 is connected
-    ipAddress: '10.50.149.156', // Change to your ESP32's actual IP address
+    ipAddress: '192.168.137.56', // Change to your ESP32's actual IP address
     port: 80,
   },
   
   // Feed Dispenser (if using separate ESP32)
   feedSystem: {
     enabled: true,  // Set to true when ESP32 is connected
-    ipAddress: '10.50.149.156', // Change to your ESP32's IP address
+    ipAddress: '192.168.137.56', // Change to your ESP32's IP address
     port: 80,
   },
 };

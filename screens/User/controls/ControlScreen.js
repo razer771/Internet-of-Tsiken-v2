@@ -2211,7 +2211,7 @@ export default function ControlScreen({ navigation }) {
         <View style={styles.rowCenter}>
           <StatCard
             label="Water Level"
-            value={sensorLoading ? "..." : `${waterNow}%`}
+            value={sensorLoading ? "..." : `${Math.round(waterNow)}%`}
             dotColor={isSimulated ? "#FFC107" : "#4CAF50"}
             loading={sensorLoading}
             isSimulated={isSimulated}
