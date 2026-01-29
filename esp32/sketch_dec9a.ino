@@ -47,7 +47,7 @@ const int PUMP_COOLDOWN = 10000;         // 10 seconds between pump cycles
 
 // ========== SERVO CONFIGURATION ==========
 const int SERVO_IDLE_ANGLE = 90;            // Servo angle when idle (resting - closed)
-const int SERVO_DISPENSE_ANGLE = 15;        // Servo angle when dispensing (open)
+const int SERVO_DISPENSE_ANGLE = 45;        // Servo angle when dispensing (open)
 const int DEFAULT_DISPENSE_DURATION = 5000; // 5 seconds default
 const int MIN_FEEDER_LEVEL = 0;             // Don't dispense if below 0% (disabled for testing)
 const int MAX_DISPENSE_DURATION = 5000;     // Maximum 5 seconds
@@ -707,8 +707,6 @@ void setupWebServer()
 
 void handleRoot()
 {
-  Serial.println("📱 [API] GET / - System info request");
-
   StaticJsonDocument<512> doc;
   doc["device"] = "ESP32 Combined Water & Feed System";
   doc["id"] = deviceId;
@@ -722,7 +720,6 @@ void handleRoot()
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
-  Serial.println("   ✓ Response sent");
 }
 
 void handleGetWaterLevel()
@@ -757,8 +754,6 @@ void handleGetFeederLevel()
 
 void handleGetSensors()
 {
-  Serial.println("📱 [API] GET /api/sensors - Sensor data request");
-
   StaticJsonDocument<1024> doc;
 
   JsonObject water = doc.createNestedObject("water");
@@ -786,13 +781,10 @@ void handleGetSensors()
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
-  Serial.println("   ✓ Sensor data sent (Water + Feeder)");
 }
 
 void handleStartPump()
 {
-  Serial.println("📱 [API] POST /api/pump/start - Pump start request");
-
   unsigned long duration = DEFAULT_PUMP_DURATION;
   if (server.hasArg("plain"))
   {
@@ -853,8 +845,6 @@ void handleGetPumpStatus()
 
 void handleStartServo()
 {
-  Serial.println("📱 [API] POST /api/servo/start - Feed dispense request");
-
   unsigned long duration = DEFAULT_DISPENSE_DURATION;
   int angle = SERVO_DISPENSE_ANGLE;
   if (server.hasArg("plain"))
