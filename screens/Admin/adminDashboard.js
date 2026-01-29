@@ -34,6 +34,7 @@ export default function AdminDashboard() {
   const [predatorDetections, setPredatorDetections] = useState(0);
   const [lastDetectionTime, setLastDetectionTime] = useState(null);
   const [recentLogs, setRecentLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(true);
 
   // Prevent duplicate fetches (React StrictMode protection)
   const hasFetchedRef = useRef(false);
@@ -271,6 +272,7 @@ export default function AdminDashboard() {
   const fetchActivityLogs = async () => {
     try {
       console.log("Fetching activity logs from Firestore...");
+      setLoadingLogs(true);
 
       const logCollections = [
         "activity_logs/addBatch_logs/events",
@@ -295,18 +297,14 @@ export default function AdminDashboard() {
         "session_logs",
       ];
 
-      const allLogs = [];
-      const userCache = {};
-
-      // Fetch logs from each collection
-      for (const collectionPath of logCollections) {
+      // Fetch all collections in parallel for better performance
+      const collectionPromises = logCollections.map(async (collectionPath) => {
         try {
-          // Use server-side ordering and limit(10)
           const logsRef = collection(db, collectionPath);
           const logsQuery = query(
             logsRef,
             orderBy("timestamp", "desc"),
-            limit(10),
+            limit(5), // Reduced from 10 to 5 per collection for faster fetch
           );
           const logsSnapshot = await getDocs(logsQuery);
 
@@ -314,67 +312,37 @@ export default function AdminDashboard() {
             `Fetched ${logsSnapshot.size} logs from ${collectionPath}`,
           );
 
-          // Process each log document
-          for (const docSnap of logsSnapshot.docs) {
+          return logsSnapshot.docs.map((docSnap) => {
             const logData = docSnap.data();
-
-            // Fetch user data from users collection, with cache
-            let firstName = "Unknown";
-            let lastName = "User";
-
-            // Check both userId and adminId fields
             const userId = logData.userId || logData.adminId;
 
-            if (userId) {
-              if (userCache[userId]) {
-                // Use cached user data
-                firstName = userCache[userId].firstName;
-                lastName = userCache[userId].lastName;
-              } else {
-                try {
-                  const userRef = doc(db, "users", userId);
-                  const userDoc = await getDoc(userRef);
-
-                  if (userDoc.exists()) {
-                    const userData = userDoc.data();
-                    firstName = userData.firstName || "Unknown";
-                    lastName = userData.lastName || "User";
-                    userCache[userId] = { firstName, lastName };
-                  }
-                } catch (userError) {
-                  console.warn(
-                    `Error fetching user ${userId}:`,
-                    userError.message,
-                  );
-                }
-              }
-            }
-
-            // Create a unified log entry
-            allLogs.push({
+            return {
               id: docSnap.id,
               collection: collectionPath,
               userId: userId || "Unknown",
-              firstName: firstName,
-              lastName: lastName,
               action: logData.action || logData.type || "action",
               description:
                 logData.description ||
                 getDefaultDescription(collectionPath, logData),
               timestamp: logData.timestamp,
-            });
-          }
+            };
+          });
         } catch (collectionError) {
           console.warn(
             `Error fetching ${collectionPath}:`,
             collectionError.message,
           );
+          return [];
         }
-      }
+      });
+
+      // Wait for all collections to be fetched in parallel
+      const allLogsArrays = await Promise.all(collectionPromises);
+      const allLogs = allLogsArrays.flat();
 
       console.log("Merged logs:", allLogs.length);
 
-      // Merge all logs and sort by timestamp descending (latest first)
+      // Sort by timestamp descending (latest first)
       const sortedLogs = allLogs.sort((a, b) => {
         const timeA = a.timestamp?.seconds || 0;
         const timeB = b.timestamp?.seconds || 0;
@@ -384,11 +352,61 @@ export default function AdminDashboard() {
       // Limit to 10 most recent overall
       const recentLogs = sortedLogs.slice(0, 10);
 
-      console.log("Recent logs (limited to 10):", recentLogs.length);
+      // Collect unique user IDs
+      const uniqueUserIds = [
+        ...new Set(recentLogs.map((log) => log.userId).filter(Boolean)),
+      ];
 
-      setRecentLogs(recentLogs);
+      console.log("Fetching user data for", uniqueUserIds.length, "users");
+
+      // Fetch all user data in parallel
+      const userPromises = uniqueUserIds.map(async (userId) => {
+        try {
+          const userRef = doc(db, "users", userId);
+          const userDoc = await getDoc(userRef);
+
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            return {
+              userId,
+              firstName: userData.firstName || "Unknown",
+              lastName: userData.lastName || "User",
+            };
+          }
+        } catch (userError) {
+          console.warn(`Error fetching user ${userId}:`, userError.message);
+        }
+        return { userId, firstName: "Unknown", lastName: "User" };
+      });
+
+      const users = await Promise.all(userPromises);
+
+      // Create user lookup map
+      const userMap = {};
+      users.forEach((user) => {
+        userMap[user.userId] = user;
+      });
+
+      // Enrich logs with user data
+      const enrichedLogs = recentLogs.map((log) => {
+        const user = userMap[log.userId] || {
+          firstName: "Unknown",
+          lastName: "User",
+        };
+        return {
+          ...log,
+          firstName: user.firstName,
+          lastName: user.lastName,
+        };
+      });
+
+      console.log("Recent logs (limited to 10):", enrichedLogs.length);
+
+      setRecentLogs(enrichedLogs);
+      setLoadingLogs(false);
     } catch (error) {
       console.error("Error fetching activity logs:", error);
+      setLoadingLogs(false);
     }
   };
 
@@ -643,7 +661,11 @@ export default function AdminDashboard() {
         {/* Recent System Activity */}
         <View style={styles.activityCard}>
           <Text style={styles.activityTitle}>Recent System Activity</Text>
-          {recentLogs.length === 0 ? (
+          {loadingLogs ? (
+            <View style={styles.activityItem}>
+              <Text style={styles.activityDesc}>Loading activity...</Text>
+            </View>
+          ) : recentLogs.length === 0 ? (
             <View style={styles.activityItem}>
               <Text style={styles.activityDesc}>No recent activity</Text>
             </View>
