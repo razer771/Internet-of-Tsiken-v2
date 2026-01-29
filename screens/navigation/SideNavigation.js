@@ -73,14 +73,6 @@ export default function SideNavigation({ visible, onClose, navigation }) {
       } catch (error) {
         console.error("[SideNavigation] Navigation error:", error);
       }
-    } else if (item === "ESP32Settings" && navigation) {
-      console.log("[SideNavigation] Attempting to navigate to ESP32Settings screen");
-      try {
-        navigation.navigate("ESP32Settings");
-        console.log("[SideNavigation] Navigate to ESP32Settings successful");
-      } catch (error) {
-        console.error("[SideNavigation] Navigation error:", error);
-      }
     } else if (item === "Settings" && navigation) {
       console.log("[SideNavigation] Attempting to navigate to Settings screen");
       try {
@@ -205,34 +197,6 @@ export default function SideNavigation({ visible, onClose, navigation }) {
                     ]}
                   >
                     User Profile
-                  </Text>
-                </View>
-              )}
-            </Pressable>
-
-            <Pressable
-              style={styles.menuItem}
-              onPress={() => handleMenuItemPress("ESP32Settings")}
-            >
-              {({ pressed }) => (
-                <View
-                  style={[
-                    styles.menuItemInner,
-                    pressed && styles.menuItemPressed,
-                  ]}
-                >
-                  <Icon
-                    name="wifi"
-                    size={20}
-                    color={pressed ? "#ffffff" : "#1a1a1a"}
-                  />
-                  <Text
-                    style={[
-                      styles.menuItemText,
-                      pressed && styles.menuItemTextPressed,
-                    ]}
-                  >
-                    ESP32 Settings
                   </Text>
                 </View>
               )}

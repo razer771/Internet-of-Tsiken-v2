@@ -26,7 +26,6 @@ import {
 } from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
-import { loadESP32Settings } from "./config/esp32config";
 
 // Keep the splash screen visible while we fetch resources
 try {
@@ -54,7 +53,6 @@ import AppInfo from "./screens/User/controls/appInfo";
 import TermsAndConditions from "./screens/User/controls/TermsAndConditions";
 import PrivacyPolicy from "./screens/User/controls/PrivacyPolicy";
 import InternetOfTsiken from "./screens/User/controls/InternetOfTsiken";
-import ESP32Settings from "./screens/User/controls/ESP32Settings";
 import UserProfile from "./screens/User/Profile/userProfile";
 import EditProfile from "./screens/User/Profile/editProfile";
 import UserActivityLogs from "./screens/User/ActivityLogs/ActivityLogs";
@@ -354,8 +352,6 @@ export default function App() {
   useEffect(() => {
     async function prepare() {
       try {
-        // Load ESP32 settings from AsyncStorage
-        await loadESP32Settings();
         await new Promise((resolve) => setTimeout(resolve, 2000));
       } catch (e) {
         console.warn(e);
@@ -566,14 +562,6 @@ export default function App() {
                     component={createTrackedScreen(
                       InternetOfTsiken,
                       "InternetOfTsiken",
-                      setCurrentRoute,
-                    )}
-                  />
-                  <Stack.Screen
-                    name="ESP32Settings"
-                    component={createTrackedScreen(
-                      ESP32Settings,
-                      "ESP32Settings",
                       setCurrentRoute,
                     )}
                   />
