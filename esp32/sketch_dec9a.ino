@@ -514,13 +514,7 @@ String buildFirestoreQueryUrl()
 void checkWateringSchedules()
 {
   if (!wifiConnected || userId.isEmpty())
-  {
-    if (!wifiConnected)
-      Serial.println("⚠️  WiFi not connected, skipping schedule check");
-    if (userId.isEmpty())
-      Serial.println("⚠️  User ID not set! Cannot check schedules. Use /api/system/userid to set it.");
     return;
-  }
 
   String currentTime = getCurrentTimeString();
   if (currentTime.isEmpty())
@@ -530,9 +524,7 @@ void checkWateringSchedules()
   }
 
   Serial.print("💧 Checking watering schedules at ");
-  Serial.print(currentTime);
-  Serial.print(" for userId: ");
-  Serial.println(userId);
+  Serial.println(currentTime);
 
   String url = buildFirestoreQueryUrl();
   DynamicJsonDocument queryDoc(512);
@@ -545,9 +537,6 @@ void checkWateringSchedules()
   http.addHeader("Content-Type", "application/json");
   int httpCode = http.POST(queryPayload);
 
-  Serial.print("   HTTP Response: ");
-  Serial.println(httpCode);
-
   if (httpCode == HTTP_CODE_OK)
   {
     String payload = http.getString();
@@ -556,23 +545,16 @@ void checkWateringSchedules()
 
     if (!error)
     {
-      int scheduleCount = 0;
       for (JsonObject result : doc.as<JsonArray>())
       {
         if (result.containsKey("document"))
         {
-          scheduleCount++;
           JsonObject fields = result["document"]["fields"];
           String scheduleTime = fields["time"]["stringValue"].as<String>();
           int scheduleDuration = fields["duration"]["integerValue"].as<int>() * 1000;
           String scheduleUserId = fields["userId"]["stringValue"].as<String>();
           String documentName = result["document"]["name"].as<String>();
           String scheduleId = documentName.substring(documentName.lastIndexOf('/') + 1);
-
-          Serial.print("   Schedule found: ");
-          Serial.print(scheduleTime);
-          Serial.print(" for user: ");
-          Serial.println(scheduleUserId);
 
           if (scheduleUserId == userId)
           {
@@ -597,41 +579,16 @@ void checkWateringSchedules()
               }
             }
 
-            Serial.print("   Converted to: ");
-            Serial.print(scheduleHHMM);
-            Serial.print(" (Current: ");
-            Serial.print(currentTime);
-            Serial.println(")");
-
             if (scheduleHHMM == currentTime && lastExecutedWaterSchedule != scheduleId)
             {
               Serial.println("✅ Executing scheduled watering!");
               startPump(scheduleDuration);
               lastExecutedWaterSchedule = scheduleId;
             }
-            else if (scheduleHHMM == currentTime)
-            {
-              Serial.println("   ⏭️  Already executed this schedule");
-            }
           }
         }
       }
-      
-      if (scheduleCount == 0)
-      {
-        Serial.println("   No schedules found in database");
-      }
     }
-    else
-    {
-      Serial.print("   JSON parse error: ");
-      Serial.println(error.c_str());
-    }
-  }
-  else
-  {
-    Serial.print("   HTTP Error: ");
-    Serial.println(http.errorToString(httpCode));
   }
   http.end();
 }

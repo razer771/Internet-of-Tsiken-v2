@@ -893,6 +893,8 @@ export default function ControlScreen({ navigation }) {
           feedId: nextId,
           label: label,
           time: formattedTime,
+          userId: user.uid,        // Required by ESP32 for filtering
+          duration: 5,              // Duration in seconds (5s default)
           timestamp: new Date().toISOString(),
         });
 
@@ -1227,6 +1229,8 @@ export default function ControlScreen({ navigation }) {
           feedId: feedId,
           label: feeds[feedEdit.idx].label,
           time: newTime,
+          userId: user.uid,        // Required by ESP32
+          duration: 5,              // Duration in seconds
           timestamp: new Date().toISOString(),
         });
 
@@ -1396,6 +1400,7 @@ export default function ControlScreen({ navigation }) {
   // State for manual action operations
   const [isDispensing, setIsDispensing] = useState(false);
   const [isSprinklerActive, setIsSprinklerActive] = useState(false);
+  const [isPumpTesting, setIsPumpTesting] = useState(false);
   const [servoError, setServoError] = useState(null);
 
   // Motor warning modal state
@@ -1417,10 +1422,34 @@ export default function ControlScreen({ navigation }) {
     try {
       setIsDispensing(true);
       setServoError(null);
+      console.log("🍗 Testing feed dispenser...");
 
-      const result = await dispenseFeed();
+      // Get ESP32 URL from config
+      const { getFeedSystemUrl } = await import("../../../config/esp32config");
+      const esp32Url = getFeedSystemUrl();
 
-      if (result.success) {
+      if (!esp32Url) {
+        showMotorWarning(
+          "Configuration Error",
+          "ESP32 feed system URL not configured. Please check esp32config.js"
+        );
+        return;
+      }
+
+      // Send servo start command directly to ESP32
+      const response = await fetch(`${esp32Url}/api/servo/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          angle: 45,      // Dispense angle (open position)
+          duration: 5000  // 5 seconds dispense
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log("✅ Feed dispense successful:", data);
+
         // Add admin notification for successful feeding
         const currentUser = auth.currentUser;
         const userName = currentUser?.email || "User";
@@ -1432,33 +1461,93 @@ export default function ControlScreen({ navigation }) {
         });
 
         // Log manual feeding activity
-        await logActivity("wateringActivity_logs", {
+        await logActivity("feedingActivity_logs", {
           action: "Manual feed dispensed",
-          description: "User manually dispensed feed",
-          status: result.isSimulated ? "Simulated" : "Completed",
+          description: "User manually dispensed feed via ESP32",
+          status: "Completed",
+          angle: 45,
+          duration: 5000,
         });
-
-        // Show warning modal if simulated
-        if (result.isSimulated && result.warning) {
-          showMotorWarning(
-            "Motor Not Detected",
-            result.warning + "\n\nThe operation was simulated.",
-          );
-        }
       } else {
+        const errorText = await response.text();
+        console.error("❌ Feed dispense failed:", response.status, errorText);
         showMotorWarning(
-          "Dispense Error",
-          result.error || "Failed to dispense feed.",
+          "Feed Dispense Failed",
+          `ESP32 returned error: ${response.status}\n${errorText}`
         );
       }
     } catch (error) {
-      console.error("Dispense error:", error);
+      console.error("❌ Feed dispense error:", error);
       showMotorWarning(
-        "Error",
-        "Feed dispenser motor not detected. Please check the connection.",
+        "Connection Error",
+        `Failed to connect to ESP32: ${error.message}\n\nPlease check if ESP32 is powered on and connected to the network.`
       );
     } finally {
       setIsDispensing(false);
+    }
+  };
+
+  const handleTestPump = async () => {
+    try {
+      setIsPumpTesting(true);
+      console.log("💧 Testing water pump...");
+
+      // Get ESP32 URL from config
+      const { getWaterSystemUrl } = await import("../../../config/esp32config");
+      const esp32Url = getWaterSystemUrl();
+
+      if (!esp32Url) {
+        showMotorWarning(
+          "Configuration Error",
+          "ESP32 water system URL not configured. Please check esp32config.js"
+        );
+        return;
+      }
+
+      // Send pump start command directly to ESP32
+      const response = await fetch(`${esp32Url}/api/pump/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ duration: 5000 }), // 5 seconds test
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log("✅ Pump test successful:", data);
+
+        // Log activity
+        await logActivity("pumpTest_logs", {
+          action: "Test water pump",
+          description: "User tested water pump via ESP32",
+          status: "Completed",
+          duration: 5000,
+        });
+
+        // Add admin notification
+        const currentUser = auth.currentUser;
+        const userName = currentUser?.email || "User";
+        addNotification({
+          category: "User Activity",
+          title: "Water pump tested",
+          description: `${userName} tested water pump at ${new Date().toLocaleString()}`,
+          type: "testing",
+        });
+      } else {
+        const errorText = await response.text();
+        console.error("❌ Pump test failed:", response.status, errorText);
+        showMotorWarning(
+          "Pump Test Failed",
+          `ESP32 returned error: ${response.status}\n${errorText}`
+        );
+      }
+    } catch (error) {
+      console.error("❌ Pump test error:", error);
+      showMotorWarning(
+        "Connection Error",
+        `Failed to connect to ESP32: ${error.message}\n\nPlease check if ESP32 is powered on and connected to the network.`
+      );
+    } finally {
+      setIsPumpTesting(false);
     }
   };
 
@@ -1616,6 +1705,8 @@ export default function ControlScreen({ navigation }) {
           wateringId: nextId,
           label: label,
           time: formattedTime,
+          userId: user.uid,        // Required by ESP32 for filtering
+          duration: 5,              // Duration in seconds (5s default)
           timestamp: new Date().toISOString(),
         });
 
@@ -1738,6 +1829,8 @@ export default function ControlScreen({ navigation }) {
           wateringId,
           label: waterings[waterEdit.idx].label,
           time: newTime,
+          userId: user.uid,        // Required by ESP32
+          duration: 5,              // Duration in seconds
           timestamp: new Date().toISOString(),
         });
 
@@ -2241,7 +2334,7 @@ export default function ControlScreen({ navigation }) {
                     onPress={() => {
                       console.log(
                         "📄 [ACTION] User clicked delete feed button for id:",
-                        f.id,
+                        f.id
                       );
                       setPendingDeleteFeedId(f.id);
                       setConfirmDeleteFeedVisible(true);
@@ -2288,13 +2381,7 @@ export default function ControlScreen({ navigation }) {
         {/* Water Scheduling (like Feeding) */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader icon="water-outline" title="Watering Schedule" />
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "flex-end",
-              marginBottom: 8,
-            }}
-          >
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", marginBottom: 8 }}>
             <TouchableOpacity
               style={[styles.smallActionBtn, { backgroundColor: GREEN }]}
               onPress={addWaterSchedule}
@@ -2314,46 +2401,27 @@ export default function ControlScreen({ navigation }) {
                   {deleteMode ? (
                     <TouchableOpacity
                       onPress={() => toggleSelectToDelete(w.id)}
-                      style={[
-                        styles.checkbox,
-                        selectedToDelete.includes(w.id) &&
-                          styles.checkboxChecked,
-                      ]}
+                      style={[styles.checkbox, selectedToDelete.includes(w.id) && styles.checkboxChecked]}
                     >
                       {selectedToDelete.includes(w.id) && (
                         <Text style={{ color: "#fff" }}>✓</Text>
                       )}
                     </TouchableOpacity>
                   ) : (
-                    <Ionicons
-                      name="time-outline"
-                      size={16}
-                      color={PRIMARY}
-                      style={{ marginRight: 8 }}
-                    />
+                    <Ionicons name="time-outline" size={16} color={PRIMARY} style={{ marginRight: 8 }} />
                   )}
 
                   <Text style={styles.feedTimeText}>{w.time}</Text>
                 </View>
 
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <TouchableOpacity
-                    style={styles.editBtn}
-                    onPress={() => openEditWater(idx)}
-                  >
+                  <TouchableOpacity style={styles.editBtn} onPress={() => openEditWater(idx)}>
                     <Text style={styles.editText}>Edit</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[
-                      styles.editBtn,
-                      { backgroundColor: RED, marginLeft: 6 },
-                    ]}
+                    style={[styles.editBtn, { backgroundColor: RED, marginLeft: 6 }]}
                     onPress={() => {
-                      console.log(
-                        "🗑️ [ACTION] Delete button clicked for water schedule:",
-                        w.id,
-                        w.time,
-                      );
+                      console.log("🗑️ [ACTION] Delete button clicked for water schedule:", w.id, w.time);
                       setPendingDeleteWaterId(w.id);
                       setConfirmDeleteWaterVisible(true);
                       console.log("✅ Set pendingDeleteWaterId to:", w.id);
@@ -2394,6 +2462,29 @@ export default function ControlScreen({ navigation }) {
               </View>
             ) : (
               <Text style={styles.testBtnText}>Test Feeding</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.testBtn,
+              { marginTop: 10 },
+              isPumpTesting && styles.testBtnDisabled,
+            ]}
+            onPress={handleTestPump}
+            disabled={isPumpTesting}
+          >
+            {isPumpTesting ? (
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <ActivityIndicator
+                  size="small"
+                  color={PRIMARY}
+                  style={{ marginRight: 8 }}
+                />
+                <Text style={styles.testBtnText}>Testing Pump...</Text>
+              </View>
+            ) : (
+              <Text style={styles.testBtnText}>Test Water Pump</Text>
             )}
           </TouchableOpacity>
 

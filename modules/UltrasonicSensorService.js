@@ -221,7 +221,6 @@ export const getWaterLevel = async () => {
       };
     }
 
-    // console.log('📡 Reading from hardware...');
     const level = await readFromHardware('waterSensor');
     
     connectionStatus.waterSensor.lastUpdate = new Date().toISOString();
@@ -266,7 +265,6 @@ export const getFeederLevel = async () => {
       };
     }
 
-    // TODO: Implement actual sensor reading
     const level = await readFromHardware('feederSensor');
     
     connectionStatus.feederSensor.lastUpdate = new Date().toISOString();
@@ -337,8 +335,6 @@ const readFromHardware = async (sensorType) => {
   }
   
   try {
-    // console.log(`📊 Reading ${sensorType} from: ${sensor.endpoint}`);
-    
     // Call ESP32 /api/sensors endpoint
     const response = await fetch(sensor.endpoint, {
       method: 'GET',
@@ -352,21 +348,22 @@ const readFromHardware = async (sensorType) => {
     }
     
     const data = await response.json();
-    // console.log(`📦 Sensor data received:`, JSON.stringify(data));
     
     // Parse response based on sensor type
     // ESP32 returns: { "water": { "level": 75, ... }, "simulationMode": false, ... }
     if (sensorType === 'waterSensor' && data.water) {
-      // console.log(`💧 Water level: ${data.water.level}%`);
       return data.water.level || 0;
     } else if (sensorType === 'feederSensor' && data.feeder) {
-      // console.log(`🌾 Feeder level: ${data.feeder.level}%`);
       return data.feeder.level || 0;
     }
     
     throw new Error('Invalid sensor data format');
   } catch (error) {
     console.error(`❌ Hardware read error for ${sensorType}:`, error.message);
+    // Mark disconnected and switch to simulation to avoid repeated failing requests
+    connectionStatus[sensorType].connected = false;
+    connectionStatus[sensorType].error = error.message;
+    simulationMode = true;
     throw error;
   }
 };
