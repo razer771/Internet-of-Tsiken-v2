@@ -1713,11 +1713,12 @@ export default function AdminAnalytics({ navigation }) {
         endDate = new Date(endYear, endMonth - 1, endDay);
         endDate.setHours(23, 59, 59, 999); // Include entire end day
       } else {
-        // Default: No filter - show all-time attacks (from year 2000 to now)
-        startDate = new Date(2000, 0, 1);
-        startDate.setHours(0, 0, 0, 0);
+        // Default: No filter - show last 7 days
         endDate = new Date();
         endDate.setHours(23, 59, 59, 999);
+        startDate = new Date(endDate);
+        startDate.setDate(startDate.getDate() - 6); // -6 to include today as day 7
+        startDate.setHours(0, 0, 0, 0);
       }
 
       console.log(
@@ -3093,7 +3094,7 @@ export default function AdminAnalytics({ navigation }) {
             </div>
             <div class="report-title">Mortality Report</div>
             <div class="filter-info">
-              Date Range: ${formatDateRange(exportStartDate)} to ${formatDateRange(exportEndDate)}<br>
+              Date Range: ${formatDateRange(startDateStr)} to ${formatDateRange(endDateStr)}<br>
               Report Generated: ${formatReportDateTime()}<br>
               Total Records: ${records.length}
             </div>
@@ -4563,9 +4564,9 @@ export default function AdminAnalytics({ navigation }) {
                 <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
                 <div class="company-name">Internet of Tsiken</div>
               </div>
-              <div class="report-title">Predator Attacks Report</div>
+              <div class="report-title">Frequency of Attacks Report</div>
               <div class="filter-info">
-                Date Range: ${formatDateRange(predatorExportStartDate)} to ${formatDateRange(predatorExportEndDate)}<br>
+                Date Range: ${formatDateTime(startDate).date} to ${formatDateTime(endDate).date}<br>
                 Report Generated: ${formatReportDateTime()}<br>
               
               </div>
@@ -4626,9 +4627,9 @@ export default function AdminAnalytics({ navigation }) {
         return `${day}${month}${year}`;
       };
 
-      const startDateFormatted = formatDateForFilename(predatorExportStartDate);
-      const endDateFormatted = formatDateForFilename(predatorExportEndDate);
-      const filename = `AttacksFrequencyReport_${startDateFormatted}_${endDateFormatted}.pdf`;
+      const startDateFormatted = formatDateForFilename(startDate.toISOString());
+      const endDateFormatted = formatDateForFilename(endDate.toISOString());
+      const filename = `FrequencyOfAttacksReport_${startDateFormatted}_to_${endDateFormatted}.pdf`;
       console.log("[GeneratePredatorReport] Custom filename:", filename);
 
       // Copy PDF to documents directory with custom name
@@ -6827,7 +6828,7 @@ export default function AdminAnalytics({ navigation }) {
         customFilename,
         "Predator Types Report",
         "Generate predator types report",
-        `Generated and exported predator types report for ${formatDateRange(exportPredatorTypesStartDate)} to ${formatDateRange(exportPredatorTypesEndDate)}`,
+        `Generated and exported predator types report for ${formatDateRange(startDate)} to ${formatDateRange(endDate)}`,
       );
 
       // Share PDF with custom filename
@@ -7408,18 +7409,6 @@ export default function AdminAnalytics({ navigation }) {
 
   const predatorChartData = generatePredatorChartData();
 
-  // Chart data for Feed Consumption - dynamic labels and data based on filter
-  const defaultFeedLabels = [
-    "Day 1",
-    "Day 7",
-    "Day 14",
-    "Day 21",
-    "Day 28",
-    "Day 35",
-    "Day 42",
-  ];
-  const defaultFeedData = [5, 8, 12, 15, 18, 20, 22];
-
   // Build feed chart data - use actual data if available from feedConsumptionData
   const feedChartData = (() => {
     if (
@@ -7466,12 +7455,12 @@ export default function AdminAnalytics({ navigation }) {
         ],
       };
     }
-    // Use default data when no batch is selected
+    // Return empty chart when no batch is selected
     return {
-      labels: defaultFeedLabels,
+      labels: [],
       datasets: [
         {
-          data: defaultFeedData,
+          data: [],
           color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
         },
       ],
@@ -7537,18 +7526,6 @@ export default function AdminAnalytics({ navigation }) {
     };
   })();
 
-  // Solar chart data - dynamic labels and data based on filter
-  const defaultSolarLabels = [
-    "Jan 01",
-    "Jan 02",
-    "Jan 03",
-    "Jan 04",
-    "Jan 05",
-    "Jan 06",
-    "Jan 07",
-  ];
-  const defaultSolarData = [12.4, 10.8, 13.6, 14.1, 12.9, 11.7, 13.2];
-
   // State for fetched solar data
   const [solarFetchedData, setSolarFetchedData] = useState({
     labels: [],
@@ -7589,21 +7566,21 @@ export default function AdminAnalytics({ navigation }) {
             setSolarFetchedData(result);
           } else {
             setSolarFetchedData({
-              labels: defaultSolarLabels,
-              data: defaultSolarData,
+              labels: [],
+              data: [],
             });
           }
         } else {
           setSolarFetchedData({
-            labels: defaultSolarLabels,
-            data: defaultSolarData,
+            labels: [],
+            data: [],
           });
         }
       } catch (error) {
         console.error("Error loading solar data:", error);
         setSolarFetchedData({
-          labels: defaultSolarLabels,
-          data: defaultSolarData,
+          labels: [],
+          data: [],
         });
       } finally {
         setSolarDataLoading(false);
@@ -7612,13 +7589,9 @@ export default function AdminAnalytics({ navigation }) {
     loadSolarData();
   }, [chartFilters["solar"]]);
 
-  // Use fetched data or fallback to defaults
-  const solarLabels =
-    solarFetchedData.labels.length > 0
-      ? solarFetchedData.labels
-      : defaultSolarLabels;
-  const solarData =
-    solarFetchedData.data.length > 0 ? solarFetchedData.data : defaultSolarData;
+  // Use fetched data
+  const solarLabels = solarFetchedData.labels;
+  const solarData = solarFetchedData.data;
 
   const solarChartData = {
     labels: solarLabels,
@@ -9351,26 +9324,41 @@ export default function AdminAnalytics({ navigation }) {
               !feedConsumptionError &&
               (!chartFilters["feed"] ||
                 !chartFilters["feed"].batchId ||
-                feedConsumptionData.length === 0) && (
-                <View
-                  style={{
-                    justifyContent: "center",
-                    alignItems: "center",
-                    paddingVertical: 40,
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: "#999",
-                      fontSize: 14,
-                      textAlign: "center",
-                      marginBottom: 8,
+                feedConsumptionData.length === 0) &&
+              LineChartComp && (
+                <View style={{ position: "relative", width: chartWidth }}>
+                  <LineChartComp
+                    data={{
+                      labels: [],
+                      datasets: [
+                        {
+                          data: [0],
+                          color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                        },
+                      ],
                     }}
-                  >
-                    {!chartFilters["feed"] || !chartFilters["feed"].batchId
-                      ? "Select a batch to view consumption data"
-                      : "No consumption data available"}
-                  </Text>
+                    width={chartWidth}
+                    height={chartHeight}
+                    chartConfig={{
+                      backgroundGradientFrom: "#ffffff",
+                      backgroundGradientTo: "#ffffff",
+                      decimalPlaces: 0,
+                      color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                      labelColor: (opacity = 1) =>
+                        `rgba(44, 62, 80, ${opacity})`,
+                      propsForDots: {
+                        r: "4",
+                        strokeWidth: "2",
+                        stroke: "#154985",
+                      },
+                    }}
+                    bezier
+                    style={{ marginTop: 8 }}
+                    withVerticalLines={false}
+                    withInnerLines={false}
+                    withHorizontalLines={false}
+                    fromZero
+                  />
                 </View>
               )}
 
@@ -9451,91 +9439,6 @@ export default function AdminAnalytics({ navigation }) {
                         </Text>
                         <Text style={styles.tooltipValue}>
                           Count: {activePointFeed.value}
-                        </Text>
-                      </View>
-                    </View>
-                  )}
-                </View>
-              )}
-
-            {/* Default Chart */}
-            {!isLoadingFeedConsumption &&
-              !feedConsumptionError &&
-              feedConsumptionData.length === 0 &&
-              (!chartFilters["feed"] || !chartFilters["feed"].batchId) &&
-              LineChartComp && (
-                <View style={{ position: "relative", width: chartWidth }}>
-                  <LineChartComp
-                    data={feedChartData}
-                    width={chartWidth}
-                    height={chartHeight}
-                    chartConfig={{
-                      backgroundGradientFrom: "#ffffff",
-                      backgroundGradientTo: "#ffffff",
-                      decimalPlaces: 0,
-                      color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
-                      labelColor: (opacity = 1) =>
-                        `rgba(44, 62, 80, ${opacity})`,
-                      propsForDots: {
-                        r: "4",
-                        strokeWidth: "2",
-                        stroke: "#154985",
-                      },
-                    }}
-                    bezier
-                    style={{ marginTop: 8 }}
-                    withVerticalLines={false}
-                    withInnerLines={false}
-                    withHorizontalLines={false}
-                    fromZero
-                    onDataPointClick={(data) => {
-                      const point = {
-                        index: data.index,
-                        value: data.value,
-                        label: feedChartData.labels[data.index],
-                        x: data.x,
-                        y: data.y,
-                      };
-                      showPointTooltipFeed(point);
-                    }}
-                  />
-
-                  {activePointFeed !== null && (
-                    <View
-                      pointerEvents="none"
-                      style={[
-                        styles.tooltipWrapper,
-                        {
-                          left: Math.max(6, activePointFeed.x - 1),
-                          top: 0,
-                          height: chartHeight,
-                        },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.tooltipVerticalLine,
-                          {
-                            top: activePointFeed.y + 4,
-                            height: chartHeight - activePointFeed.y - 18,
-                          },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.tooltipBox,
-                          {
-                            position: "absolute",
-                            bottom: chartHeight - activePointFeed.y + 10,
-                            left: -40,
-                          },
-                        ]}
-                      >
-                        <Text style={styles.tooltipLabel}>
-                          {activePointFeed.label}
-                        </Text>
-                        <Text style={styles.tooltipValue}>
-                          Activations: {activePointFeed.value}
                         </Text>
                       </View>
                     </View>
@@ -9820,17 +9723,41 @@ export default function AdminAnalytics({ navigation }) {
 
             {!isLoadingWaterConsumption &&
               !waterConsumptionError &&
-              waterConsumptionData.length === 0 && (
-                <View
-                  style={{
-                    height: chartHeight,
-                    justifyContent: "center",
-                    alignItems: "center",
-                  }}
-                >
-                  <Text style={{ fontSize: 14, color: "#888" }}>
-                    Select a batch to view water consumption data
-                  </Text>
+              waterConsumptionData.length === 0 &&
+              LineChartComp && (
+                <View style={{ position: "relative", width: chartWidth }}>
+                  <LineChartComp
+                    data={{
+                      labels: [],
+                      datasets: [
+                        {
+                          data: [0],
+                          color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                        },
+                      ],
+                    }}
+                    width={chartWidth}
+                    height={chartHeight}
+                    chartConfig={{
+                      backgroundGradientFrom: "#ffffff",
+                      backgroundGradientTo: "#ffffff",
+                      decimalPlaces: 0,
+                      color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                      labelColor: (opacity = 1) =>
+                        `rgba(44, 62, 80, ${opacity})`,
+                      propsForDots: {
+                        r: "4",
+                        strokeWidth: "2",
+                        stroke: "#154985",
+                      },
+                    }}
+                    bezier
+                    style={{ marginTop: 8 }}
+                    withVerticalLines={false}
+                    withInnerLines={false}
+                    withHorizontalLines={false}
+                    fromZero
+                  />
                 </View>
               )}
           </View>
@@ -9980,7 +9907,7 @@ export default function AdminAnalytics({ navigation }) {
                 {formatFilterDisplay(chartFilters["solar"])}
               </Text>
             )}
-            {LineChartComp && (
+            {LineChartComp && solarData.length > 0 && (
               <View
                 style={{
                   position: "relative",
@@ -10062,6 +9989,42 @@ export default function AdminAnalytics({ navigation }) {
                     </View>
                   </View>
                 )}
+              </View>
+            )}
+
+            {LineChartComp && solarData.length === 0 && (
+              <View style={{ position: "relative", width: chartWidth }}>
+                <LineChartComp
+                  data={{
+                    labels: [],
+                    datasets: [
+                      {
+                        data: [0],
+                        color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                      },
+                    ],
+                  }}
+                  width={chartWidth}
+                  height={chartHeight}
+                  chartConfig={{
+                    backgroundGradientFrom: "#ffffff",
+                    backgroundGradientTo: "#ffffff",
+                    decimalPlaces: 0,
+                    color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                    labelColor: (opacity = 1) => `rgba(44, 62, 80, ${opacity})`,
+                    propsForDots: {
+                      r: "4",
+                      strokeWidth: "2",
+                      stroke: "#154985",
+                    },
+                  }}
+                  bezier
+                  style={{ marginTop: 8 }}
+                  withVerticalLines={false}
+                  withInnerLines={false}
+                  withHorizontalLines={false}
+                  fromZero
+                />
               </View>
             )}
           </View>
