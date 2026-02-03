@@ -104,3 +104,29 @@ sudo systemctl start yolo-stream
 - Use `yolov8n` (nano) for best speed on Raspberry Pi
 - NCNN format provides better performance than PyTorch
 - Keep JPEG quality at 85 for balance between quality and bandwidth
+
+Camera commands
+
+Check status: 
+sudo systemctl status camera-stream
+
+View logs:
+sudo journalctl -u camera-stream -f
+
+Stop service:
+sudo systemctl stop camera-stream
+
+Start service
+sudo systemctl start camera-stream
+
+Restart service:
+sudo systemctl restart camera-stream
+
+Disable auto-start:
+sudo systemctl disable camera-stream
+
+Disable auto-start:
+sudo systemctl enable camera-stream
+
+verify:
+sudo systemctl is-enabled camera-stream
