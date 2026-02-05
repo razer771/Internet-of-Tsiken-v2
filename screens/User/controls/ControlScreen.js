@@ -314,6 +314,15 @@ export default function ControlScreen({ navigation }) {
   const [sensorError, setSensorError] = useState(null);
   const [isSimulated, setIsSimulated] = useState(true);
 
+  // NEW STATE VARIABLES
+  const [temperature, setTemperature] = useState(0);
+  const [humidity, setHumidity] = useState(0);
+  const [airQuality, setAirQuality] = useState(0);
+  const [bowlWeight, setBowlWeight] = useState(0);
+  const [fanOn, setFanOn] = useState(false);
+  const [waterStorageLevel, setWaterStorageLevel] = useState(0);
+  const [feedStorageLevel, setFeedStorageLevel] = useState(0);
+
   // Lighting control
   const [lightOn, setLightOn] = useState(false);
 
@@ -460,23 +469,78 @@ export default function ControlScreen({ navigation }) {
     loadNightTimeSchedule();
   }, []);
 
-  // Update sensor values from readings
+  // UPDATED: Update sensor values from readings with new fields
   const updateSensorValues = useCallback((readings) => {
     if (readings) {
-      // Update water level
-      if (readings.water) {
-        setWaterNow(readings.water.level || 0);
+      // Map new fields from ESP32 response
+      
+      // Temperature from DHT22
+      if (readings.temperature !== undefined) {
+        setTemperature(readings.temperature || 0);
+      }
+      
+      // Humidity from DHT22
+      if (readings.humidity !== undefined) {
+        setHumidity(readings.humidity || 0);
+      }
+      
+      // Air Quality from MQ135
+      if (readings.air_quality !== undefined) {
+        setAirQuality(readings.air_quality || 0);
+      }
+      
+      // Bowl Weight from Load Cell (HX711) - Feeder Mass
+      if (readings.feed_weight !== undefined) {
+        setBowlWeight(readings.feed_weight || 0);
+      }
+      
+      // Water Level from Analog Sensor (Drinker)
+      if (readings.water_level !== undefined) {
+        setWaterNow(readings.water_level || 0);
+      }
+      
+      // Feeder Storage from Ultrasonic 1 (Tank level)
+      if (readings.feeder_tank_level !== undefined) {
+        const feedStorageVal = readings.feeder_tank_level;
+        console.log(`[Storage] Feed storage level: ${feedStorageVal}%`);
+        setFeederNow(feedStorageVal);
+        setFeedStorageLevel(feedStorageVal);
+      } else if (readings.feeder && readings.feeder.level !== undefined) {
+        const feedStorageVal = readings.feeder.level;
+        console.log(`[Storage] Feed storage level (legacy): ${feedStorageVal}%`);
+        setFeederNow(feedStorageVal);
+        setFeedStorageLevel(feedStorageVal);
+      }
+      
+      // Water Storage from Ultrasonic 2 (Tank level)
+      if (readings.water_tank_level !== undefined) {
+        const waterStorageVal = readings.water_tank_level;
+        console.log(`[Storage] Water storage level: ${waterStorageVal}%`);
+        setWaterStorageLevel(waterStorageVal);
+      }
+      
+      // Fan Status sync
+      if (readings.fan_status !== undefined) {
+        setFanOn(readings.fan_status === 'on');
+      }
+      
+      // Light Status sync
+      if (readings.light_status !== undefined) {
+        setLightOn(readings.light_status === 'on');
+      }
+
+      // Legacy support for old structure
+      if (readings.water && readings.water.level !== undefined) {
+        // Only use this if water_level is not provided
+        if (readings.water_level === undefined) {
+          setWaterNow(readings.water.level || 0);
+        }
         if (readings.water.isSimulated) {
           setIsSimulated(true);
         }
         if (readings.water.error || readings.water.warning) {
           setSensorError(readings.water.error || readings.water.warning);
         }
-      }
-
-      // Update feeder level
-      if (readings.feeder) {
-        setFeederNow(readings.feeder.level || 0);
       }
 
       // Check simulation mode
@@ -698,55 +762,121 @@ export default function ControlScreen({ navigation }) {
     setShowFeedAddPicker(true);
   };
 
-  // Handle light toggle with Firestore sync
+  // Handle light toggle with ESP32 control
   const handleLightToggle = async (newValue) => {
-    // Only check hardware when turning ON
-    if (newValue) {
-      try {
-        // Simulate checking for lighting hardware connection
-        const isLightingConnected = false; // In real implementation, check actual hardware
-
-        if (!isLightingConnected) {
-          showMotorWarning(
-            "Lighting System Not Detected",
-            "Light controller not detected. Please check the connection.\n\nThe operation will be simulated.",
-          );
-          // Don't turn on if hardware not detected - keep it OFF
-          return;
-        }
-
-        // Log lighting activity
-        await logActivity("lightToggle", {
-          action: "Lighting turned ON",
-          description: "User turned on incandescent light",
-          status: isLightingConnected ? "Completed" : "Simulated",
-          timestamp: new Date().toISOString(),
-        });
-      } catch (error) {
-        console.error("Lighting error:", error);
-        showMotorWarning(
-          "Error",
-          "Lighting system not detected. Please check the connection.",
-        );
-        // Don't turn on if error occurred
-        return;
-      }
-    }
-
-    const lightStatus = newValue ? "On" : "Off";
-    setLightOn(newValue);
-
+    console.log(`[Light] Toggle requested: ${newValue ? 'ON' : 'OFF'}`);
+    setLightOn(newValue); // Optimistic update
+    
     try {
-      const sensorsRef = doc(db, "sensors", "current");
-      await updateDoc(sensorsRef, { lightStatus });
-      await logActivity("lightToggle", {
-        status: lightStatus,
+      const { getWaterSystemUrl } = await import("../../../config/esp32config");
+      const url = getWaterSystemUrl();
+      
+      if (!url) {
+        throw new Error("ESP32 not configured. Check esp32config.js");
+      }
+      
+      const endpoint = newValue ? '/api/light/on' : '/api/light/off';
+      const fullUrl = `${url}${endpoint}`;
+      
+      console.log(`[Light] Sending request to: ${fullUrl}`);
+      
+      const response = await fetch(fullUrl, { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log(`[Light] Response:`, data);
+      console.log(`[Light] Successfully turned ${newValue ? 'ON' : 'OFF'}`);
+      
+      // Update state from server response
+      if (data.light_status !== undefined) {
+        setLightOn(data.light_status === 'on');
+      } else if (data.status !== undefined) {
+        setLightOn(data.status === 'on');
+      }
+
+      // Log activity
+      await logActivity("lightControl_logs", {
+        action: newValue ? "light_started" : "light_stopped",
+        status: newValue ? "on" : "off",
         timestamp: new Date().toISOString(),
       });
-      console.log("[Light] Toggle synced with Firestore:", lightStatus);
+      
+      // Sync with Firestore
+      try {
+        const sensorsRef = doc(db, "sensors", "current");
+        await updateDoc(sensorsRef, { lightStatus: newValue ? "On" : "Off" });
+      } catch (firestoreError) {
+        console.warn("[Light] Firestore sync failed:", firestoreError.message);
+      }
     } catch (error) {
-      console.error("[Light] Error syncing with Firestore:", error);
-      // Don't revert state - keep the UI toggle working even if Firestore fails
+      console.error("[Light] Control failed:", error.message);
+      setLightOn(!newValue); // Revert on fail
+      Alert.alert(
+        "Light Control Error", 
+        `Could not reach light controller.\n\nError: ${error.message}\n\nPlease check:\n1. ESP32 is powered on\n2. WiFi connection\n3. IP address in esp32config.js`
+      );
+    }
+  };
+
+  // NEW: Handle Fan Toggle
+  const handleFanToggle = async (value) => {
+    console.log(`[Fan] Toggle requested: ${value ? 'ON' : 'OFF'}`);
+    setFanOn(value); // Optimistic update
+    
+    try {
+      const { getWaterSystemUrl } = await import("../../../config/esp32config");
+      const url = getWaterSystemUrl();
+      
+      if (!url) {
+        throw new Error("ESP32 not configured. Check esp32config.js");
+      }
+      
+      const endpoint = value ? '/api/fan/start' : '/api/fan/stop';
+      const fullUrl = `${url}${endpoint}`;
+      
+      console.log(`[Fan] Sending request to: ${fullUrl}`);
+      
+      const response = await fetch(fullUrl, { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log(`[Fan] Response:`, data);
+      console.log(`[Fan] Successfully turned ${value ? 'ON' : 'OFF'}`);
+      
+      // Update state from server response
+      if (data.fan_status !== undefined) {
+        setFanOn(data.fan_status === 'on');
+      }
+
+      // Log activity
+      await logActivity("fanControl_logs", {
+        action: value ? "fan_started" : "fan_stopped",
+        status: value ? "on" : "off",
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("[Fan] Control failed:", error.message);
+      setFanOn(!value); // Revert on fail
+      Alert.alert(
+        "Fan Control Error", 
+        `Could not reach fan controller.\n\nError: ${error.message}\n\nPlease check:\n1. ESP32 is powered on\n2. WiFi connection\n3. IP address in esp32config.js`
+      );
     }
   };
 
@@ -2207,19 +2337,73 @@ export default function ControlScreen({ navigation }) {
           </View>
         )}
 
-        {/* Real-time cards */}
-        <View style={styles.rowCenter}>
+        {/* 1. UPDATED REAL-TIME SENSORS GRID */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: 8 }}>
+          {/* Water Level */}
           <StatCard
             label="Water Level"
             value={sensorLoading ? "..." : `${Math.round(waterNow)}%`}
-            dotColor={isSimulated ? "#FFC107" : "#4CAF50"}
+            subValue={waterNow > 80 ? "Full (Safety Active)" : "Normal"}
+            icon="water"
+            color="#2196F3"
             loading={sensorLoading}
             isSimulated={isSimulated}
           />
+          {/* Feeder / Weight */}
           <StatCard
-            label="Feeder Level"
-            value={sensorLoading ? "..." : `${Math.round(feederNow)}%`}
-            dotColor={isSimulated ? "#FFC107" : "#2196F3"}
+            label="Feeder Mass"
+            value={sensorLoading ? "..." : `${Math.round(bowlWeight)}g`}
+            subValue={bowlWeight > 500 ? "Bowl Full" : "Ready"}
+            icon="nutrition"
+            color="#FF9800"
+            loading={sensorLoading}
+            isSimulated={isSimulated}
+          />
+          {/* Temperature */}
+          <StatCard
+            label="Temperature"
+            value={sensorLoading ? "..." : `${temperature}°C`}
+            icon="thermometer"
+            color="#F44336"
+            loading={sensorLoading}
+            isSimulated={isSimulated}
+          />
+          {/* Humidity */}
+          <StatCard
+            label="Humidity"
+            value={sensorLoading ? "..." : `${humidity}%`}
+            icon="water-outline"
+            color="#00BCD4"
+            loading={sensorLoading}
+            isSimulated={isSimulated}
+          />
+          {/* Air Quality */}
+          <StatCard
+            label="Air Quality"
+            value={sensorLoading ? "..." : `${airQuality}`}
+            subValue="PPM"
+            icon="cloud-outline"
+            color="#9E9E9E"
+            loading={sensorLoading}
+            isSimulated={isSimulated}
+          />
+          {/* Water Storage Tank Level (Ultrasonic 2) */}
+          <StatCard
+            label="Water Storage"
+            value={sensorLoading ? "..." : `${Math.round(waterStorageLevel)}%`}
+            subValue={waterStorageLevel < 20 ? "Low - Refill Soon" : "Normal"}
+            icon="water"
+            color="#2196F3"
+            loading={sensorLoading}
+            isSimulated={isSimulated}
+          />
+          {/* Feed Storage Tank Level (Ultrasonic 1) */}
+          <StatCard
+            label="Feed Storage"
+            value={sensorLoading ? "..." : `${Math.round(feedStorageLevel)}%`}
+            subValue={feedStorageLevel < 20 ? "Low - Refill Soon" : "Normal"}
+            icon="nutrition"
+            color="#FF9800"
             loading={sensorLoading}
             isSimulated={isSimulated}
           />
@@ -2241,6 +2425,25 @@ export default function ControlScreen({ navigation }) {
               onServerDiscovered={handleServerDiscovered}
             />
           </TouchableOpacity>
+        </View>
+
+        {/* 2. VENTILATION CONTROL (New Section) */}
+        <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
+          <CardHeader icon="hardware-chip-outline" title="Ventilation System" />
+          <View style={[styles.innerBox, { justifyContent: 'space-between', marginTop: 15 }]}>
+            <View>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: '#333' }}>Exhaust Fan</Text>
+              <Text style={styles.smallNote}>
+                {fanOn ? "Active - Cooling system running" : "Inactive - System idle"}
+              </Text>
+            </View>
+            <Switch
+              value={fanOn}
+              onValueChange={handleFanToggle}
+              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
+              thumbColor="#fff"
+            />
+          </View>
         </View>
 
         {/* Night Schedule */}
@@ -3491,30 +3694,30 @@ export default function ControlScreen({ navigation }) {
 }
 
 /* ---------------- helpers ---------------- */
-function StatCard({ label, value, dotColor, loading, isSimulated }) {
+function StatCard({ label, value, subValue, icon, color, dotColor, loading, isSimulated, fullWidth }) {
   return (
-    <View style={styles.statCard}>
-      <View style={styles.statLeft}>
-        <View style={[styles.dot, { backgroundColor: dotColor }]} />
-        <View>
-          <Text style={styles.statLabel}>{label}</Text>
-          {isSimulated && <Text style={styles.simulatedLabel}>Simulated</Text>}
-        </View>
+    <View style={[styles.statCard, fullWidth ? { width: '100%' } : { width: '48%' }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+        {icon && <Ionicons name={icon} size={18} color={color || dotColor} style={{ marginRight: 6 }} />}
+        {!icon && <View style={[styles.dot, { backgroundColor: dotColor }]} />}
+        <Text style={{ fontSize: 13, color: '#666', fontWeight: '600' }}>{label}</Text>
       </View>
-      <View style={styles.statRight}>
-        <View
-          style={[
-            styles.statBox,
-            { borderLeftColor: isSimulated ? "#FFC107" : PRIMARY },
-          ]}
-        >
-          {loading ? (
-            <ActivityIndicator size="small" color={PRIMARY} />
-          ) : (
-            <Text style={styles.statValue}>{value}</Text>
+      {loading ? (
+        <ActivityIndicator size="small" color={PRIMARY} />
+      ) : (
+        <>
+          <Text style={{ fontSize: 20, fontWeight: '700', color: '#333' }}>{value}</Text>
+          {subValue && (
+            <Text style={{
+              fontSize: 11,
+              color: subValue.includes("Full") ? RED : '#999',
+              marginTop: 2
+            }}>
+              {subValue}
+            </Text>
           )}
-        </View>
-      </View>
+        </>
+      )}
     </View>
   );
 }
@@ -3571,17 +3774,12 @@ const styles = StyleSheet.create({
   },
 
   statCard: {
-    width: "100%",
-    maxWidth: 340,
-    height: 55,
+    minHeight: 85,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "#ffff",
     marginVertical: 6,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    padding: 12,
     backgroundColor: "#ffffff",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
