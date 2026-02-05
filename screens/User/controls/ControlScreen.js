@@ -50,6 +50,10 @@ import {
   configureWaterSystemUserId,
 } from "../../../modules/ServoMotorService";
 import CameraStream from "../../../modules/CameraStream";
+import {
+  fetchSunsetTime,
+  formatSunsetDateTime,
+} from "../../../modules/SunsetService";
 import { useAdminNotifications } from "../../Admin/AdminNotificationContext";
 import { useNotifications } from "./NotificationContext";
 
@@ -329,6 +333,9 @@ export default function ControlScreen({ navigation }) {
   // night schedule (time)
   const [nightStart, setNightStart] = useState(new Date());
   const [showNightPicker, setShowNightPicker] = useState(false);
+  const [sunsetLoading, setSunsetLoading] = useState(true);
+  const [sunsetError, setSunsetError] = useState(null);
+  const [isSunsetAutomated, setIsSunsetAutomated] = useState(false);
 
   // feed schedule: can add / delete / edit
   const [feeds, setFeeds] = useState([]);
@@ -409,10 +416,7 @@ export default function ControlScreen({ navigation }) {
           throw new Error("ESP32 responded with error");
         }
       } catch (error) {
-        console.warn(
-          "[Solar] Failed to fetch from ESP32.",
-          error.message,
-        );
+        console.warn("[Solar] Failed to fetch from ESP32.", error.message);
         setSolarPowerLevel(30); // Fallback to simulated
         setIsSolarSimulated(true);
       } finally {
@@ -429,40 +433,97 @@ export default function ControlScreen({ navigation }) {
     };
   }, []);
 
-  // Fetch night time schedule from Firestore on mount
+  // Fetch sunset time and night time schedule on mount
   useEffect(() => {
     const loadNightTimeSchedule = async () => {
       try {
+        setSunsetLoading(true);
+        setSunsetError(null);
+
         console.log(
-          "[NightTime] Loading night time schedule from Firestore...",
+          "[NightTime] Automating night time schedule with sunset API...",
         );
-        const nightTimeData = await fetchNightTimeSchedule();
 
-        if (nightTimeData) {
-          // Get the time value - try multiple field names for compatibility
-          const timeValue = nightTimeData.nightTime || nightTimeData.time;
+        // Fetch sunset time from SunriseSunset.io API
+        console.log(
+          "[NightTime] Fetching sunset time from SunriseSunset.io...",
+        );
+        const sunsetResult = await fetchSunsetTime();
 
-          if (timeValue) {
-            // Convert ISO string or timestamp to Date object
-            const timeDate =
-              timeValue instanceof Date ? timeValue : new Date(timeValue);
+        if (sunsetResult.success) {
+          console.log(
+            "[NightTime] Sunset time fetched successfully:",
+            sunsetResult.formattedDateTime,
+          );
+          setNightStart(sunsetResult.sunsetTime);
+          setIsSunsetAutomated(true);
 
-            setNightStart(timeDate);
-            console.log(
-              "[NightTime] Night time loaded successfully:",
-              fmtTime(timeDate),
+          // Update Firestore with the sunset time
+          try {
+            const docRef = doc(db, "nightTime", "1");
+            await setDoc(
+              docRef,
+              {
+                nightTime: sunsetResult.sunsetTimeIso,
+                time: sunsetResult.sunsetTimeIso,
+                selectedTimeGMT8Formatted: sunsetResult.formattedDateTime,
+                automatedViaSunset: true,
+                sunsetFetchedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              },
+              { merge: true },
             );
-          } else {
-            console.warn("[NightTime] No time value found in document");
+            console.log("[NightTime] Firestore updated with sunset time");
+          } catch (firestoreError) {
+            console.warn(
+              "[NightTime] Failed to update Firestore with sunset time:",
+              firestoreError,
+            );
+            // Don't fail - just log the warning
           }
         } else {
+          // Sunset API failed - fall back to stored Firestore data
           console.warn(
-            "[NightTime] Night time document not found, using default time",
+            "[NightTime] Failed to fetch sunset time:",
+            sunsetResult.error,
           );
+          setSunsetError(sunsetResult.error);
+          setIsSunsetAutomated(false);
+
+          console.log(
+            "[NightTime] Falling back to stored night time schedule...",
+          );
+          const nightTimeData = await fetchNightTimeSchedule();
+
+          if (nightTimeData) {
+            // Get the time value - try multiple field names for compatibility
+            const timeValue = nightTimeData.nightTime || nightTimeData.time;
+
+            if (timeValue) {
+              // Convert ISO string or timestamp to Date object
+              const timeDate =
+                timeValue instanceof Date ? timeValue : new Date(timeValue);
+
+              setNightStart(timeDate);
+              console.log(
+                "[NightTime] Night time loaded from Firestore:",
+                fmtTime(timeDate),
+              );
+            } else {
+              console.warn("[NightTime] No time value found in document");
+            }
+          } else {
+            console.warn(
+              "[NightTime] Night time document not found, using default time",
+            );
+          }
         }
       } catch (error) {
         console.error("[NightTime] Error loading night time schedule:", error);
+        setSunsetError(error.message || "Unknown error occurred");
         // Keep default time on error
+      } finally {
+        setSunsetLoading(false);
       }
     };
 
@@ -1023,8 +1084,8 @@ export default function ControlScreen({ navigation }) {
           feedId: nextId,
           label: label,
           time: formattedTime,
-          userId: user.uid,        // Required by ESP32 for filtering
-          duration: 5,              // Duration in seconds (5s default)
+          userId: user.uid, // Required by ESP32 for filtering
+          duration: 5, // Duration in seconds (5s default)
           timestamp: new Date().toISOString(),
         });
 
@@ -1359,8 +1420,8 @@ export default function ControlScreen({ navigation }) {
           feedId: feedId,
           label: feeds[feedEdit.idx].label,
           time: newTime,
-          userId: user.uid,        // Required by ESP32
-          duration: 5,              // Duration in seconds
+          userId: user.uid, // Required by ESP32
+          duration: 5, // Duration in seconds
           timestamp: new Date().toISOString(),
         });
 
@@ -1561,7 +1622,7 @@ export default function ControlScreen({ navigation }) {
       if (!esp32Url) {
         showMotorWarning(
           "Configuration Error",
-          "ESP32 feed system URL not configured. Please check esp32config.js"
+          "ESP32 feed system URL not configured. Please check esp32config.js",
         );
         return;
       }
@@ -1570,9 +1631,9 @@ export default function ControlScreen({ navigation }) {
       const response = await fetch(`${esp32Url}/api/servo/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          angle: 45,      // Dispense angle (open position)
-          duration: 5000  // 5 seconds dispense
+        body: JSON.stringify({
+          angle: 45, // Dispense angle (open position)
+          duration: 5000, // 5 seconds dispense
         }),
       });
 
@@ -1603,14 +1664,14 @@ export default function ControlScreen({ navigation }) {
         console.error("❌ Feed dispense failed:", response.status, errorText);
         showMotorWarning(
           "Feed Dispense Failed",
-          `ESP32 returned error: ${response.status}\n${errorText}`
+          `ESP32 returned error: ${response.status}\n${errorText}`,
         );
       }
     } catch (error) {
       console.error("❌ Feed dispense error:", error);
       showMotorWarning(
         "Connection Error",
-        `Failed to connect to ESP32: ${error.message}\n\nPlease check if ESP32 is powered on and connected to the network.`
+        `Failed to connect to ESP32: ${error.message}\n\nPlease check if ESP32 is powered on and connected to the network.`,
       );
     } finally {
       setIsDispensing(false);
@@ -1629,7 +1690,7 @@ export default function ControlScreen({ navigation }) {
       if (!esp32Url) {
         showMotorWarning(
           "Configuration Error",
-          "ESP32 water system URL not configured. Please check esp32config.js"
+          "ESP32 water system URL not configured. Please check esp32config.js",
         );
         return;
       }
@@ -1667,14 +1728,14 @@ export default function ControlScreen({ navigation }) {
         console.error("❌ Pump test failed:", response.status, errorText);
         showMotorWarning(
           "Pump Test Failed",
-          `ESP32 returned error: ${response.status}\n${errorText}`
+          `ESP32 returned error: ${response.status}\n${errorText}`,
         );
       }
     } catch (error) {
       console.error("❌ Pump test error:", error);
       showMotorWarning(
         "Connection Error",
-        `Failed to connect to ESP32: ${error.message}\n\nPlease check if ESP32 is powered on and connected to the network.`
+        `Failed to connect to ESP32: ${error.message}\n\nPlease check if ESP32 is powered on and connected to the network.`,
       );
     } finally {
       setIsPumpTesting(false);
@@ -1835,8 +1896,8 @@ export default function ControlScreen({ navigation }) {
           wateringId: nextId,
           label: label,
           time: formattedTime,
-          userId: user.uid,        // Required by ESP32 for filtering
-          duration: 5,              // Duration in seconds (5s default)
+          userId: user.uid, // Required by ESP32 for filtering
+          duration: 5, // Duration in seconds (5s default)
           timestamp: new Date().toISOString(),
         });
 
@@ -1959,8 +2020,8 @@ export default function ControlScreen({ navigation }) {
           wateringId,
           label: waterings[waterEdit.idx].label,
           time: newTime,
-          userId: user.uid,        // Required by ESP32
-          duration: 5,              // Duration in seconds
+          userId: user.uid, // Required by ESP32
+          duration: 5, // Duration in seconds
           timestamp: new Date().toISOString(),
         });
 
@@ -2452,20 +2513,59 @@ export default function ControlScreen({ navigation }) {
           <View style={styles.rowSpace}>
             <View style={{ flex: 1 }}>
               <Text style={styles.smallLabel}>Night Time Start</Text>
-              <TouchableOpacity
-                style={styles.timeInput}
-                onPress={() => {
-                  console.log("📄 [ACTION] User clicked night time picker");
-                  setShowNightPicker(true);
-                }}
-              >
-                <Text style={styles.timeText}>{fmtTime(nightStart)}</Text>
-                <Ionicons name="time-outline" size={18} color={PRIMARY} />
-              </TouchableOpacity>
+              {sunsetLoading ? (
+                <View
+                  style={[
+                    styles.timeInput,
+                    { justifyContent: "center", alignItems: "center" },
+                  ]}
+                >
+                  <ActivityIndicator size="small" color={PRIMARY} />
+                  <Text style={[styles.timeText, { marginLeft: 8 }]}>
+                    Fetching sunset...
+                  </Text>
+                </View>
+              ) : (
+                <View
+                  style={[
+                    styles.timeInput,
+                    {
+                      backgroundColor: isSunsetAutomated
+                        ? "#E8F5E9"
+                        : "#FFF3E0",
+                      borderColor: isSunsetAutomated ? GREEN : YELLOW,
+                    },
+                  ]}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.timeText}>
+                      {formatSunsetDateTime(nightStart)}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        color: isSunsetAutomated ? GREEN : YELLOW,
+                        marginTop: 4,
+                      }}
+                    >
+                      {isSunsetAutomated
+                        ? "📍 Auto-set via Sunset API"
+                        : "⚠️ Using stored schedule"}
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name={isSunsetAutomated ? "checkmark-circle" : "warning"}
+                    size={20}
+                    color={isSunsetAutomated ? GREEN : YELLOW}
+                  />
+                </View>
+              )}
             </View>
           </View>
           <Text style={[styles.smallNote, { marginTop: 8 }]}>
-            Solar power will activate at this time
+            {sunsetError
+              ? `⚠️ API Error: ${sunsetError}`
+              : "Solar power will activate at sunset time"}
           </Text>
         </View>
 
@@ -2537,7 +2637,7 @@ export default function ControlScreen({ navigation }) {
                     onPress={() => {
                       console.log(
                         "📄 [ACTION] User clicked delete feed button for id:",
-                        f.id
+                        f.id,
                       );
                       setPendingDeleteFeedId(f.id);
                       setConfirmDeleteFeedVisible(true);
@@ -2584,7 +2684,13 @@ export default function ControlScreen({ navigation }) {
         {/* Water Scheduling (like Feeding) */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader icon="water-outline" title="Watering Schedule" />
-          <View style={{ flexDirection: "row", justifyContent: "flex-end", marginBottom: 8 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "flex-end",
+              marginBottom: 8,
+            }}
+          >
             <TouchableOpacity
               style={[styles.smallActionBtn, { backgroundColor: GREEN }]}
               onPress={addWaterSchedule}
@@ -2604,27 +2710,46 @@ export default function ControlScreen({ navigation }) {
                   {deleteMode ? (
                     <TouchableOpacity
                       onPress={() => toggleSelectToDelete(w.id)}
-                      style={[styles.checkbox, selectedToDelete.includes(w.id) && styles.checkboxChecked]}
+                      style={[
+                        styles.checkbox,
+                        selectedToDelete.includes(w.id) &&
+                          styles.checkboxChecked,
+                      ]}
                     >
                       {selectedToDelete.includes(w.id) && (
                         <Text style={{ color: "#fff" }}>✓</Text>
                       )}
                     </TouchableOpacity>
                   ) : (
-                    <Ionicons name="time-outline" size={16} color={PRIMARY} style={{ marginRight: 8 }} />
+                    <Ionicons
+                      name="time-outline"
+                      size={16}
+                      color={PRIMARY}
+                      style={{ marginRight: 8 }}
+                    />
                   )}
 
                   <Text style={styles.feedTimeText}>{w.time}</Text>
                 </View>
 
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <TouchableOpacity style={styles.editBtn} onPress={() => openEditWater(idx)}>
+                  <TouchableOpacity
+                    style={styles.editBtn}
+                    onPress={() => openEditWater(idx)}
+                  >
                     <Text style={styles.editText}>Edit</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.editBtn, { backgroundColor: RED, marginLeft: 6 }]}
+                    style={[
+                      styles.editBtn,
+                      { backgroundColor: RED, marginLeft: 6 },
+                    ]}
                     onPress={() => {
-                      console.log("🗑️ [ACTION] Delete button clicked for water schedule:", w.id, w.time);
+                      console.log(
+                        "🗑️ [ACTION] Delete button clicked for water schedule:",
+                        w.id,
+                        w.time,
+                      );
                       setPendingDeleteWaterId(w.id);
                       setConfirmDeleteWaterVisible(true);
                       console.log("✅ Set pendingDeleteWaterId to:", w.id);
@@ -2731,9 +2856,9 @@ export default function ControlScreen({ navigation }) {
           <View
             style={[
               styles.innerBox,
-              { 
-                marginTop: 8, 
-                borderColor: BORDER_OVERLAY, 
+              {
+                marginTop: 8,
+                borderColor: BORDER_OVERLAY,
                 paddingVertical: 12,
                 paddingHorizontal: 12,
                 flexDirection: "column",
@@ -2741,9 +2866,18 @@ export default function ControlScreen({ navigation }) {
             ]}
           >
             {/* Incandescent Light Control */}
-            <View style={{ width: '100%' }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <Text style={{ fontWeight: "600", fontSize: 14 }}>Incandescent Light</Text>
+            <View style={{ width: "100%" }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 8,
+                }}
+              >
+                <Text style={{ fontWeight: "600", fontSize: 14 }}>
+                  Incandescent Light
+                </Text>
                 <Switch
                   value={lightOn}
                   onValueChange={handleLightToggle}
@@ -2755,12 +2889,21 @@ export default function ControlScreen({ navigation }) {
             </View>
 
             {/* Brightness Control */}
-            <View style={{ marginTop: 16, width: '100%' }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <View style={{ marginTop: 16, width: "100%" }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 8,
+                }}
+              >
                 <Text style={{ fontWeight: "600", fontSize: 14 }}>
                   Brightness
                 </Text>
-                <Text style={{ fontWeight: "600", fontSize: 14, color: '#666' }}>
+                <Text
+                  style={{ fontWeight: "600", fontSize: 14, color: "#666" }}
+                >
                   {testBrightness}%
                 </Text>
               </View>
@@ -3657,10 +3800,15 @@ export default function ControlScreen({ navigation }) {
             style={[styles.popupBox, { width: 320, alignItems: "stretch" }]}
           >
             {/* Header with Close Button */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <Text
-                style={{ fontWeight: "700", fontSize: 16 }}
-              >
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 8,
+              }}
+            >
+              <Text style={{ fontWeight: "700", fontSize: 16 }}>
                 Test Lighting
               </Text>
               <TouchableOpacity
@@ -3670,20 +3818,20 @@ export default function ControlScreen({ navigation }) {
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
-            
+
             {/* Toggle Button */}
             <TouchableOpacity
               style={[
                 styles.primaryBtn,
-                { 
+                {
                   marginTop: 10,
-                  backgroundColor: testLightOn ? '#4CAF50' : '#F44336'
-                }
+                  backgroundColor: testLightOn ? "#4CAF50" : "#F44336",
+                },
               ]}
               onPress={() => handleTestLightToggle(!testLightOn)}
             >
               <Text style={styles.primaryBtnText}>
-                {testLightOn ? 'ON' : 'OFF'}
+                {testLightOn ? "ON" : "OFF"}
               </Text>
             </TouchableOpacity>
           </View>

@@ -204,7 +204,6 @@ export default function QuickSetupModal({
     return String(val);
   };
   const [batchNo, setBatchNo] = useState("");
-  const [batchNoError, setBatchNoError] = useState("");
   const [chicksCount, setChicksCount] = useState("");
   const [daysCount, setDaysCount] = useState("");
   const [harvestDays, setHarvestDays] = useState("");
@@ -212,6 +211,7 @@ export default function QuickSetupModal({
   const [chicksError, setChicksError] = useState("");
   const [daysError, setDaysError] = useState("");
   const [harvestError, setHarvestError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   // Check if all fields are valid and filled
   const isFormValid =
@@ -219,7 +219,6 @@ export default function QuickSetupModal({
     chicksCount.trim() !== "" &&
     daysCount.trim() !== "" &&
     harvestDays.trim() !== "" &&
-    !batchNoError &&
     !chicksError &&
     !daysError &&
     !harvestError &&
@@ -229,8 +228,17 @@ export default function QuickSetupModal({
 
   useEffect(() => {
     if (visible) {
-      setBatchNo("");
-      setBatchNoError("");
+      // Calculate next batch number from existing batches
+      const existingBatchNos = batches
+        .map((b) => parseInt(b.batchNo, 10))
+        .filter((n) => !isNaN(n));
+      const maxBatchNo =
+        existingBatchNos.length > 0 ? Math.max(...existingBatchNos) : 0;
+      const nextBatchNo = maxBatchNo + 1;
+
+      setBatchNo(nextBatchNo.toString());
+
+      // Reset other fields
       setChicksCount("");
       setDaysCount("");
       setHarvestDays("");
@@ -238,36 +246,7 @@ export default function QuickSetupModal({
       setDaysError("");
       setHarvestError("");
     }
-  }, [visible]);
-  const handleBatchNoChange = (text) => {
-    // Only allow numeric input, max value 100, must be next available, no duplicates
-    let cleanText = text.replace(/[^0-9]/g, "");
-    if (cleanText !== "") {
-      let num = parseInt(cleanText, 10);
-      if (num > 1000) {
-        cleanText = "";
-        // setBatchNoError("Batch number ");
-      } else {
-        // Get all existing batch numbers as numbers
-        const existingBatchNos = batches
-          .map((b) => parseInt(b.batchNo, 10))
-          .filter((n) => !isNaN(n));
-        const maxBatchNo =
-          existingBatchNos.length > 0 ? Math.max(...existingBatchNos) : 0;
-        // Check for duplicate
-        if (existingBatchNos.includes(num)) {
-          setBatchNoError("Batch number already exists");
-        } else if (num !== maxBatchNo + 1) {
-          setBatchNoError(`Batch number must be ${maxBatchNo + 1}`);
-        } else {
-          setBatchNoError("");
-        }
-      }
-    } else {
-      setBatchNoError("Batch number is required");
-    }
-    setBatchNo(cleanText);
-  };
+  }, [visible, batches]);
 
   const handleChicksChange = (text) => {
     // Only allow numeric input, never show '0'
@@ -335,7 +314,10 @@ export default function QuickSetupModal({
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    // Prevent multiple clicks
+    if (isSaving) return;
+
     // Validate that days does not exceed harvest days
     const daysValue = parseInt(daysCount);
     const harvestValue = parseInt(harvestDays);
@@ -356,75 +338,76 @@ export default function QuickSetupModal({
       return;
     }
 
-    // Store userInfo in a variable so it's accessible in promise chain
-    let userInfo = null;
+    // Set saving state to prevent multiple clicks
+    setIsSaving(true);
 
-    // Fetch user info from Firestore
-    getUserInfo(currentUser.uid)
-      .then((userInfoData) => {
-        // Store userInfo for later use
-        userInfo = userInfoData;
+    try {
+      // Store userInfo in a variable so it's accessible in promise chain
+      let userInfo = null;
 
-        // Prepare batch data with Firestore user info
-        const batchData = {
+      // Fetch user info from Firestore
+      const userInfoData = await getUserInfo(currentUser.uid);
+      userInfo = userInfoData;
+
+      // Prepare batch data with Firestore user info
+      const batchData = {
+        chicksCount: chicksCount.trim(),
+        daysCount: daysCount.trim(),
+        harvestDays: harvestDays.trim(),
+        userId: currentUser.uid,
+        firstname: userInfo.firstname,
+        lastname: userInfo.lastname,
+      };
+
+      // Save to Firestore
+      const result = await saveBatch(batchData);
+      console.log("[HandleSave] Batch saved to Firestore:", result);
+
+      // Log the event to session_logs
+      logSessionEvent(
+        currentUser.uid,
+        userInfo.firstname,
+        userInfo.lastname,
+        result.batchNumber,
+      );
+
+      // Call the original batch save callback for backward compatibility (AsyncStorage)
+      if (onSaveBatch) {
+        onSaveBatch({
+          batchNo: result.batchNumber.toString(),
           chicksCount: chicksCount.trim(),
           daysCount: daysCount.trim(),
           harvestDays: harvestDays.trim(),
-          userId: currentUser.uid,
-          firstname: userInfo.firstname,
-          lastname: userInfo.lastname,
-        };
+        });
+      }
 
-        // Save to Firestore
-        return saveBatch(batchData);
-      })
-      .then((result) => {
-        console.log("[HandleSave] Batch saved to Firestore:", result);
+      // Show success modal
+      setShowSuccess(true);
 
-        // Log the event to session_logs
-        logSessionEvent(
-          currentUser.uid,
-          userInfo.firstname,
-          userInfo.lastname,
-          result.batchNumber,
-        );
+      // Reset all fields after save
+      setBatchNo("");
+      setChicksCount("");
+      setChicksError("");
+      setDaysCount("");
+      setDaysError("");
+      setHarvestDays("");
+      setHarvestError("");
 
-        // Call the original batch save callback for backward compatibility (AsyncStorage)
-        if (onSaveBatch) {
-          onSaveBatch({
-            batchNo: result.batchNumber.toString(),
-            chicksCount: chicksCount.trim(),
-            daysCount: daysCount.trim(),
-            harvestDays: harvestDays.trim(),
-          });
-        }
-
-        // Show success modal
-        setShowSuccess(true);
-
-        // Reset all fields after save
-        setBatchNo("");
-        setBatchNoError("");
-        setChicksCount("");
-        setChicksError("");
-        setDaysCount("");
-        setDaysError("");
-        setHarvestDays("");
-        setHarvestError("");
-
-        // Close after 2 seconds
-        setTimeout(() => {
-          setShowSuccess(false);
-          onClose();
-        }, 2000);
-      })
-      .catch((error) => {
-        console.error("[HandleSave] Error:", error);
-        Alert.alert(
-          "Error",
-          "Failed to save batch. Please try again.\n" + error.message,
-        );
-      });
+      // Close after 2 seconds
+      setTimeout(() => {
+        setShowSuccess(false);
+        onClose();
+      }, 2000);
+    } catch (error) {
+      console.error("[HandleSave] Error:", error);
+      Alert.alert(
+        "Error",
+        "Failed to save batch. Please try again.\n" + error.message,
+      );
+    } finally {
+      // Re-enable the save button
+      setIsSaving(false);
+    }
   };
 
   const handleClose = () => {
@@ -452,19 +435,12 @@ export default function QuickSetupModal({
           <Text style={styles.sectionTitle}>Quick Overview Setup</Text>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Batch No.</Text>
+            <Text style={styles.inputLabel}>Batch ID</Text>
             <TextInput
-              style={styles.input}
-              placeholder="Enter Batch Number"
-              placeholderTextColor="#9ca3af"
-              value={batchNo}
-              onChangeText={handleBatchNoChange}
-              keyboardType="numeric"
-              maxLength={5}
+              style={[styles.input, styles.readOnlyInput]}
+              value={batchNo ? `Batch ${batchNo}` : ""}
+              editable={false}
             />
-            {batchNoError ? (
-              <Text style={styles.errorText}>{batchNoError}</Text>
-            ) : null}
           </View>
 
           <View style={styles.inputGroup}>
@@ -518,19 +494,19 @@ export default function QuickSetupModal({
           <TouchableOpacity
             style={[
               styles.saveButton,
-              !isFormValid && styles.saveButtonDisabled,
+              (!isFormValid || isSaving) && styles.saveButtonDisabled,
             ]}
             activeOpacity={0.9}
             onPress={handleSave}
-            disabled={!isFormValid}
+            disabled={!isFormValid || isSaving}
           >
             <Text
               style={[
                 styles.saveButtonText,
-                !isFormValid && styles.saveButtonTextDisabled,
+                (!isFormValid || isSaving) && styles.saveButtonTextDisabled,
               ]}
             >
-              Save
+              {isSaving ? "Saving..." : "Save"}
             </Text>
           </TouchableOpacity>
         </Pressable>
@@ -614,6 +590,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     color: "#0f172a",
     backgroundColor: "#fff",
+  },
+  readOnlyInput: {
+    backgroundColor: "#f1f5f9",
+    color: "#64748b",
   },
   errorText: {
     color: "#ef4444",

@@ -356,7 +356,10 @@ export default function QuickOverviewSetup({ navigation }) {
           const selectedBatchId = await getSelectedBatch();
 
           if (selectedBatchId) {
-            console.log("[ScreenFocus] Restoring selected batch:", selectedBatchId);
+            console.log(
+              "[ScreenFocus] Restoring selected batch:",
+              selectedBatchId,
+            );
             // Fetch fresh batch from Firestore
             const freshBatch = await getBatchById(selectedBatchId);
 
@@ -659,11 +662,23 @@ export default function QuickOverviewSetup({ navigation }) {
       setLoadingBrooderInfo(true);
       setBrooderInfoError(null);
 
-      const docRef = doc(firestoreDb, "brooderInfo", "batch1");
-      const docSnap = await getDoc(docRef);
+      // Query for the latest batch ordered by batchNumber descending
+      const q = query(
+        collection(firestoreDb, "brooderInfo"),
+        orderBy("batchNumber", "desc"),
+      );
+      const querySnapshot = await getDocs(q);
 
-      if (docSnap.exists()) {
-        const data = docSnap.data();
+      if (querySnapshot.empty) {
+        console.log("No brooder batches found in Firestore");
+        setBrooderInfoError("No brooder information available");
+        setChicksCount("0");
+        setDaysCount("0");
+        setHarvestDays("0");
+      } else {
+        // Get the latest batch (first document after ordering by batchNumber desc)
+        const latestBatchDoc = querySnapshot.docs[0];
+        const data = latestBatchDoc.data();
 
         // Convert values to strings for UI display
         const fetchedChicksCount = String(data.chicksCount || 0);
@@ -695,7 +710,8 @@ export default function QuickOverviewSetup({ navigation }) {
         }
 
         console.log(
-          "Brooder info fetched from Firestore and UI updated:",
+          "[FetchBrooderInfo] Latest batch fetched from Firestore:",
+          latestBatchDoc.id,
           data,
         );
 
@@ -704,9 +720,6 @@ export default function QuickOverviewSetup({ navigation }) {
         if (!isNaN(daysNum)) {
           await checkAndIncrementDailyAge(daysNum);
         }
-      } else {
-        console.log("No brooder info document found in Firestore");
-        setBrooderInfoError("No brooder information available");
       }
     } catch (error) {
       console.error("Error fetching brooder info from Firestore:", error);
@@ -1521,7 +1534,9 @@ export default function QuickOverviewSetup({ navigation }) {
                 <View style={styles.brooderTextContainer}>
                   <Text style={styles.brooderLabel}>Age</Text>
                   <Text style={styles.brooderValue}>
-                    {daysCount ? `${daysCount} days` : "0 days"}
+                    {daysCount && parseInt(daysCount) > 1
+                      ? `${daysCount} days`
+                      : `${daysCount || "0"} day`}
                   </Text>
                 </View>
               </View>
@@ -1535,9 +1550,9 @@ export default function QuickOverviewSetup({ navigation }) {
                 <View style={styles.brooderTextContainer}>
                   <Text style={styles.brooderLabel}>Expected Harvest</Text>
                   <Text style={styles.brooderValue}>
-                    {harvestDays && harvestDays !== "0"
+                    {harvestDays && parseInt(harvestDays) > 1
                       ? `${harvestDays} days`
-                      : "0 days"}
+                      : `${harvestDays || "0"} day`}
                   </Text>
                 </View>
               </View>
@@ -1558,19 +1573,37 @@ export default function QuickOverviewSetup({ navigation }) {
               <TouchableOpacity
                 style={[
                   styles.editBtn,
-                  (selectedBatchIndex === null ||
-                    batches.length === 0 ||
+                  (chicksCount === "0" ||
                     (selectedBatchIndex !== null &&
                       batches[selectedBatchIndex]?.mortalityCount > 0)) &&
                     styles.editBtnDisabled,
                 ]}
                 activeOpacity={0.9}
                 onPress={() => {
+                  // If no batch displayed, show error
+                  if (chicksCount === "0") {
+                    Alert.alert(
+                      "No Batch Available",
+                      "Please add a batch first to edit.",
+                    );
+                    return;
+                  }
+
+                  // Find the batch that matches the currently displayed data
+                  const matchingBatchIndex = batches.findIndex(
+                    (batch) =>
+                      String(batch.chicksCount) === chicksCount &&
+                      String(batch.daysCount) === daysCount &&
+                      String(batch.harvestDays) === harvestDays,
+                  );
+
+                  if (matchingBatchIndex === -1) {
+                    Alert.alert("Error", "Could not find batch to edit");
+                    return;
+                  }
+
                   // Check if mortality exists
-                  if (
-                    selectedBatchIndex !== null &&
-                    batches[selectedBatchIndex]?.mortalityCount > 0
-                  ) {
+                  if (batches[matchingBatchIndex]?.mortalityCount > 0) {
                     Alert.alert(
                       "Cannot Edit",
                       "This batch has mortality records. Editing is disabled to preserve data accuracy.",
@@ -1578,21 +1611,11 @@ export default function QuickOverviewSetup({ navigation }) {
                     return;
                   }
 
-                  if (
-                    selectedBatchIndex !== null &&
-                    selectedBatchIndex < batches.length
-                  ) {
-                    handleEditBatch(selectedBatchIndex);
-                  } else {
-                    Alert.alert(
-                      "No Batch Selected",
-                      "Please select a batch to edit",
-                    );
-                  }
+                  // Edit the matching batch
+                  handleEditBatch(matchingBatchIndex);
                 }}
                 disabled={
-                  selectedBatchIndex === null ||
-                  batches.length === 0 ||
+                  chicksCount === "0" ||
                   (selectedBatchIndex !== null &&
                     batches[selectedBatchIndex]?.mortalityCount > 0)
                 }
@@ -1600,8 +1623,7 @@ export default function QuickOverviewSetup({ navigation }) {
                 <Text
                   style={[
                     styles.editBtnText,
-                    (selectedBatchIndex === null ||
-                      batches.length === 0 ||
+                    (chicksCount === "0" ||
                       (selectedBatchIndex !== null &&
                         batches[selectedBatchIndex]?.mortalityCount > 0)) &&
                       styles.editBtnTextDisabled,
