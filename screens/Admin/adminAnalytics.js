@@ -29,6 +29,8 @@ import {
   serverTimestamp,
   query,
   where,
+  doc,
+  getDoc,
 } from "firebase/firestore";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
@@ -743,23 +745,28 @@ export default function AdminAnalytics({ navigation }) {
       interval = Math.ceil(diffDays / 5); // Show ~5 labels for larger ranges (60+ days)
     }
 
-    // Generate labels with smart intervals
-    const labels = [];
-
+    // Generate date objects for all days in range
+    const dateObjs = [];
     for (let i = 0; i <= diffDays; i++) {
       const currentDate = new Date(start);
       currentDate.setDate(start.getDate() + i);
+      dateObjs.push(new Date(currentDate));
+    }
 
-      const month = currentDate.toLocaleDateString("en-US", { month: "short" });
-      const day = currentDate.getDate();
+    // Sort dateObjs chronologically (should already be sorted, but for safety)
+    dateObjs.sort((a, b) => a - b);
 
+    // Build labels array with smart intervals
+    const labels = dateObjs.map((dateObj, i) => {
+      const month = dateObj.toLocaleDateString("en-US", { month: "short" });
+      const day = dateObj.getDate();
       // Show label only at intervals, plus always show the last day
       if (i % interval === 0 || i === diffDays) {
-        labels.push(`${month} ${day}`);
+        return `${month} ${day}`;
       } else {
-        labels.push(""); // Empty string for non-interval days
+        return "";
       }
-    }
+    });
 
     return labels;
   };
@@ -2949,6 +2956,246 @@ export default function AdminAnalytics({ navigation }) {
         return;
       }
 
+      // --- SUMMARY CALCULATIONS ---
+      // 1. Most common cause of death
+      const causeCount = {};
+      let maxCause = "N/A";
+      let maxCauseCount = 0;
+      records.forEach((r) => {
+        const cause = (r.causeOfDeath || "Other").trim();
+        causeCount[cause] = (causeCount[cause] || 0) + (r.count || 1);
+        if (causeCount[cause] > maxCauseCount) {
+          maxCause = cause;
+          maxCauseCount = causeCount[cause];
+        }
+      });
+      const maxCauseDeathWord = maxCauseCount === 1 ? "death" : "deaths";
+
+      // 2. Date with most deaths
+      const dateCountMap = {}; // Maps YYYY-MM-DD to { formatted, count, dateObj }
+      let maxDate = "N/A";
+      let maxDateCount = 0;
+
+      records.forEach((r) => {
+        let dateObj =
+          r.dateOfDeath instanceof Date
+            ? r.dateOfDeath
+            : r.dateOfDeath && r.dateOfDeath.toDate
+              ? r.dateOfDeath.toDate()
+              : new Date(r.dateOfDeath);
+
+        if (isNaN(dateObj.getTime())) return;
+
+        const year = dateObj.getFullYear();
+        const month = String(dateObj.getMonth() + 1).padStart(2, "0");
+        const day = String(dateObj.getDate()).padStart(2, "0");
+        const isoDate = `${year}-${month}-${day}`;
+        const formattedDate = formatDateOnly(r.dateOfDeath);
+
+        if (!dateCountMap[isoDate]) {
+          dateCountMap[isoDate] = {
+            formatted: formattedDate,
+            count: 0,
+            dateObj,
+          };
+        }
+        dateCountMap[isoDate].count += r.count || 1;
+
+        if (dateCountMap[isoDate].count > maxDateCount) {
+          maxDate = formattedDate;
+          maxDateCount = dateCountMap[isoDate].count;
+        }
+      });
+
+      const maxDateDeathWord = maxDateCount === 1 ? "death" : "deaths";
+      const maxWeekdayDeathWord = maxWeekdayCount === 1 ? "death" : "deaths";
+
+      // 3. Generate all dates in the range, including zeros
+      const startDate = new Date(startDateStr);
+      const endDate = new Date(endDateStr);
+      const allDatesMap = {};
+
+      for (
+        let d = new Date(startDate);
+        d <= endDate;
+        d.setDate(d.getDate() + 1)
+      ) {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        const isoDate = `${year}-${month}-${day}`;
+
+        if (dateCountMap[isoDate]) {
+          allDatesMap[isoDate] = dateCountMap[isoDate];
+        } else {
+          const months = [
+            "Jan",
+            "Feb",
+            "Mar",
+            "Apr",
+            "May",
+            "Jun",
+            "Jul",
+            "Aug",
+            "Sep",
+            "Oct",
+            "Nov",
+            "Dec",
+          ];
+          const formattedDate = `${months[d.getMonth()]} ${d.getDate()}, ${year}`;
+          allDatesMap[isoDate] = {
+            formatted: formattedDate,
+            count: 0,
+            dateObj: new Date(d),
+          };
+        }
+      }
+
+      // 4. Generate daily trend with day of week
+      const isoDateKeys = Object.keys(allDatesMap).sort();
+      const weekdayNamesArray = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+      ];
+      let prevCount = null;
+      const dailyTrend = isoDateKeys.map((isoDate) => {
+        const { formatted, count, dateObj } = allDatesMap[isoDate];
+        let trend = "";
+        let percentageChange = "";
+        if (prevCount !== null) {
+          if (count > prevCount) {
+            trend = "↑";
+            const rawPercentage =
+              prevCount > 0
+                ? ((count - prevCount) / prevCount) * 100
+                : count - prevCount;
+            percentageChange = Number.isInteger(rawPercentage)
+              ? rawPercentage.toString()
+              : rawPercentage.toFixed(1);
+          } else if (count < prevCount) {
+            trend = "↓";
+            const rawPercentage =
+              prevCount > 0
+                ? ((count - prevCount) / prevCount) * 100
+                : count - prevCount;
+            percentageChange = Number.isInteger(rawPercentage)
+              ? rawPercentage.toString()
+              : rawPercentage.toFixed(1);
+          } else {
+            trend = "";
+            percentageChange = "0";
+          }
+        } else {
+          trend = "";
+          percentageChange = "";
+        }
+        // Format date with day of week (e.g., Feb 6, 2026 (Friday))
+        const dayOfWeek = weekdayNamesArray[dateObj.getDay()];
+        const formattedDateWithDay = `${formatted} (${dayOfWeek})`;
+        prevCount = count;
+        return { date: formattedDateWithDay, count, trend, percentageChange };
+      });
+
+      // 4. Day of week with most deaths
+      const weekdayCount = {};
+      const weekdayNames = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+      ];
+      let maxWeekday = "N/A";
+      let maxWeekdayCount = 0;
+      records.forEach((r) => {
+        let d = r.dateOfDeath;
+        let dateObj =
+          d instanceof Date ? d : d && d.toDate ? d.toDate() : new Date(d);
+        if (isNaN(dateObj.getTime())) return;
+        const weekday = weekdayNames[dateObj.getDay()];
+        weekdayCount[weekday] = (weekdayCount[weekday] || 0) + (r.count || 1);
+        if (weekdayCount[weekday] > maxWeekdayCount) {
+          maxWeekday = weekday;
+          maxWeekdayCount = weekdayCount[weekday];
+        }
+      });
+
+      // 5. Age group tally (1-5, 6-10, 11-15, ..., 41-45 days)
+      const ageGroupCount = {};
+      const ageGroupLabels = [];
+      const groupSize = 5;
+      // Initialize all age groups from 1-5 to 41-45
+      for (let start = 1; start <= 41; start += 5) {
+        const end = start + 4;
+        const label = `${start}-${end} days`;
+        ageGroupCount[label] = 0;
+        ageGroupLabels.push(label);
+      }
+      records.forEach((r) => {
+        let age = parseInt(r.daysCount, 10);
+        if (isNaN(age) || age < 1) age = 1;
+        // Find the appropriate age group
+        let groupStart = Math.floor((age - 1) / groupSize) * groupSize + 1;
+        let groupEnd = groupStart + groupSize - 1;
+        // Cap at 45 days
+        if (groupStart > 41) groupStart = 41;
+        groupEnd = groupStart + 4;
+        const label = `${groupStart}-${groupEnd} days`;
+        if (ageGroupCount[label] !== undefined) {
+          ageGroupCount[label] += r.count || 1;
+        }
+      });
+
+      // 6. Precise mortality rate for the range
+      // If only 1 batch: use mortalityCount / initialChicksCount from brooderInfo
+      // If >1 batch: use combined (sum mortality / sum initial) across all batches
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const brooderSnapshot = await getDocs(brooderInfoRef);
+      const batchCount = brooderSnapshot.docs.length;
+      let mortalityRate = "0.00";
+      let totalDeaths = 0;
+
+      if (batchCount === 1) {
+        // Single batch: use direct mortalityCount / initialChicksCount
+        const batchData = brooderSnapshot.docs[0].data();
+        const mortalityCount = batchData.mortalityCount || 0;
+        const initialChicks = batchData.initialChicksCount || 0;
+        totalDeaths = mortalityCount;
+        mortalityRate =
+          initialChicks > 0
+            ? ((mortalityCount / initialChicks) * 100).toFixed(2)
+            : "0.00";
+        console.log(
+          `[GenerateMortalityReportPDF] Single batch mortality rate: ${mortalityRate}% (${mortalityCount}/${initialChicks})`,
+        );
+      } else if (batchCount > 1) {
+        // Multiple batches: use combined calculation
+        let totalMortality = 0;
+        let totalInitialChicks = 0;
+        brooderSnapshot.docs.forEach((doc) => {
+          const batchData = doc.data();
+          totalMortality += batchData.mortalityCount || 0;
+          totalInitialChicks += batchData.initialChicksCount || 0;
+        });
+        totalDeaths = totalMortality;
+        mortalityRate =
+          totalInitialChicks > 0
+            ? ((totalMortality / totalInitialChicks) * 100).toFixed(2)
+            : "0.00";
+        console.log(
+          `[GenerateMortalityReportPDF] Combined mortality rate (${batchCount} batches): ${mortalityRate}% (${totalMortality}/${totalInitialChicks})`,
+        );
+      }
+
+      // --- END SUMMARY CALCULATIONS ---
+
       // Load logo
       console.log("[GenerateMortalityReportPDF] Loading logo asset...");
       const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
@@ -2961,11 +3208,27 @@ export default function AdminAnalytics({ navigation }) {
       );
       console.log("[GenerateMortalityReportPDF] Logo loaded successfully");
 
-      // Create table rows
+      // Create table rows - sort records chronologically by dateOfDeath
       console.log("[GenerateMortalityReportPDF] Creating table rows...");
+      const sortedRecords = [...records].sort((a, b) => {
+        const dateA = new Date(
+          a.dateOfDeath instanceof Date
+            ? a.dateOfDeath
+            : a.dateOfDeath && a.dateOfDeath.toDate
+              ? a.dateOfDeath.toDate()
+              : new Date(a.dateOfDeath),
+        );
+        const dateB = new Date(
+          b.dateOfDeath instanceof Date
+            ? b.dateOfDeath
+            : b.dateOfDeath && b.dateOfDeath.toDate
+              ? b.dateOfDeath.toDate()
+              : new Date(b.dateOfDeath),
+        );
+        return dateA - dateB;
+      });
       let tableRows = "";
-      let totalDeaths = 0;
-      records.forEach((record, index) => {
+      sortedRecords.forEach((record, index) => {
         const dateOfDeath = formatDateOnly(record.dateOfDeath);
         const dateReported = formatDateOnly(record.timestamp);
         const causeOfDeath = record.causeOfDeath || "N/A";
@@ -2976,8 +3239,6 @@ export default function AdminAnalytics({ navigation }) {
         const reportedBy = record.reportedBy || "N/A";
         const count = record.count || 0;
         const batchId = record.batchId || "N/A";
-
-        totalDeaths += count;
 
         tableRows += `
           <tr>
@@ -3005,6 +3266,55 @@ export default function AdminAnalytics({ navigation }) {
         </tr>
       `;
 
+      // --- SUMMARY HTML BLOCK ---
+      let summaryHtml = `
+        <div class="mortality-summary" style="margin-bottom: 18px; font-size: 12px;">
+          <div style="font-weight:bold; font-size: 14px; margin-bottom: 8px;">Mortality Report Summary</div>
+          <ul style="margin-top:0; margin-bottom:10px; padding-left:18px;">
+            <li><b>Mortality rate:</b> ${mortalityRate}%</li>
+            <li><b>Most common cause of death:</b> ${maxCause} (${maxCauseCount} ${maxCauseDeathWord})</li>
+            <li><b>Date with most deaths:</b> ${maxDate} (${maxDateCount} ${maxDateDeathWord})</li>
+            <li><b>Day of week with most deaths:</b> ${maxWeekday} (${maxWeekdayCount} ${maxWeekdayDeathWord})</li>
+           
+          </ul>
+          <div style="display: flex; gap: 20px; margin-top: 10px;">
+            <div style="width: auto;">
+              <div style="margin-bottom: 6px;"><b>Deaths per day </b></div>
+              <table style="width: auto; font-size: 8px; border-collapse: collapse; margin-top: 6px;">
+                <tr><th style="border: 1px solid #ddd; padding: 3px; background-color: #133E87; color: white; width: 130px">Date</th><th style="border: 1px solid #ddd; padding: 3px; background-color: #133E87; color: white; text-align: center; width: 50px">Deaths</th><th style="border: 1px solid #ddd; padding: 3px; background-color: #133E87; color: white; text-align: center; width: 50px">Trend</th></tr>
+                ${dailyTrend
+                  .map((d) => {
+                    let trendDisplay = "";
+                    if (d.trend === "↑") {
+                      trendDisplay = `<span style="color: #F44336;">↑</span> ${d.percentageChange}%`;
+                    } else if (d.trend === "↓") {
+                      trendDisplay = `<span style="color: #4CAF50;">↓</span> ${d.percentageChange}%`;
+                    } else if (d.percentageChange === "0") {
+                      trendDisplay = "0%";
+                    }
+                    return `<tr><td style="border: 1px solid #ddd; padding: 3px;">${d.date}</td><td style="border: 1px solid #ddd; padding: 3px; text-align: center;">${d.count}</td><td style="border: 1px solid #ddd; padding: 3px; text-align: center;">${trendDisplay}</td></tr>`;
+                  })
+                  .join("")}
+                <tr style="background-color: #e8e8e8; font-weight: bold;"><td style="border: 1px solid #ddd; padding: 3px;">TOTAL</td><td style="border: 1px solid #ddd; padding: 3px; text-align: center;">${dailyTrend.reduce((sum, d) => sum + d.count, 0)}</td><td style="border: 1px solid #ddd; padding: 3px;"></td></tr>
+              </table>
+            </div>
+            <div style="width: auto;">
+              <div style="margin-bottom: 6px;"><b>Age group tally</b></div>
+              <table style="width: auto; font-size: 8px; border-collapse: collapse; margin-top: 6px;">
+                <tr><th style="border: 1px solid #ddd; padding: 3px; background-color: #133E87; color: white; width: 100px">Age Group</th><th style="border: 1px solid #ddd; padding: 3px; background-color: #133E87; color: white; text-align: center; width: 50px">Count</th></tr>
+                ${ageGroupLabels
+                  .map(
+                    (label) =>
+                      `<tr><td style="border: 1px solid #ddd; padding: 3px;">${label}</td><td style="border: 1px solid #ddd; padding: 3px; text-align: center;">${ageGroupCount[label]}</td></tr>`,
+                  )
+                  .join("")}
+                <tr style="background-color: #e8e8e8; font-weight: bold;"><td style="border: 1px solid #ddd; padding: 3px;">TOTAL</td><td style="border: 1px solid #ddd; padding: 3px; text-align: center;">${ageGroupLabels.reduce((sum, label) => sum + ageGroupCount[label], 0)}</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+
       // Generate HTML
       const htmlContent = `
         <!DOCTYPE html>
@@ -3013,7 +3323,7 @@ export default function AdminAnalytics({ navigation }) {
           <meta charset="UTF-8">
           <style>
             @page {
-              size: A4 landscape;
+              size: A4 portrait;
               margin: 0.3in 0.5in 0.3in 0.5in;
             }
             body {
@@ -3099,14 +3409,15 @@ export default function AdminAnalytics({ navigation }) {
               Total Records: ${records.length}
             </div>
           </div>
-          
+          ${summaryHtml}
+          <div style="font-weight:bold; font-size: 14px; margin-bottom: 8px;">Mortality Records</div>
           <table>
             <thead>
               <tr>
                 <th>No</th>
                 <th>Date of Death</th>
                 <th>Date Reported</th>
-                <th>Batch</th>
+                <th>Batch ID</th>
                 <th>Deaths</th>
                 <th>Cause</th>
                 <th>Predator</th>
@@ -3995,9 +4306,9 @@ export default function AdminAnalytics({ navigation }) {
 
     setIsGeneratingBatchReport(true);
     try {
-      // Use collectionGroup to query all mortality records directly
-      const recordsRef = collectionGroup(firestoreDb, "records");
-      const recordsSnapshot = await getDocs(recordsRef);
+      // First, fetch all batches from brooderInfo
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const brooderInfoSnapshot = await getDocs(brooderInfoRef);
 
       const batchTableRows = [];
       const batchDeathsMap = {}; // Map to aggregate deaths by batch
@@ -4005,6 +4316,23 @@ export default function AdminAnalytics({ navigation }) {
       const startDateObj = new Date(startDateStr);
       const endDateObj = new Date(endDateStr);
       endDateObj.setHours(23, 59, 59, 999);
+
+      // Initialize all batches with 0 deaths (includes batches without mortality records)
+      brooderInfoSnapshot.docs.forEach((brooderDoc) => {
+        const batchId = brooderDoc.id;
+        const brooderData = brooderDoc.data();
+        batchDeathsMap[batchId] = {
+          batchName: batchId,
+          totalDeaths: 0,
+          recordCount: 0,
+          initialChicksCount: brooderData.initialChicksCount || 0,
+          chicksCount: brooderData.chicksCount || 0,
+        };
+      });
+
+      // Use collectionGroup to query all mortality records
+      const recordsRef = collectionGroup(firestoreDb, "records");
+      const recordsSnapshot = await getDocs(recordsRef);
 
       // Process all records and aggregate by batch
       recordsSnapshot.docs.forEach((recordDoc) => {
@@ -4044,21 +4372,16 @@ export default function AdminAnalytics({ navigation }) {
           );
 
           if (recordDateOnly >= startDateObj && recordDateOnly <= endDateObj) {
-            // Add to batch deaths map
-            if (!batchDeathsMap[batchName]) {
-              batchDeathsMap[batchName] = {
-                batchName,
-                totalDeaths: 0,
-                recordCount: 0,
-              };
+            // Update batch deaths (only if batch exists from brooderInfo)
+            if (batchDeathsMap[batchName]) {
+              batchDeathsMap[batchName].totalDeaths += count;
+              batchDeathsMap[batchName].recordCount++;
             }
-            batchDeathsMap[batchName].totalDeaths += count;
-            batchDeathsMap[batchName].recordCount++;
           }
         }
       });
 
-      // Convert map to array
+      // Convert map to array (all batches from brooderInfo are already loaded with their data)
       Object.values(batchDeathsMap).forEach((batchData) => {
         batchTableRows.push(batchData);
       });
@@ -4087,22 +4410,74 @@ export default function AdminAnalytics({ navigation }) {
         },
       );
 
-      // Create table rows HTML
+      // Create table rows HTML with mortality rate and trend
       let tableRowsHtml = "";
       batchTableRows.forEach((row, index) => {
+        // Calculate mortality rate
+        const mortalityRate =
+          row.initialChicksCount > 0
+            ? ((row.totalDeaths / row.initialChicksCount) * 100).toFixed(2)
+            : 0;
+
+        // Calculate trend compared to previous batch
+        let trendHtml = "-";
+        if (index > 0) {
+          const previousRate =
+            batchTableRows[index - 1].initialChicksCount > 0
+              ? (batchTableRows[index - 1].totalDeaths /
+                  batchTableRows[index - 1].initialChicksCount) *
+                100
+              : 0;
+          const currentRate = parseFloat(mortalityRate);
+          const rateDifference = currentRate - previousRate;
+          const percentageChange =
+            previousRate > 0
+              ? ((rateDifference / previousRate) * 100).toFixed(1)
+              : rateDifference.toFixed(2);
+
+          if (rateDifference > 0) {
+            trendHtml = `<span style="color: #F44336;">↑</span> +${percentageChange}%`;
+          } else if (rateDifference < 0) {
+            trendHtml = `<span style="color: #4CAF50;">↓</span> ${percentageChange}%`;
+          } else {
+            trendHtml = "→ 0%";
+          }
+        }
+
         tableRowsHtml += `
           <tr>
             <td>${row.batchName}</td>
-            <td style="text-align: center; width: 120px;">${row.totalDeaths}</td>
+            <td style="text-align: center; width: 100px;">${row.initialChicksCount}</td>
+            <td style="text-align: center; width: 100px;">${row.totalDeaths}</td>
+            <td style="text-align: center; width: 100px;">${row.chicksCount}</td>
+            <td style="text-align: center; width: 100px;">${mortalityRate}%</td>
+            <td style="text-align: center; width: 100px;">${trendHtml}</td>
           </tr>
         `;
       });
 
       // Add total row
+      const totalStartingPopulation = batchTableRows.reduce(
+        (sum, row) => sum + row.initialChicksCount,
+        0,
+      );
+      const totalAlive = batchTableRows.reduce(
+        (sum, row) => sum + row.chicksCount,
+        0,
+      );
+      const overallMortalityRate =
+        totalStartingPopulation > 0
+          ? ((totalDeaths / totalStartingPopulation) * 100).toFixed(2)
+          : 0;
+
       tableRowsHtml += `
         <tr style="background-color: #dbdde0; color: white; font-weight: bold;">
           <td style="text-align: right; padding: 8px;">Total</td>
-          <td style="text-align: center; width: 120px; padding: 8px;">${totalDeaths}</td>
+          <td style="text-align: center; width: 100px; padding: 8px;">${totalStartingPopulation}</td>
+          <td style="text-align: center; width: 100px; padding: 8px;">${totalDeaths}</td>
+          <td style="text-align: center; width: 100px; padding: 8px;">${totalAlive}</td>
+          <td style="text-align: center; width: 100px; padding: 8px;">${overallMortalityRate}%</td>
+          <td style="text-align: center; width: 100px; padding: 8px;">-</td>
         </tr>
       `;
 
@@ -4163,10 +4538,10 @@ export default function AdminAnalytics({ navigation }) {
               margin-bottom: 20px;
             }
             table {
-              width: 350px;
+              width: 750px;
               border-collapse: collapse;
               margin-bottom: 20px;
-              font-size: 12px;
+              font-size: 11px;
             }
             th {
               background-color: #133E87;
@@ -4210,8 +4585,12 @@ export default function AdminAnalytics({ navigation }) {
             <table>
               <thead>
                 <tr>
-                  <th>Batch</th>
-                  <th style="text-align: center; width: 120px;">Deaths</th>
+                  <th style="width: 100px;">Batch ID</th>
+                  <th style="text-align: center; width: 100px;">Starting Population</th>
+                  <th style="text-align: center; width: 100px;">Deaths</th>
+                  <th style="text-align: center; width: 100px;">Remaining Population</th>
+                  <th style="text-align: center; width: 100px;">Mortality Rate</th>
+                  <th style="text-align: center; width: 100px;">Trend</th>
                 </tr>
               </thead>
               <tbody>
@@ -4388,6 +4767,21 @@ export default function AdminAnalytics({ navigation }) {
       // Calculate summary statistics
       const attacksByDate = {};
       const attacksByPredator = {};
+      const attacksByTimeOfDay = {
+        "Early Morning": 0, // 12:00am-5:59am
+        Morning: 0, // 6:00am-11:59am
+        Afternoon: 0, // 12:00pm-5:59pm
+        Night: 0, // 6:00pm-11:59pm
+      };
+      const attacksByDayOfWeek = {
+        Sunday: 0,
+        Monday: 0,
+        Tuesday: 0,
+        Wednesday: 0,
+        Thursday: 0,
+        Friday: 0,
+        Saturday: 0,
+      };
 
       allAttacks.forEach((attack) => {
         const dateKey = attack.attackDate.toDateString();
@@ -4395,6 +4789,30 @@ export default function AdminAnalytics({ navigation }) {
 
         const predator = attack.predator_type || "Unknown";
         attacksByPredator[predator] = (attacksByPredator[predator] || 0) + 1;
+
+        // Categorize by time of day
+        const hour = attack.attackDate.getHours();
+        if (hour >= 0 && hour < 6) {
+          attacksByTimeOfDay["Early Morning"]++;
+        } else if (hour >= 6 && hour < 12) {
+          attacksByTimeOfDay["Morning"]++;
+        } else if (hour >= 12 && hour < 18) {
+          attacksByTimeOfDay["Afternoon"]++;
+        } else {
+          attacksByTimeOfDay["Night"]++;
+        }
+
+        // Categorize by day of week
+        const dayOfWeek = [
+          "Sunday",
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday",
+          "Saturday",
+        ][attack.attackDate.getDay()];
+        attacksByDayOfWeek[dayOfWeek]++;
       });
 
       const peakDay = Object.keys(attacksByDate).reduce((a, b) =>
@@ -4409,6 +4827,37 @@ export default function AdminAnalytics({ navigation }) {
       const mostFrequentPredator = Object.keys(attacksByPredator).reduce(
         (a, b) => (attacksByPredator[a] > attacksByPredator[b] ? a : b),
       );
+
+      // Find day of week with most attacks
+      const peakDayOfWeek = Object.keys(attacksByDayOfWeek).reduce((a, b) =>
+        attacksByDayOfWeek[a] > attacksByDayOfWeek[b] ? a : b,
+      );
+
+      // Calculate attack rates as percentages
+      const earlyMorningRate =
+        allAttacks.length > 0
+          ? (
+              (attacksByTimeOfDay["Early Morning"] / allAttacks.length) *
+              100
+            ).toFixed(1)
+          : "0.0";
+      const morningRate =
+        allAttacks.length > 0
+          ? ((attacksByTimeOfDay["Morning"] / allAttacks.length) * 100).toFixed(
+              1,
+            )
+          : "0.0";
+      const afternoonRate =
+        allAttacks.length > 0
+          ? (
+              (attacksByTimeOfDay["Afternoon"] / allAttacks.length) *
+              100
+            ).toFixed(1)
+          : "0.0";
+      const nightRate =
+        allAttacks.length > 0
+          ? ((attacksByTimeOfDay["Night"] / allAttacks.length) * 100).toFixed(1)
+          : "0.0";
 
       // Load logo
       let logoBase64 = "";
@@ -4548,6 +4997,11 @@ export default function AdminAnalytics({ navigation }) {
                 margin-top: 0;
                 font-size: 18px;
               }
+              .summary h3 {
+                color: #133E87;
+                margin-top: 0;
+                font-size: 18px;
+              }
               .summary-item {
                 margin: 10px 0;
                 font-size: 14px;
@@ -4571,6 +5025,152 @@ export default function AdminAnalytics({ navigation }) {
               
               </div>
             </div>
+            <div class="summary">
+              <h2>Summary</h2>
+              <div class="summary-item">
+                <span class="summary-label">Total Attacks:</span> ${allAttacks.length}
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Peak Day:</span> ${peakDayFormatted}
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Peak Day of Week:</span> ${peakDayOfWeek}
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Most Frequent Predator:</span> ${mostFrequentPredator}
+              </div>
+              
+              <div style="margin-top: 15px; border-top: 1px solid #ccc; padding-top: 10px;">
+                <h3 style="margin-top: 0;">Predator Type Breakdown</h3>
+                ${["Dog", "Cat", "Rat", "Snake", "Other"]
+                  .map((predator) => {
+                    const count = attacksByPredator[predator] || 0;
+                    const rawPercentage =
+                      allAttacks.length > 0
+                        ? (count / allAttacks.length) * 100
+                        : 0;
+                    const percentage = Number.isInteger(rawPercentage)
+                      ? rawPercentage.toString()
+                      : rawPercentage.toFixed(1);
+                    return `<div class="summary-item"><span class="summary-label">${predator}:</span> ${count} ${count === 0 || count === 1 ? "attack" : "attacks"} (${percentage}%)</div>`;
+                  })
+                  .join("")}
+              </div>
+
+              <div style="margin-top: 15px; border-top: 1px solid #ccc; padding-top: 10px;">
+                <h3 style="margin-top: 0;">Attack Statistics</h3>
+                <div style="display: flex; gap: 1px;">
+                  <div style="flex: 1;">
+                    <h4 style="margin: 0 0 10px 0;">Attacks by Day of Week</h4>
+                    <table style="width: 85%; border-collapse: collapse; font-size: 12px;">
+                      <thead>
+                        <tr style="background-color: #f0f0f0;">
+                          <th style="border: 1px solid #ddd; padding: 6px; text-align: left; width: 30%;">Day</th>
+                          <th style="border: 1px solid #ddd; padding: 6px; text-align: center; width: 25%;">Attacks</th>
+                          <th style="border: 1px solid #ddd; padding: 6px; text-align: center; width: 20%;">%</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${Object.keys(attacksByDayOfWeek)
+                          .map((day) => {
+                            const count = attacksByDayOfWeek[day];
+                            const rawPercentage =
+                              allAttacks.length > 0
+                                ? (count / allAttacks.length) * 100
+                                : 0;
+                            const percentage = Number.isInteger(rawPercentage)
+                              ? rawPercentage.toString()
+                              : rawPercentage.toFixed(1);
+                            return `<tr style="border: 1px solid #ddd;"><td style="border: 1px solid #ddd; padding: 6px;">${day}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${count}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${percentage}%</td></tr>`;
+                          })
+                          .join("")}
+                        <tr style="background-color: #f0f0f0; font-weight: bold;"><td style="border: 1px solid #ddd; padding: 6px;">TOTAL</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${allAttacks.length}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">100%</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style="flex: 1;">
+                    <h4 style="margin: 0 0 10px 0;">Attacks by Time of Day</h4>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                      <thead>
+                        <tr style="background-color: #f0f0f0;">
+                          <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Time Period</th>
+                          <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Attacks</th>
+                          <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">%</th>
+                          <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Risk</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${(() => {
+                          const timeOfDayData = [
+                            {
+                              label: "Early Morning <br>(12:00am - 5:59am)",
+                              count: attacksByTimeOfDay["Early Morning"],
+                              rate: earlyMorningRate,
+                            },
+                            {
+                              label: "Morning <br>(6:00am - 11:59am)",
+                              count: attacksByTimeOfDay["Morning"],
+                              rate: morningRate,
+                            },
+                            {
+                              label: "Afternoon <br>(12:00nn - 5:59pm)",
+                              count: attacksByTimeOfDay["Afternoon"],
+                              rate: afternoonRate,
+                            },
+                            {
+                              label: "Night <br>(6:00pm - 11:59pm)",
+                              count: attacksByTimeOfDay["Night"],
+                              rate: nightRate,
+                            },
+                          ];
+
+                          // Find max and min/zero
+                          const maxCount = Math.max(
+                            ...timeOfDayData.map((d) => d.count),
+                          );
+                          let minCount = Math.min(
+                            ...timeOfDayData.map((d) => d.count),
+                          );
+                          const hasZero = timeOfDayData.some(
+                            (d) => d.count === 0,
+                          );
+                          const minCountForLow = hasZero ? 0 : minCount;
+
+                          return timeOfDayData
+                            .map((item) => {
+                              let risk = "";
+                              if (
+                                item.count === minCountForLow &&
+                                item.count === 0
+                              ) {
+                                risk = "Low";
+                              } else if (
+                                item.count === minCountForLow &&
+                                !hasZero
+                              ) {
+                                risk = "Low";
+                              }
+                              if (item.count === maxCount && item.count > 0) {
+                                risk = "⚠️ High";
+                              }
+                              const percentage = Number.isInteger(
+                                parseFloat(item.rate),
+                              )
+                                ? parseInt(item.rate)
+                                : item.rate;
+                              return `<tr style="border: 1px solid #ddd;"><td style="border: 1px solid #ddd; padding: 6px;">${item.label}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${item.count}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${percentage}%</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${risk}</td></tr>`;
+                            })
+                            .join("");
+                        })()}
+                        <tr style="background-color: #f0f0f0; font-weight: bold;"><td style="border: 1px solid #ddd; padding: 6px;">TOTAL</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${allAttacks.length}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">100%</td><td style="border: 1px solid #ddd; padding: 6px;"></td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div style="margin-top: 15px; border-top: 1px solid #ccc; padding-top: 10px; page-break-before: always;">
+                <h3 style="margin-top: 0;">Predator Incidents Log</h3>
             <table>
               <thead>
                 <tr>
@@ -4585,16 +5185,6 @@ export default function AdminAnalytics({ navigation }) {
                 ${tableRows}
               </tbody>
             </table>
-            <div class="summary">
-              <h2>Summary</h2>
-              <div class="summary-item">
-                <span class="summary-label">Total Attacks:</span> ${allAttacks.length}
-              </div>
-              <div class="summary-item">
-                <span class="summary-label">Peak Day:</span> ${peakDayFormatted} 
-              </div>
-              <div class="summary-item">
-                <span class="summary-label">Most Frequent Predator:</span> ${mostFrequentPredator} 
               </div>
             </div>
           </body>
@@ -5749,7 +6339,7 @@ export default function AdminAnalytics({ navigation }) {
           predatorCount += count;
           if (data.predatorType) {
             predatorTypes[data.predatorType] =
-              (predatorTypes[data.predatorType] || 0) + 1;
+              (predatorTypes[data.predatorType] || 0) + count;
           }
         } else if (causeOfDeath.toLowerCase().includes("dehydration")) {
           dehydrationCount += count;
@@ -5895,16 +6485,16 @@ export default function AdminAnalytics({ navigation }) {
         batchRows += `
           <tr>
             <td>${batchId}</td>
-            <td>${summary.dog}</td>
-            <td>${summary.cat}</td>
-            <td>${summary.rat}</td>
-            <td>${summary.snake}</td>
-            <td>${summary.otherPredator}</td>
-            <td>${summary.dehydration}</td>
-            <td>${summary.overfeeding}</td>
-            <td>${summary.disease}</td>
-            <td>${summary.otherCause}</td>
-            <td>${summary.totalDeaths}</td>
+            <td style="text-align: center;">${summary.dog}</td>
+            <td style="text-align: center;">${summary.cat}</td>
+            <td style="text-align: center;">${summary.rat}</td>
+            <td style="text-align: center;">${summary.snake}</td>
+            <td style="text-align: center;">${summary.otherPredator}</td>
+            <td style="text-align: center;">${summary.dehydration}</td>
+            <td style="text-align: center;">${summary.overfeeding}</td>
+            <td style="text-align: center;">${summary.disease}</td>
+            <td style="text-align: center;">${summary.otherCause}</td>
+            <td style="text-align: center;">${summary.totalDeaths}</td>
           </tr>
         `;
         totalDog += summary.dog;
@@ -5932,16 +6522,16 @@ export default function AdminAnalytics({ navigation }) {
       batchRows += `
         <tr style="background-color: #e8e8e8; font-weight: bold;">
           <td>TOTAL</td>
-          <td>${totalDog}</td>
-          <td>${totalCat}</td>
-          <td>${totalRat}</td>
-          <td>${totalSnake}</td>
-          <td>${totalOther}</td>
-          <td>${totalDehydrationBreakdown}</td>
-          <td>${totalOverfeedingBreakdown}</td>
-          <td>${totalDiseaseBreakdown}</td>
-          <td>${totalOtherCause}</td>
-          <td>${grandTotal}</td>
+          <td style="text-align: center;">${totalDog}</td>
+          <td style="text-align: center;">${totalCat}</td>
+          <td style="text-align: center;">${totalRat}</td>
+          <td style="text-align: center;">${totalSnake}</td>
+          <td style="text-align: center;">${totalOther}</td>
+          <td style="text-align: center;">${totalDehydrationBreakdown}</td>
+          <td style="text-align: center;">${totalOverfeedingBreakdown}</td>
+          <td style="text-align: center;">${totalDiseaseBreakdown}</td>
+          <td style="text-align: center;">${totalOtherCause}</td>
+          <td style="text-align: center;">${grandTotal}</td>
         </tr>
       `;
 
@@ -6076,27 +6666,27 @@ export default function AdminAnalytics({ navigation }) {
           </div>
 
           <div class="summary-section">
-            <div class="summary-title">Mortality Summary</div>
+            <div class="summary-title">Causes of Death Summary</div>
             <div class="summary-grid">
               <div class="summary-item">
-                <div class="summary-label">Predatory Attack</div>
+                <div class="summary-label">Predatory Attacks</div>
                 <div class="summary-value">${predatorPct}%</div>
-                <div class="summary-label">(${predatorCount} ${predatorCount === 1 ? "death" : "deaths"})</div>
+                <div class="summary-label">(${predatorCount} ${predatorCount === 1 || predatorCount === 0 ? "death" : "deaths"})</div>
               </div>
               <div class="summary-item">
                 <div class="summary-label">Dehydration</div>
                 <div class="summary-value">${dehydrationPct}%</div>
-                <div class="summary-label">(${dehydrationCount} ${dehydrationCount === 1 ? "death" : "deaths"})</div>
+                <div class="summary-label">(${dehydrationCount} ${dehydrationCount === 1 || dehydrationCount === 0 ? "death" : "deaths"})</div>
               </div>
               <div class="summary-item">
                 <div class="summary-label">Overfeeding</div>
                 <div class="summary-value">${overfeedingPct}%</div>
-                <div class="summary-label">(${overfeedingCount} ${overfeedingCount === 1 ? "death" : "deaths"})</div>
+                <div class="summary-label">(${overfeedingCount} ${overfeedingCount === 1 || overfeedingCount === 0 ? "death" : "deaths"})</div>
               </div>
               <div class="summary-item">
                 <div class="summary-label">Other</div>
                 <div class="summary-value">${otherPct}%</div>
-                <div class="summary-label">(${otherCount} ${otherCount === 1 ? "death" : "deaths"})</div>
+                <div class="summary-label">(${otherCount} ${otherCount === 1 || otherCount === 0 ? "death" : "deaths"})</div>
               </div>
             </div>
           </div>
@@ -6116,22 +6706,22 @@ export default function AdminAnalytics({ navigation }) {
           </div>
          
           <div class="summary-section">
-            <div class="summary-title">Causes of Death</div>
+            <div class="summary-title">Causes of Death Summary</div>
            
           <table>
             <thead>
               <tr>
                 <th>Batch ID</th>
-                <th>Dog</th>
-                <th>Cat</th>
-                <th>Rat</th>
-                <th>Snake</th>
-                <th>Other</th>
-                <th>Dehydration</th>
-                <th>Overfeeding</th>
-                <th>Disease</th>
-                <th>Other Causes</th>
-                <th>Total</th>
+                <th style="text-align: center;">Dog</th>
+                <th style="text-align: center;">Cat</th>
+                <th style="text-align: center;">Rat</th>
+                <th style="text-align: center;">Snake</th>
+                <th style="text-align: center;">Other</th>
+                <th style="text-align: center;">Dehydration</th>
+                <th style="text-align: center;">Overfeeding</th>
+                <th style="text-align: center;">Disease</th>
+                <th style="text-align: center;">Other Causes</th>
+                <th style="text-align: center;">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -6738,27 +7328,27 @@ export default function AdminAnalytics({ navigation }) {
               <div class="summary-item">
                 <div class="summary-label">Dog Attacks</div>
                 <div class="summary-value">${dogPct}%</div>
-                <div class="summary-label">(${predatorCounts.dog} ${predatorCounts.dog === 1 ? "attack" : "attacks"})</div>
+                <div class="summary-label">(${predatorCounts.dog} ${predatorCounts.dog === 0 || predatorCounts.dog === 1 ? "attack" : "attacks"})</div>
               </div>
               <div class="summary-item">
                 <div class="summary-label">Cat Attacks</div>
                 <div class="summary-value">${catPct}%</div>
-                <div class="summary-label">(${predatorCounts.cat} ${predatorCounts.cat === 1 ? "attack" : "attacks"})</div>
+                <div class="summary-label">(${predatorCounts.cat} ${predatorCounts.cat === 0 || predatorCounts.cat === 1 ? "attack" : "attacks"})</div>
               </div>
               <div class="summary-item">
                 <div class="summary-label">Snake Attacks</div>
                 <div class="summary-value">${snakePct}%</div>
-                <div class="summary-label">(${predatorCounts.snake} ${predatorCounts.snake === 1 ? "attack" : "attacks"})</div>
+                <div class="summary-label">(${predatorCounts.snake} ${predatorCounts.snake === 0 || predatorCounts.snake === 1 ? "attack" : "attacks"})</div>
               </div>
               <div class="summary-item">
                 <div class="summary-label">Rat Attacks</div>
                 <div class="summary-value">${ratPct}%</div>
-                <div class="summary-label">(${predatorCounts.rat} ${predatorCounts.rat === 1 ? "attack" : "attacks"})</div>
+                <div class="summary-label">(${predatorCounts.rat} ${predatorCounts.rat === 0 || predatorCounts.rat === 1 ? "attack" : "attacks"})</div>
               </div>
               <div class="summary-item">
                 <div class="summary-label">Other Predators</div>
                 <div class="summary-value">${otherPct}%</div>
-                <div class="summary-label">(${predatorCounts.other} ${predatorCounts.other === 1 ? "attack" : "attacks"})</div>
+                <div class="summary-label">(${predatorCounts.other} ${predatorCounts.other === 0 || predatorCounts.other === 1 ? "attack" : "attacks"})</div>
               </div>
             </div>
           </div>
@@ -7244,12 +7834,38 @@ export default function AdminAnalytics({ navigation }) {
       );
     }
 
-    // Sort by date - dates are already in "MMM DD" format from formatDateAsDayMonth
-    const sortedDates = allDates.sort((a, b) => {
-      if (a === "Unknown") return 1;
-      if (b === "Unknown") return -1;
-      // Both are in "MMM DD" format, so just do string comparison
-      return a.localeCompare(b);
+    // Sort by date - convert "MMM DD" to Date for true chronological order
+    const monthMap = {
+      Jan: 0,
+      Feb: 1,
+      Mar: 2,
+      Apr: 3,
+      May: 4,
+      Jun: 5,
+      Jul: 6,
+      Aug: 7,
+      Sep: 8,
+      Oct: 9,
+      Nov: 10,
+      Dec: 11,
+    };
+    function parseMMMDD(str) {
+      if (str === "Unknown") return new Date(3000, 0, 1); // push Unknown to end
+      const [mon, day] = str.split(" ");
+      const month = monthMap[mon];
+      const d = parseInt(day, 10);
+      // Use year from filter if available, else current year
+      let year = new Date().getFullYear();
+      if (chartFilters["mortality"]?.startDate) {
+        year = new Date(chartFilters["mortality"].startDate).getFullYear();
+      }
+      // If range crosses years, try to infer correct year (if Feb after Jan, but Jan is at end, use next year)
+      return new Date(year, month, d);
+    }
+    const sortedDates = allDates.slice().sort((a, b) => {
+      const da = parseMMMDD(a);
+      const db = parseMMMDD(b);
+      return da - db;
     });
 
     // Apply intelligent X-axis label generation to reduce clutter

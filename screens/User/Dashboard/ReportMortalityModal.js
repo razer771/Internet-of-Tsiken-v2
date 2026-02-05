@@ -78,11 +78,10 @@ const getBatchDetails = async (batchId) => {
 };
 
 /**
- * Format date to GMT+8 timestamp string
+ * Format date to timestamp string (no timezone conversion needed for Firestore timestamps)
+ * Firebase timestamps are already in UTC, just format them directly
  */
 const formatGMT8Timestamp = (date = new Date()) => {
-  const gmtPlus8 = new Date(date.getTime() + 8 * 60 * 60 * 1000);
-
   const options = {
     year: "numeric",
     month: "long",
@@ -93,7 +92,7 @@ const formatGMT8Timestamp = (date = new Date()) => {
     hour12: true,
   };
 
-  const formatted = gmtPlus8.toLocaleString("en-US", options);
+  const formatted = date.toLocaleString("en-US", options);
   return `${formatted} UTC+8`;
 };
 
@@ -276,6 +275,7 @@ export default function ReportMortalityModal({
   batches = [],
   onClose,
   onSuccess,
+  currentCalculatedAge = 0,
 }) {
   // console.log("[ReportMortalityModal] Render - visible:", visible);
 
@@ -560,6 +560,13 @@ export default function ReportMortalityModal({
       const finalPredator =
         predatorType === "Other" ? customPredator : predatorType;
 
+      // Use the calculated age (with daily increments) from Home component
+      // Fallback to batch's stored daysCount if calculated age is not provided
+      const ageAtTimeOfMortality =
+        currentCalculatedAge > 0
+          ? currentCalculatedAge
+          : batchDetails.daysCount || 0;
+
       // Save mortality report
       await saveMortalityReport({
         batchId: selectedBatchId,
@@ -572,7 +579,7 @@ export default function ReportMortalityModal({
         userId: currentUser.uid,
         firstName: userInfo.firstName,
         lastName: userInfo.lastName,
-        daysCount: batchDetails.daysCount || 0,
+        daysCount: ageAtTimeOfMortality,
       });
 
       // Log event
@@ -586,7 +593,7 @@ export default function ReportMortalityModal({
         customPredator: predatorType === "Other" ? customPredator : null,
         dateOfDeath: dateOfDeath,
         count: count,
-        daysCount: batchDetails.daysCount || 0,
+        daysCount: ageAtTimeOfMortality,
         notes: notes,
       });
 
@@ -599,7 +606,7 @@ export default function ReportMortalityModal({
         customPredator: predatorType === "Other" ? customPredator : null,
         dateOfDeath: dateOfDeath,
         count: count,
-        daysCount: batchDetails.daysCount || 0,
+        daysCount: ageAtTimeOfMortality,
         notes: notes,
         firstName: userInfo.firstName,
         lastName: userInfo.lastName,

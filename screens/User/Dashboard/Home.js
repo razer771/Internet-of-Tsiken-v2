@@ -311,20 +311,42 @@ export default function QuickOverviewSetup({ navigation }) {
 
   // Load saved data when component mounts
   useEffect(() => {
-    fetchUserName();
-    setupSensorMonitoring();
+    const initializeApp = async () => {
+      fetchUserName();
+      setupSensorMonitoring();
 
-    // Set today's date
-    const today = new Date();
-    const formattedDate = today.toLocaleDateString("en-US", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-    setTodayDate(formattedDate);
+      // Fetch all batches on initial load to populate the batches array
+      await fetchAllBatchesFromFirestore();
 
-    console.log("[App] Mounted");
+      // Also fetch and display the latest batch immediately
+      const latestBatch = await getLatestBatch();
+      if (latestBatch) {
+        await setSelectedBatch(latestBatch.id);
+        updateBrooderCardFromBatch(
+          latestBatch,
+          setChicksCount,
+          setDaysCount,
+          setHarvestDays,
+          setBrooderInfo,
+          setHasBatchData,
+        );
+        console.log("[App] Latest batch loaded on mount:", latestBatch.id);
+      }
+
+      // Set today's date
+      const today = new Date();
+      const formattedDate = today.toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+      setTodayDate(formattedDate);
+
+      console.log("[App] Mounted and batches initialized");
+    };
+
+    initializeApp();
 
     // Update days count every minute to keep it in sync with real-time
     const interval = setInterval(() => {
@@ -374,11 +396,9 @@ export default function QuickOverviewSetup({ navigation }) {
                 setHasBatchData,
               );
 
-              // Update batches array with fresh data
-              const updatedBatches = batches.map((batch) =>
-                batch.id === selectedBatchId ? freshBatch : batch,
-              );
-              setBatches(updatedBatches);
+              // Fetch all batches to populate the array
+              const allBatches = await fetchBatches();
+              setBatches(allBatches || []);
 
               console.log(
                 "[ScreenFocus] Refreshed selected batch:",
@@ -767,9 +787,10 @@ export default function QuickOverviewSetup({ navigation }) {
   const getTodayDateGMT8 = () => {
     // Get current date in GMT+8 timezone (YYYY-MM-DD format)
     const now = new Date();
-    // Create date string in GMT+8
-    const utcDate = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
-    const gmt8Date = new Date(utcDate.getTime() + 8 * 60 * 60000);
+    // Convert local time to UTC, then to GMT+8
+    const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+    const gmt8Ms = utcMs + 8 * 60 * 60 * 1000;
+    const gmt8Date = new Date(gmt8Ms);
 
     const year = gmt8Date.getFullYear();
     const month = String(gmt8Date.getMonth() + 1).padStart(2, "0");
@@ -1703,6 +1724,12 @@ export default function QuickOverviewSetup({ navigation }) {
               visible={showBatchesModal}
               batches={batches}
               selectedBatchIndex={selectedBatchIndex}
+              preSelectedBatchId={
+                selectedBatchIndex !== null &&
+                selectedBatchIndex < batches.length
+                  ? batches[selectedBatchIndex].id
+                  : null
+              }
               onSelectBatch={handleSelectBatch}
               onDeleteBatch={handleDeleteBatch}
               onEditBatch={handleEditBatch}
@@ -1755,6 +1782,13 @@ export default function QuickOverviewSetup({ navigation }) {
             <ReportMortalityModal
               visible={showMortalityModal}
               batches={batches}
+              preSelectedBatchId={
+                selectedBatchIndex !== null &&
+                selectedBatchIndex < batches.length
+                  ? batches[selectedBatchIndex].id
+                  : null
+              }
+              currentCalculatedAge={parseInt(daysCount) || 0}
               onClose={handleCloseMortalityModal}
               onSuccess={handleMortalitySuccess}
             />
