@@ -1797,42 +1797,57 @@ export default function ControlScreen({ navigation }) {
   };
 
   const handleTestLightToggle = async (newValue) => {
-    // Only check hardware when turning ON
-    if (newValue) {
-      try {
-        // Simulate checking for lighting hardware connection
-        const isLightingConnected = false; // In real implementation, check actual hardware
+    console.log(`[TestLight] Toggle requested: ${newValue ? 'ON' : 'OFF'}`);
+    setTestLightOn(newValue); // Optimistic update
 
-        if (!isLightingConnected) {
-          showMotorWarning(
-            "Lighting System Not Detected",
-            "Light controller not detected. Please check the connection.\n\nThe operation will be simulated.",
-          );
-          // Don't turn on if hardware not detected - keep it OFF
-          return;
-        }
+    try {
+      // Call ESP32 API
+      const endpoint = newValue ? '/api/light/on' : '/api/light/off';
+      const fullUrl = `http://${esp32IpAddress}${endpoint}`;
+      
+      console.log(`[TestLight] Sending request to: ${fullUrl}`);
+      
+      const response = await fetch(fullUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
 
-        // Log test lighting activity
-        const currentUser = auth.currentUser;
-        await logActivity("lightingTest_logs", {
-          action: "Test lighting turned ON",
-          description: "User turned on test lighting",
-          status: isLightingConnected ? "Completed" : "Simulated",
-          timestamp: new Date().toISOString(),
-        });
-      } catch (error) {
-        console.error("Test lighting error:", error);
-        showMotorWarning(
-          "Error",
-          "Lighting system not detected. Please check the connection.",
-        );
-        // Don't turn on if error occurred
-        return;
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
-    }
 
-    // Update the toggle state only if hardware check passed or turning OFF
-    setTestLightOn(newValue);
+      const data = await response.json();
+      console.log(`[TestLight] Response:`, data);
+      
+      // Sync state from ESP32 response
+      if (data.light_status !== undefined) {
+        setTestLightOn(data.light_status === 'on');
+      } else if (data.status !== undefined) {
+        setTestLightOn(data.status === 'on');
+      }
+
+      // Log test lighting activity
+      await logActivity("lightingTest_logs", {
+        action: `Test lighting turned ${newValue ? 'ON' : 'OFF'}`,
+        description: `User tested lighting via modal`,
+        status: "Completed",
+        timestamp: new Date().toISOString(),
+      });
+      
+      console.log(`[TestLight] Successfully turned ${newValue ? 'ON' : 'OFF'}`);
+    } catch (error) {
+      console.error('[TestLight] Error:', error);
+      
+      // Revert optimistic update on error
+      setTestLightOn(!newValue);
+      
+      showMotorWarning(
+        "Connection Error",
+        `Could not connect to ESP32.\n\nError: ${error.message}\n\nPlease check if ESP32 is online at ${esp32IpAddress}`,
+      );
+    }
   };
 
   // Watering schedule handlers like feeding
@@ -2376,7 +2391,6 @@ export default function ControlScreen({ navigation }) {
   // Test Lighting modal state
   const [testLightingModalVisible, setTestLightingModalVisible] =
     useState(false);
-  const [testBrightness, setTestBrightness] = useState(50);
   const [testLightOn, setTestLightOn] = useState(false);
 
   return (
@@ -2876,7 +2890,7 @@ export default function ControlScreen({ navigation }) {
                 }}
               >
                 <Text style={{ fontWeight: "600", fontSize: 14 }}>
-                  Incandescent Light
+                  Incandescent Light (MOSFET)
                 </Text>
                 <Switch
                   value={lightOn}
@@ -2886,37 +2900,14 @@ export default function ControlScreen({ navigation }) {
                   thumbColor="#fff"
                 />
               </View>
-            </View>
-
-            {/* Brightness Control */}
-            <View style={{ marginTop: 16, width: "100%" }}>
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 8,
-                }}
-              >
-                <Text style={{ fontWeight: "600", fontSize: 14 }}>
-                  Brightness
-                </Text>
-                <Text
-                  style={{ fontWeight: "600", fontSize: 14, color: "#666" }}
-                >
-                  {testBrightness}%
-                </Text>
-              </View>
-              <Slider
-                minimumValue={0}
-                maximumValue={100}
-                step={1}
-                value={testBrightness}
-                onValueChange={setTestBrightness}
-                minimumTrackTintColor={PRIMARY}
-                maximumTrackTintColor="#e2e8f0"
-                thumbTintColor={PRIMARY}
-              />
+              
+              {/* Status text */}
+              <Text style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
+                Status: {lightOn ? "🟢 ON" : "⚫ OFF"}
+              </Text>
+              <Text style={{ fontSize: 11, color: "#999", marginTop: 2, fontStyle: 'italic' }}>
+                Connected to ESP32 GPIO16 via MOSFET
+              </Text>
             </View>
           </View>
         </View>

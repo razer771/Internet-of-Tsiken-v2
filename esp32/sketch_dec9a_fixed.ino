@@ -18,16 +18,19 @@
 #define PIN_HX711_SCK 33   // Load Cell Clock
 
 // --- Ultrasonic (Source Tanks) ---
-#define PIN_TRIG_WATER 5  // Water tank ultrasonic trigger
-#define PIN_ECHO_WATER 18 // Water tank ultrasonic echo
-#define PIN_TRIG_FEED 19  // Feed tank ultrasonic trigger
-#define PIN_ECHO_FEED 21  // Feed tank ultrasonic echo
+// NOTE: Pin 5 can conflict with SPI - if sensor fails, try pin 25 or 26
+#define PIN_TRIG_WATER 19 // Water tank ultrasonic trigger
+#define PIN_ECHO_WATER 21 // Water tank ultrasonic echo
+#define PIN_TRIG_FEED 5   // Feed tank ultrasonic trigger (WARNING: May conflict with SPI)
+#define PIN_ECHO_FEED 18  // Feed tank ultrasonic echo
 
 // --- Actuators ---
 #define PIN_SERVO 13        // Servo motor for feeding
 #define PIN_RELAY_PUMP 26   // Water pump relay
 #define PIN_RELAY_FAN 27    // Exhaust fan relay
 #define PIN_LIGHT_MOSFET 16 // Incandescent light (PWM capable)
+// ⚠️  GPIO16 NOTE: Can conflict with PSRAM on some ESP32 boards
+// If MOSFET doesn't respond, try: GPIO 25, 32, or 33 instead
 
 // --- Configuration ---
 #define DHTTYPE DHT22
@@ -112,15 +115,32 @@ void setup()
     Serial.print(")... ");
     dht.begin();
     delay(2000); // DHT needs time to stabilize
-    float testTemp = dht.readTemperature();
-    if (!isnan(testTemp))
+
+    // Try reading multiple times
+    float testTemp = -999;
+    for (int i = 0; i < 3; i++)
+    {
+        testTemp = dht.readTemperature();
+        if (!isnan(testTemp))
+            break;
+        delay(500);
+    }
+
+    if (!isnan(testTemp) && testTemp > -40 && testTemp < 80)
     {
         dhtReady = true;
-        Serial.println("✓ Ready");
+        Serial.print("✓ Ready (Test read: ");
+        Serial.print(testTemp);
+        Serial.println("°C)");
     }
     else
     {
-        Serial.println("✗ Failed (Check wiring & pull-up resistor)");
+        Serial.println("✗ Failed");
+        Serial.println("     Troubleshooting:");
+        Serial.println("     1. Check wiring: VCC(3.3V), GND, DATA(Pin 4)");
+        Serial.println("     2. Add 4.7K-10K pull-up resistor between DATA and VCC");
+        Serial.println("     3. Verify DHT22 (not DHT11) - white sensor");
+        Serial.println("     4. Try a different DHT sensor");
     }
 
     // HX711 Load Cell
@@ -156,11 +176,21 @@ void setup()
     pinMode(PIN_WATER_LEVEL, INPUT);
 
     // Ultrasonic Sensors
-    Serial.println("  • Ultrasonic Sensors... ✓ Ready");
+    Serial.println("  • Ultrasonic Sensors:");
     pinMode(PIN_TRIG_WATER, OUTPUT);
     pinMode(PIN_ECHO_WATER, INPUT);
     pinMode(PIN_TRIG_FEED, OUTPUT);
     pinMode(PIN_ECHO_FEED, INPUT);
+    Serial.print("    - Water Storage: Trig=");
+    Serial.print(PIN_TRIG_WATER);
+    Serial.print(", Echo=");
+    Serial.println(PIN_ECHO_WATER);
+    Serial.print("    - Feed Storage: Trig=");
+    Serial.print(PIN_TRIG_FEED);
+    Serial.print(", Echo=");
+    Serial.print(PIN_ECHO_FEED);
+    Serial.println(" ⚠️  (Pin 5 may conflict!)");
+    Serial.println("    If feed sensor fails, consider using Pin 25 or 26 for trigger");
 
     // ========== Initialize Actuators ==========
     Serial.println("\n🔧 Initializing Actuators...");
@@ -175,7 +205,21 @@ void setup()
     digitalWrite(PIN_LIGHT_MOSFET, LOW); // OFF
     Serial.println("  • Pump Relay... ✓ OFF");
     Serial.println("  • Fan Relay... ✓ OFF");
-    Serial.println("  • Light MOSFET... ✓ OFF");
+    
+    // Test MOSFET with quick pulse
+    Serial.print("  • Light MOSFET (GPIO");
+    Serial.print(PIN_LIGHT_MOSFET);
+    Serial.print(")... ");
+    digitalWrite(PIN_LIGHT_MOSFET, HIGH);
+    delay(100);
+    digitalWrite(PIN_LIGHT_MOSFET, LOW);
+    Serial.println("✓ OFF");
+    Serial.println("    Troubleshooting if light doesn't work:");
+    Serial.println("    1. Check MOSFET gate → GPIO16");
+    Serial.println("    2. Use N-channel MOSFET (IRF520/IRF540/IRLZ44N)");
+    Serial.println("    3. Add 220Ω-1KΩ resistor between GPIO and gate");
+    Serial.println("    4. Try GPIO25, 32, or 33 if GPIO16 fails");
+    Serial.println("    5. Verify power supply handles bulb load");
 
     // Servo
     feedServo.attach(PIN_SERVO);
@@ -518,16 +562,28 @@ void setupWebServer()
     // Light control
     server.on("/api/light/on", HTTP_POST, []()
               {
+    Serial.println("\n💡 Light ON command received");
     digitalWrite(PIN_LIGHT_MOSFET, HIGH);
     lightActive = true;
-    Serial.println("💡 Light turned ON");
+    
+    // Read back pin state for verification
+    int pinState = digitalRead(PIN_LIGHT_MOSFET);
+    Serial.print("   GPIO16 state: ");
+    Serial.println(pinState == HIGH ? "HIGH (3.3V)" : "LOW (0V)");
+    
+    if (pinState != HIGH) {
+        Serial.println("   ⚠️  WARNING: Pin didn't go HIGH - possible GPIO16 conflict!");
+        Serial.println("   Try using GPIO25, 32, or 33 instead");
+    }
+    
     server.send(200, "application/json", "{\"light_status\":\"on\",\"message\":\"Light turned on\"}"); });
 
     server.on("/api/light/off", HTTP_POST, []()
               {
+    Serial.println("\n� Light OFF command received");
     digitalWrite(PIN_LIGHT_MOSFET, LOW);
     lightActive = false;
-    Serial.println("💡 Light turned OFF");
+    Serial.println("   Light turned OFF");
     server.send(200, "application/json", "{\"light_status\":\"off\",\"message\":\"Light turned off\"}"); });
 
     // System restart
