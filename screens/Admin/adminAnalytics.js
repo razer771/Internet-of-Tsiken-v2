@@ -1980,13 +1980,29 @@ export default function AdminAnalytics({ navigation }) {
           : "no filter",
       );
 
-      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
-      const batchesSnapshot = await getDocs(predatorAttacksRef);
+      // First, fetch all batches from brooderInfo and initialize map with 0 attacks
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const brooderSnapshot = await getDocs(brooderInfoRef);
 
       const batchAttackMap = {};
 
+      // Initialize all batches with 0 attacks
+      brooderSnapshot.docs.forEach((brooderDoc) => {
+        const batchId = brooderDoc.id;
+        batchAttackMap[batchId] = 0;
+      });
+
       console.log(
-        `[FetchAttacksPerBatch] Found ${batchesSnapshot.docs.length} batches`,
+        "[FetchAttacksPerBatch] Initialized",
+        brooderSnapshot.docs.length,
+        "batches from brooderInfo",
+      );
+
+      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
+      const batchesSnapshot = await getDocs(predatorAttacksRef);
+
+      console.log(
+        `[FetchAttacksPerBatch] Found ${batchesSnapshot.docs.length} batches with attacks`,
       );
 
       // Parse date range if provided
@@ -2404,12 +2420,31 @@ export default function AdminAnalytics({ navigation }) {
         endDate.toISOString(),
       );
 
+      // First, fetch all batches from brooderInfo and initialize map with 0 deaths
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const brooderSnapshot = await getDocs(brooderInfoRef);
+
+      const batchDeathsMap = {}; // Map to store total deaths per batch
+
+      // Initialize all batches with 0 deaths
+      brooderSnapshot.docs.forEach((brooderDoc) => {
+        const batchId = brooderDoc.id;
+        batchDeathsMap[batchId] = {
+          batchId: batchId,
+          deaths: 0,
+        };
+      });
+
+      console.log(
+        "[FetchMortalityPerBatch] Initialized",
+        brooderSnapshot.docs.length,
+        "batches from brooderInfo",
+      );
+
       // Use collectionGroup to query all records directly from /mortality/{BatchName}/records
       // No need to fetch from brooderInfo - extract batchId from record data
       const recordsRef = collectionGroup(firestoreDb, "records");
       const recordsSnapshot = await getDocs(recordsRef);
-
-      const batchDeathsMap = {}; // Map to store total deaths per batch
 
       console.log(
         "[FetchMortalityPerBatch] Found",
@@ -2459,14 +2494,10 @@ export default function AdminAnalytics({ navigation }) {
           );
 
           if (recordDateOnly >= startDate && recordDateOnly <= endDate) {
-            // Add to batch deaths map
-            if (!batchDeathsMap[batchId]) {
-              batchDeathsMap[batchId] = {
-                batchId: batchId,
-                deaths: 0,
-              };
+            // Update batch deaths in map (batch was already initialized)
+            if (batchDeathsMap[batchId]) {
+              batchDeathsMap[batchId].deaths += count;
             }
-            batchDeathsMap[batchId].deaths += count;
           }
         }
       });
@@ -3154,43 +3185,42 @@ export default function AdminAnalytics({ navigation }) {
       });
 
       // 6. Precise mortality rate for the range
-      // If only 1 batch: use mortalityCount / initialChicksCount from brooderInfo
-      // If >1 batch: use combined (sum mortality / sum initial) across all batches
+      // Calculate total deaths from the filtered records (respects date range)
+      let totalDeaths = 0;
+      records.forEach((r) => {
+        totalDeaths += r.count || 1;
+      });
+
+      // For mortality rate, use brooderInfo to get initialChicksCount
       const brooderInfoRef = collection(firestoreDb, "brooderInfo");
       const brooderSnapshot = await getDocs(brooderInfoRef);
       const batchCount = brooderSnapshot.docs.length;
       let mortalityRate = "0.00";
-      let totalDeaths = 0;
 
       if (batchCount === 1) {
-        // Single batch: use direct mortalityCount / initialChicksCount
+        // Single batch: use direct initialChicksCount from brooderInfo
         const batchData = brooderSnapshot.docs[0].data();
-        const mortalityCount = batchData.mortalityCount || 0;
         const initialChicks = batchData.initialChicksCount || 0;
-        totalDeaths = mortalityCount;
         mortalityRate =
           initialChicks > 0
-            ? ((mortalityCount / initialChicks) * 100).toFixed(2)
+            ? ((totalDeaths / initialChicks) * 100).toFixed(2)
             : "0.00";
         console.log(
-          `[GenerateMortalityReportPDF] Single batch mortality rate: ${mortalityRate}% (${mortalityCount}/${initialChicks})`,
+          `[GenerateMortalityReportPDF] Single batch mortality rate: ${mortalityRate}% (${totalDeaths}/${initialChicks})`,
         );
       } else if (batchCount > 1) {
         // Multiple batches: use combined calculation
-        let totalMortality = 0;
         let totalInitialChicks = 0;
         brooderSnapshot.docs.forEach((doc) => {
           const batchData = doc.data();
-          totalMortality += batchData.mortalityCount || 0;
           totalInitialChicks += batchData.initialChicksCount || 0;
         });
-        totalDeaths = totalMortality;
         mortalityRate =
           totalInitialChicks > 0
-            ? ((totalMortality / totalInitialChicks) * 100).toFixed(2)
+            ? ((totalDeaths / totalInitialChicks) * 100).toFixed(2)
             : "0.00";
         console.log(
-          `[GenerateMortalityReportPDF] Combined mortality rate (${batchCount} batches): ${mortalityRate}% (${totalMortality}/${totalInitialChicks})`,
+          `[GenerateMortalityReportPDF] Combined mortality rate (${batchCount} batches): ${mortalityRate}% (${totalDeaths}/${totalInitialChicks})`,
         );
       }
 
@@ -3286,11 +3316,11 @@ export default function AdminAnalytics({ navigation }) {
                   .map((d) => {
                     let trendDisplay = "";
                     if (d.trend === "↑") {
-                      trendDisplay = `<span style="color: #F44336;">↑</span> ${d.percentageChange}%`;
+                      trendDisplay = `<span style="color: #F44336;">↑</span> <span style="color: #F44336;">${d.percentageChange}%</span>`;
                     } else if (d.trend === "↓") {
-                      trendDisplay = `<span style="color: #4CAF50;">↓</span> ${d.percentageChange}%`;
+                      trendDisplay = `<span style="color: #4CAF50;">↓</span> <span style="color: #4CAF50;">${d.percentageChange}%</span>`;
                     } else if (d.percentageChange === "0") {
-                      trendDisplay = "0%";
+                      trendDisplay = `<span style="color: #999;">0%</span>`;
                     }
                     return `<tr><td style="border: 1px solid #ddd; padding: 3px;">${d.date}</td><td style="border: 1px solid #ddd; padding: 3px; text-align: center;">${d.count}</td><td style="border: 1px solid #ddd; padding: 3px; text-align: center;">${trendDisplay}</td></tr>`;
                   })
@@ -4436,11 +4466,11 @@ export default function AdminAnalytics({ navigation }) {
               : rateDifference.toFixed(2);
 
           if (rateDifference > 0) {
-            trendHtml = `<span style="color: #F44336;">↑</span> +${percentageChange}%`;
+            trendHtml = `<span style="color: #F44336;">↑</span> <span style="color: #F44336;">+${percentageChange}%</span>`;
           } else if (rateDifference < 0) {
-            trendHtml = `<span style="color: #4CAF50;">↓</span> ${percentageChange}%`;
+            trendHtml = `<span style="color: #4CAF50;">↓</span> <span style="color: #4CAF50;">${percentageChange}%</span>`;
           } else {
-            trendHtml = "→ 0%";
+            trendHtml = `<span style="color: #999;">→</span> <span style="color: #999;">0%</span>`;
           }
         }
 
@@ -4679,13 +4709,13 @@ export default function AdminAnalytics({ navigation }) {
       let startDate, endDate;
 
       if (
-        chartFilters["predatorAttacks"]?.startDate &&
-        chartFilters["predatorAttacks"]?.endDate
+        chartFilters["predator"]?.startDate &&
+        chartFilters["predator"]?.endDate
       ) {
         // Use filter dates
-        startDate = new Date(chartFilters["predatorAttacks"].startDate);
+        startDate = new Date(chartFilters["predator"].startDate);
         startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(chartFilters["predatorAttacks"].endDate);
+        endDate = new Date(chartFilters["predator"].endDate);
         endDate.setHours(23, 59, 59, 999);
         console.log(
           "[GeneratePredatorReport] Using filter dates:",
@@ -4749,8 +4779,8 @@ export default function AdminAnalytics({ navigation }) {
         });
       }
 
-      // Sort by date (newest first)
-      allAttacks.sort((a, b) => b.attackDate - a.attackDate);
+      // Sort by date chronologically (oldest first)
+      allAttacks.sort((a, b) => a.attackDate - b.attackDate);
 
       console.log(
         `[GeneratePredatorReport] Found ${allAttacks.length} attacks`,
@@ -5027,23 +5057,51 @@ export default function AdminAnalytics({ navigation }) {
             </div>
             <div class="summary">
               <h2>Summary</h2>
-              <div class="summary-item">
-                <span class="summary-label">Total Attacks:</span> ${allAttacks.length}
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+                ${(() => {
+                  // Create predator type summary cards
+                  const predatorStats = ["Dog", "Cat", "Rat", "Snake", "Other"]
+                    .map((predator) => {
+                      const count = attacksByPredator[predator] || 0;
+                      const rawPercentage =
+                        allAttacks.length > 0
+                          ? (count / allAttacks.length) * 100
+                          : 0;
+                      const percentage = Number.isInteger(rawPercentage)
+                        ? rawPercentage.toString()
+                        : rawPercentage.toFixed(2);
+                      return {
+                        predator,
+                        count,
+                        percentage: parseFloat(percentage),
+                      };
+                    })
+                    .sort((a, b) => b.percentage - a.percentage);
+
+                  return predatorStats
+                    .map(
+                      (stat) => `
+                    <div style="padding: 8px; background-color: white; border-left: 3px solid #133E87; border-radius: 3px;">
+                      <div style="color: #666; font-size: 10px;">${stat.predator}</div>
+                      <div style="color: #133E87; font-weight: bold; font-size: 14px;">${stat.percentage}%</div>
+                      <div style="color: #666; font-size: 10px;">(${stat.count} ${stat.count === 1 || stat.count === 0 ? "attack" : "attacks"})</div>
+                    </div>
+                  `,
+                    )
+                    .join("");
+                })()}
               </div>
-              <div class="summary-item">
-                <span class="summary-label">Peak Day:</span> ${peakDayFormatted}
-              </div>
-              <div class="summary-item">
-                <span class="summary-label">Peak Day of Week:</span> ${peakDayOfWeek}
-              </div>
-              <div class="summary-item">
-                <span class="summary-label">Most Frequent Predator:</span> ${mostFrequentPredator}
-              </div>
-              
-              <div style="margin-top: 15px; border-top: 1px solid #ccc; padding-top: 10px;">
+
+              <div style="margin-top: 15px; padding-top: 10px;">
                 <h3 style="margin-top: 0;">Predator Type Breakdown</h3>
-                ${["Dog", "Cat", "Rat", "Snake", "Other"]
-                  .map((predator) => {
+                ${(() => {
+                  const predatorData = [
+                    "Dog",
+                    "Cat",
+                    "Rat",
+                    "Snake",
+                    "Other",
+                  ].map((predator) => {
                     const count = attacksByPredator[predator] || 0;
                     const rawPercentage =
                       allAttacks.length > 0
@@ -5052,12 +5110,44 @@ export default function AdminAnalytics({ navigation }) {
                     const percentage = Number.isInteger(rawPercentage)
                       ? rawPercentage.toString()
                       : rawPercentage.toFixed(1);
-                    return `<div class="summary-item"><span class="summary-label">${predator}:</span> ${count} ${count === 0 || count === 1 ? "attack" : "attacks"} (${percentage}%)</div>`;
-                  })
-                  .join("")}
+                    return {
+                      predator,
+                      count,
+                      percentage: parseFloat(percentage),
+                    };
+                  });
+                  const maxPercentage = Math.max(
+                    ...predatorData.map((d) => d.percentage),
+                  );
+                  return `
+                    <table style="width: 43%; border-collapse: collapse; font-size: 12px;">
+                      <thead>
+                        <tr style="background-color: #f0f0f0;">
+                          <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Predator Type</th>
+                          <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Attack Count</th>
+                          <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">%</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${predatorData
+                          .map((item) => {
+                            const isHighest =
+                              item.percentage === maxPercentage &&
+                              item.percentage > 0;
+                            const percentageStyle = isHighest
+                              ? 'style="border: 1px solid #ddd; padding: 6px; text-align: center; color: #F44336;"'
+                              : 'style="border: 1px solid #ddd; padding: 6px; text-align: center;"';
+                            return `<tr><td style="border: 1px solid #ddd; padding: 6px;">${item.predator}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${item.count}</td><td ${percentageStyle}>${item.percentage}%</td></tr>`;
+                          })
+                          .join("")}
+                        <tr style="background-color: #f0f0f0; font-weight: bold;"><td style="border: 1px solid #ddd; padding: 6px;">TOTAL</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${allAttacks.length}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">100%</td></tr>
+                      </tbody>
+                    </table>
+                  `;
+                })()}
               </div>
 
-              <div style="margin-top: 15px; border-top: 1px solid #ccc; padding-top: 10px;">
+              <div style="margin-top: 15px; padding-top: 10px;">
                 <h3 style="margin-top: 0;">Attack Statistics</h3>
                 <div style="display: flex; gap: 1px;">
                   <div style="flex: 1;">
@@ -5071,19 +5161,34 @@ export default function AdminAnalytics({ navigation }) {
                         </tr>
                       </thead>
                       <tbody>
-                        ${Object.keys(attacksByDayOfWeek)
-                          .map((day) => {
-                            const count = attacksByDayOfWeek[day];
-                            const rawPercentage =
-                              allAttacks.length > 0
-                                ? (count / allAttacks.length) * 100
-                                : 0;
-                            const percentage = Number.isInteger(rawPercentage)
-                              ? rawPercentage.toString()
-                              : rawPercentage.toFixed(1);
-                            return `<tr style="border: 1px solid #ddd;"><td style="border: 1px solid #ddd; padding: 6px;">${day}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${count}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${percentage}%</td></tr>`;
-                          })
-                          .join("")}
+                        ${(() => {
+                          const dayOfWeekData = Object.keys(
+                            attacksByDayOfWeek,
+                          ).map((day) => ({
+                            day,
+                            count: attacksByDayOfWeek[day],
+                          }));
+                          const maxCount = Math.max(
+                            ...dayOfWeekData.map((d) => d.count),
+                          );
+                          return dayOfWeekData
+                            .map((item) => {
+                              const rawPercentage =
+                                allAttacks.length > 0
+                                  ? (item.count / allAttacks.length) * 100
+                                  : 0;
+                              const percentage = Number.isInteger(rawPercentage)
+                                ? rawPercentage.toString()
+                                : rawPercentage.toFixed(1);
+                              const isHighest =
+                                item.count === maxCount && item.count > 0;
+                              const percentageStyle = isHighest
+                                ? 'style="border: 1px solid #ddd; padding: 6px; text-align: center; color: #F44336;"'
+                                : 'style="border: 1px solid #ddd; padding: 6px; text-align: center;"';
+                              return `<tr style="border: 1px solid #ddd;"><td style="border: 1px solid #ddd; padding: 6px;">${item.day}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${item.count}</td><td ${percentageStyle}>${percentage}%</td></tr>`;
+                            })
+                            .join("");
+                        })()}
                         <tr style="background-color: #f0f0f0; font-weight: bold;"><td style="border: 1px solid #ddd; padding: 6px;">TOTAL</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${allAttacks.length}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">100%</td></tr>
                       </tbody>
                     </table>
@@ -5158,7 +5263,11 @@ export default function AdminAnalytics({ navigation }) {
                               )
                                 ? parseInt(item.rate)
                                 : item.rate;
-                              return `<tr style="border: 1px solid #ddd;"><td style="border: 1px solid #ddd; padding: 6px;">${item.label}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${item.count}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${percentage}%</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${risk}</td></tr>`;
+                              const riskStyle =
+                                risk === "⚠️ High"
+                                  ? 'style="border: 1px solid #ddd; padding: 6px; text-align: center; color: #F44336;"'
+                                  : 'style="border: 1px solid #ddd; padding: 6px; text-align: center;"';
+                              return `<tr style="border: 1px solid #ddd;"><td style="border: 1px solid #ddd; padding: 6px;">${item.label}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${item.count}</td><td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${percentage}%</td><td ${riskStyle}>${risk}</td></tr>`;
                             })
                             .join("");
                         })()}
@@ -5169,9 +5278,9 @@ export default function AdminAnalytics({ navigation }) {
                 </div>
               </div>
 
-              <div style="margin-top: 15px; border-top: 1px solid #ccc; padding-top: 10px; page-break-before: always;">
+              <div style="margin-top: 15px; padding-top: 10px; page-break-before: always;">
                 <h3 style="margin-top: 0;">Predator Incidents Log</h3>
-            <table>
+            <table style="font-size: 12px;">
               <thead>
                 <tr>
                   <th style="width: 5%;">No</th>
@@ -5297,16 +5406,40 @@ export default function AdminAnalytics({ navigation }) {
         endDateStr,
       );
 
-      const startDate = new Date(startDateStr);
-      const endDate = new Date(endDateStr);
-      endDate.setHours(23, 59, 59, 999);
+      const [startYear, startMonth, startDay] = startDateStr
+        .split("-")
+        .map(Number);
+      const startDate = new Date(startYear, startMonth - 1, startDay, 0, 0, 0);
+
+      const [endYear, endMonth, endDay] = endDateStr.split("-").map(Number);
+      const endDate = new Date(endYear, endMonth - 1, endDay, 23, 59, 59);
+
+      // First, fetch all batches from brooderInfo and initialize map with 0 attacks
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const brooderSnapshot = await getDocs(brooderInfoRef);
+
+      let allAttacks = [];
+      const batchAttackMap = {};
+      const batchMortalityMap = {};
+      const allTimeAttacksByBatchAndPredator = {};
+
+      // Initialize all batches with 0 attacks and mortality
+      brooderSnapshot.docs.forEach((brooderDoc) => {
+        const batchId = brooderDoc.id;
+        batchAttackMap[batchId] = 0;
+        batchMortalityMap[batchId] = 0;
+        allTimeAttacksByBatchAndPredator[batchId] = {};
+      });
+
+      console.log(
+        "[GenerateAttacksPerBatchReport] Initialized",
+        brooderSnapshot.docs.length,
+        "batches from brooderInfo",
+      );
 
       // Fetch all batches from predatorAttacks
       const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
       const batchesSnapshot = await getDocs(predatorAttacksRef);
-
-      let allAttacks = [];
-      const batchAttackMap = {};
 
       // Fetch attacks from each batch
       for (const batchDoc of batchesSnapshot.docs) {
@@ -5334,7 +5467,15 @@ export default function AdminAnalytics({ navigation }) {
             attackDate = new Date(data.attack_datetime);
           }
 
-          // Filter by date range
+          // Track all-time attacks by predator (no filter)
+          const predatorType = data.predator_type || "Unknown";
+          if (!allTimeAttacksByBatchAndPredator[batchId]) {
+            allTimeAttacksByBatchAndPredator[batchId] = {};
+          }
+          allTimeAttacksByBatchAndPredator[batchId][predatorType] =
+            (allTimeAttacksByBatchAndPredator[batchId][predatorType] || 0) + 1;
+
+          // Filter by date range for the main report
           if (attackDate >= startDate && attackDate <= endDate) {
             allAttacks.push({
               ...data,
@@ -5345,8 +5486,60 @@ export default function AdminAnalytics({ navigation }) {
           }
         });
 
-        batchAttackMap[batchId] = batchAttackCount;
+        if (batchAttackMap.hasOwnProperty(batchId)) {
+          batchAttackMap[batchId] = batchAttackCount;
+        }
       }
+
+      // Now correlate attacks with mortality records (matching date and predator_type)
+      const mortalityRef = collectionGroup(firestoreDb, "records");
+      const mortalitySnapshot = await getDocs(mortalityRef);
+
+      mortalitySnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        const batchId = data.batchId;
+
+        if (!batchMortalityMap.hasOwnProperty(batchId)) {
+          batchMortalityMap[batchId] = 0;
+        }
+
+        // Find matching attacks (same date and predator_type)
+        let recordDate = null;
+        if (data.timestamp?.toDate) {
+          recordDate = data.timestamp.toDate();
+        } else if (data.timestamp?.seconds) {
+          recordDate = new Date(data.timestamp.seconds * 1000);
+        }
+
+        if (recordDate) {
+          const recordDateOnly = new Date(
+            recordDate.getFullYear(),
+            recordDate.getMonth(),
+            recordDate.getDate(),
+          );
+
+          // Match with attacks from same date and predator type
+          const matchingAttacks = allAttacks.filter((attack) => {
+            const attackDateOnly = new Date(
+              attack.attackDate.getFullYear(),
+              attack.attackDate.getMonth(),
+              attack.attackDate.getDate(),
+            );
+            return (
+              attack.batchId === batchId &&
+              attackDateOnly.getTime() === recordDateOnly.getTime() &&
+              (attack.predator_type || "Unknown") ===
+                (data.predatorType || "Unknown")
+            );
+          });
+
+          // Add mortality count if attacks match
+          if (matchingAttacks.length > 0) {
+            const mortality = data.count || 1;
+            batchMortalityMap[batchId] += mortality;
+          }
+        }
+      });
 
       // Sort by batch ID
       const sortedBatches = Object.entries(batchAttackMap)
@@ -5365,26 +5558,411 @@ export default function AdminAnalytics({ navigation }) {
         return;
       }
 
-      // Create table rows
+      // Create main table rows with mortality, trend, and timing
       let tableRows = "";
       let totalAttacks = 0;
+      let totalMortality = 0;
+      let previousAttackCount = 0;
+
+      // Helper function to format percentage (remove .0 for whole numbers)
+      const formatPercentage = (value) => {
+        const numValue = typeof value === "number" ? value : parseFloat(value);
+        if (Number.isInteger(numValue)) {
+          return numValue.toString();
+        }
+        return numValue.toFixed(1);
+      };
+
       sortedBatches.forEach((batch, index) => {
+        const attackCount = batch.count;
+        const mortalityCount = batchMortalityMap[batch.batchId] || 0;
+        let trendSymbol = "";
+        let trendColor = "";
+
+        if (
+          index > 0 &&
+          previousAttackCount > 0 &&
+          previousAttackCount !== attackCount
+        ) {
+          if (attackCount > previousAttackCount) {
+            const percentageChange = (
+              ((attackCount - previousAttackCount) / previousAttackCount) *
+              100
+            ).toFixed(1);
+            trendSymbol = `↑ +${percentageChange}%`;
+            trendColor = "#F44336";
+          } else if (attackCount < previousAttackCount) {
+            const percentageChange = (
+              ((previousAttackCount - attackCount) / previousAttackCount) *
+              100
+            ).toFixed(1);
+            trendSymbol = `↓ ${percentageChange}%`;
+            trendColor = "#4CAF50";
+          }
+        }
+
+        previousAttackCount = attackCount;
+
+        // Calculate timing distribution for this batch
+        const batchAttacks = allAttacks.filter(
+          (a) => a.batchId === batch.batchId,
+        );
+        const timeDistribution = {
+          "Early Morning": 0,
+          Morning: 0,
+          Afternoon: 0,
+          Night: 0,
+        };
+
+        batchAttacks.forEach((attack) => {
+          const hour = attack.attackDate.getHours();
+          if (hour >= 0 && hour < 6) {
+            timeDistribution["Early Morning"]++;
+          } else if (hour >= 6 && hour < 12) {
+            timeDistribution["Morning"]++;
+          } else if (hour >= 12 && hour < 18) {
+            timeDistribution["Afternoon"]++;
+          } else {
+            timeDistribution["Night"]++;
+          }
+        });
+
+        const peakTime = Object.keys(timeDistribution).reduce((a, b) =>
+          timeDistribution[a] > timeDistribution[b] ? a : b,
+        );
+
         tableRows += `
           <tr>
             <td>${batch.batchId}</td>
-            <td style="text-align: center;">${batch.count}</td>
+            <td style="text-align: center;">${attackCount}</td>
+            <td style="text-align: center;">${mortalityCount}</td>
+            <td style="text-align: center;">${attackCount > 0 ? formatPercentage((mortalityCount / attackCount) * 100) + "%" : "-"}</td>
+            <td style="text-align: center; color: ${trendColor || "inherit"};">${trendSymbol || "-"}</td>
+            <td style="text-align: center;">${attackCount > 0 ? peakTime : "-"}</td>
           </tr>
         `;
-        totalAttacks += batch.count;
+        totalAttacks += attackCount;
+        totalMortality += mortalityCount;
       });
 
       // Add total row
       tableRows += `
         <tr style="background-color: #dbdde0; color: white; font-weight: bold;">
-          <td style="text-align: right; padding: 8px;">Total</td>
-          <td style="text-align: center; width: 120px; padding: 8px;">${totalAttacks}</td>
+          <td>TOTAL</td>
+          <td style="text-align: center;">${totalAttacks}</td>
+          <td style="text-align: center;">${totalMortality}</td>
+          <td style="text-align: center;">${totalAttacks > 0 ? formatPercentage((totalMortality / totalAttacks) * 100) + "%" : "-"}</td>
+          <td style="text-align: center;"></td>
+          <td style="text-align: center;"></td>
         </tr>
       `;
+
+      // Build Predator Type Per Batch table (single table with all batches as rows)
+      let predatorPerBatchHTML = "";
+      let previousBatchTotalPredators = {};
+      const predatorTypes = ["Cat", "Dog", "Rat", "Snake", "Other"];
+
+      // Build table header
+      predatorPerBatchHTML += `
+        <table style="width: 100%; font-size: 11px; margin-bottom: 15px; border-collapse: collapse;">
+          <thead>
+            <tr style="background-color: #f0f0f0;">
+              <th style="border: 1px solid #ddd; padding: 4px; text-align: left; width: 12.5%;">Batch ID</th>
+              ${predatorTypes.map((pt) => `<th style="border: 1px solid #ddd; padding: 4px; text-align: center; width: 12.5%;">${pt}</th>`).join("")}
+              <th style="border: 1px solid #ddd; padding: 4px; text-align: center; width: 12.5%;">Total</th>
+              <th style="border: 1px solid #ddd; padding: 4px; text-align: center; width: 12.5%;">Trend</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      sortedBatches.forEach((batch, index) => {
+        const predatorData =
+          allTimeAttacksByBatchAndPredator[batch.batchId] || {};
+        const totalAttacksPerBatch = Object.values(predatorData).reduce(
+          (a, b) => a + b,
+          0,
+        );
+        const previousTotalAttacks = Object.values(
+          previousBatchTotalPredators,
+        ).reduce((a, b) => a + b, 0);
+
+        // Find max count among predators for this batch
+        const maxPredatorCount = Math.max(
+          ...predatorTypes.map((pt) => predatorData[pt] || 0),
+        );
+
+        // Calculate trend
+        let trendSymbol = "";
+        let trendColor = "";
+        if (
+          index > 0 &&
+          previousTotalAttacks > 0 &&
+          totalAttacksPerBatch !== previousTotalAttacks
+        ) {
+          if (totalAttacksPerBatch > previousTotalAttacks) {
+            const percentageChange = (
+              ((totalAttacksPerBatch - previousTotalAttacks) /
+                previousTotalAttacks) *
+              100
+            ).toFixed(1);
+            trendSymbol = `↑ +${percentageChange}%`;
+            trendColor = "#F44336";
+          } else {
+            const percentageChange = (
+              ((previousTotalAttacks - totalAttacksPerBatch) /
+                previousTotalAttacks) *
+              100
+            ).toFixed(1);
+            trendSymbol = `↓ ${percentageChange}%`;
+            trendColor = "#4CAF50";
+          }
+        }
+
+        predatorPerBatchHTML += `
+            <tr>
+              <td>${batch.batchId}</td>
+              ${predatorTypes
+                .map((pt) => {
+                  const count = predatorData[pt] || 0;
+                  const isMax = count === maxPredatorCount && count > 0;
+                  return `<td style="text-align: center; ${isMax ? "color: #F44336; font-weight: bold;" : ""}">${count}</td>`;
+                })
+                .join("")}
+              <td style="text-align: center; font-weight: bold;">${totalAttacksPerBatch}</td>
+              <td style="text-align: center; color: ${trendColor || "inherit"};">${trendSymbol || "-"}</td>
+            </tr>
+        `;
+
+        previousBatchTotalPredators = { ...predatorData };
+      });
+
+      predatorPerBatchHTML += `
+          </tbody>
+        </table>
+      `;
+
+      // Build All Predators Attack Timing table (single table with all batches)
+      let allPredatorsTimingHTML = "";
+      let previousBatchTimingTotals = {
+        "Early Morning": 0,
+        Morning: 0,
+        Afternoon: 0,
+        Night: 0,
+      };
+
+      allPredatorsTimingHTML += `
+        <table style="width: 100%; font-size: 11px; margin-bottom: 15px; border-collapse: collapse;">
+          <thead>
+            <tr style="background-color: #f0f0f0;">
+              <th style="border: 1px solid #ddd; padding: 4px; text-align: left; width: 12%;">Batch ID</th>
+              <th style="border: 1px solid #ddd; padding: 4px; text-align: center; width: 16%;">Early Morning<br>
+12:00am - 5:59am</th>
+              <th style="border: 1px solid #ddd; padding: 4px; text-align: center; width: 16%;">Morning<br>
+6:00am - 11:59am</th>
+              <th style="border: 1px solid #ddd; padding: 4px; text-align: center; width: 16%;">Afternoon<br>
+12:00nn - 5:59pm</th>
+              <th style="border: 1px solid #ddd; padding: 4px; text-align: center; width: 16%;">Night<br>
+6:00pm - 11:59pm</th>
+              <th style="border: 1px solid #ddd; padding: 4px; text-align: center; width: 8%;">Total</th>
+              <th style="border: 1px solid #ddd; padding: 4px; text-align: center; width: 8%;">Trend</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      sortedBatches.forEach((batch, index) => {
+        const batchAttacks = allAttacks.filter(
+          (a) => a.batchId === batch.batchId,
+        );
+        const timeDistribution = {
+          "Early Morning": 0,
+          Morning: 0,
+          Afternoon: 0,
+          Night: 0,
+        };
+
+        batchAttacks.forEach((attack) => {
+          const hour = attack.attackDate.getHours();
+          if (hour >= 0 && hour < 6) {
+            timeDistribution["Early Morning"]++;
+          } else if (hour >= 6 && hour < 12) {
+            timeDistribution["Morning"]++;
+          } else if (hour >= 12 && hour < 18) {
+            timeDistribution["Afternoon"]++;
+          } else {
+            timeDistribution["Night"]++;
+          }
+        });
+
+        const totalBatchAttacks = batchAttacks.length;
+        const previousTotalTiming = Object.values(
+          previousBatchTimingTotals,
+        ).reduce((a, b) => a + b, 0);
+
+        // Calculate trend
+        let trendSymbol = "";
+        let trendColor = "";
+        if (
+          index > 0 &&
+          previousTotalTiming > 0 &&
+          totalBatchAttacks !== previousTotalTiming
+        ) {
+          if (totalBatchAttacks > previousTotalTiming) {
+            const percentageChange = (
+              ((totalBatchAttacks - previousTotalTiming) /
+                previousTotalTiming) *
+              100
+            ).toFixed(1);
+            trendSymbol = `↑ +${percentageChange}%`;
+            trendColor = "#F44336";
+          } else {
+            const percentageChange = (
+              ((previousTotalTiming - totalBatchAttacks) /
+                previousTotalTiming) *
+              100
+            ).toFixed(1);
+            trendSymbol = `↓ ${percentageChange}%`;
+            trendColor = "#4CAF50";
+          }
+        }
+
+        // Find max count among time periods for this batch
+        const maxTimeCount = Math.max(...Object.values(timeDistribution));
+
+        allPredatorsTimingHTML += `
+            <tr>
+              <td>${batch.batchId}</td>
+              <td style="text-align: center; ${timeDistribution["Early Morning"] === maxTimeCount && maxTimeCount > 0 ? "color: #F44336; font-weight: bold;" : ""}">${timeDistribution["Early Morning"]}</td>
+              <td style="text-align: center; ${timeDistribution["Morning"] === maxTimeCount && maxTimeCount > 0 ? "color: #F44336; font-weight: bold;" : ""}">${timeDistribution["Morning"]}</td>
+              <td style="text-align: center; ${timeDistribution["Afternoon"] === maxTimeCount && maxTimeCount > 0 ? "color: #F44336; font-weight: bold;" : ""}">${timeDistribution["Afternoon"]}</td>
+              <td style="text-align: center; ${timeDistribution["Night"] === maxTimeCount && maxTimeCount > 0 ? "color: #F44336; font-weight: bold;" : ""}">${timeDistribution["Night"]}</td>
+              <td style="text-align: center; font-weight: bold;">${totalBatchAttacks}</td>
+              <td style="text-align: center; color: ${trendColor || "inherit"};">${trendSymbol || "-"}</td>
+            </tr>
+        `;
+
+        previousBatchTimingTotals = { ...timeDistribution };
+      });
+
+      allPredatorsTimingHTML += `
+          </tbody>
+        </table>
+      `;
+
+      // Build individual predator type timing tables
+      let predatorTimingTablesHTML = `<div style="page-break-before: always;"></div>`;
+
+      predatorTypes.forEach((predator) => {
+        predatorTimingTablesHTML += `
+          <h3 style="font-size: 12px; margin-top: 15px; margin-bottom: 8px; color: #133E87;">${predator} Attack Timing Per Batch</h3>
+          <table style="width: 100%; font-size: 11px; margin-bottom: 15px; border-collapse: collapse;">
+            <thead>
+              <tr style="background-color: #f0f0f0;">
+                <th style="border: 1px solid #ddd; padding: 4px; text-align: left; width: 12%;">Batch ID</th>
+                <th style="border: 1px solid #ddd; padding: 4px; text-align: center; width: 16%;">Early Morning<br>
+12:00am - 5:59am</th>
+                <th style="border: 1px solid #ddd; padding: 4px; text-align: center; width: 16%;">Morning<br>
+6:00am - 11:59am</th>
+                <th style="border: 1px solid #ddd; padding: 4px; text-align: center; width: 16%;">Afternoon<br>
+12:00nn - 5:59pm</th>
+                <th style="border: 1px solid #ddd; padding: 4px; text-align: center; width: 16%;">Night<br>
+6:00pm - 11:59pm</th>
+                <th style="border: 1px solid #ddd; padding: 4px; text-align: center; width: 8%;">Total</th>
+                <th style="border: 1px solid #ddd; padding: 4px; text-align: center; width: 8%;">Trend</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+        let previousPredatorTimingTotals = {
+          "Early Morning": 0,
+          Morning: 0,
+          Afternoon: 0,
+          Night: 0,
+        };
+
+        sortedBatches.forEach((batch, index) => {
+          const batchAttacks = allAttacks.filter(
+            (a) =>
+              a.batchId === batch.batchId &&
+              (a.predator_type || "Unknown") === predator,
+          );
+          const timeDistribution = {
+            "Early Morning": 0,
+            Morning: 0,
+            Afternoon: 0,
+            Night: 0,
+          };
+
+          batchAttacks.forEach((attack) => {
+            const hour = attack.attackDate.getHours();
+            if (hour >= 0 && hour < 6) {
+              timeDistribution["Early Morning"]++;
+            } else if (hour >= 6 && hour < 12) {
+              timeDistribution["Morning"]++;
+            } else if (hour >= 12 && hour < 18) {
+              timeDistribution["Afternoon"]++;
+            } else {
+              timeDistribution["Night"]++;
+            }
+          });
+
+          const totalBatchAttacks = batchAttacks.length;
+          const previousTotalTiming = Object.values(
+            previousPredatorTimingTotals,
+          ).reduce((a, b) => a + b, 0);
+
+          // Calculate trend
+          let trendSymbol = "";
+          let trendColor = "";
+          if (
+            index > 0 &&
+            previousTotalTiming > 0 &&
+            totalBatchAttacks !== previousTotalTiming
+          ) {
+            if (totalBatchAttacks > previousTotalTiming) {
+              const percentageChange = (
+                ((totalBatchAttacks - previousTotalTiming) /
+                  previousTotalTiming) *
+                100
+              ).toFixed(1);
+              trendSymbol = `↑ +${percentageChange}%`;
+              trendColor = "#F44336";
+            } else {
+              const percentageChange = (
+                ((previousTotalTiming - totalBatchAttacks) /
+                  previousTotalTiming) *
+                100
+              ).toFixed(1);
+              trendSymbol = `↓ ${percentageChange}%`;
+              trendColor = "#4CAF50";
+            }
+          }
+
+          // Find max count among time periods for this batch
+          const maxTimeCount = Math.max(...Object.values(timeDistribution));
+
+          predatorTimingTablesHTML += `
+              <tr>
+                <td>${batch.batchId}</td>
+                <td style="text-align: center; ${timeDistribution["Early Morning"] === maxTimeCount && maxTimeCount > 0 ? "color: #F44336; font-weight: bold;" : ""}">${timeDistribution["Early Morning"]}</td>
+                <td style="text-align: center; ${timeDistribution["Morning"] === maxTimeCount && maxTimeCount > 0 ? "color: #F44336; font-weight: bold;" : ""}">${timeDistribution["Morning"]}</td>
+                <td style="text-align: center; ${timeDistribution["Afternoon"] === maxTimeCount && maxTimeCount > 0 ? "color: #F44336; font-weight: bold;" : ""}">${timeDistribution["Afternoon"]}</td>
+                <td style="text-align: center; ${timeDistribution["Night"] === maxTimeCount && maxTimeCount > 0 ? "color: #F44336; font-weight: bold;" : ""}">${timeDistribution["Night"]}</td>
+                <td style="text-align: center; font-weight: bold;">${totalBatchAttacks}</td>
+                <td style="text-align: center; color: ${trendColor || "inherit"};">${trendSymbol || "-"}</td>
+              </tr>
+          `;
+
+          previousPredatorTimingTotals = { ...timeDistribution };
+        });
+
+        predatorTimingTablesHTML += `
+            </tbody>
+          </table>
+        `;
+      });
 
       // Load logo
       const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
@@ -5427,80 +6005,84 @@ export default function AdminAnalytics({ navigation }) {
           <style>
             @page {
               size: A4;
-              margin: 0.8in 0.8in 0.8in 0.8in;
+              margin: 0.5in 0.5in 0.5in 0.5in;
             }
             body {
               font-family: Arial, sans-serif;
               margin: 0;
               padding: 0;
+              font-size: 12px;
             }
             .header {
-              margin-bottom: 20px;
+              margin-bottom: 15px;
               border-bottom: 2px solid #133E87;
-              padding-bottom: 15px;
+              padding-bottom: 10px;
             }
             .header-top {
               display: flex;
               align-items: center;
               justify-content: center;
-              margin-bottom: 10px;
+              margin-bottom: 8px;
             }
             .logo {
-              width: 50px;
-              height: 50px;
-              border-radius: 25px;
-              margin-right: 15px;
+              width: 40px;
+              height: 40px;
+              border-radius: 20px;
+              margin-right: 10px;
             }
             .company-name {
-              font-size: 24px;
+              font-size: 20px;
               font-weight: bold;
               color: #133E87;
             }
             .report-title {
-              font-size: 16px;
+              font-size: 14px;
               color: #333;
               text-align: center;
-              margin-bottom: 15px;
+              margin-bottom: 8px;
               font-weight: bold;
             }
             .filter-info {
-              font-size: 12px;
+              font-size: 11px;
               color: #666;
-              margin-bottom: 10px;
+              margin-bottom: 8px;
               text-align: center;
             }
-            .table-container {
-              display: flex;
-              justify-content: center;
-              margin-bottom: 20px;
-            }
             table {
-              width: 300px;
+              width: 100%;
               border-collapse: collapse;
-              margin-bottom: 20px;
-              font-size: 12px;
+              margin-bottom: 15px;
+              font-size: 11px;
             }
             th {
               background-color: #133E87;
               color: white;
-              padding: 8px;
+              padding: 6px;
               text-align: left;
               border: 1px solid #ddd;
               font-weight: bold;
             }
             td {
-              padding: 8px;
+              padding: 6px;
               border: 1px solid #ddd;
               color: #333;
             }
             tr:nth-child(even) {
               background-color: #f9f9f9;
             }
-            .page-number {
-              text-align: center;
-              font-size: 10px;
-              color: #666;
-              margin-top: 10px;
+            .section-title {
+              font-size: 13px;
+              font-weight: bold;
+              color: #133E87;
+              margin-top: 15px;
+              margin-bottom: 10px;
+              border-bottom: 1px solid #ddd;
+              padding-bottom: 5px;
+            }
+            h4 {
+              margin: 10px 0 5px 0;
+              font-size: 12px;
+              color: #333;
             }
           </style>
         </head>
@@ -5514,23 +6096,34 @@ export default function AdminAnalytics({ navigation }) {
             <div class="filter-info">
               Date Range: ${formatDisplayDate(startDateStr)} to ${formatDisplayDate(endDateStr)}<br>
               Report Generated: ${formatReportDateTime()}<br>
-              Total Attacks: ${allAttacks.length}
+              Total Attacks: ${totalAttacks} | Total Mortality: ${totalMortality}
             </div>
           </div>
-          
-          <div class="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Batch</th>
-                  <th style="text-align: center; width: 100px;">Attacks</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${tableRows}
-              </tbody>
-            </table>
-          </div>
+
+          <div class="section-title">Attacks Summary by Batch</div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 15%;">Batch</th>
+                <th style="text-align: center; width: 12%;">Attacks</th>
+                <th style="text-align: center; width: 12%;">Mortality</th>
+                <th style="text-align: center; width: 22%;">Deaths per Attack %</th>
+                <th style="text-align: center; width: 16%;">Trend</th>
+                <th style="text-align: center; width: 18%;">Peak Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+
+          <div class="section-title">Predator Type Per Batch </div>
+          ${predatorPerBatchHTML || "<p>No predator data available.</p>"}
+
+          <div class="section-title">All Predators Attack Timing</div>
+          ${allPredatorsTimingHTML || "<p>No timing data available.</p>"}
+
+          ${predatorTimingTablesHTML || ""}
         </body>
         </html>
       `;
@@ -6469,6 +7062,29 @@ export default function AdminAnalytics({ navigation }) {
         },
       );
 
+      // Fetch all batches from brooderInfo collection and initialize with 0 values
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const brooderSnapshot = await getDocs(brooderInfoRef);
+
+      // Initialize all batches with 0 values
+      brooderSnapshot.docs.forEach((doc) => {
+        const batchId = doc.id;
+        if (!batchSummary[batchId]) {
+          batchSummary[batchId] = {
+            totalDeaths: 0,
+            dog: 0,
+            cat: 0,
+            rat: 0,
+            snake: 0,
+            otherPredator: 0,
+            dehydration: 0,
+            overfeeding: 0,
+            disease: 0,
+            otherCause: 0,
+          };
+        }
+      });
+
       // Create batch summary rows with detailed breakdown
       let batchRows = "";
       let totalDog = 0,
@@ -6481,20 +7097,83 @@ export default function AdminAnalytics({ navigation }) {
         totalDiseaseBreakdown = 0,
         totalOtherCause = 0;
 
-      Object.entries(batchSummary).forEach(([batchId, summary]) => {
+      // Sort batches alphabetically for consistent ordering
+      const sortedBatches = Object.entries(batchSummary).sort(([a], [b]) =>
+        a.localeCompare(b),
+      );
+
+      // Calculate trend for each batch (percentage change from previous total)
+      let previousTotal = 0;
+      sortedBatches.forEach(([batchId, summary], index) => {
+        let trendDisplay = "";
+        let trendColor = "";
+
+        if (index === 0) {
+          // First batch has no trend
+          trendDisplay = "-";
+        } else {
+          const currentTotal = summary.totalDeaths;
+          if (previousTotal === 0) {
+            if (currentTotal > 0) {
+              trendDisplay = "↑";
+              trendColor = "color: #FF6B6B;";
+            } else {
+              trendDisplay = "-";
+            }
+          } else {
+            const percentageChange = (
+              ((currentTotal - previousTotal) / previousTotal) *
+              100
+            ).toFixed(1);
+            if (currentTotal > previousTotal) {
+              trendDisplay = `↑ +${percentageChange}%`;
+              trendColor = "color: #FF6B6B;";
+            } else if (currentTotal < previousTotal) {
+              trendDisplay = `↓ ${percentageChange}%`;
+              trendColor = "color: #4CAF50;";
+            } else {
+              trendDisplay = "→ 0%";
+              trendColor = "color: #999;";
+            }
+          }
+        }
+        previousTotal = summary.totalDeaths;
+
+        // Find the highest value in this batch (excluding total and trend)
+        const batchValues = [
+          summary.dog,
+          summary.cat,
+          summary.rat,
+          summary.snake,
+          summary.otherPredator,
+          summary.dehydration,
+          summary.overfeeding,
+          summary.disease,
+          summary.otherCause,
+        ];
+        const maxValue = Math.max(...batchValues);
+
+        // Helper function to apply red color if this is the max value
+        const getCellStyle = (value) => {
+          return value === maxValue && maxValue > 0
+            ? 'style="text-align: center; color: #F44336;"'
+            : 'style="text-align: center;"';
+        };
+
         batchRows += `
           <tr>
             <td>${batchId}</td>
-            <td style="text-align: center;">${summary.dog}</td>
-            <td style="text-align: center;">${summary.cat}</td>
-            <td style="text-align: center;">${summary.rat}</td>
-            <td style="text-align: center;">${summary.snake}</td>
-            <td style="text-align: center;">${summary.otherPredator}</td>
-            <td style="text-align: center;">${summary.dehydration}</td>
-            <td style="text-align: center;">${summary.overfeeding}</td>
-            <td style="text-align: center;">${summary.disease}</td>
-            <td style="text-align: center;">${summary.otherCause}</td>
+            <td ${getCellStyle(summary.dog)}>${summary.dog}</td>
+            <td ${getCellStyle(summary.cat)}>${summary.cat}</td>
+            <td ${getCellStyle(summary.rat)}>${summary.rat}</td>
+            <td ${getCellStyle(summary.snake)}>${summary.snake}</td>
+            <td ${getCellStyle(summary.otherPredator)}>${summary.otherPredator}</td>
+            <td ${getCellStyle(summary.dehydration)}>${summary.dehydration}</td>
+            <td ${getCellStyle(summary.overfeeding)}>${summary.overfeeding}</td>
+            <td ${getCellStyle(summary.disease)}>${summary.disease}</td>
+            <td ${getCellStyle(summary.otherCause)}>${summary.otherCause}</td>
             <td style="text-align: center;">${summary.totalDeaths}</td>
+            <td style="text-align: center; ${trendColor}">${trendDisplay}</td>
           </tr>
         `;
         totalDog += summary.dog;
@@ -6532,6 +7211,7 @@ export default function AdminAnalytics({ navigation }) {
           <td style="text-align: center;">${totalDiseaseBreakdown}</td>
           <td style="text-align: center;">${totalOtherCause}</td>
           <td style="text-align: center;">${grandTotal}</td>
+          <td></td>
         </tr>
       `;
 
@@ -6657,7 +7337,7 @@ export default function AdminAnalytics({ navigation }) {
               <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
               <div class="company-name">Internet of Tsiken</div>
             </div>
-            <div class="report-title">Cause of Death Analysis Report</div>
+            <div class="report-title">Cause of Death Report</div>
             <div class="filter-info">
               Date Range: ${dateRangeDisplay}<br>
               Report Generated: ${formatReportDateTime()}<br>
@@ -6706,7 +7386,7 @@ export default function AdminAnalytics({ navigation }) {
           </div>
          
           <div class="summary-section">
-            <div class="summary-title">Causes of Death Summary</div>
+            <div class="summary-title">Causes of Death Per Batch</div>
            
           <table>
             <thead>
@@ -6722,6 +7402,7 @@ export default function AdminAnalytics({ navigation }) {
                 <th style="text-align: center;">Disease</th>
                 <th style="text-align: center;">Other Causes</th>
                 <th style="text-align: center;">Total</th>
+                <th style="text-align: center;">Trend</th>
               </tr>
             </thead>
             <tbody>
@@ -6955,6 +7636,7 @@ export default function AdminAnalytics({ navigation }) {
 
       // Track batch summaries
       const batchSummary = {};
+      let allAttacks = []; // Collect all attacks for mortality correlation
 
       // Iterate through each batch and fetch attacks
       for (const batchDoc of batchesSnapshot.docs) {
@@ -7033,6 +7715,15 @@ export default function AdminAnalytics({ navigation }) {
               batchSummary[batchId][category]++;
               batchSummary[batchId].total++;
 
+              // Collect all attack data for mortality correlation
+              allAttacks.push({
+                batchId,
+                predatorType: category,
+                predatorTypeRaw: predatorType,
+                attackDate,
+                ...data,
+              });
+
               totalAttacks++;
             } catch (error) {
               console.warn("Error processing attack date:", error);
@@ -7041,6 +7732,85 @@ export default function AdminAnalytics({ navigation }) {
         } catch (error) {
           console.warn(`Error fetching attacks for batch ${batchId}:`, error);
         }
+      }
+
+      // Fetch mortality records and correlate with attacks
+      const batchMortalityByPredator = {}; // Track attacks with mortality and death counts
+      try {
+        const mortalityRef = collectionGroup(firestoreDb, "records");
+        const mortalitySnapshot = await getDocs(mortalityRef);
+
+        mortalitySnapshot.docs.forEach((doc) => {
+          const data = doc.data();
+          const batchId = data.batchId;
+          const deathCount = data.count || 1;
+
+          if (!batchId) return;
+
+          let mortalityDate;
+          if (data.timestamp?.toDate) {
+            mortalityDate = data.timestamp.toDate();
+          } else if (data.timestamp?.seconds) {
+            mortalityDate = new Date(data.timestamp.seconds * 1000);
+          }
+
+          if (!mortalityDate) return;
+
+          const mortalityDateOnly = new Date(
+            mortalityDate.getFullYear(),
+            mortalityDate.getMonth(),
+            mortalityDate.getDate(),
+          );
+
+          // Match with attacks from same date and predator type
+          const matchingAttacks = allAttacks.filter((attack) => {
+            const attackDateOnly = new Date(
+              attack.attackDate.getFullYear(),
+              attack.attackDate.getMonth(),
+              attack.attackDate.getDate(),
+            );
+            // Normalize both predator types for case-insensitive comparison
+            const attackPredatorNormalized = (attack.predator_type || "Unknown")
+              .toLowerCase()
+              .trim();
+            const mortalityPredatorNormalized = (data.predatorType || "Unknown")
+              .toLowerCase()
+              .trim();
+
+            return (
+              attack.batchId === batchId &&
+              attackDateOnly.getTime() === mortalityDateOnly.getTime() &&
+              attackPredatorNormalized === mortalityPredatorNormalized
+            );
+          });
+
+          // If attacks match, track mortality data for this batch/predator combo
+          if (matchingAttacks.length > 0) {
+            // Use normalized predator type for consistent key matching
+            const key = `${batchId}_${matchingAttacks[0].predatorType}`;
+            if (!batchMortalityByPredator[key]) {
+              batchMortalityByPredator[key] = {
+                uniqueAttackIds: new Set(),
+                deaths: 0,
+              };
+            }
+            // Track unique attack IDs (avoid counting same attack twice)
+            matchingAttacks.forEach((attack) => {
+              const attackId = `${attack.attackDate.getTime()}_${attack.predatorType}`;
+              batchMortalityByPredator[key].uniqueAttackIds.add(attackId);
+            });
+            batchMortalityByPredator[key].deaths += deathCount;
+          }
+        });
+
+        // Convert unique attack sets to counts
+        Object.keys(batchMortalityByPredator).forEach((key) => {
+          const uniqueAttackCount =
+            batchMortalityByPredator[key].uniqueAttackIds.size;
+          batchMortalityByPredator[key].uniqueAttacks = uniqueAttackCount;
+        });
+      } catch (error) {
+        console.warn("Error fetching mortality records:", error);
       }
 
       if (totalAttacks === 0) {
@@ -7053,26 +7823,36 @@ export default function AdminAnalytics({ navigation }) {
         return;
       }
 
+      // Helper function to format percentages without .00 for whole numbers
+      const formatPercentage = (value) => {
+        const numValue = typeof value === "string" ? parseFloat(value) : value;
+        if (numValue === 0) return "0";
+        const rounded = Math.round(numValue * 100) / 100;
+        return Number.isInteger(rounded)
+          ? rounded.toString()
+          : rounded.toFixed(2);
+      };
+
       // Calculate percentages
       const dogPct =
         totalAttacks > 0
-          ? ((predatorCounts.dog / totalAttacks) * 100).toFixed(2)
+          ? formatPercentage((predatorCounts.dog / totalAttacks) * 100)
           : 0;
       const catPct =
         totalAttacks > 0
-          ? ((predatorCounts.cat / totalAttacks) * 100).toFixed(2)
+          ? formatPercentage((predatorCounts.cat / totalAttacks) * 100)
           : 0;
       const ratPct =
         totalAttacks > 0
-          ? ((predatorCounts.rat / totalAttacks) * 100).toFixed(2)
+          ? formatPercentage((predatorCounts.rat / totalAttacks) * 100)
           : 0;
       const snakePct =
         totalAttacks > 0
-          ? ((predatorCounts.snake / totalAttacks) * 100).toFixed(2)
+          ? formatPercentage((predatorCounts.snake / totalAttacks) * 100)
           : 0;
       const otherPct =
         totalAttacks > 0
-          ? ((predatorCounts.other / totalAttacks) * 100).toFixed(2)
+          ? formatPercentage((predatorCounts.other / totalAttacks) * 100)
           : 0;
 
       // Format dates for display
@@ -7113,39 +7893,75 @@ export default function AdminAnalytics({ navigation }) {
         },
       );
 
-      // Create summary table rows
+      // Create summary table rows with highlighting for max count and percentage
+      const counts = [
+        predatorCounts.dog,
+        predatorCounts.cat,
+        predatorCounts.rat,
+        predatorCounts.snake,
+        predatorCounts.other,
+      ];
+      const percentages = [
+        parseFloat(dogPct),
+        parseFloat(catPct),
+        parseFloat(ratPct),
+        parseFloat(snakePct),
+        parseFloat(otherPct),
+      ];
+      const maxCount = Math.max(...counts);
+      const maxPercentage = Math.max(...percentages);
+
       const summaryRows = `
         <tr>
           <td>Dog</td>
-          <td>${predatorCounts.dog}</td>
-          <td>${dogPct}%</td>
+          <td style="text-align: center; ${predatorCounts.dog === maxCount ? "color: #F44336; font-weight: bold;" : ""}">${predatorCounts.dog}</td>
+          <td style="text-align: center; ${parseFloat(dogPct) === maxPercentage ? "color: #F44336; font-weight: bold;" : ""}">${dogPct}%</td>
         </tr>
         <tr>
           <td>Cat</td>
-          <td>${predatorCounts.cat}</td>
-          <td>${catPct}%</td>
+          <td style="text-align: center; ${predatorCounts.cat === maxCount ? "color: #F44336; font-weight: bold;" : ""}">${predatorCounts.cat}</td>
+          <td style="text-align: center; ${parseFloat(catPct) === maxPercentage ? "color: #F44336; font-weight: bold;" : ""}">${catPct}%</td>
         </tr>
         <tr>
           <td>Snake</td>
-          <td>${predatorCounts.snake}</td>
-          <td>${snakePct}%</td>
+          <td style="text-align: center; ${predatorCounts.snake === maxCount ? "color: #F44336; font-weight: bold;" : ""}">${predatorCounts.snake}</td>
+          <td style="text-align: center; ${parseFloat(snakePct) === maxPercentage ? "color: #F44336; font-weight: bold;" : ""}">${snakePct}%</td>
         </tr>
         <tr>
           <td>Rat</td>
-          <td>${predatorCounts.rat}</td>
-          <td>${ratPct}%</td>
+          <td style="text-align: center; ${predatorCounts.rat === maxCount ? "color: #F44336; font-weight: bold;" : ""}">${predatorCounts.rat}</td>
+          <td style="text-align: center; ${parseFloat(ratPct) === maxPercentage ? "color: #F44336; font-weight: bold;" : ""}">${ratPct}%</td>
         </tr>
         <tr>
           <td>Other</td>
-          <td>${predatorCounts.other}</td>
-          <td>${otherPct}%</td>
+          <td style="text-align: center; ${predatorCounts.other === maxCount ? "color: #F44336; font-weight: bold;" : ""}">${predatorCounts.other}</td>
+          <td style="text-align: center; ${parseFloat(otherPct) === maxPercentage ? "color: #F44336; font-weight: bold;" : ""}">${otherPct}%</td>
         </tr>
         <tr style="background-color: #e8e8e8; font-weight: bold;">
           <td>TOTAL</td>
-          <td>${totalAttacks}</td>
-          <td>100%</td>
+          <td style="text-align: center;">${totalAttacks}</td>
+          <td style="text-align: center;">100%</td>
         </tr>
       `;
+
+      // Fetch all batches from brooderInfo to ensure every batch is included
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const brooderSnapshot = await getDocs(brooderInfoRef);
+      const allBatchIds = brooderSnapshot.docs.map((doc) => doc.id).sort();
+
+      // Initialize missing batches in batchSummary
+      allBatchIds.forEach((batchId) => {
+        if (!batchSummary[batchId]) {
+          batchSummary[batchId] = {
+            dog: 0,
+            cat: 0,
+            rat: 0,
+            snake: 0,
+            other: 0,
+            total: 0,
+          };
+        }
+      });
 
       // Create batch summary table rows
       let batchTableRows = "";
@@ -7156,42 +7972,194 @@ export default function AdminAnalytics({ navigation }) {
         totalOther = 0,
         grandTotal = 0;
 
-      Object.entries(batchSummary)
-        .sort(([batchA], [batchB]) => batchA.localeCompare(batchB))
-        .forEach(([batchId, summary]) => {
-          if (summary.total > 0) {
-            batchTableRows += `
-              <tr>
-                <td>${batchId}</td>
-                <td>${summary.dog}</td>
-                <td>${summary.cat}</td>
-                <td>${summary.rat}</td>
-                <td>${summary.snake}</td>
-                <td>${summary.other}</td>
-                <td>${summary.total}</td>
-              </tr>
-            `;
-            totalDog += summary.dog;
-            totalCat += summary.cat;
-            totalRat += summary.rat;
-            totalSnake += summary.snake;
-            totalOther += summary.other;
-            grandTotal += summary.total;
+      const batchEntries = Object.entries(batchSummary).sort(
+        ([batchA], [batchB]) => batchA.localeCompare(batchB),
+      );
+
+      batchEntries.forEach(([batchId, summary], index) => {
+        // Find max predator count for this batch to highlight in red
+        const counts = [
+          summary.dog,
+          summary.cat,
+          summary.rat,
+          summary.snake,
+          summary.other,
+        ];
+        const maxCount = Math.max(...counts);
+
+        // Calculate trend
+        let trendHtml = "—";
+        if (index > 0) {
+          const prevBatch = batchEntries[index - 1][1];
+          const prevTotal = prevBatch.total;
+          if (prevTotal > 0 && summary.total > 0) {
+            const percentChange = (
+              ((summary.total - prevTotal) / prevTotal) *
+              100
+            ).toFixed(1);
+            if (summary.total > prevTotal) {
+              trendHtml = `<span style="color: #F44336;">↑ +${percentChange}%</span>`;
+            } else if (summary.total < prevTotal) {
+              const downPercent = Math.abs(percentChange);
+              trendHtml = `<span style="color: #4CAF50;">↓ -${downPercent}%</span>`;
+            } else {
+              trendHtml = "→ 0%";
+            }
+          } else if (prevTotal === 0 && summary.total > 0) {
+            trendHtml = `<span style="color: #F44336;">↑ New</span>`;
+          } else if (prevTotal > 0 && summary.total === 0) {
+            trendHtml = `<span style="color: #4CAF50;">↓ -100%</span>`;
           }
-        });
+        }
+
+        batchTableRows += `
+          <tr>
+            <td>${batchId}</td>
+            <td style="text-align: center; ${summary.dog === maxCount && maxCount > 0 ? "color: #F44336; font-weight: bold;" : ""}">${summary.dog}</td>
+            <td style="text-align: center; ${summary.cat === maxCount && maxCount > 0 ? "color: #F44336; font-weight: bold;" : ""}">${summary.cat}</td>
+            <td style="text-align: center; ${summary.rat === maxCount && maxCount > 0 ? "color: #F44336; font-weight: bold;" : ""}">${summary.rat}</td>
+            <td style="text-align: center; ${summary.snake === maxCount && maxCount > 0 ? "color: #F44336; font-weight: bold;" : ""}">${summary.snake}</td>
+            <td style="text-align: center; ${summary.other === maxCount && maxCount > 0 ? "color: #F44336; font-weight: bold;" : ""}">${summary.other}</td>
+            <td style="text-align: center;">${summary.total}</td>
+            <td style="text-align: center;">${trendHtml}</td>
+          </tr>
+        `;
+        totalDog += summary.dog;
+        totalCat += summary.cat;
+        totalRat += summary.rat;
+        totalSnake += summary.snake;
+        totalOther += summary.other;
+        grandTotal += summary.total;
+      });
 
       // Add batch total row
       batchTableRows += `
         <tr style="background-color: #e8e8e8; font-weight: bold;">
           <td>TOTAL</td>
-          <td>${totalDog}</td>
-          <td>${totalCat}</td>
-          <td>${totalRat}</td>
-          <td>${totalSnake}</td>
-          <td>${totalOther}</td>
-          <td>${grandTotal}</td>
+          <td style="text-align: center;">${totalDog}</td>
+          <td style="text-align: center;">${totalCat}</td>
+          <td style="text-align: center;">${totalRat}</td>
+          <td style="text-align: center;">${totalSnake}</td>
+          <td style="text-align: center;">${totalOther}</td>
+          <td style="text-align: center;">${grandTotal}</td>
+          <td style="text-align: center;">—</td>
         </tr>
       `;
+
+      // Generate per-batch mortality detail tables
+      let batchDetailTablesHtml = "";
+
+      // Initialize batchMortalityByPredator for all batch/predator combinations
+      Object.entries(batchSummary).forEach(([batchId, summary]) => {
+        ["dog", "cat", "rat", "snake", "other"].forEach((predator) => {
+          const key = `${batchId}_${predator}`;
+          if (!batchMortalityByPredator[key]) {
+            batchMortalityByPredator[key] = {
+              uniqueAttacks: 0,
+              deaths: 0,
+            };
+          }
+        });
+      });
+
+      const predatorTypes = ["dog", "cat", "rat", "snake", "other"];
+
+      Object.entries(batchSummary)
+        .sort(([batchA], [batchB]) => batchA.localeCompare(batchB))
+        .forEach(([batchId, summary]) => {
+          let detailTableRows = "";
+          let totalWithMortality = 0,
+            totalOnlyAttacks = 0,
+            totalCombined = 0,
+            totalMortalityDeaths = 0;
+
+          // Calculate all percentages to find the max
+          const percentages = [];
+          predatorTypes.forEach((predator) => {
+            const totalPredatorAttacks = summary[predator] || 0;
+            const pct =
+              summary.total > 0
+                ? (totalPredatorAttacks / summary.total) * 100
+                : 0;
+            percentages.push(pct);
+          });
+          const maxPercentage = Math.max(...percentages);
+
+          predatorTypes.forEach((predator, index) => {
+            // Count attacks that led to mortality
+            const mortalityKey = `${batchId}_${predator}`;
+            const mortalityData = batchMortalityByPredator[mortalityKey] || {
+              uniqueAttacks: 0,
+              deaths: 0,
+            };
+            const withMortality = mortalityData.uniqueAttacks || 0;
+            const deaths = mortalityData.deaths || 0;
+
+            // Only attacks = total attacks for this predator - attacks with mortality
+            const totalPredatorAttacks = summary[predator] || 0;
+            const onlyAttacks = totalPredatorAttacks - withMortality;
+            const percentage =
+              summary.total > 0
+                ? (totalPredatorAttacks / summary.total) * 100
+                : 0;
+            const isMaxPercentage =
+              Math.abs(percentage - maxPercentage) < 0.01 &&
+              totalPredatorAttacks > 0;
+            const redStyle = isMaxPercentage
+              ? "color: #F44336; font-weight: bold;"
+              : "";
+
+            detailTableRows += `
+              <tr>
+                <td style="text-align: left;">${predator.charAt(0).toUpperCase() + predator.slice(1)}</td>
+                <td style="text-align: center;">${withMortality}</td>
+                <td style="text-align: center;">${deaths}</td>                
+                <td style="text-align: center;">${onlyAttacks}</td>
+                <td style="text-align: center;">${totalPredatorAttacks}</td>
+                <td style="text-align: center; ${redStyle}">${formatPercentage(percentage)}%</td>
+              </tr>
+            `;
+            totalWithMortality += withMortality;
+            totalOnlyAttacks += onlyAttacks;
+            totalCombined += totalPredatorAttacks;
+            totalMortalityDeaths += deaths;
+          });
+
+          // Generate table for all batches with attacks
+          if (summary.total > 0) {
+            detailTableRows += `
+              <tr style="background-color: #e8e8e8; font-weight: bold;">
+                <td>TOTAL</td>
+                <td style="text-align: center;">${totalWithMortality}</td>
+                <td style="text-align: center;">${totalOnlyAttacks}</td>
+                <td style="text-align: center;">${totalCombined}</td>
+                <td style="text-align: center;">${totalMortalityDeaths}</td>
+                <td style="text-align: center;">100%</td>
+              </tr>
+            `;
+
+            batchDetailTablesHtml += `
+              <div style="margin-top: 20px; page-break-inside: avoid;">
+                <h3 style="color: #133E87; font-size: 13px; margin-bottom: 10px;">${batchId} - Predator Attacks with Mortality Breakdown</h3>
+                <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin: 10px 0;">
+                  <thead>
+                    <tr style="background-color: #f0f0f0;">
+                      <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Predator</th>
+                      <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Fatal Attacks</th>
+                      <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Deaths</th>                      
+                      <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Non‑Fatal Attacks</th>
+                      <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Total Attacks</th>
+                      <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Attack Distribution (%)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${detailTableRows}
+                  </tbody>
+                </table>
+              </div>
+            `;
+          }
+        });
 
       // Generate HTML
       const htmlContent = `
@@ -7246,7 +8214,6 @@ export default function AdminAnalytics({ navigation }) {
             }
             .summary-section {
               margin-bottom: 20px;
-              background-color: #f9f9f9;
               padding: 10px;
               border-radius: 5px;
             }
@@ -7353,20 +8320,35 @@ export default function AdminAnalytics({ navigation }) {
             </div>
           </div>
 
-         
+          <div class="summary-section" style="margin-top: 30px; page-break-inside: avoid;">
+            <div class="summary-title">Summary of All Batches</div>
+             <table style="width: 125%; margin: 15px 0; table-layout: fixed;">
+            <thead>
+              <tr>
+                <th style="width: 33.33%;">Predator Type</th>
+                <th style="width: 33.33%; text-align: center;">Number of Attacks</th>
+                <th style="width: 33.33%; text-align: center;">Percentage</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${summaryRows}
+            </tbody>
+          </table>
+          </div>
 
           <div class="summary-section" style="margin-top: 30px; page-break-inside: avoid;">
             <div class="summary-title">Attacks Per Batch</div>
-            <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin: 15px auto;">
+            <table style="width: 150%; border-collapse: collapse; font-size: 12px; margin: 15px 0;">
               <thead>
                 <tr style="background-color: #f0f0f0;">
                   <th style="border: 1px solid #ddd; padding: 8px;">Batch ID</th>
-                  <th style="border: 1px solid #ddd; padding: 8px;">Dog</th>
-                  <th style="border: 1px solid #ddd; padding: 8px;">Cat</th>
-                  <th style="border: 1px solid #ddd; padding: 8px;">Rat</th>
-                  <th style="border: 1px solid #ddd; padding: 8px;">Snake</th>
-                  <th style="border: 1px solid #ddd; padding: 8px;">Other</th>
-                  <th style="border: 1px solid #ddd; padding: 8px;">Total</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Dog</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Cat</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Rat</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Snake</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Other</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Total</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Trend</th>
                 </tr>
               </thead>
               <tbody>
@@ -7375,21 +8357,8 @@ export default function AdminAnalytics({ navigation }) {
             </table>
             
      </div>
-     <div class="summary-section" style="margin-top: 30px; page-break-inside: avoid;">
-            <div class="summary-title">Summary</div>
-             <table style="margin: 15px auto;">
-            <thead>
-              <tr>
-                <th>Predator Type</th>
-                <th>Count</th>
-                <th>Percentage</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${summaryRows}
-            </tbody>
-          </table>
-          </div>
+
+     ${batchDetailTablesHtml}
 
    
 
