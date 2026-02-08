@@ -327,3 +327,29 @@ curl -s http://localhost:5000/status
 5. Live stream with YOLO detection will appear
 
 **Note:** Make sure your phone and Raspberry Pi are on the same WiFi network for best performance.
+
+Camera commands
+
+Check status: 
+sudo systemctl status camera-stream
+
+View logs:
+sudo journalctl -u camera-stream -f
+
+Stop service:
+sudo systemctl stop camera-stream
+
+Start service
+sudo systemctl start camera-stream
+
+Restart service:
+sudo systemctl restart camera-stream
+
+Disable auto-start:
+sudo systemctl disable camera-stream
+
+Disable auto-start:
+sudo systemctl enable camera-stream
+
+verify:
+sudo systemctl is-enabled camera-stream
