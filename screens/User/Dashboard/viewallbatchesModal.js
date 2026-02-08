@@ -282,19 +282,6 @@ export default function ViewAllBatchesModal({
     }
   }, [visible, batches, preSelectedBatchId]);
 
-  // Auto-select the most recent batch if none is selected
-  React.useEffect(() => {
-    if (
-      visible &&
-      recalculatedBatches.length > 0 &&
-      (selectedBatchIndex === null ||
-        selectedBatchIndex >= recalculatedBatches.length)
-    ) {
-      // Select the last batch (most recent)
-      onSelectBatch(recalculatedBatches.length - 1);
-    }
-  }, [visible, recalculatedBatches, selectedBatchIndex, onSelectBatch]);
-
   // Scroll to the selected batch when modal opens or selection changes
   React.useEffect(() => {
     if (
@@ -446,6 +433,12 @@ export default function ViewAllBatchesModal({
                   const isSelected = idx === selectedBatchIndex;
                   const isHighlighted = batch.id === highlightedBatchId;
 
+                  // Calculate if batch is active (has chicks AND hasn't reached harvest)
+                  const chicksNum = parseInt(displayChicks, 10) || 0;
+                  const daysNum = parseInt(displayDays, 10) || 0;
+                  const harvestNum = parseInt(displayHarvest, 10) || 0;
+                  const isActiveBatch = chicksNum > 0 && daysNum < harvestNum;
+
                   return (
                     <View
                       key={idx}
@@ -495,11 +488,24 @@ export default function ViewAllBatchesModal({
                       </TouchableOpacity>
                       <View style={styles.actionButtons}>
                         <TouchableOpacity
-                          style={styles.deleteButton}
-                          onPress={() => handleDeletePress(idx)}
-                          activeOpacity={0.7}
+                          style={[
+                            styles.deleteButton,
+                            !isActiveBatch && styles.deleteButtonDisabled,
+                          ]}
+                          onPress={() =>
+                            isActiveBatch && handleDeletePress(idx)
+                          }
+                          disabled={!isActiveBatch}
+                          activeOpacity={isActiveBatch ? 0.7 : 1}
                         >
-                          <Text style={styles.deleteButtonText}>Delete</Text>
+                          <Text
+                            style={[
+                              styles.deleteButtonText,
+                              !isActiveBatch && styles.deleteButtonTextDisabled,
+                            ]}
+                          >
+                            Delete
+                          </Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -686,6 +692,13 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "700",
     fontSize: 12,
+  },
+  deleteButtonDisabled: {
+    backgroundColor: "#d1d5db",
+    opacity: 0.6,
+  },
+  deleteButtonTextDisabled: {
+    color: "#6b7280",
   },
   closeButton: {
     backgroundColor: "#154b99",

@@ -272,6 +272,8 @@ export default function QuickOverviewSetup({ navigation }) {
   const [editingBatchIndex, setEditingBatchIndex] = useState(null);
   const [batches, setBatches] = useState([]);
   const [selectedBatchIndex, setSelectedBatchIndex] = useState(null);
+  const [viewAllPreselectedBatchId, setViewAllPreselectedBatchId] =
+    useState(null);
   const [showMortalityModal, setShowMortalityModal] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
@@ -316,21 +318,96 @@ export default function QuickOverviewSetup({ navigation }) {
       setupSensorMonitoring();
 
       // Fetch all batches on initial load to populate the batches array
-      await fetchAllBatchesFromFirestore();
+      const allBatches = await fetchBatches();
+      setBatches(allBatches || []);
+      setHasBatchData(allBatches && allBatches.length > 0);
+      console.log(
+        "[App] Batches fetched on mount:",
+        allBatches ? allBatches.length : 0,
+      );
 
-      // Also fetch and display the latest batch immediately
-      const latestBatch = await getLatestBatch();
-      if (latestBatch) {
-        await setSelectedBatch(latestBatch.id);
-        updateBrooderCardFromBatch(
-          latestBatch,
-          setChicksCount,
-          setDaysCount,
-          setHarvestDays,
-          setBrooderInfo,
-          setHasBatchData,
+      // Check if there's a previously selected batch
+      const previouslySelectedBatchId = await getSelectedBatch();
+
+      if (previouslySelectedBatchId) {
+        // Restore previously selected batch
+        console.log(
+          "[App] Restoring previously selected batch:",
+          previouslySelectedBatchId,
         );
-        console.log("[App] Latest batch loaded on mount:", latestBatch.id);
+        const previousBatch = await getBatchById(previouslySelectedBatchId);
+        if (previousBatch) {
+          updateBrooderCardFromBatch(
+            previousBatch,
+            setChicksCount,
+            setDaysCount,
+            setHarvestDays,
+            setBrooderInfo,
+            setHasBatchData,
+          );
+          const restoredIndex = allBatches.findIndex(
+            (batch) => batch.id === previouslySelectedBatchId,
+          );
+          if (restoredIndex !== -1) {
+            setSelectedBatchIndex(restoredIndex);
+          }
+          console.log(
+            "[App] Restored previously selected batch:",
+            previouslySelectedBatchId,
+          );
+        } else {
+          // Previously selected batch was deleted, select latest
+          console.log(
+            "[App] Previously selected batch not found, selecting latest",
+          );
+          let latestBatch = null;
+          if (allBatches && allBatches.length > 0) {
+            latestBatch = allBatches[0];
+          } else {
+            latestBatch = await getLatestBatch();
+          }
+
+          if (latestBatch) {
+            await setSelectedBatch(latestBatch.id);
+            updateBrooderCardFromBatch(
+              latestBatch,
+              setChicksCount,
+              setDaysCount,
+              setHarvestDays,
+              setBrooderInfo,
+              setHasBatchData,
+            );
+            if (allBatches.length > 0 && latestBatch.id === allBatches[0].id) {
+              setSelectedBatchIndex(0);
+            }
+            console.log("[App] Latest batch loaded on mount:", latestBatch.id);
+          }
+        }
+      } else {
+        // No previous selection, select the latest batch
+        console.log("[App] No previous selection, selecting latest batch");
+        let latestBatch = null;
+        if (allBatches && allBatches.length > 0) {
+          latestBatch = allBatches[0];
+        } else {
+          latestBatch = await getLatestBatch();
+        }
+
+        if (latestBatch) {
+          await setSelectedBatch(latestBatch.id);
+          updateBrooderCardFromBatch(
+            latestBatch,
+            setChicksCount,
+            setDaysCount,
+            setHarvestDays,
+            setBrooderInfo,
+            setHasBatchData,
+          );
+          if (allBatches.length > 0 && latestBatch.id === allBatches[0].id) {
+            setSelectedBatchIndex(0);
+          }
+          console.log("[App] Latest batch loaded on mount:", latestBatch.id);
+        }
       }
 
       // Set today's date
@@ -367,6 +444,7 @@ export default function QuickOverviewSetup({ navigation }) {
   /**
    * When Home screen comes into focus, refresh the selected batch from Firestore
    * This ensures data is always fresh when returning from other screens
+   * IMPORTANT: Does NOT change the selected batch - just refreshes its data
    */
   useFocusEffect(
     React.useCallback(() => {
@@ -374,19 +452,28 @@ export default function QuickOverviewSetup({ navigation }) {
 
       const refreshSelectedBatch = async () => {
         try {
-          // Get selected batch ID from AsyncStorage
+          // Re-fetch all batches to ensure the array is fresh
+          const allBatches = await fetchBatches();
+          setBatches(allBatches || []);
+          setHasBatchData(allBatches && allBatches.length > 0);
+          console.log(
+            "[ScreenFocus] Batches refreshed:",
+            allBatches ? allBatches.length : 0,
+          );
+
+          // Get the currently selected batch ID from AsyncStorage
           const selectedBatchId = await getSelectedBatch();
 
           if (selectedBatchId) {
             console.log(
-              "[ScreenFocus] Restoring selected batch:",
+              "[ScreenFocus] Refreshing selected batch:",
               selectedBatchId,
             );
-            // Fetch fresh batch from Firestore
+            // Fetch fresh batch data from Firestore
             const freshBatch = await getBatchById(selectedBatchId);
 
             if (freshBatch) {
-              // Batch exists, update display
+              // Batch exists, update display with fresh data
               updateBrooderCardFromBatch(
                 freshBatch,
                 setChicksCount,
@@ -395,22 +482,25 @@ export default function QuickOverviewSetup({ navigation }) {
                 setBrooderInfo,
                 setHasBatchData,
               );
-
-              // Fetch all batches to populate the array
-              const allBatches = await fetchBatches();
-              setBatches(allBatches || []);
+              const refreshedIndex = allBatches.findIndex(
+                (batch) => batch.id === selectedBatchId,
+              );
+              if (refreshedIndex !== -1) {
+                setSelectedBatchIndex(refreshedIndex);
+              }
 
               console.log(
                 "[ScreenFocus] Refreshed selected batch:",
                 selectedBatchId,
               );
             } else {
-              // Selected batch deleted, fallback to latest
+              // Selected batch was deleted, fallback to latest
               console.log(
-                "[ScreenFocus] Selected batch not found, falling back to latest",
+                "[ScreenFocus] Selected batch was deleted, falling back to latest",
               );
-              const latestBatch = await getLatestBatch();
-              if (latestBatch) {
+              await setSelectedBatch(null);
+              if (allBatches && allBatches.length > 0) {
+                const latestBatch = allBatches[0];
                 await setSelectedBatch(latestBatch.id);
                 updateBrooderCardFromBatch(
                   latestBatch,
@@ -420,24 +510,24 @@ export default function QuickOverviewSetup({ navigation }) {
                   setBrooderInfo,
                   setHasBatchData,
                 );
-                const allBatches = await fetchBatches();
-                setBatches(allBatches || []);
+                console.log(
+                  "[ScreenFocus] Switched to latest batch:",
+                  latestBatch.id,
+                );
               } else {
-                // No latest batch either, clear everything
-                console.log("[ScreenFocus] No batches available, clearing all");
-                await setSelectedBatch(null);
+                // No batches at all
+                console.log("[ScreenFocus] No batches available, resetting UI");
                 setChicksCount("0");
                 setDaysCount("0");
                 setHarvestDays("0");
                 setHasBatchData(false);
-                setBatches([]);
               }
             }
           } else {
-            // No selected batch, fetch latest
-            console.log("[ScreenFocus] No selected batch, fetching latest");
-            const latestBatch = await getLatestBatch();
-            if (latestBatch) {
+            // No batch selected (shouldn't happen after initialization, but handle it)
+            console.log("[ScreenFocus] No batch selected, selecting latest");
+            if (allBatches && allBatches.length > 0) {
+              const latestBatch = allBatches[0];
               await setSelectedBatch(latestBatch.id);
               updateBrooderCardFromBatch(
                 latestBatch,
@@ -447,9 +537,10 @@ export default function QuickOverviewSetup({ navigation }) {
                 setBrooderInfo,
                 setHasBatchData,
               );
-              const allBatches = await fetchBatches();
-              setBatches(allBatches || []);
-              console.log("[ScreenFocus] Latest batch loaded:", latestBatch.id);
+              console.log(
+                "[ScreenFocus] Selected latest batch:",
+                latestBatch.id,
+              );
             } else {
               // No batches at all
               console.log("[ScreenFocus] No batches available, resetting UI");
@@ -457,7 +548,6 @@ export default function QuickOverviewSetup({ navigation }) {
               setDaysCount("0");
               setHarvestDays("0");
               setHasBatchData(false);
-              setBatches([]);
             }
           }
         } catch (error) {
@@ -475,33 +565,69 @@ export default function QuickOverviewSetup({ navigation }) {
    * This keeps selectedBatchIndex in sync with the actual batch ID being displayed
    */
   useEffect(() => {
-    if (batches.length === 0 && !hasBatchData) {
-      // Only reset if we truly have no data
-      console.log("[SyncIndex] No batches and no batch data, resetting UI");
-      setChicksCount("0");
-      setDaysCount("0");
-      setHarvestDays("0");
-      setSelectedBatchIndex(null);
-    } else if (batches.length > 0 && chicksCount !== "0") {
-      // Find the batch that matches current display data
-      const currentBatchIndex = batches.findIndex(
-        (batch) =>
-          String(batch.chicksCount) === chicksCount &&
-          String(batch.daysCount) === daysCount &&
-          String(batch.harvestDays) === harvestDays,
-      );
+    let isActive = true;
 
-      if (currentBatchIndex !== -1) {
-        console.log(
-          "[SyncIndex] Found batch at index",
-          currentBatchIndex,
-          "id:",
-          batches[currentBatchIndex].id,
-        );
-        setSelectedBatchIndex(currentBatchIndex);
+    const syncSelectedBatchIndex = async () => {
+      if (!isActive) {
+        return;
       }
-    }
-  }, [batches]);
+
+      if (batches.length === 0 && !hasBatchData) {
+        // Only reset if we truly have no data
+        console.log("[SyncIndex] No batches and no batch data, resetting UI");
+        setChicksCount("0");
+        setDaysCount("0");
+        setHarvestDays("0");
+        setSelectedBatchIndex(null);
+        return;
+      }
+
+      if (batches.length === 0) {
+        return;
+      }
+
+      const selectedBatchId = await getSelectedBatch();
+      if (!isActive) {
+        return;
+      }
+
+      if (selectedBatchId) {
+        const indexById = batches.findIndex(
+          (batch) => batch.id === selectedBatchId,
+        );
+        if (indexById !== -1) {
+          setSelectedBatchIndex(indexById);
+          return;
+        }
+      }
+
+      if (chicksCount !== "0") {
+        // Fall back to matching current display data
+        const currentBatchIndex = batches.findIndex(
+          (batch) =>
+            String(batch.chicksCount) === chicksCount &&
+            String(batch.daysCount) === daysCount &&
+            String(batch.harvestDays) === harvestDays,
+        );
+
+        if (currentBatchIndex !== -1) {
+          console.log(
+            "[SyncIndex] Found batch at index",
+            currentBatchIndex,
+            "id:",
+            batches[currentBatchIndex].id,
+          );
+          setSelectedBatchIndex(currentBatchIndex);
+        }
+      }
+    };
+
+    syncSelectedBatchIndex();
+
+    return () => {
+      isActive = false;
+    };
+  }, [batches, hasBatchData, chicksCount, daysCount, harvestDays]);
 
   const handleLogout = async () => {
     await AsyncStorage.clear(); // 🔥 important
@@ -1074,8 +1200,73 @@ export default function QuickOverviewSetup({ navigation }) {
 
   const handleViewAllBatches = async () => {
     try {
+      console.log("[ViewAllBatches] Opening batches modal");
+
       // Refresh all batches from Firestore when opening modal
-      await fetchAllBatchesFromFirestore();
+      const refreshedBatches = await fetchAllBatchesFromFirestore();
+
+      // Get the currently selected batch ID from AsyncStorage
+      const currentSelectedBatchId = await getSelectedBatch();
+
+      // Find the index of the currently selected batch in the refreshed list
+      let currentBatchIndex = null;
+      let preselectedBatchId = null;
+      if (
+        currentSelectedBatchId &&
+        refreshedBatches &&
+        refreshedBatches.length > 0
+      ) {
+        currentBatchIndex = refreshedBatches.findIndex(
+          (batch) => batch.id === currentSelectedBatchId,
+        );
+        if (currentBatchIndex !== -1) {
+          preselectedBatchId = currentSelectedBatchId;
+        }
+        console.log(
+          "[ViewAllBatches] Current batch ID:",
+          currentSelectedBatchId,
+          "Index:",
+          currentBatchIndex,
+        );
+      }
+
+      // If we found the batch, set the selectedBatchIndex before opening modal
+      if (currentBatchIndex !== -1 && currentBatchIndex !== null) {
+        setSelectedBatchIndex(currentBatchIndex);
+        console.log(
+          "[ViewAllBatches] Set selectedBatchIndex to:",
+          currentBatchIndex,
+        );
+      } else {
+        // If not found, check if we have a displayed batch and find its index
+        console.log(
+          "[ViewAllBatches] Current batch not found, checking displayed batch",
+        );
+        if (
+          chicksCount !== "0" &&
+          refreshedBatches &&
+          refreshedBatches.length > 0
+        ) {
+          const displayedBatchIndex = refreshedBatches.findIndex(
+            (batch) =>
+              String(batch.chicksCount) === chicksCount &&
+              String(batch.daysCount) === daysCount &&
+              String(batch.harvestDays) === harvestDays,
+          );
+          if (displayedBatchIndex !== -1) {
+            setSelectedBatchIndex(displayedBatchIndex);
+            preselectedBatchId = refreshedBatches[displayedBatchIndex].id;
+            console.log(
+              "[ViewAllBatches] Set selectedBatchIndex to displayed batch:",
+              displayedBatchIndex,
+            );
+          }
+        }
+      }
+
+      setViewAllPreselectedBatchId(preselectedBatchId);
+
+      // Open modal after batches are loaded and index is set
       setShowBatchesModal(true);
     } catch (error) {
       console.error("[ViewAllBatches] Error:", error);
@@ -1470,14 +1661,57 @@ export default function QuickOverviewSetup({ navigation }) {
 
   const handleCloseMortalityModal = async () => {
     setShowMortalityModal(false);
-    // Refresh batches and latest batch after reporting mortality
+    // Only refresh the batches list, don't overwrite selected batch display
+    // (handleMortalitySuccess already refreshed the selected batch with correct age)
     await fetchAllBatchesFromFirestore();
-    await fetchLatestBatch();
   };
 
-  const handleMortalitySuccess = (batchNumber) => {
-    setToastMessage(`Mortality reported for Batch ${batchNumber}`);
-    setShowToast(true);
+  const handleMortalitySuccess = async (batchNumber) => {
+    try {
+      // Refresh the currently selected batch after mortality is reported
+      const selectedBatchId = await getSelectedBatch();
+
+      if (selectedBatchId) {
+        // Fetch fresh batch data from Firestore
+        const freshBatch = await getBatchById(selectedBatchId);
+
+        if (freshBatch) {
+          // Update brooder card with fresh batch data (age will be recalculated)
+          updateBrooderCardFromBatch(
+            freshBatch,
+            setChicksCount,
+            setDaysCount,
+            setHarvestDays,
+            setBrooderInfo,
+            setHasBatchData,
+          );
+
+          // Refresh batches array
+          const refreshedBatches = await fetchBatches();
+          setBatches(refreshedBatches || []);
+
+          // Update selectedBatchIndex to match the refreshed batch
+          const updatedIndex = (refreshedBatches || []).findIndex(
+            (batch) => batch.id === selectedBatchId,
+          );
+          if (updatedIndex !== -1) {
+            setSelectedBatchIndex(updatedIndex);
+          }
+
+          console.log(
+            "[MortalitySuccess] Refreshed batch after mortality report:",
+            selectedBatchId,
+          );
+        }
+      }
+
+      setToastMessage(`Mortality reported for Batch ${batchNumber}`);
+      setShowToast(true);
+    } catch (error) {
+      console.error("[MortalitySuccess] Error refreshing batch:", error);
+      setToastMessage(`Mortality reported for Batch ${batchNumber}`);
+      setShowToast(true);
+    }
   };
 
   // Swipe gesture handler - swipe left to go to Control screen
@@ -1658,11 +1892,22 @@ export default function QuickOverviewSetup({ navigation }) {
             {/* Report Mortality Button - Centered Below */}
             <View style={styles.mortalityButtonContainer}>
               <TouchableOpacity
-                style={styles.mortalityBtn}
+                style={[
+                  styles.mortalityBtn,
+                  chicksCount === "0" && styles.mortalityBtnDisabled,
+                ]}
                 activeOpacity={0.9}
                 onPress={handleOpenMortalityModal}
+                disabled={chicksCount === "0"}
               >
-                <Text style={styles.mortalityBtnText}>Report Mortality</Text>
+                <Text
+                  style={[
+                    styles.mortalityBtnText,
+                    chicksCount === "0" && styles.mortalityBtnTextDisabled,
+                  ]}
+                >
+                  Report Mortality
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -1724,12 +1969,7 @@ export default function QuickOverviewSetup({ navigation }) {
               visible={showBatchesModal}
               batches={batches}
               selectedBatchIndex={selectedBatchIndex}
-              preSelectedBatchId={
-                selectedBatchIndex !== null &&
-                selectedBatchIndex < batches.length
-                  ? batches[selectedBatchIndex].id
-                  : null
-              }
+              preSelectedBatchId={viewAllPreselectedBatchId}
               onSelectBatch={handleSelectBatch}
               onDeleteBatch={handleDeleteBatch}
               onEditBatch={handleEditBatch}
@@ -2288,5 +2528,13 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "700",
     fontSize: 16,
+  },
+  mortalityBtnDisabled: {
+    backgroundColor: "#cccccc",
+    opacity: 0.5,
+    shadowOpacity: 0.1,
+  },
+  mortalityBtnTextDisabled: {
+    color: "#666666",
   },
 });

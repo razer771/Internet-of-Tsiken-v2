@@ -303,6 +303,7 @@ export default function ReportMortalityModal({
   const [predatorError, setPredatorError] = useState("");
   const [countError, setCountError] = useState("");
   const [dateError, setDateError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Track dateOfDeath changes
   useEffect(() => {
@@ -354,6 +355,7 @@ export default function ReportMortalityModal({
       setCountError("");
       setDateError("");
       setMaxChicksCount(0);
+      setIsSubmitting(false);
     }
     prevVisibleRef.current = visible;
   }, [visible]);
@@ -500,6 +502,12 @@ export default function ReportMortalityModal({
   };
 
   const handleSubmit = async () => {
+    // Prevent multiple submissions
+    if (isSubmitting) {
+      console.log("[HandleSubmit] Submission already in progress");
+      return;
+    }
+
     // Validate all fields
     if (!selectedBatchId) {
       setBatchError("Please select a batch");
@@ -544,6 +552,9 @@ export default function ReportMortalityModal({
       Alert.alert("Error", "User not authenticated. Please log in.");
       return;
     }
+
+    // Set submitting state to prevent multiple clicks
+    setIsSubmitting(true);
 
     try {
       // Get user info
@@ -626,9 +637,11 @@ export default function ReportMortalityModal({
       setTimeout(() => {
         setShowSuccess(false);
         onClose();
+        setIsSubmitting(false);
       }, 2000);
     } catch (error) {
       console.error("[HandleSubmit] Error:", error);
+      setIsSubmitting(false);
       Alert.alert(
         "Error",
         "Failed to report mortality. Please try again.\n" + error.message,
@@ -700,13 +713,23 @@ export default function ReportMortalityModal({
                   style={styles.dropdownList}
                   nestedScrollEnabled={true}
                 >
-                  {batches.filter((b) => !b.deleted).length === 0 ? (
+                  {batches.filter(
+                    (b) =>
+                      !b.deleted &&
+                      b.chicksCount > 0 &&
+                      b.daysCount < b.harvestDays,
+                  ).length === 0 ? (
                     <Text key="no-batches" style={styles.dropdownEmptyText}>
                       No batches available
                     </Text>
                   ) : (
                     batches
-                      .filter((b) => !b.deleted)
+                      .filter(
+                        (b) =>
+                          !b.deleted &&
+                          b.chicksCount > 0 &&
+                          b.daysCount < b.harvestDays,
+                      )
                       .map((batch) => (
                         <TouchableOpacity
                           key={batch.id}
@@ -903,19 +926,20 @@ export default function ReportMortalityModal({
             <TouchableOpacity
               style={[
                 styles.submitButton,
-                !isFormValid() && styles.submitButtonDisabled,
+                (!isFormValid() || isSubmitting) && styles.submitButtonDisabled,
               ]}
               activeOpacity={0.9}
               onPress={handleSubmit}
-              disabled={!isFormValid()}
+              disabled={!isFormValid() || isSubmitting}
             >
               <Text
                 style={[
                   styles.submitButtonText,
-                  !isFormValid() && styles.submitButtonTextDisabled,
+                  (!isFormValid() || isSubmitting) &&
+                    styles.submitButtonTextDisabled,
                 ]}
               >
-                Submit Report
+                {isSubmitting ? "Submitting..." : "Submit Report"}
               </Text>
             </TouchableOpacity>
           </ScrollView>

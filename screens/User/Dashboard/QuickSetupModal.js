@@ -224,7 +224,8 @@ export default function QuickSetupModal({
     !harvestError &&
     parseInt(chicksCount) > 0 &&
     parseInt(daysCount) > 0 &&
-    parseInt(harvestDays) > 0;
+    parseInt(harvestDays) > 0 &&
+    parseInt(daysCount) < parseInt(harvestDays);
 
   useEffect(() => {
     if (visible) {
@@ -280,10 +281,10 @@ export default function QuickSetupModal({
       if (numValue > 45) {
         errors.push("Number of days cannot exceed 45");
       }
-      // Check if days exceeds harvest days (if harvest is set)
+      // Check if days equals or exceeds harvest days (if harvest is set)
       if (harvestDays && parseInt(harvestDays) > 0) {
-        if (numValue > parseInt(harvestDays)) {
-          errors.push("Number of days cannot exceed expected harvest days");
+        if (numValue >= parseInt(harvestDays)) {
+          errors.push("Age must be less than expected harvest days");
         }
       }
       setDaysError(errors.length > 0 ? errors[0] : "");
@@ -304,10 +305,12 @@ export default function QuickSetupModal({
       if (numValue > 365) {
         errors.push("Expected harvest days cannot exceed 365");
       }
-      // Check if harvest days is less than current days (if days is set)
+      // Check if harvest days is less than or equal to current days (if days is set)
       if (daysCount && parseInt(daysCount) > 0) {
-        if (numValue < parseInt(daysCount)) {
-          errors.push("Expected harvest days cannot be less than current days");
+        if (numValue <= parseInt(daysCount)) {
+          errors.push(
+            "Expected harvest days must be greater than current days",
+          );
         }
       }
       setHarvestError(errors.length > 0 ? errors[0] : "");
@@ -318,16 +321,16 @@ export default function QuickSetupModal({
     // Prevent multiple clicks
     if (isSaving) return;
 
-    // Validate that days does not exceed harvest days
+    // Validate that days is strictly less than harvest days
     const daysValue = parseInt(daysCount);
     const harvestValue = parseInt(harvestDays);
 
-    if (daysValue > harvestValue) {
+    if (daysValue >= harvestValue) {
       Alert.alert(
         "Invalid Input",
-        "Number of days cannot be greater than expected harvest days.\n\nPlease check your entries and try again.",
+        "Age must be less than expected harvest days.\n\nPlease check your entries and try again.",
       );
-      setDaysError("Number of days cannot exceed expected harvest days");
+      setDaysError("Age must be less than expected harvest days");
       return;
     }
 
@@ -460,10 +463,10 @@ export default function QuickSetupModal({
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Number of Days</Text>
+            <Text style={styles.inputLabel}>Age in Days</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter number of days (-45)"
+              placeholder="Enter current chick age (-45)"
               placeholderTextColor="#9ca3af"
               value={sanitizeInput(daysCount)}
               onChangeText={handleDaysChange}

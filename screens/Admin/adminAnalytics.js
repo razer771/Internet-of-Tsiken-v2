@@ -203,6 +203,38 @@ const fetchFeedBatches = async () => {
   }
 };
 
+/**
+ * Fetch batches from brooderInfo collection
+ * Returns array of batch objects with all data from brooderInfo
+ */
+const fetchFeedBatchesFromBrooder = async () => {
+  try {
+    const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+    const querySnapshot = await getDocs(brooderInfoRef);
+
+    const batches = [];
+    querySnapshot.forEach((doc) => {
+      batches.push({
+        id: doc.id,
+        ...doc.data(),
+      });
+    });
+
+    console.log(
+      "[fetchFeedBatchesFromBrooder] Fetched",
+      batches.length,
+      "batches from brooderInfo",
+    );
+    return batches;
+  } catch (error) {
+    console.error(
+      "[fetchFeedBatchesFromBrooder] Error fetching batches from brooderInfo:",
+      error,
+    );
+    throw error;
+  }
+};
+
 const fetchWaterBatches = async () => {
   try {
     const waterLogsRef = collection(firestoreDb, "wateringExecutions_logs");
@@ -3261,14 +3293,14 @@ export default function AdminAnalytics({ navigation }) {
       sortedRecords.forEach((record, index) => {
         const dateOfDeath = formatDateOnly(record.dateOfDeath);
         const dateReported = formatDateOnly(record.timestamp);
-        const causeOfDeath = record.causeOfDeath || "N/A";
-        const predatorType = record.predatorType || "N/A";
-        const customPredator = record.customPredator || "N/A";
-        const daysCount = record.daysCount || "N/A";
-        const notes = record.notes || "N/A";
-        const reportedBy = record.reportedBy || "N/A";
+        const causeOfDeath = record.causeOfDeath || "";
+        const predatorType = record.predatorType || "";
+        const customPredator = record.customPredator || "";
+        const daysCount = record.daysCount || "";
+        const notes = record.notes || "";
+        const reportedBy = record.reportedBy || "";
         const count = record.count || 0;
-        const batchId = record.batchId || "N/A";
+        const batchId = record.batchId || "";
 
         tableRows += `
           <tr>
@@ -3618,20 +3650,66 @@ export default function AdminAnalytics({ navigation }) {
         .sort((a, b) => a.numAge - b.numAge)
         .map((item) => item.age);
 
-      // Create table rows
-      let tableRows = "";
-      let totalConsumption = 0;
+      // Calculate key metrics
+      const consumptionValues = sortedAges.map((age) => ageMap[age]);
+      const totalConsumption = consumptionValues.reduce((a, b) => a + b, 0);
+      const avgConsumption =
+        consumptionValues.length > 0
+          ? (totalConsumption / consumptionValues.length).toFixed(2)
+          : 0;
+      const maxConsumption = Math.max(...consumptionValues);
+      const minConsumption = Math.min(...consumptionValues);
+
+      // Find dates for highest and lowest consumptions
+      let maxConsumptionDate = "";
+      let minConsumptionDate = "";
 
       sortedAges.forEach((age) => {
         const consumption = ageMap[age];
-        totalConsumption += consumption;
         const date = ageDateMap[age] || "";
+        if (consumption === maxConsumption && !maxConsumptionDate) {
+          maxConsumptionDate = date;
+        }
+        if (consumption === minConsumption && !minConsumptionDate) {
+          minConsumptionDate = date;
+        }
+      });
+
+      // Create table rows with trend column
+      let tableRows = "";
+
+      sortedAges.forEach((age, index) => {
+        const consumption = ageMap[age];
+        const date = ageDateMap[age] || "";
+
+        // Calculate day-to-day trend
+        let trendHtml = "";
+        if (index === 0) {
+          // First day has no previous day to compare
+          trendHtml = '<span style="color: #999;">—</span> ';
+        } else {
+          const previousConsumption = ageMap[sortedAges[index - 1]];
+          const percentageChange = (
+            ((consumption - previousConsumption) / previousConsumption) *
+            100
+          ).toFixed(1);
+
+          if (percentageChange > 0) {
+            trendHtml = `<span style="color: #4CAF50;">↑</span> <span style="color: #4CAF50;">+${percentageChange}%</span>`;
+          } else if (percentageChange < 0) {
+            trendHtml = `<span style="color: #F44336;">↓</span> <span style="color: #F44336;">${percentageChange}%</span>`;
+          } else {
+            trendHtml =
+              '<span style="color: #999;">→</span> <span style="color: #999;">0%</span>';
+          }
+        }
 
         tableRows += `
           <tr>
             <td>${date}</td>
             <td>Day ${age}</td>
             <td>${consumption}</td>
+            <td>${trendHtml}</td>
           </tr>
         `;
       });
@@ -3642,8 +3720,272 @@ export default function AdminAnalytics({ navigation }) {
           <td colspan="1" style="text-align: center;">TOTAL</td>
           <td colspan="1"></td>
           <td>${totalConsumption}</td>
+          <td></td>
         </tr>
       `;
+
+      // Fetch mortality data for overfeeding
+      let totalOverFeedingDeaths = 0;
+      let overFeedingMortalityHtml = "";
+      try {
+        const recordsRef = collectionGroup(firestoreDb, "records");
+        const recordsSnapshot = await getDocs(recordsRef);
+
+        let overFeedingRecords = [];
+        recordsSnapshot.docs.forEach((recordDoc) => {
+          const recordData = recordDoc.data();
+          // Filter by batch and cause of death
+          if (
+            recordData.batchId === selectedBatch &&
+            recordData.causeOfDeath === "Overfeeding"
+          ) {
+            // Parse dateOfDeath
+            let dateOfDeath = recordData.dateOfDeath;
+            if (dateOfDeath && typeof dateOfDeath.toDate === "function") {
+              dateOfDeath = dateOfDeath.toDate();
+            } else if (dateOfDeath && dateOfDeath.seconds) {
+              dateOfDeath = new Date(dateOfDeath.seconds * 1000);
+            } else if (typeof dateOfDeath === "string") {
+              dateOfDeath = parseCustomDateFormat(dateOfDeath);
+            }
+
+            // Format date as DD-MMM-YYYY (without time)
+            const dateOfDeathFormatted =
+              dateOfDeath && dateOfDeath instanceof Date
+                ? dateOfDeath
+                    .toLocaleDateString("en-GB", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })
+                    .replace(/ /g, "-")
+                : "Unknown";
+
+            overFeedingRecords.push({
+              dateOfDeathFormatted: dateOfDeathFormatted,
+              daysCount: recordData.daysCount || "Unknown",
+              count: recordData.count || 1,
+            });
+          }
+        });
+
+        // Calculate total overfeeding deaths
+        totalOverFeedingDeaths = overFeedingRecords.reduce(
+          (sum, r) => sum + r.count,
+          0,
+        );
+
+        // Sort records chronologically by date (earliest first)
+        overFeedingRecords.sort((a, b) => {
+          // Parse date format "DD-MMM-YYYY"
+          const parseDate = (dateStr) => {
+            const months = {
+              Jan: 0,
+              Feb: 1,
+              Mar: 2,
+              Apr: 3,
+              May: 4,
+              Jun: 5,
+              Jul: 6,
+              Aug: 7,
+              Sep: 8,
+              Oct: 9,
+              Nov: 10,
+              Dec: 11,
+            };
+            const parts = dateStr.split("-");
+            if (parts.length === 3) {
+              const day = parseInt(parts[0], 10);
+              const month = months[parts[1]];
+              const year = parseInt(parts[2], 10);
+              return new Date(year, month, day);
+            }
+            return new Date(0);
+          };
+          const dateA = parseDate(a.dateOfDeathFormatted);
+          const dateB = parseDate(b.dateOfDeathFormatted);
+          return dateA - dateB;
+        });
+
+        // Generate mortality summary HTML
+        if (overFeedingRecords.length > 0) {
+          // Find the highest percentage
+          const maxPercentage = Math.max(
+            ...overFeedingRecords.map(
+              (r) => (r.count / totalOverFeedingDeaths) * 100,
+            ),
+          );
+
+          let mortalityTableRows = "";
+          overFeedingRecords.forEach((record) => {
+            const percentage = (
+              (record.count / totalOverFeedingDeaths) *
+              100
+            ).toFixed(1);
+            const isHighestPercentage =
+              parseFloat(percentage) === parseFloat(maxPercentage.toFixed(1));
+            const percentageStyle = isHighestPercentage
+              ? 'style="text-align: center; color: #F44336;"'
+              : 'style="text-align: center;"';
+            mortalityTableRows += `
+              <tr>
+                <td>Day ${record.daysCount}</td>
+                <td style="text-align: center;">${record.count}</td>
+                <td ${percentageStyle}>${percentage}%</td>
+              </tr>
+            `;
+          });
+
+          // Add total row
+          mortalityTableRows += `
+            <tr style="background-color: #e8e8e8; font-weight: bold;">
+              <td colspan="1" style="text-align: center;">TOTAL</td>
+              <td style="text-align: center;">${totalOverFeedingDeaths}</td>
+              <td style="text-align: center;">100.0%</td>
+            </tr>
+          `;
+
+          overFeedingMortalityHtml = `
+            <div style="margin-top: 20px; width: 75%; margin-left: auto; margin-right: auto;">
+              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;"><br>Overfeeding-Related Mortality</h3>
+              <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                <thead>
+                  <tr>
+                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 25%;">Age at Death</th>
+                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 25%;">Death Count</th>
+                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 25%;">Distribution %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${mortalityTableRows}
+                </tbody>
+              </table>
+            </div>
+          `;
+        } else {
+          overFeedingMortalityHtml = `
+            <div style="margin-top: 20px;">
+              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Overfeeding-Related Mortality Summary</h3>
+              <p style="font-size: 11px; color: #666;">No overfeeding-related deaths recorded for this batch.</p>
+            </div>
+          `;
+        }
+      } catch (error) {
+        console.error("Error fetching mortality data:", error);
+        overFeedingMortalityHtml = `
+          <div style="margin-top: 20px;">
+            <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Overfeeding-Related Mortality Summary</h3>
+            <p style="font-size: 11px; color: #666;">Unable to fetch mortality data.</p>
+          </div>
+        `;
+      }
+
+      // Fetch Feeding Activity Records
+      let feedingActivityHtml = "";
+      try {
+        const feedingActivityQuery = query(
+          collection(firestoreDb, "feedingExecutions_logs"),
+          where("batchId", "==", selectedBatch),
+        );
+        const feedingActivitySnapshot = await getDocs(feedingActivityQuery);
+        const feedingActivityRecords = feedingActivitySnapshot.docs.map(
+          (doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }),
+        );
+
+        if (feedingActivityRecords.length > 0) {
+          // Sort records by timestamp in ascending order (earliest first)
+          feedingActivityRecords.sort((a, b) => {
+            const timeA = a.timestamp?.toDate
+              ? a.timestamp.toDate().getTime()
+              : a.timestamp
+                ? new Date(a.timestamp).getTime()
+                : 0;
+            const timeB = b.timestamp?.toDate
+              ? b.timestamp.toDate().getTime()
+              : b.timestamp
+                ? new Date(b.timestamp).getTime()
+                : 0;
+            return timeA - timeB;
+          });
+
+          let activityTableRows = "";
+          feedingActivityRecords.forEach((record) => {
+            const timestamp = record.timestamp?.toDate
+              ? record.timestamp.toDate()
+              : record.timestamp
+                ? new Date(record.timestamp)
+                : null;
+
+            const dateStr = timestamp
+              ? timestamp
+                  .toLocaleDateString("en-GB", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  })
+                  .replace(/ /g, "-")
+              : "N/A";
+
+            const timeStr = timestamp
+              ? timestamp.toLocaleTimeString("en-US", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                  hour12: true,
+                })
+              : "N/A";
+
+            const action = record.action || "N/A";
+            const status = record.status || "N/A";
+
+            activityTableRows += `
+              <tr>
+                <td style="text-align: center;">${dateStr}</td>
+                <td style="text-align: center;">${timeStr}</td>
+                <td style="text-align: center;">${action}</td>
+                <td style="text-align: center;">${status}</td>
+              </tr>
+            `;
+          });
+
+          feedingActivityHtml = `
+            <div style="margin-top: 20px; page-break-before: always; width: 75%; margin-left: auto; margin-right: auto;">
+              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Feeding Activity</h3>
+              <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                <thead>
+                  <tr>
+                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 22%;">Date</th>
+                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 22%;">Time</th>
+                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 28%;">Action</th>
+                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 22%;">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${activityTableRows}
+                </tbody>
+              </table>
+            </div>
+          `;
+        } else {
+          feedingActivityHtml = `
+            <div style="margin-top: 20px;">
+              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Feeding Activity</h3>
+              <p style="font-size: 11px; color: #666;">No feeding activity records found for this batch.</p>
+            </div>
+          `;
+        }
+      } catch (error) {
+        console.error("Error fetching feeding activity data:", error);
+        feedingActivityHtml = `
+          <div style="margin-top: 20px;">
+            <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Feeding Activity</h3>
+            <p style="font-size: 11px; color: #666;">Unable to fetch feeding activity data.</p>
+          </div>
+        `;
+      }
 
       // Generate HTML
       const htmlContent = `
@@ -3693,8 +4035,46 @@ export default function AdminAnalytics({ navigation }) {
             .filter-info {
               font-size: 12px;
               color: #666;
-              margin-bottom: 10px;
+              margin-bottom: 15px;
               text-align: center;
+            }
+            .summary-title {
+              font-size: 14px;
+              font-weight: bold;
+              color: #133E87;
+              margin-bottom: 15px;
+              text-align: left;
+              margin-left: 12.5%;
+            }
+            .metrics-container {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 15px;
+              margin-bottom: 30px;
+              width: 75%;
+              margin-left: auto;
+              margin-right: auto;
+              font-size: 11px;
+            }
+            .metric-card {
+              padding: 12px;
+              background-color: white;
+              border-left: 5px solid #133E87;
+              border-radius: 3px;
+              text-align: left;
+            }
+            .metric-label {
+              color: #666;
+              font-size: 10px;
+              font-weight: normal;
+              margin-bottom: 8px;
+              line-height: 1.4;
+            }
+            .metric-value {
+              color: #133E87;
+              font-size: 18px;
+              font-weight: bold;
+              margin-bottom: 5px;
             }
             table {
               width: 75%;
@@ -3743,20 +4123,50 @@ export default function AdminAnalytics({ navigation }) {
               Total Records: ${records.length}
             </div>
           </div>
-          
+
+          <div class="summary-title" style="text-align: left;">Summary</div>
+
+          <div class="metrics-container">
+            <div class="metric-card">
+              <div class="metric-label">Average Daily Feedings</div>
+              <div class="metric-value">${avgConsumption}</div>
+              <div style="font-size: 9px; color: #666; margin-top: 5px;"></div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Highest Daily Feedings</div>
+              <div class="metric-value">${maxConsumption}</div>
+              <div style="font-size: 9px; color: #666; margin-top: 5px;">${maxConsumptionDate}</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Lowest Daily Feedings</div>
+              <div class="metric-value">${minConsumption}</div>
+              <div style="font-size: 9px; color: #666; margin-top: 5px;">${minConsumptionDate}</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Total Overfeeding Deaths</div>
+              <div class="metric-value">${totalOverFeedingDeaths}</div>
+            </div>
+          </div>
+          <br> 
+          <div class="summary-title" style="text-align: left;">Feeding Records</div>
+
           <table>
             <thead>
               <tr>
-                <th style="width: 20%; text-align: center;">Date</th>
-                <th style="width: 20%; text-align: center;">Age</th>
-                <th style="width: 15%; text-align: center;">Consumption</th>
-
+                <th style="width: 17%; text-align: center;">Date</th>
+                <th style="width: 15%; text-align: center;">Age</th>
+                <th style="width: 25%; text-align: center;">Number of Feedings</th>
+                <th style="width: 15%; text-align: center;">Trend</th>
               </tr>
             </thead>
             <tbody>
               ${tableRows}
             </tbody>
           </table>
+
+          ${overFeedingMortalityHtml}
+
+          ${feedingActivityHtml}
         </body>
         </html>
       `;
@@ -4466,9 +4876,9 @@ export default function AdminAnalytics({ navigation }) {
               : rateDifference.toFixed(2);
 
           if (rateDifference > 0) {
-            trendHtml = `<span style="color: #F44336;">↑</span> <span style="color: #F44336;">+${percentageChange}%</span>`;
+            trendHtml = `<span style="color: #4CAF50;">↑</span> <span style="color: #4CAF50;">+${percentageChange}%</span>`;
           } else if (rateDifference < 0) {
-            trendHtml = `<span style="color: #4CAF50;">↓</span> <span style="color: #4CAF50;">${percentageChange}%</span>`;
+            trendHtml = `<span style="color: #F44336;">↓</span> <span style="color: #F44336;">${percentageChange}%</span>`;
           } else {
             trendHtml = `<span style="color: #999;">→</span> <span style="color: #999;">0%</span>`;
           }
@@ -6186,16 +6596,11 @@ export default function AdminAnalytics({ navigation }) {
 
   /**
    * Generate Feed Per Batch Report PDF
-   * Fetches all documents from feedingExecutions_logs where status === "Success"
-   * Groups by batchId, counts total activations per batch, filtered by date range
+   * Fetches all batches from brooderInfo (includes batches with no feed records)
+   * Gets feed activations, average daily feedings, and overfeeding mortality per batch
    */
   const generateFeedPerBatchReportPDF = async () => {
-    const dateFilter = chartFilters["feedbatch"];
-    if (!dateFilter || !dateFilter.startDate || !dateFilter.endDate) {
-      Alert.alert("Error", "Please set a date range filter first");
-      return;
-    }
-
+    // Note: This report fetches ALL data regardless of filter
     setIsGeneratingFeedBatchReport(true);
     try {
       console.log("[GenerateFeedPerBatchReport] Starting PDF generation...");
@@ -6210,56 +6615,84 @@ export default function AdminAnalytics({ navigation }) {
         },
       );
 
-      const startDate = new Date(dateFilter.startDate);
-      const endDate = new Date(dateFilter.endDate);
-      endDate.setHours(23, 59, 59, 999);
+      // Step 1: Fetch all batches from brooderInfo
+      const brooderRef = collection(firestoreDb, "brooderInfo");
+      const brooderSnapshot = await getDocs(brooderRef);
+      const allBatches = brooderSnapshot.docs.map((doc) => doc.id).sort();
 
-      // Fetch all documents from feedingExecutions_logs
+      console.log("[GenerateFeedPerBatchReport] All batches:", allBatches);
+
+      // Step 2: Fetch feed activations from feedingExecutions_logs (no date filter)
       const feedingLogsRef = collection(firestoreDb, "feedingExecutions_logs");
       const feedingSnapshot = await getDocs(feedingLogsRef);
 
       let batchFeedMap = {};
-      let totalSuccessActivations = 0;
+      let batchAverageFeedingMap = {};
 
-      // Process each document
+      allBatches.forEach((batchId) => {
+        batchFeedMap[batchId] = 0;
+        batchAverageFeedingMap[batchId] = 0;
+      });
+
+      let totalSuccessActivations = 0;
+      let ageCountMap = {}; // For calculating average daily feedings
+
+      // Process each feeding document (all records, no date filtering)
       feedingSnapshot.docs.forEach((doc) => {
         const data = doc.data();
-
-        // Only count if status is "Success"
         if (data.status !== "Success") return;
 
         const batchId = data.batchId || "Unknown";
-        let docDate;
 
-        // Convert timestamp to Date
-        if (data.timestamp?.toDate) {
-          docDate = data.timestamp.toDate();
-        } else if (data.createdAt?.toDate) {
-          docDate = data.createdAt.toDate();
-        } else if (typeof data.timestamp === "string") {
-          docDate = new Date(data.timestamp);
-        } else if (typeof data.createdAt === "string") {
-          docDate = new Date(data.createdAt);
+        // Count all successful records regardless of date
+        if (batchFeedMap[batchId] !== undefined) {
+          batchFeedMap[batchId]++;
         } else {
-          docDate = new Date(data.timestamp || data.createdAt);
+          batchFeedMap[batchId] = 1;
         }
+        totalSuccessActivations++;
 
-        // Filter by date range
-        if (docDate >= startDate && docDate <= endDate) {
-          batchFeedMap[batchId] = (batchFeedMap[batchId] || 0) + 1;
-          totalSuccessActivations++;
+        // Count by age for average daily feedings
+        const age = data.age || "Unknown";
+        if (!ageCountMap[batchId]) {
+          ageCountMap[batchId] = {};
+        }
+        ageCountMap[batchId][age] = (ageCountMap[batchId][age] || 0) + 1;
+      });
+
+      // Calculate average daily feedings per batch
+      Object.keys(ageCountMap).forEach((batchId) => {
+        const ages = Object.keys(ageCountMap[batchId]);
+        const totalCount = ages.reduce(
+          (sum, age) => sum + ageCountMap[batchId][age],
+          0,
+        );
+        batchAverageFeedingMap[batchId] =
+          ages.length > 0 ? (totalCount / ages.length).toFixed(2) : 0;
+      });
+
+      // Step 3: Fetch overfeeding mortality per batch
+      let batchOverfeedingDeathsMap = {};
+      allBatches.forEach((batchId) => {
+        batchOverfeedingDeathsMap[batchId] = 0;
+      });
+
+      const recordsRef = collectionGroup(firestoreDb, "records");
+      const recordsSnapshot = await getDocs(recordsRef);
+
+      recordsSnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        if (data.causeOfDeath === "Overfeeding" && data.batchId) {
+          const batchId = data.batchId;
+          if (batchOverfeedingDeathsMap[batchId] !== undefined) {
+            batchOverfeedingDeathsMap[batchId] += data.count || 1;
+          } else {
+            batchOverfeedingDeathsMap[batchId] = data.count || 1;
+          }
         }
       });
 
-      // Sort by batch ID
-      const sortedBatches = Object.entries(batchFeedMap)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([batchId, count]) => ({ batchId, count }));
-
-      console.log(
-        "[GenerateFeedPerBatchReport] Sorted batches:",
-        sortedBatches,
-      );
+      console.log("[GenerateFeedPerBatchReport] Batch feed map:", batchFeedMap);
 
       // Check if there is any data
       if (totalSuccessActivations === 0) {
@@ -6294,20 +6727,87 @@ export default function AdminAnalytics({ navigation }) {
 
       // Generate table rows
       let tableRowsHtml = "";
-      sortedBatches.forEach((batch) => {
+      allBatches.forEach((batchId, index) => {
+        const activations = batchFeedMap[batchId] || 0;
+        const avgFeeding = batchAverageFeedingMap[batchId] || 0;
+        const overfeedingDeaths = batchOverfeedingDeathsMap[batchId] || 0;
+
+        // Calculate trend for activations
+        let trendHtml = "—";
+        if (index > 0) {
+          const previousBatchId = allBatches[index - 1];
+          const previousActivations = batchFeedMap[previousBatchId] || 0;
+          if (previousActivations > 0) {
+            const percentageChange = (
+              ((activations - previousActivations) / previousActivations) *
+              100
+            ).toFixed(1);
+            if (percentageChange > 0) {
+              trendHtml = `<span style="color: #4CAF50;">↑</span> <span style="color: #4CAF50;">+${percentageChange}%</span>`;
+            } else if (percentageChange < 0) {
+              trendHtml = `<span style="color: #F44336;">↓</span> <span style="color: #F44336;">${percentageChange}%</span>`;
+            } else {
+              trendHtml =
+                '<span style="color: #999;">→</span> <span style="color: #999;">0%</span>';
+            }
+          }
+        }
+
+        // Calculate trend for overfeeding deaths
+        let deathsTrendHtml = "—";
+        if (index > 0) {
+          const previousBatchId = allBatches[index - 1];
+          const previousDeaths =
+            batchOverfeedingDeathsMap[previousBatchId] || 0;
+          if (previousDeaths > 0) {
+            const percentageChange = (
+              ((overfeedingDeaths - previousDeaths) / previousDeaths) *
+              100
+            ).toFixed(1);
+            if (percentageChange > 0) {
+              deathsTrendHtml = `<span style="color: #F44336;">↑</span> <span style="color: #F44336;">+${percentageChange}%</span>`;
+            } else if (percentageChange < 0) {
+              deathsTrendHtml = `<span style="color: #4CAF50;">↓</span> <span style="color: #4CAF50;">${percentageChange}%</span>`;
+            } else {
+              deathsTrendHtml =
+                '<span style="color: #999;">→</span> <span style="color: #999;">0%</span>';
+            }
+          }
+        }
+
         tableRowsHtml += `
           <tr>
-            <td>${batch.batchId}</td>
-            <td style="text-align: center;">${batch.count}</td>
+            <td>${batchId}</td>
+            <td style="text-align: center;">${activations}</td>
+            <td style="text-align: center;">${trendHtml}</td>
+            <td style="text-align: center;">${avgFeeding}</td>
+            <td style="text-align: center;">${overfeedingDeaths}</td>
+            <td style="text-align: center;">${deathsTrendHtml}</td>
           </tr>
         `;
       });
 
       // Add total row
+      const totalOverfeedingDeaths = allBatches.reduce(
+        (sum, batchId) => sum + (batchOverfeedingDeathsMap[batchId] || 0),
+        0,
+      );
+      const totalAvgFeeding = (
+        allBatches.reduce(
+          (sum, batchId) =>
+            sum + parseFloat(batchAverageFeedingMap[batchId] || 0),
+          0,
+        ) / allBatches.length
+      ).toFixed(2);
+
       tableRowsHtml += `
         <tr style="background-color: #f0f0f0; font-weight: bold;">
           <td>TOTAL</td>
           <td style="text-align: center;">${totalSuccessActivations}</td>
+          <td style="text-align: center;"></td>
+          <td style="text-align: center;">${totalAvgFeeding}</td>
+          <td style="text-align: center;">${totalOverfeedingDeaths}</td>
+          <td style="text-align: center;"></td>
         </tr>
       `;
 
@@ -6369,14 +6869,15 @@ export default function AdminAnalytics({ navigation }) {
               justify-content: center;
             }
             table {
-              width: 60%;
+              width: 100%;
               border-collapse: collapse;
+              font-size: 11px;
             }
             th {
               background-color: #133E87;
               color: white;
               padding: 8px;
-              text-align: left;
+              text-align: center;
               border: 1px solid #333;
               font-weight: bold;
             }
@@ -6404,9 +6905,9 @@ export default function AdminAnalytics({ navigation }) {
             </div>
             <div class="report-title">Feed Per Batch Report</div>
             <div class="filter-info">
-              Date Range: ${formatDisplayDate(dateFilter.startDate)} to ${formatDisplayDate(dateFilter.endDate)}<br>
-              Report Generated: ${formatReportDateTime()}<br>
-              Total Successful Activations: ${totalSuccessActivations}
+              All Batches<br>
+              Report Generated: ${formatReportDateTime()}
+            
             </div>
           </div>
           
@@ -6414,8 +6915,12 @@ export default function AdminAnalytics({ navigation }) {
             <table>
               <thead>
                 <tr>
-                  <th>Batch ID</th>
-                  <th style="text-align: center; width: 180px;">Total Activations</th>
+                  <th style="width: 80px; text-align: left;">Batch ID</th>
+                  <th style="width: 110px;">Total Activations</th>
+                  <th style="width: 80px;">Trend</th>
+                  <th style="width: 120px;">Avg Daily Feedings</th>
+                  <th style="width: 110px;">Overfeeding Deaths</th>
+                  <th style="width: 110px;">Deaths Trend</th>
                 </tr>
               </thead>
               <tbody>
@@ -6433,30 +6938,8 @@ export default function AdminAnalytics({ navigation }) {
         base64: false,
       });
 
-      // Create custom filename with date
-      const formatDate = (date) => {
-        const d = new Date(date);
-        const day = String(d.getDate()).padStart(2, "0");
-        const months = [
-          "Jan",
-          "Feb",
-          "Mar",
-          "Apr",
-          "May",
-          "Jun",
-          "Jul",
-          "Aug",
-          "Sep",
-          "Oct",
-          "Nov",
-          "Dec",
-        ];
-        const month = months[d.getMonth()];
-        const year = d.getFullYear();
-        return `${day}-${month}-${year}`;
-      };
-
-      const customFilename = `FeedPerBatchReport_${formatDate(dateFilter.startDate)}_to_${formatDate(dateFilter.endDate)}.pdf`;
+      // Create custom filename with current date
+      const customFilename = `FeedPerBatchReport_${new Date().toLocaleDateString().replace(/\//g, "-")}.pdf`;
       const newPath = `${FileSystem.documentDirectory}${customFilename}`;
 
       // Copy the PDF to a new location with custom name
@@ -6470,7 +6953,7 @@ export default function AdminAnalytics({ navigation }) {
         customFilename,
         "Feed Per Batch Report",
         "Generate feed per batch report",
-        `Generated and exported feed per batch report for ${formatDate(dateFilter.startDate)} to ${formatDate(dateFilter.endDate)}`,
+        `Generated and exported feed per batch report with all available data on ${new Date().toLocaleDateString()}`,
       );
 
       // Share PDF with custom filename
@@ -8125,7 +8608,7 @@ export default function AdminAnalytics({ navigation }) {
             totalMortalityDeaths += deaths;
           });
 
-          // Generate table for all batches with attacks
+          // Generate table for all batches (including those with no attacks)
           if (summary.total > 0) {
             detailTableRows += `
               <tr style="background-color: #e8e8e8; font-weight: bold;">
@@ -8137,28 +8620,34 @@ export default function AdminAnalytics({ navigation }) {
                 <td style="text-align: center;">100%</td>
               </tr>
             `;
-
-            batchDetailTablesHtml += `
-              <div style="margin-top: 20px; page-break-inside: avoid;">
-                <h3 style="color: #133E87; font-size: 13px; margin-bottom: 10px;">${batchId} - Predator Attacks with Mortality Breakdown</h3>
-                <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin: 10px 0;">
-                  <thead>
-                    <tr style="background-color: #f0f0f0;">
-                      <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Predator</th>
-                      <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Fatal Attacks</th>
-                      <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Deaths</th>                      
-                      <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Non‑Fatal Attacks</th>
-                      <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Total Attacks</th>
-                      <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Attack Distribution (%)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${detailTableRows}
-                  </tbody>
-                </table>
-              </div>
+          } else {
+            detailTableRows = `
+              <tr>
+                <td colspan="6" style="text-align: center; padding: 10px; color: #999;">No attacks recorded</td>
+              </tr>
             `;
           }
+
+          batchDetailTablesHtml += `
+            <div style="margin-top: 20px; page-break-inside: avoid;">
+              <h3 style="color: #133E87; font-size: 13px; margin-bottom: 10px;">${batchId} - Predator Attacks with Mortality Breakdown</h3>
+              <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin: 10px 0;">
+                <thead>
+                  <tr style="background-color: #f0f0f0;">
+                    <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Predator</th>
+                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Fatal Attacks</th>
+                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Deaths</th>                      
+                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Non‑Fatal Attacks</th>
+                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Total Attacks</th>
+                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">Attack Distribution (%)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${detailTableRows}
+                </tbody>
+              </table>
+            </div>
+          `;
         });
 
       // Generate HTML
@@ -8589,14 +9078,27 @@ export default function AdminAnalytics({ navigation }) {
       setIsFetchingBatches(true);
       setBatchFetchError(null);
       try {
-        const batches = await fetchFeedBatches();
+        const batches = await fetchFeedBatchesFromBrooder();
         setAvailableBatches(batches);
         console.log("[adminAnalytics] Feed batches loaded:", batches.length);
-        // Set the first batch (Batch 1) as default for feed
+
+        // Set the latest batch (based on createdAt) as default for feed
         if (batches.length > 0) {
-          const firstBatch = batches[0];
-          handleFeedBatchSelect(firstBatch.id);
-          console.log("[adminAnalytics] First batch selected:", firstBatch.id);
+          // Sort batches by createdAt in descending order (most recent first)
+          const sortedBatches = [...batches].sort((a, b) => {
+            const aTime = a.createdAt?.toDate?.() || a.createdAt || 0;
+            const bTime = b.createdAt?.toDate?.() || b.createdAt || 0;
+            return new Date(bTime) - new Date(aTime);
+          });
+
+          const latestBatch = sortedBatches[0];
+          handleFeedBatchSelect(latestBatch.id);
+          console.log(
+            "[adminAnalytics] Latest batch selected:",
+            latestBatch.id,
+            "created at:",
+            latestBatch.createdAt,
+          );
         }
       } catch (error) {
         console.error("[adminAnalytics] Error fetching feed batches:", error);
@@ -11627,16 +12129,41 @@ export default function AdminAnalytics({ navigation }) {
               {/* Batch Dropdown for Feed Consumption Chart */}
               {currentFilterTarget === "feed" && (
                 <View style={{ paddingHorizontal: 16, paddingVertical: 16 }}>
-                  <Text
+                  <View
                     style={{
-                      fontSize: 14,
-                      fontWeight: "600",
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "center",
                       marginBottom: 12,
-                      color: "#333",
                     }}
                   >
-                    Select a Batch
-                  </Text>
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        fontWeight: "600",
+                        color: "#333",
+                      }}
+                    >
+                      Select a Batch
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => setFilterModalVisible(false)}
+                      style={{
+                        padding: 4,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 24,
+                          color: "#133E87",
+                          fontWeight: "bold",
+                          lineHeight: 24,
+                        }}
+                      >
+                        ✕
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
 
                   {isFetchingBatches ? (
                     <View style={{ padding: 1, alignItems: "center" }}>
