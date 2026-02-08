@@ -398,8 +398,8 @@ export default function Login() {
             // Log verification process
             await addDoc(collection(db, "session_logs"), {
               userId: user.uid,
-              action: "Processing verification",
-              description: "Processing verification",
+              action: "OTP verification",
+              description: "Processed verification",
               timestamp: serverTimestamp(),
               deviceInfo: Platform.OS,
               email: email.trim(),

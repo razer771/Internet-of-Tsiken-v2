@@ -94,7 +94,7 @@ const logDeleteEvent = async (
   firstName,
   lastName,
   batchId,
-  batchNumber
+  batchNumber,
 ) => {
   try {
     const eventData = {
@@ -111,7 +111,7 @@ const logDeleteEvent = async (
     // Add document to activity_logs/deleteBatch_logs/events subcollection
     const docRef = await addDoc(
       collection(firestoreDb, "activity_logs", "deleteBatch_logs", "events"),
-      eventData
+      eventData,
     );
 
     console.log("[LogDeleteEvent] Event logged successfully:", docRef.id);
@@ -176,7 +176,7 @@ export const fetchBatches = async () => {
     // Query brooderInfo collection ordered by startDate descending
     const q = query(
       collection(firestoreDb, "brooderInfo"),
-      orderBy("startDate", "desc")
+      orderBy("startDate", "desc"),
     );
 
     const querySnapshot = await getDocs(q);
@@ -199,7 +199,7 @@ export const fetchBatches = async () => {
         // Auto-calculate daysCount using dynamic age calculation
         const calculatedDaysCount = calculateAge(
           data.startDate,
-          data.daysCount
+          data.daysCount,
         );
 
         return {
@@ -222,7 +222,7 @@ export const fetchBatches = async () => {
   } catch (error) {
     console.error(
       "[FetchBatches] Error fetching batches from Firestore:",
-      error
+      error,
     );
     throw error;
   }
@@ -232,6 +232,7 @@ export default function ViewAllBatchesModal({
   visible,
   batches,
   selectedBatchIndex,
+  preSelectedBatchId = null,
   onSelectBatch,
   onDeleteBatch,
   onEditBatch,
@@ -243,6 +244,9 @@ export default function ViewAllBatchesModal({
   const [showDeleteError, setShowDeleteError] = useState(false);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
   const [recalculatedBatches, setRecalculatedBatches] = useState(batches);
+  const [highlightedBatchId, setHighlightedBatchId] =
+    useState(preSelectedBatchId);
+  const scrollViewRef = React.useRef(null);
 
   // Recalculate ages only when modal becomes visible
   // This ensures we get fresh calculation from original daysCount in Firestore data
@@ -256,7 +260,7 @@ export default function ViewAllBatchesModal({
         if (batch.originalDaysCount !== undefined && batch.startDate) {
           const calculatedDays = calculateAge(
             batch.startDate,
-            batch.originalDaysCount
+            batch.originalDaysCount,
           );
 
           return {
@@ -272,7 +276,11 @@ export default function ViewAllBatchesModal({
     } else {
       setRecalculatedBatches(batches);
     }
-  }, [visible, batches]);
+    // Update highlighted batch ID when modal opens with new preSelectedBatchId
+    if (visible) {
+      setHighlightedBatchId(preSelectedBatchId);
+    }
+  }, [visible, batches, preSelectedBatchId]);
 
   // Auto-select the most recent batch if none is selected
   React.useEffect(() => {
@@ -286,6 +294,29 @@ export default function ViewAllBatchesModal({
       onSelectBatch(recalculatedBatches.length - 1);
     }
   }, [visible, recalculatedBatches, selectedBatchIndex, onSelectBatch]);
+
+  // Scroll to the selected batch when modal opens or selection changes
+  React.useEffect(() => {
+    if (
+      visible &&
+      selectedBatchIndex !== null &&
+      selectedBatchIndex >= 0 &&
+      selectedBatchIndex < recalculatedBatches.length &&
+      scrollViewRef.current
+    ) {
+      // Scroll to the selected batch
+      // Estimate: each batch item is approximately 100 pixels tall
+      const yOffset = selectedBatchIndex * 100;
+      scrollViewRef.current.scrollTo({
+        y: yOffset,
+        animated: true,
+      });
+      console.log(
+        "[ViewAllBatches] Scrolled to selected batch index:",
+        selectedBatchIndex,
+      );
+    }
+  }, [visible, selectedBatchIndex, recalculatedBatches.length]);
 
   const handleDeletePress = (index) => {
     setBatchToDelete(index);
@@ -320,7 +351,7 @@ export default function ViewAllBatchesModal({
             userInfo.firstname,
             userInfo.lastname,
             batchId,
-            batchNumber
+            batchNumber,
           );
         }
 
@@ -337,7 +368,7 @@ export default function ViewAllBatchesModal({
       } catch (error) {
         console.error("[HandleConfirmDelete] Error:", error);
         setDeleteErrorMessage(
-          error.message || "Failed to delete batch. Please try again."
+          error.message || "Failed to delete batch. Please try again.",
         );
         setShowDeleteError(true);
       }
@@ -356,7 +387,7 @@ export default function ViewAllBatchesModal({
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>All Batches</Text>
 
-            <ScrollView style={styles.batchesContainer}>
+            <ScrollView ref={scrollViewRef} style={styles.batchesContainer}>
               {recalculatedBatches.length === 0 ? (
                 <Text style={styles.emptyMessage}>No batches found.</Text>
               ) : (
@@ -400,7 +431,7 @@ export default function ViewAllBatchesModal({
                       } else if (typeof batch.startDate === "string") {
                         // ISO string
                         startDate = new Date(
-                          batch.startDate
+                          batch.startDate,
                         ).toLocaleDateString();
                       } else if (batch.startDate instanceof Date) {
                         // Date object
@@ -413,6 +444,7 @@ export default function ViewAllBatchesModal({
                   }
 
                   const isSelected = idx === selectedBatchIndex;
+                  const isHighlighted = batch.id === highlightedBatchId;
 
                   return (
                     <View
@@ -420,6 +452,7 @@ export default function ViewAllBatchesModal({
                       style={[
                         styles.batchItem,
                         isSelected && styles.batchItemSelected,
+                        isHighlighted && styles.batchItemHighlighted,
                       ]}
                     >
                       <TouchableOpacity
@@ -453,6 +486,11 @@ export default function ViewAllBatchesModal({
                         </Text>
                         {isSelected && (
                           <Text style={styles.selectedBadge}>✓ Selected</Text>
+                        )}
+                        {isHighlighted && !isSelected && (
+                          <Text style={styles.activeBatchBadge}>
+                            🐣 Currently Active
+                          </Text>
                         )}
                       </TouchableOpacity>
                       <View style={styles.actionButtons}>
@@ -602,6 +640,11 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: "#2563eb",
   },
+  batchItemHighlighted: {
+    backgroundColor: "#fef3c7",
+    borderLeftWidth: 4,
+    borderLeftColor: "#f59e0b",
+  },
   batchContent: {
     flex: 1,
   },
@@ -616,6 +659,12 @@ const styles = StyleSheet.create({
   },
   selectedBadge: {
     color: "#2563eb",
+    fontWeight: "bold",
+    marginTop: 6,
+    fontSize: 13,
+  },
+  activeBatchBadge: {
+    color: "#f59e0b",
     fontWeight: "bold",
     marginTop: 6,
     fontSize: 13,

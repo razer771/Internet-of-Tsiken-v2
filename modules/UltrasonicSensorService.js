@@ -292,31 +292,79 @@ export const getFeederLevel = async () => {
 };
 
 /**
- * Get both sensor readings at once
- * @returns {Promise<Object>} Both water and feeder levels
+ * Get all sensor readings from ESP32
+ * @returns {Promise<Object>} All sensor data including temperature, humidity, air quality, weight, etc.
  */
 export const getAllSensorReadings = async () => {
   try {
-    const [waterReading, feederReading] = await Promise.all([
-      getWaterLevel(),
-      getFeederLevel(),
-    ]);
+    // Get ESP32 endpoint URL
+    const waterSystemUrl = getWaterSystemUrl();
+    
+    if (!waterSystemUrl) {
+      console.warn('⚠️ ESP32 URL not configured, using simulated values');
+      return {
+        success: true,
+        simulationMode: true,
+        temperature: 25,
+        humidity: 60,
+        air_quality: 350,
+        feed_weight: 150,
+        water_level: simulatedValues.waterLevel,
+        feeder_tank_level: simulatedValues.feederLevel,
+        water_tank_level: 75,
+        fan_status: 'off',
+        light_status: 'off',
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    console.log(`📡 Fetching all sensors from: ${waterSystemUrl}/api/sensors`);
+    
+    // Fetch all sensor data from ESP32
+    const response = await fetch(`${waterSystemUrl}/api/sensors`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      timeout: 5000,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log('📊 Sensor data received:', data);
 
     return {
       success: true,
-      water: waterReading,
-      feeder: feederReading,
-      connectionStatus: { ...connectionStatus },
-      simulationMode,
+      simulationMode: false,
+      temperature: data.temperature || 0,
+      humidity: data.humidity || 0,
+      air_quality: data.air_quality || 0,
+      feed_weight: data.feed_weight || 0,
+      water_level: data.water_level || 0,
+      feeder_tank_level: data.feeder_tank_level || 0,
+      water_tank_level: data.water_tank_level || 0,
+      fan_status: data.fan_status || 'off',
+      light_status: data.light_status || 'off',
       timestamp: new Date().toISOString(),
     };
   } catch (error) {
-    console.error('Error reading sensors:', error);
+    console.error('❌ Error reading sensors from ESP32:', error.message);
     return {
       success: false,
       error: error.message,
-      water: { level: simulatedValues.waterLevel, isSimulated: true },
-      feeder: { level: simulatedValues.feederLevel, isSimulated: true },
+      simulationMode: true,
+      temperature: 25,
+      humidity: 60,
+      air_quality: 350,
+      feed_weight: 150,
+      water_level: simulatedValues.waterLevel,
+      feeder_tank_level: simulatedValues.feederLevel,
+      water_tank_level: 75,
+      fan_status: 'off',
+      light_status: 'off',
       timestamp: new Date().toISOString(),
     };
   }
