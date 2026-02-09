@@ -237,24 +237,33 @@ const fetchFeedBatchesFromBrooder = async () => {
 
 const fetchWaterBatches = async () => {
   try {
-    const waterLogsRef = collection(firestoreDb, "wateringExecutions_logs");
-    const querySnapshot = await getDocs(waterLogsRef);
+    // Fetch all batches from /brooderInfo collection
+    const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+    const brooderSnapshot = await getDocs(brooderInfoRef);
 
-    const batchMap = new Map();
-
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      if (data.batchId && !batchMap.has(data.batchId)) {
-        batchMap.set(data.batchId, {
-          id: data.batchId,
-          name: data.batchId,
-        });
-      }
+    const brooderBatches = [];
+    brooderSnapshot.forEach((doc) => {
+      brooderBatches.push({
+        id: doc.id,
+        name: doc.id,
+        createdAt: doc.data().createdAt,
+        ...doc.data(),
+      });
     });
 
-    const batches = Array.from(batchMap.values());
+    console.log(
+      "[fetchWaterBatches] Batches from /brooderInfo:",
+      brooderBatches,
+    );
 
-    return batches;
+    // Sort by createdAt in descending order (latest first)
+    brooderBatches.sort((a, b) => {
+      const aTime = a.createdAt?.toDate?.() || a.createdAt || 0;
+      const bTime = b.createdAt?.toDate?.() || b.createdAt || 0;
+      return new Date(bTime) - new Date(aTime);
+    });
+
+    return brooderBatches;
   } catch (error) {
     console.error("[fetchWaterBatches] Error fetching water batches:", error);
     throw error;
@@ -3131,27 +3140,31 @@ export default function AdminAnalytics({ navigation }) {
         let trend = "";
         let percentageChange = "";
         if (prevCount !== null) {
-          if (count > prevCount) {
-            trend = "↑";
-            const rawPercentage =
-              prevCount > 0
-                ? ((count - prevCount) / prevCount) * 100
-                : count - prevCount;
-            percentageChange = Number.isInteger(rawPercentage)
-              ? rawPercentage.toString()
-              : rawPercentage.toFixed(1);
-          } else if (count < prevCount) {
-            trend = "↓";
-            const rawPercentage =
-              prevCount > 0
-                ? ((count - prevCount) / prevCount) * 100
-                : count - prevCount;
-            percentageChange = Number.isInteger(rawPercentage)
-              ? rawPercentage.toString()
-              : rawPercentage.toFixed(1);
+          if (prevCount === 0 && count > 0) {
+            // If previous was 0 and current has deaths, mark as new deaths
+            trend = "New";
+            percentageChange = "";
+          } else if (prevCount > 0) {
+            // Calculate percentage change normally
+            const rawPercentage = ((count - prevCount) / prevCount) * 100;
+            if (count > prevCount) {
+              trend = "↑";
+              percentageChange = Number.isInteger(rawPercentage)
+                ? rawPercentage.toString()
+                : rawPercentage.toFixed(1);
+            } else if (count < prevCount) {
+              trend = "↓";
+              percentageChange = Number.isInteger(rawPercentage)
+                ? rawPercentage.toString()
+                : rawPercentage.toFixed(1);
+            } else {
+              trend = "";
+              percentageChange = "0";
+            }
           } else {
+            // prevCount > 0 is false and not the "new" case
             trend = "";
-            percentageChange = "0";
+            percentageChange = "";
           }
         } else {
           trend = "";
@@ -3347,12 +3360,14 @@ export default function AdminAnalytics({ navigation }) {
                 ${dailyTrend
                   .map((d) => {
                     let trendDisplay = "";
-                    if (d.trend === "↑") {
-                      trendDisplay = `<span style="color: #F44336;">↑</span> <span style="color: #F44336;">${d.percentageChange}%</span>`;
+                    if (d.trend === "New") {
+                      trendDisplay = `<span style="color: #999;">New deaths</span>`;
+                    } else if (d.trend === "↑") {
+                      trendDisplay = `<span style="color: #F44336;">↑</span> <span style="color: #F44336;">+${d.percentageChange}%</span>`;
                     } else if (d.trend === "↓") {
                       trendDisplay = `<span style="color: #4CAF50;">↓</span> <span style="color: #4CAF50;">${d.percentageChange}%</span>`;
                     } else if (d.percentageChange === "0") {
-                      trendDisplay = `<span style="color: #999;">0%</span>`;
+                      trendDisplay = `<span style="color: #999;">→</span> <span style="color: #999;">0%</span>`;
                     }
                     return `<tr><td style="border: 1px solid #ddd; padding: 3px;">${d.date}</td><td style="border: 1px solid #ddd; padding: 3px; text-align: center;">${d.count}</td><td style="border: 1px solid #ddd; padding: 3px; text-align: center;">${trendDisplay}</td></tr>`;
                   })
@@ -3653,10 +3668,15 @@ export default function AdminAnalytics({ navigation }) {
       // Calculate key metrics
       const consumptionValues = sortedAges.map((age) => ageMap[age]);
       const totalConsumption = consumptionValues.reduce((a, b) => a + b, 0);
-      const avgConsumption =
+      const avgConsumptionRaw =
         consumptionValues.length > 0
-          ? (totalConsumption / consumptionValues.length).toFixed(2)
+          ? totalConsumption / consumptionValues.length
           : 0;
+      // Format avgConsumption: remove decimals if whole number
+      const avgConsumption =
+        avgConsumptionRaw % 1 === 0
+          ? Math.floor(avgConsumptionRaw)
+          : avgConsumptionRaw.toFixed(2);
       const maxConsumption = Math.max(...consumptionValues);
       const minConsumption = Math.min(...consumptionValues);
 
@@ -3689,10 +3709,13 @@ export default function AdminAnalytics({ navigation }) {
           trendHtml = '<span style="color: #999;">—</span> ';
         } else {
           const previousConsumption = ageMap[sortedAges[index - 1]];
-          const percentageChange = (
-            ((consumption - previousConsumption) / previousConsumption) *
-            100
-          ).toFixed(1);
+          const percentageChangeRaw =
+            ((consumption - previousConsumption) / previousConsumption) * 100;
+          // Format percentage: remove decimals if whole number
+          const percentageChange =
+            percentageChangeRaw % 1 === 0
+              ? Math.floor(percentageChangeRaw)
+              : percentageChangeRaw.toFixed(1);
 
           if (percentageChange > 0) {
             trendHtml = `<span style="color: #4CAF50;">↑</span> <span style="color: #4CAF50;">+${percentageChange}%</span>`;
@@ -3818,10 +3841,12 @@ export default function AdminAnalytics({ navigation }) {
 
           let mortalityTableRows = "";
           overFeedingRecords.forEach((record) => {
-            const percentage = (
-              (record.count / totalOverFeedingDeaths) *
-              100
-            ).toFixed(1);
+            const percentageRaw = (record.count / totalOverFeedingDeaths) * 100;
+            // Format percentage: remove decimals if whole number
+            const percentage =
+              percentageRaw % 1 === 0
+                ? Math.floor(percentageRaw)
+                : percentageRaw.toFixed(1);
             const isHighestPercentage =
               parseFloat(percentage) === parseFloat(maxPercentage.toFixed(1));
             const percentageStyle = isHighestPercentage
@@ -3841,7 +3866,7 @@ export default function AdminAnalytics({ navigation }) {
             <tr style="background-color: #e8e8e8; font-weight: bold;">
               <td colspan="1" style="text-align: center;">TOTAL</td>
               <td style="text-align: center;">${totalOverFeedingDeaths}</td>
-              <td style="text-align: center;">100.0%</td>
+              <td style="text-align: center;">100%</td>
             </tr>
           `;
 
@@ -4120,7 +4145,7 @@ export default function AdminAnalytics({ navigation }) {
             <div class="filter-info">
               ${selectedBatch}<br>
               Report Generated: ${formatReportDateTime()}<br>
-              Total Records: ${records.length}
+            
             </div>
           </div>
 
@@ -4133,6 +4158,10 @@ export default function AdminAnalytics({ navigation }) {
               <div style="font-size: 9px; color: #666; margin-top: 5px;"></div>
             </div>
             <div class="metric-card">
+              <div class="metric-label">Total Overfeeding Deaths</div>
+              <div class="metric-value">${totalOverFeedingDeaths}</div>
+            </div>
+            <div class="metric-card">
               <div class="metric-label">Highest Daily Feedings</div>
               <div class="metric-value">${maxConsumption}</div>
               <div style="font-size: 9px; color: #666; margin-top: 5px;">${maxConsumptionDate}</div>
@@ -4141,10 +4170,6 @@ export default function AdminAnalytics({ navigation }) {
               <div class="metric-label">Lowest Daily Feedings</div>
               <div class="metric-value">${minConsumption}</div>
               <div style="font-size: 9px; color: #666; margin-top: 5px;">${minConsumptionDate}</div>
-            </div>
-            <div class="metric-card">
-              <div class="metric-label">Total Overfeeding Deaths</div>
-              <div class="metric-value">${totalOverFeedingDeaths}</div>
             </div>
           </div>
           <br> 
@@ -4282,20 +4307,74 @@ export default function AdminAnalytics({ navigation }) {
         .sort((a, b) => a.numAge - b.numAge)
         .map((item) => item.age);
 
-      // Create table rows
-      let tableRows = "";
-      let totalConsumption = 0;
+      // Calculate key metrics
+      const consumptionValues = sortedAges.map((age) => ageMap[age]);
+      const totalConsumption = consumptionValues.reduce((a, b) => a + b, 0);
+      const avgConsumptionRaw =
+        consumptionValues.length > 0
+          ? totalConsumption / consumptionValues.length
+          : 0;
+      // Format avgConsumption: remove decimals if whole number
+      const avgConsumption =
+        avgConsumptionRaw % 1 === 0
+          ? Math.floor(avgConsumptionRaw)
+          : avgConsumptionRaw.toFixed(2);
+      const maxConsumption = Math.max(...consumptionValues);
+      const minConsumption = Math.min(...consumptionValues);
+
+      // Find dates for highest and lowest consumptions
+      let maxConsumptionDate = "";
+      let minConsumptionDate = "";
 
       sortedAges.forEach((age) => {
         const consumption = ageMap[age];
-        totalConsumption += consumption;
         const date = ageDateMap[age] || "";
+        if (consumption === maxConsumption && !maxConsumptionDate) {
+          maxConsumptionDate = date;
+        }
+        if (consumption === minConsumption && !minConsumptionDate) {
+          minConsumptionDate = date;
+        }
+      });
+
+      // Create table rows with trend column
+      let tableRows = "";
+
+      sortedAges.forEach((age, index) => {
+        const consumption = ageMap[age];
+        const date = ageDateMap[age] || "";
+
+        // Calculate day-to-day trend
+        let trendHtml = "";
+        if (index === 0) {
+          // First day has no previous day to compare
+          trendHtml = '<span style="color: #999;">—</span> ';
+        } else {
+          const previousConsumption = ageMap[sortedAges[index - 1]];
+          const percentageChangeRaw =
+            ((consumption - previousConsumption) / previousConsumption) * 100;
+          // Format percentage: remove decimals if whole number
+          const percentageChange =
+            percentageChangeRaw % 1 === 0
+              ? Math.floor(percentageChangeRaw)
+              : percentageChangeRaw.toFixed(1);
+
+          if (percentageChange > 0) {
+            trendHtml = `<span style="color: #4CAF50;">↑</span> <span style="color: #4CAF50;">+${percentageChange}%</span>`;
+          } else if (percentageChange < 0) {
+            trendHtml = `<span style="color: #F44336;">↓</span> <span style="color: #F44336;">${percentageChange}%</span>`;
+          } else {
+            trendHtml =
+              '<span style="color: #999;">→</span> <span style="color: #999;">0%</span>';
+          }
+        }
 
         tableRows += `
           <tr>
             <td>${date}</td>
             <td>Day ${age}</td>
             <td>${consumption}</td>
+            <td>${trendHtml}</td>
           </tr>
         `;
       });
@@ -4306,10 +4385,272 @@ export default function AdminAnalytics({ navigation }) {
           <td colspan="1" style="text-align: center;">TOTAL</td>
           <td colspan="1"></td>
           <td>${totalConsumption}</td>
+          <td></td>
         </tr>
       `;
 
-      // Generate HTML
+      // Fetch mortality data for dehydration
+      let totalDehydrationDeaths = 0;
+      let dehydrationMortalityHtml = "";
+      try {
+        const recordsRef = collectionGroup(firestoreDb, "records");
+        const recordsSnapshot = await getDocs(recordsRef);
+
+        let dehydrationRecords = [];
+        recordsSnapshot.docs.forEach((recordDoc) => {
+          const recordData = recordDoc.data();
+          // Filter by batch and cause of death
+          if (
+            recordData.batchId === selectedBatch &&
+            recordData.causeOfDeath === "Dehydration"
+          ) {
+            // Parse dateOfDeath
+            let dateOfDeath = recordData.dateOfDeath;
+            if (dateOfDeath && typeof dateOfDeath.toDate === "function") {
+              dateOfDeath = dateOfDeath.toDate();
+            } else if (dateOfDeath && dateOfDeath.seconds) {
+              dateOfDeath = new Date(dateOfDeath.seconds * 1000);
+            } else if (typeof dateOfDeath === "string") {
+              dateOfDeath = parseCustomDateFormat(dateOfDeath);
+            }
+
+            // Format date as DD-MMM-YYYY (without time)
+            const dateOfDeathFormatted =
+              dateOfDeath && dateOfDeath instanceof Date
+                ? dateOfDeath
+                    .toLocaleDateString("en-GB", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })
+                    .replace(/ /g, "-")
+                : "Unknown";
+
+            dehydrationRecords.push({
+              dateOfDeathFormatted: dateOfDeathFormatted,
+              daysCount: recordData.daysCount || "Unknown",
+              count: recordData.count || 1,
+            });
+          }
+        });
+
+        // Calculate total dehydration deaths
+        totalDehydrationDeaths = dehydrationRecords.reduce(
+          (sum, r) => sum + r.count,
+          0,
+        );
+
+        // Combine records with same daysCount (Age at Death)
+        const combinedRecords = {};
+        dehydrationRecords.forEach((record) => {
+          const key = record.daysCount;
+          if (!combinedRecords[key]) {
+            combinedRecords[key] = {
+              daysCount: record.daysCount,
+              count: 0,
+              dateOfDeathFormatted: record.dateOfDeathFormatted,
+            };
+          }
+          combinedRecords[key].count += record.count;
+        });
+
+        // Convert back to array and sort numerically by daysCount
+        const sortedDehydrationRecords = Object.values(combinedRecords).sort(
+          (a, b) => {
+            const aNum = parseInt(a.daysCount, 10);
+            const bNum = parseInt(b.daysCount, 10);
+            return (
+              (isNaN(aNum) ? Infinity : aNum) - (isNaN(bNum) ? Infinity : bNum)
+            );
+          },
+        );
+
+        // Generate mortality summary HTML
+        if (sortedDehydrationRecords.length > 0) {
+          // Find the highest percentage
+          const maxPercentage = Math.max(
+            ...sortedDehydrationRecords.map(
+              (r) => (r.count / totalDehydrationDeaths) * 100,
+            ),
+          );
+
+          let mortalityTableRows = "";
+          sortedDehydrationRecords.forEach((record) => {
+            const percentageRaw = (record.count / totalDehydrationDeaths) * 100;
+            // Format percentage: remove decimals if whole number
+            const percentage =
+              percentageRaw % 1 === 0
+                ? Math.floor(percentageRaw)
+                : percentageRaw.toFixed(1);
+            const isHighestPercentage =
+              parseFloat(percentage) === parseFloat(maxPercentage.toFixed(1));
+            const percentageStyle = isHighestPercentage
+              ? 'style="text-align: center; color: #F44336;"'
+              : 'style="text-align: center;"';
+            mortalityTableRows += `
+              <tr>
+                <td>Day ${record.daysCount}</td>
+                <td style="text-align: center;">${record.count}</td>
+                <td ${percentageStyle}>${percentage}%</td>
+              </tr>
+            `;
+          });
+
+          // Add total row
+          mortalityTableRows += `
+            <tr style="background-color: #e8e8e8; font-weight: bold;">
+              <td colspan="1" style="text-align: center;">TOTAL</td>
+              <td style="text-align: center;">${totalDehydrationDeaths}</td>
+              <td style="text-align: center;">100%</td>
+            </tr>
+          `;
+
+          dehydrationMortalityHtml = `
+            <div style="margin-top: 20px; width: 75%; margin-left: auto; margin-right: auto;">
+              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;"><br>Dehydration-Related Mortality</h3>
+              <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                <thead>
+                  <tr>
+                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 25%;">Age at Death</th>
+                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 25%;">Death Count</th>
+                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 25%;">Distribution %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${mortalityTableRows}
+                </tbody>
+              </table>
+            </div>
+          `;
+        } else {
+          dehydrationMortalityHtml = `
+            <div style="margin-top: 20px;">
+              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Dehydration-Related Mortality Summary</h3>
+              <p style="font-size: 11px; color: #666;">No dehydration-related deaths recorded for this batch.</p>
+            </div>
+          `;
+        }
+      } catch (error) {
+        console.error("Error fetching mortality data:", error);
+        dehydrationMortalityHtml = `
+          <div style="margin-top: 20px;">
+            <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Dehydration-Related Mortality Summary</h3>
+            <p style="font-size: 11px; color: #666;">Unable to fetch mortality data.</p>
+          </div>
+        `;
+      }
+
+      // Fetch Watering Activity Records
+      let wateringActivityHtml = "";
+      try {
+        const wateringActivityQuery = query(
+          collection(firestoreDb, "wateringExecutions_logs"),
+          where("batchId", "==", selectedBatch),
+        );
+        const wateringActivitySnapshot = await getDocs(wateringActivityQuery);
+        const wateringActivityRecords = wateringActivitySnapshot.docs.map(
+          (doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }),
+        );
+
+        if (wateringActivityRecords.length > 0) {
+          // Sort records by timestamp in ascending order (earliest first)
+          wateringActivityRecords.sort((a, b) => {
+            const timeA = a.timestamp?.toDate
+              ? a.timestamp.toDate().getTime()
+              : a.timestamp
+                ? new Date(a.timestamp).getTime()
+                : 0;
+            const timeB = b.timestamp?.toDate
+              ? b.timestamp.toDate().getTime()
+              : b.timestamp
+                ? new Date(b.timestamp).getTime()
+                : 0;
+            return timeA - timeB;
+          });
+
+          let activityTableRows = "";
+          wateringActivityRecords.forEach((record) => {
+            const timestamp = record.timestamp?.toDate
+              ? record.timestamp.toDate()
+              : record.timestamp
+                ? new Date(record.timestamp)
+                : null;
+
+            const dateStr = timestamp
+              ? timestamp
+                  .toLocaleDateString("en-GB", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  })
+                  .replace(/ /g, "-")
+              : "N/A";
+
+            const timeStr = timestamp
+              ? timestamp.toLocaleTimeString("en-US", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                  hour12: true,
+                })
+              : "N/A";
+
+            const action = record.action || "N/A";
+            const mode = record.mode || "N/A";
+            const status = record.status || "N/A";
+
+            activityTableRows += `
+              <tr>
+                <td style="text-align: center;">${dateStr}</td>
+                <td style="text-align: center;">${timeStr}</td>
+                <td style="text-align: center;">${action}</td>
+                <td style="text-align: center;">${mode}</td>
+                <td style="text-align: center;">${status}</td>
+              </tr>
+            `;
+          });
+
+          wateringActivityHtml = `
+            <div style="margin-top: 20px; page-break-before: always; width: 75%; margin-left: auto; margin-right: auto;">
+              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Watering Activity</h3>
+              <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                <thead>
+                  <tr>
+                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 18%;">Date</th>
+                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 18%;">Time</th>
+                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 22%;">Action</th>
+                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 18%;">Mode</th>
+                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 18%;">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${activityTableRows}
+                </tbody>
+              </table>
+            </div>
+          `;
+        } else {
+          wateringActivityHtml = `
+            <div style="margin-top: 20px;">
+              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Watering Activity</h3>
+              <p style="font-size: 11px; color: #666;">No watering activity records found for this batch.</p>
+            </div>
+          `;
+        }
+      } catch (error) {
+        console.error("Error fetching watering activity data:", error);
+        wateringActivityHtml = `
+          <div style="margin-top: 20px;">
+            <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Watering Activity</h3>
+            <p style="font-size: 11px; color: #666;">Unable to fetch watering activity data.</p>
+          </div>
+        `;
+      }
+
+      // Generate HTML with styled tables
       const htmlContent = `
         <!DOCTYPE html>
         <html>
@@ -4360,6 +4701,44 @@ export default function AdminAnalytics({ navigation }) {
               margin-bottom: 10px;
               text-align: center;
             }
+            .summary-title {
+              font-size: 14px;
+              font-weight: bold;
+              color: #133E87;
+              margin-bottom: 15px;
+              text-align: left;
+              margin-left: 12.5%;
+            }
+            .metrics-container {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 15px;
+              margin-bottom: 30px;
+              width: 75%;
+              margin-left: auto;
+              margin-right: auto;
+              font-size: 11px;
+            }
+            .metric-card {
+              padding: 12px;
+              background-color: white;
+              border-left: 5px solid #133E87;
+              border-radius: 3px;
+              text-align: left;
+            }
+            .metric-label {
+              color: #666;
+              font-size: 10px;
+              font-weight: normal;
+              margin-bottom: 8px;
+              line-height: 1.4;
+            }
+            .metric-value {
+              color: #133E87;
+              font-size: 18px;
+              font-weight: bold;
+              margin-bottom: 5px;
+            }
             table {
               width: 75%;
               border-collapse: collapse;
@@ -4373,7 +4752,7 @@ export default function AdminAnalytics({ navigation }) {
               background-color: #133E87;
               color: white;
               padding: 8px;
-              text-align: left;
+              text-align: center;
               border: 1px solid #ddd;
               font-weight: bold;
             }
@@ -4385,6 +4764,11 @@ export default function AdminAnalytics({ navigation }) {
             }
             tr:nth-child(even) {
               background-color: #f9f9f9;
+            }
+            h3 {
+              color: #133E87;
+              font-size: 14px;
+              margin-bottom: 10px;
             }
             .page-number {
               text-align: center;
@@ -4404,23 +4788,53 @@ export default function AdminAnalytics({ navigation }) {
             <div class="filter-info">
               ${selectedBatch}<br>
               Report Generated: ${formatReportDateTime()}<br>
-              Total Records: ${records.length}
+             
             </div>
           </div>
-          
+
+          <div class="summary-title" style="text-align: left;">Summary</div>
+
+          <div class="metrics-container">
+            <div class="metric-card">
+              <div class="metric-label">Average Daily Dispensed</div>
+              <div class="metric-value">${avgConsumption}</div>
+              <div style="font-size: 9px; color: #666; margin-top: 5px;"></div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Total Dehydration Deaths</div>
+              <div class="metric-value">${totalDehydrationDeaths}</div>
+              <div style="font-size: 9px; color: #666; margin-top: 5px;"></div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Highest Daily Dispensed</div>
+              <div class="metric-value">${maxConsumption}</div>
+              <div style="font-size: 9px; color: #666; margin-top: 5px;">${maxConsumptionDate}</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Lowest Daily Dispensed</div>
+              <div class="metric-value">${minConsumption}</div>
+              <div style="font-size: 9px; color: #666; margin-top: 5px;">${minConsumptionDate}</div>
+            </div>
+          </div>
+          <br>
+          <div class="summary-title" style="text-align: left;">Water Consumption Records</div>
+
           <table>
             <thead>
               <tr>
-                <th style="width: 20%; text-align: center;">Date</th>
-                <th style="width: 20%; text-align: center;">Age</th>
-                <th style="width: 15%; text-align: center;">Consumption</th>
-
+                <th style="width: 18%; text-align: center;">Date</th>
+                <th style="width: 18%; text-align: center;">Age</th>
+                <th style="width: 18%; text-align: center;">Activations</th>
+                <th style="width: 18%; text-align: center;">Trend</th>
               </tr>
             </thead>
             <tbody>
               ${tableRows}
             </tbody>
           </table>
+
+          ${dehydrationMortalityHtml}
+          ${wateringActivityHtml}
         </body>
         </html>
       `;
@@ -4453,6 +4867,8 @@ export default function AdminAnalytics({ navigation }) {
       await Sharing.shareAsync(newPath);
 
       Alert.alert("Success", "Water Consumption report exported successfully!");
+    } catch (error) {
+      console.error("Error generating water report:", error);
       Alert.alert("Error", "Failed to generate report: " + error.message);
     } finally {
       setIsGeneratingFeedReport(false);
@@ -4528,12 +4944,25 @@ export default function AdminAnalytics({ navigation }) {
         },
       );
 
-      // Create table rows
+      // Generate all dates in the range (including dates with 0 usage)
+      const allDates = [];
+      const currentDate = new Date(startDate);
+      while (currentDate <= endDate) {
+        const month = currentDate.getMonth() + 1;
+        const day = currentDate.getDate();
+        const year = currentDate.getFullYear();
+        const dateKey = `${month}/${day}/${year}`;
+        allDates.push(dateKey);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+
+      // Create table rows with trend calculations
       let tableRows = "";
       let totalUsage = 0;
+      const usageByDate = [];
 
-      sortedDates.forEach((dateKey) => {
-        const usage = dateMap[dateKey];
+      allDates.forEach((dateKey) => {
+        const usage = dateMap[dateKey] || 0;
         totalUsage += usage;
         const [month, day, year] = dateKey.split("/").map(Number);
         const monthNames = [
@@ -4551,20 +4980,71 @@ export default function AdminAnalytics({ navigation }) {
           "Dec",
         ];
         const formattedDate = `${String(day).padStart(2, "0")}-${monthNames[month - 1]}-${year}`;
+        usageByDate.push({ date: formattedDate, usage: usage });
+      });
 
+      // Calculate average usage and extremes
+      const usageValues = usageByDate.map(item => item.usage).filter(val => val > 0);
+      const averageUsage = usageValues.length > 0 ? usageValues.reduce((a, b) => a + b, 0) / usageValues.length : 0;
+      const highestUsage = usageValues.length > 0 ? Math.max(...usageValues) : 0;
+      const lowestUsage = usageValues.length > 0 ? Math.min(...usageValues) : 0;
+
+      // Find dates for highest and lowest usage
+      let highestUsageDate = "";
+      let lowestUsageDate = "";
+      usageByDate.forEach((item) => {
+        if (item.usage === highestUsage && highestUsage > 0) {
+          highestUsageDate = item.date;
+        }
+        if (item.usage === lowestUsage && lowestUsage > 0) {
+          lowestUsageDate = item.date;
+        }
+      });
+
+      // Format metric values with intelligent decimal handling
+      const formatMetricValue = (value) => {
+        return value % 1 === 0 ? Math.floor(value) : value.toFixed(2);
+      };
+
+      // Generate table rows with trends
+      usageByDate.forEach((item, index) => {
+        let trendHtml = "—";
+        if (index > 0) {
+          const previousUsage = usageByDate[index - 1].usage;
+          if (previousUsage === 0 && item.usage > 0) {
+            // If previous was 0 and current has usage, mark as new usage
+            trendHtml = '<span style="color: #999;">New usage</span>';
+          } else if (previousUsage > 0) {
+            // Calculate percentage change normally
+            const percentageChangeRaw = ((item.usage - previousUsage) / previousUsage) * 100;
+            const percentageChange = percentageChangeRaw % 1 === 0 ? Math.floor(percentageChangeRaw) : percentageChangeRaw.toFixed(1);
+            if (percentageChange > 0) {
+              trendHtml = `<span style="color: #F44336;">↑</span> <span style="color: #F44336;">+${percentageChange}%</span>`;
+            } else if (percentageChange < 0) {
+              trendHtml = `<span style="color: #4CAF50;">↓</span> <span style="color: #4CAF50;">${percentageChange}%</span>`;
+            } else {
+              trendHtml = '<span style="color: #999;">→</span> <span style="color: #999;">0%</span>';
+            }
+          }
+        }
+
+        const displayUsage = item.usage % 1 === 0 ? Math.floor(item.usage) : item.usage.toFixed(2);
         tableRows += `
           <tr>
-            <td>${formattedDate}</td>
-            <td>${usage.toFixed(2)}</td>
+            <td>${item.date}</td>
+            <td>${displayUsage}</td>
+            <td style="text-align: center;">${trendHtml}</td>
           </tr>
         `;
       });
 
       // Add total row
+      const displayTotalUsage = totalUsage % 1 === 0 ? Math.floor(totalUsage) : totalUsage.toFixed(2);
       tableRows += `
         <tr style="background-color: #e8e8e8; font-weight: bold;">
           <td style="text-align: center;">TOTAL</td>
-          <td>${totalUsage.toFixed(2)}</td>
+          <td>${displayTotalUsage}</td>
+          <td></td>
         </tr>
       `;
 
@@ -4642,6 +5122,44 @@ export default function AdminAnalytics({ navigation }) {
               margin-bottom: 10px;
               text-align: center;
             }
+            .summary-title {
+              font-size: 14px;
+              font-weight: bold;
+              color: #133E87;
+              margin-bottom: 15px;
+              text-align: left;
+              margin-left: 12.5%;
+            }
+            .metrics-container {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 15px;
+              margin-bottom: 30px;
+              width: 75%;
+              margin-left: auto;
+              margin-right: auto;
+              font-size: 11px;
+            }
+            .metric-card {
+              padding: 12px;
+              background-color: white;
+              border-left: 5px solid #133E87;
+              border-radius: 3px;
+              text-align: left;
+            }
+            .metric-label {
+              color: #666;
+              font-size: 10px;
+              font-weight: normal;
+              margin-bottom: 8px;
+              line-height: 1.4;
+            }
+            .metric-value {
+              color: #133E87;
+              font-size: 18px;
+              font-weight: bold;
+              margin-bottom: 5px;
+            }
             table {
               width: 40%;
               border-collapse: collapse;
@@ -4686,7 +5204,30 @@ export default function AdminAnalytics({ navigation }) {
             <div class="filter-info">
               Date Range: ${startDateStr} to ${endDateStr}<br>
               Report Generated: ${formatReportDateTime()}<br>
-              Total Records: ${sortedDates.length}
+              Total Days: ${allDates.length}
+            </div>
+          </div>
+
+          <div class="summary-title">Summary</div>
+
+          <div class="metrics-container">
+            <div class="metric-card">
+              <div class="metric-label">Average Usage</div>
+              <div class="metric-value">${formatMetricValue(averageUsage)} kWh</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Total Usage</div>
+              <div class="metric-value">${formatMetricValue(totalUsage)} kWh</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Highest Usage</div>
+              <div class="metric-value">${formatMetricValue(highestUsage)} kWh</div>
+              <div style="font-size: 9px; color: #666; margin-top: 5px;">${highestUsageDate}</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Lowest Usage</div>
+              <div class="metric-value">${formatMetricValue(lowestUsage)} kWh</div>
+              <div style="font-size: 9px; color: #666; margin-top: 5px;">${lowestUsageDate}</div>
             </div>
           </div>
           
@@ -4695,6 +5236,7 @@ export default function AdminAnalytics({ navigation }) {
               <tr>
                 <th style="width: 20%; text-align: center;">Date</th>
                 <th style="width: 20%; text-align: center;">Usage (kWh)</th>
+                <th style="width: 20%; text-align: center;">Trend</th>
               </tr>
             </thead>
             <tbody>
@@ -6667,8 +7209,9 @@ export default function AdminAnalytics({ navigation }) {
           (sum, age) => sum + ageCountMap[batchId][age],
           0,
         );
+        const avgValue = ages.length > 0 ? totalCount / ages.length : 0;
         batchAverageFeedingMap[batchId] =
-          ages.length > 0 ? (totalCount / ages.length).toFixed(2) : 0;
+          avgValue % 1 === 0 ? Math.floor(avgValue) : avgValue.toFixed(2);
       });
 
       // Step 3: Fetch overfeeding mortality per batch
@@ -6738,10 +7281,12 @@ export default function AdminAnalytics({ navigation }) {
           const previousBatchId = allBatches[index - 1];
           const previousActivations = batchFeedMap[previousBatchId] || 0;
           if (previousActivations > 0) {
-            const percentageChange = (
-              ((activations - previousActivations) / previousActivations) *
-              100
-            ).toFixed(1);
+            const percentageChangeRaw =
+              ((activations - previousActivations) / previousActivations) * 100;
+            const percentageChange =
+              percentageChangeRaw % 1 === 0
+                ? Math.floor(percentageChangeRaw)
+                : percentageChangeRaw.toFixed(1);
             if (percentageChange > 0) {
               trendHtml = `<span style="color: #4CAF50;">↑</span> <span style="color: #4CAF50;">+${percentageChange}%</span>`;
             } else if (percentageChange < 0) {
@@ -6760,10 +7305,12 @@ export default function AdminAnalytics({ navigation }) {
           const previousDeaths =
             batchOverfeedingDeathsMap[previousBatchId] || 0;
           if (previousDeaths > 0) {
-            const percentageChange = (
-              ((overfeedingDeaths - previousDeaths) / previousDeaths) *
-              100
-            ).toFixed(1);
+            const percentageChangeRaw =
+              ((overfeedingDeaths - previousDeaths) / previousDeaths) * 100;
+            const percentageChange =
+              percentageChangeRaw % 1 === 0
+                ? Math.floor(percentageChangeRaw)
+                : percentageChangeRaw.toFixed(1);
             if (percentageChange > 0) {
               deathsTrendHtml = `<span style="color: #F44336;">↑</span> <span style="color: #F44336;">+${percentageChange}%</span>`;
             } else if (percentageChange < 0) {
@@ -6792,13 +7339,16 @@ export default function AdminAnalytics({ navigation }) {
         (sum, batchId) => sum + (batchOverfeedingDeathsMap[batchId] || 0),
         0,
       );
-      const totalAvgFeeding = (
+      const totalAvgFeedingRaw =
         allBatches.reduce(
           (sum, batchId) =>
             sum + parseFloat(batchAverageFeedingMap[batchId] || 0),
           0,
-        ) / allBatches.length
-      ).toFixed(2);
+        ) / allBatches.length;
+      const totalAvgFeeding =
+        totalAvgFeedingRaw % 1 === 0
+          ? Math.floor(totalAvgFeedingRaw)
+          : totalAvgFeedingRaw.toFixed(2);
 
       tableRowsHtml += `
         <tr style="background-color: #f0f0f0; font-weight: bold;">
@@ -6975,12 +7525,7 @@ export default function AdminAnalytics({ navigation }) {
    * and generates a professional PDF report with logo and centered table.
    */
   const generateWaterPerBatchReportPDF = async () => {
-    const dateFilter = chartFilters["waterbatch"];
-    if (!dateFilter || !dateFilter.startDate || !dateFilter.endDate) {
-      Alert.alert("Error", "Please set a date range filter first");
-      return;
-    }
-
+    // Note: This report fetches ALL data regardless of filter
     setIsGeneratingWaterBatchReport(true);
     try {
       console.log("[GenerateWaterPerBatchReport] Starting PDF generation...");
@@ -6995,11 +7540,14 @@ export default function AdminAnalytics({ navigation }) {
         },
       );
 
-      const startDate = new Date(dateFilter.startDate);
-      const endDate = new Date(dateFilter.endDate);
-      endDate.setHours(23, 59, 59, 999);
+      // Step 1: Fetch all batches from brooderInfo
+      const brooderRef = collection(firestoreDb, "brooderInfo");
+      const brooderSnapshot = await getDocs(brooderRef);
+      const allBatches = brooderSnapshot.docs.map((doc) => doc.id).sort();
 
-      // Fetch all documents from wateringExecutions_logs
+      console.log("[GenerateWaterPerBatchReport] All batches:", allBatches);
+
+      // Step 2: Fetch water activations from wateringExecutions_logs (no date filter)
       const wateringLogsRef = collection(
         firestoreDb,
         "wateringExecutions_logs",
@@ -7007,46 +7555,75 @@ export default function AdminAnalytics({ navigation }) {
       const wateringSnapshot = await getDocs(wateringLogsRef);
 
       let batchWaterMap = {};
-      let totalSuccessActivations = 0;
+      let batchAverageWaterMap = {};
 
-      // Process each document
+      allBatches.forEach((batchId) => {
+        batchWaterMap[batchId] = 0;
+        batchAverageWaterMap[batchId] = 0;
+      });
+
+      let totalSuccessActivations = 0;
+      let ageCountMap = {}; // For calculating average daily water dispensing
+
+      // Process each water document (all records, no date filtering)
       wateringSnapshot.docs.forEach((doc) => {
         const data = doc.data();
-
-        // Only count if status is "Success"
         if (data.status !== "Success") return;
 
         const batchId = data.batchId || "Unknown";
-        let docDate;
 
-        // Convert timestamp to Date
-        if (data.timestamp?.toDate) {
-          docDate = data.timestamp.toDate();
-        } else if (data.createdAt?.toDate) {
-          docDate = data.createdAt.toDate();
-        } else if (typeof data.timestamp === "string") {
-          docDate = new Date(data.timestamp);
-        } else if (typeof data.createdAt === "string") {
-          docDate = new Date(data.createdAt);
+        // Count all successful records regardless of date
+        if (batchWaterMap[batchId] !== undefined) {
+          batchWaterMap[batchId]++;
         } else {
-          docDate = new Date(data.timestamp || data.createdAt);
+          batchWaterMap[batchId] = 1;
         }
+        totalSuccessActivations++;
 
-        // Filter by date range
-        if (docDate >= startDate && docDate <= endDate) {
-          batchWaterMap[batchId] = (batchWaterMap[batchId] || 0) + 1;
-          totalSuccessActivations++;
+        // Count by age for average daily water dispensing
+        const age = data.age || "Unknown";
+        if (!ageCountMap[batchId]) {
+          ageCountMap[batchId] = {};
+        }
+        ageCountMap[batchId][age] = (ageCountMap[batchId][age] || 0) + 1;
+      });
+
+      // Calculate average daily water dispensing per batch
+      Object.keys(ageCountMap).forEach((batchId) => {
+        const ages = Object.keys(ageCountMap[batchId]);
+        const totalCount = ages.reduce(
+          (sum, age) => sum + ageCountMap[batchId][age],
+          0,
+        );
+        const avgValue = ages.length > 0 ? totalCount / ages.length : 0;
+        batchAverageWaterMap[batchId] =
+          avgValue % 1 === 0 ? Math.floor(avgValue) : avgValue.toFixed(2);
+      });
+
+      // Step 3: Fetch dehydration mortality per batch
+      let batchDehydrationDeathsMap = {};
+      allBatches.forEach((batchId) => {
+        batchDehydrationDeathsMap[batchId] = 0;
+      });
+
+      const recordsRef = collectionGroup(firestoreDb, "records");
+      const recordsSnapshot = await getDocs(recordsRef);
+
+      recordsSnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        if (data.causeOfDeath === "Dehydration" && data.batchId) {
+          const batchId = data.batchId;
+          if (batchDehydrationDeathsMap[batchId] !== undefined) {
+            batchDehydrationDeathsMap[batchId] += data.count || 1;
+          } else {
+            batchDehydrationDeathsMap[batchId] = data.count || 1;
+          }
         }
       });
 
-      // Sort by batch ID
-      const sortedBatches = Object.entries(batchWaterMap)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([batchId, count]) => ({ batchId, count }));
-
       console.log(
-        "[GenerateWaterPerBatchReport] Sorted batches:",
-        sortedBatches,
+        "[GenerateWaterPerBatchReport] Batch water map:",
+        batchWaterMap,
       );
 
       // Check if there is any data
@@ -7082,20 +7659,94 @@ export default function AdminAnalytics({ navigation }) {
 
       // Generate table rows
       let tableRowsHtml = "";
-      sortedBatches.forEach((batch) => {
+      allBatches.forEach((batchId, index) => {
+        const activations = batchWaterMap[batchId] || 0;
+        const avgWater = batchAverageWaterMap[batchId] || 0;
+        const dehydrationDeaths = batchDehydrationDeathsMap[batchId] || 0;
+
+        // Calculate trend for activations
+        let trendHtml = "—";
+        if (index > 0) {
+          const previousBatchId = allBatches[index - 1];
+          const previousActivations = batchWaterMap[previousBatchId] || 0;
+          if (previousActivations > 0) {
+            const percentageChangeRaw =
+              ((activations - previousActivations) / previousActivations) * 100;
+            const percentageChange =
+              percentageChangeRaw % 1 === 0
+                ? Math.floor(percentageChangeRaw)
+                : percentageChangeRaw.toFixed(1);
+            if (percentageChange > 0) {
+              trendHtml = `<span style="color: #4CAF50;">↑</span> <span style="color: #4CAF50;">+${percentageChange}%</span>`;
+            } else if (percentageChange < 0) {
+              trendHtml = `<span style="color: #F44336;">↓</span> <span style="color: #F44336;">${percentageChange}%</span>`;
+            } else {
+              trendHtml =
+                '<span style="color: #999;">→</span> <span style="color: #999;">0%</span>';
+            }
+          }
+        }
+
+        // Calculate trend for dehydration deaths
+        let deathsTrendHtml = "—";
+        if (index > 0) {
+          const previousBatchId = allBatches[index - 1];
+          const previousDeaths =
+            batchDehydrationDeathsMap[previousBatchId] || 0;
+          if (previousDeaths > 0) {
+            const percentageChangeRaw =
+              ((dehydrationDeaths - previousDeaths) / previousDeaths) * 100;
+            const percentageChange =
+              percentageChangeRaw % 1 === 0
+                ? Math.floor(percentageChangeRaw)
+                : percentageChangeRaw.toFixed(1);
+            if (percentageChange > 0) {
+              deathsTrendHtml = `<span style="color: #F44336;">↑</span> <span style="color: #F44336;">+${percentageChange}%</span>`;
+            } else if (percentageChange < 0) {
+              deathsTrendHtml = `<span style="color: #4CAF50;">↓</span> <span style="color: #4CAF50;">${percentageChange}%</span>`;
+            } else {
+              deathsTrendHtml =
+                '<span style="color: #999;">→</span> <span style="color: #999;">0%</span>';
+            }
+          }
+        }
+
         tableRowsHtml += `
           <tr>
-            <td>${batch.batchId}</td>
-            <td style="text-align: center;">${batch.count}</td>
+            <td>${batchId}</td>
+            <td style="text-align: center;">${activations}</td>
+            <td style="text-align: center;">${trendHtml}</td>
+            <td style="text-align: center;">${avgWater}</td>
+            <td style="text-align: center;">${dehydrationDeaths}</td>
+            <td style="text-align: center;">${deathsTrendHtml}</td>
           </tr>
         `;
       });
 
       // Add total row
+      const totalDehydrationDeaths = allBatches.reduce(
+        (sum, batchId) => sum + (batchDehydrationDeathsMap[batchId] || 0),
+        0,
+      );
+      const totalAvgWaterRaw =
+        allBatches.reduce(
+          (sum, batchId) =>
+            sum + parseFloat(batchAverageWaterMap[batchId] || 0),
+          0,
+        ) / allBatches.length;
+      const totalAvgWater =
+        totalAvgWaterRaw % 1 === 0
+          ? Math.floor(totalAvgWaterRaw)
+          : totalAvgWaterRaw.toFixed(2);
+
       tableRowsHtml += `
         <tr style="background-color: #f0f0f0; font-weight: bold;">
           <td>TOTAL</td>
           <td style="text-align: center;">${totalSuccessActivations}</td>
+          <td style="text-align: center;"></td>
+          <td style="text-align: center;">${totalAvgWater}</td>
+          <td style="text-align: center;">${totalDehydrationDeaths}</td>
+          <td style="text-align: center;"></td>
         </tr>
       `;
 
@@ -7157,14 +7808,15 @@ export default function AdminAnalytics({ navigation }) {
               justify-content: center;
             }
             table {
-              width: 60%;
+              width: 100%;
               border-collapse: collapse;
+              font-size: 11px;
             }
             th {
               background-color: #133E87;
               color: white;
               padding: 8px;
-              text-align: left;
+              text-align: center;
               border: 1px solid #333;
               font-weight: bold;
             }
@@ -7191,19 +7843,21 @@ export default function AdminAnalytics({ navigation }) {
               <div class="company-name">Internet of Tsiken</div>
             </div>
             <div class="report-title">Water Per Batch Report</div>
-            <div class="filter-info">
-              Date Range: ${formatDisplayDate(dateFilter.startDate)} to ${formatDisplayDate(dateFilter.endDate)}<br>
-              Report Generated: ${formatReportDateTime()}<br>
-              Total Successful Activations: ${totalSuccessActivations}
-            </div>
+            <div class="filter-info"> All Batches<br>
+                        Report Generated: ${formatReportDateTime()}<br>
+                       </div>
           </div>
           
           <div class="table-container">
             <table>
               <thead>
                 <tr>
-                  <th>Batch ID</th>
-                  <th style="text-align: center; width: 180px;">Total Activations</th>
+                  <th style="width: 80px; text-align: left;">Batch ID</th>
+                  <th style="width: 110px;">Total Activations</th>
+                  <th style="width: 80px;">Trend</th>
+                  <th style="width: 120px;">Avg Daily Dispensed</th>
+                  <th style="width: 110px;">Dehydration Deaths</th>
+                  <th style="width: 110px;">Deaths Trend</th>
                 </tr>
               </thead>
               <tbody>
@@ -7221,7 +7875,7 @@ export default function AdminAnalytics({ navigation }) {
         base64: false,
       });
 
-      // Create custom filename with date
+      // Create custom filename with current date
       const formatDate = (date) => {
         const d = new Date(date);
         const day = String(d.getDate()).padStart(2, "0");
@@ -7244,7 +7898,8 @@ export default function AdminAnalytics({ navigation }) {
         return `${day}-${month}-${year}`;
       };
 
-      const customFilename = `WaterPerBatchReport_${formatDate(dateFilter.startDate)}_to_${formatDate(dateFilter.endDate)}.pdf`;
+      const today = new Date();
+      const customFilename = `WaterPerBatchReport_${formatDate(today)}.pdf`;
       const newPath = `${FileSystem.documentDirectory}${customFilename}`;
 
       // Copy the PDF to a new location with custom name
@@ -7258,7 +7913,7 @@ export default function AdminAnalytics({ navigation }) {
         customFilename,
         "Water Per Batch Report",
         "Generate water per batch report",
-        `Generated and exported water per batch report for ${formatDate(dateFilter.startDate)} to ${formatDate(dateFilter.endDate)}`,
+        `Generated and exported water per batch report with all-time data`,
       );
 
       // Share PDF with custom filename
@@ -8955,10 +9610,6 @@ export default function AdminAnalytics({ navigation }) {
     const sevenDaysAgo = new Date(today);
     sevenDaysAgo.setDate(today.getDate() - 6); // -6 to include today as day 7
 
-    // Set default filter to last 30 days for water batch
-    const thirtyDaysAgo = new Date(today);
-    thirtyDaysAgo.setDate(today.getDate() - 29); // -29 to include today as day 30
-
     // Format dates as YYYY-MM-DD for consistency
     const formatDateToISO = (date) => {
       const year = date.getFullYear();
@@ -8973,13 +9624,13 @@ export default function AdminAnalytics({ navigation }) {
     };
 
     const defaultWaterBatchFilter = {
-      startDate: formatDateToISO(thirtyDaysAgo),
+      startDate: formatDateToISO(sevenDaysAgo),
       endDate: formatDateToISO(today),
     };
 
     console.log("[adminAnalytics] Default 7-day filter set:", defaultFilter);
     console.log(
-      "[adminAnalytics] Default 30-day filter set for water batch:",
+      "[adminAnalytics] Default 7-day filter set for water batch:",
       defaultWaterBatchFilter,
     );
     setChartFilters((prev) => ({
@@ -9122,9 +9773,9 @@ export default function AdminAnalytics({ navigation }) {
           "[adminAnalytics] Water batches loaded:",
           waterBatches.length,
         );
-        // Set the latest batch (last one) as default for water
+        // Set the latest batch (first one after sorting by createdAt descending) as default for water
         if (waterBatches.length > 0) {
-          const latestWaterBatch = waterBatches[waterBatches.length - 1];
+          const latestWaterBatch = waterBatches[0];
           handleWaterBatchSelect(latestWaterBatch.id);
           console.log(
             "[adminAnalytics] Latest water batch selected:",
@@ -12295,119 +12946,169 @@ export default function AdminAnalytics({ navigation }) {
 
               {/* Water Batch Selection */}
               {currentFilterTarget === "water" && (
-                <>
-                  <Text
+                <View style={{ paddingHorizontal: 16, paddingVertical: 16 }}>
+                  <View
                     style={{
-                      fontSize: 14,
-                      fontWeight: "600",
-                      marginBottom: 8,
-                    }}
-                  >
-                    Select a Batch
-                  </Text>
-                  <TouchableOpacity
-                    style={{
-                      borderWidth: 1,
-                      borderColor: "#ddd",
-                      borderRadius: 8,
-                      paddingHorizontal: 12,
-                      paddingVertical: 12,
                       flexDirection: "row",
                       justifyContent: "space-between",
                       alignItems: "center",
+                      marginBottom: 12,
                     }}
-                    onPress={() =>
-                      setShowWaterBatchDropdown(!showWaterBatchDropdown)
-                    }
                   >
                     <Text
                       style={{
-                        color: selectedWaterBatch ? "#333" : "#999",
                         fontSize: 14,
+                        fontWeight: "600",
+                        color: "#333",
                       }}
                     >
-                      {selectedWaterBatch || "Select a batch"}
+                      Select a Batch
                     </Text>
-                    <Text style={{ color: "#666" }}>▼</Text>
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => setFilterModalVisible(false)}
+                      style={{
+                        padding: 4,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 24,
+                          color: "#133E87",
+                          fontWeight: "bold",
+                          lineHeight: 24,
+                        }}
+                      >
+                        ✕
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
 
-                  {showWaterBatchDropdown && (
+                  {isFetchingWaterBatches ? (
+                    <View style={{ padding: 1, alignItems: "center" }}>
+                      <ActivityIndicator size="large" color="#133E87" />
+                      <Text
+                        style={{
+                          marginTop: 8,
+                          color: "#666",
+                          fontSize: 12,
+                        }}
+                      >
+                        Loading batches...
+                      </Text>
+                    </View>
+                  ) : waterBatchFetchError ? (
+                    <View
+                      style={{
+                        padding: 16,
+                        backgroundColor: "#ffebee",
+                        borderRadius: 8,
+                      }}
+                    >
+                      <Text style={{ color: "#c62828", fontSize: 12 }}>
+                        {waterBatchFetchError}
+                      </Text>
+                    </View>
+                  ) : (
                     <>
                       <TouchableOpacity
-                        activeOpacity={1}
-                        style={{
-                          position: "absolute",
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          bottom: -5000,
-                          zIndex: 1,
-                        }}
-                        onPress={() => setShowWaterBatchDropdown(false)}
-                      />
-                      <ScrollView
                         style={{
                           borderWidth: 1,
                           borderColor: "#ddd",
-                          borderTopWidth: 0,
-                          borderBottomLeftRadius: 8,
-                          borderBottomRightRadius: 8,
-                          maxHeight: 300,
-                          marginTop: -1,
-                          zIndex: 2,
-                          backgroundColor: "#fff",
+                          borderRadius: 8,
+                          paddingHorizontal: 12,
+                          paddingVertical: 12,
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                          alignItems: "center",
                         }}
-                        nestedScrollEnabled={true}
+                        onPress={() =>
+                          setShowWaterBatchDropdown(!showWaterBatchDropdown)
+                        }
                       >
-                        {availableWaterBatches.length === 0 ? (
-                          <Text
+                        <Text
+                          style={{
+                            color: selectedWaterBatch ? "#333" : "#999",
+                            fontSize: 14,
+                          }}
+                        >
+                          {selectedWaterBatch || "Select a batch"}
+                        </Text>
+                        <Text style={{ color: "#666" }}>▼</Text>
+                      </TouchableOpacity>
+
+                      {showWaterBatchDropdown && (
+                        <>
+                          <TouchableOpacity
+                            activeOpacity={1}
                             style={{
-                              padding: 16,
-                              color: "#999",
-                              fontSize: 12,
-                              textAlign: "center",
+                              position: "absolute",
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              bottom: -5000,
+                              zIndex: 1,
                             }}
+                            onPress={() => setShowWaterBatchDropdown(false)}
+                          />
+                          <ScrollView
+                            style={{
+                              borderWidth: 1,
+                              borderColor: "#ddd",
+                              borderTopWidth: 0,
+                              borderBottomLeftRadius: 8,
+                              borderBottomRightRadius: 8,
+                              maxHeight: 300,
+                              marginTop: -1,
+                              zIndex: 2,
+                              backgroundColor: "#fff",
+                            }}
+                            nestedScrollEnabled={true}
                           >
-                            {isFetchingWaterBatches
-                              ? "Loading water batches..."
-                              : "No water batches available"}
-                          </Text>
-                        ) : (
-                          availableWaterBatches.map((batch) => (
-                            <TouchableOpacity
-                              key={batch.id}
-                              style={{
-                                padding: 12,
-                                borderBottomWidth: 1,
-                                borderBottomColor: "#eee",
-                                backgroundColor:
-                                  selectedWaterBatch === batch.id
-                                    ? "#e3f2fd"
-                                    : "#fff",
-                                zIndex: 3,
-                                alignItems: "center",
-                                justifyContent: "flex-end",
-                              }}
-                              onPress={() => handleWaterBatchSelect(batch.id)}
-                            >
+                            {availableWaterBatches.length === 0 ? (
                               <Text
                                 style={{
-                                  color:
-                                    selectedWaterBatch === batch.id
-                                      ? "#133E87"
-                                      : "#333",
-                                  fontSize: 14,
+                                  padding: 12,
+                                  color: "#999",
+                                  fontSize: 12,
+                                  textAlign: "center",
                                 }}
                               >
-                                {batch.name}
+                                No batches available
                               </Text>
-                            </TouchableOpacity>
-                          ))
-                        )}
-                      </ScrollView>
+                            ) : (
+                              availableWaterBatches.map((batch) => (
+                                <TouchableOpacity
+                                  key={batch.id}
+                                  style={{
+                                    padding: 12,
+                                    borderBottomWidth: 1,
+                                    borderBottomColor: "#eee",
+                                    backgroundColor:
+                                      selectedWaterBatch === batch.id
+                                        ? "#e3f2fd"
+                                        : "#fff",
+                                    zIndex: 3,
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    minHeight: 44,
+                                    width: "100%",
+                                  }}
+                                  onPress={() =>
+                                    handleWaterBatchSelect(batch.id)
+                                  }
+                                >
+                                  <Text style={{ color: "#333", fontSize: 14 }}>
+                                    {batch.name}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))
+                            )}
+                          </ScrollView>
+                        </>
+                      )}
                     </>
                   )}
-                </>
+                </View>
               )}
 
               {/* Date Range Display - Only for non-feed/non-water filters */}
