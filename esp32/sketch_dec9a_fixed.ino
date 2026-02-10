@@ -89,6 +89,11 @@ bool wifiConnected = false;
 
 // Calibration Factor for Load Cell (Adjust this value based on your setup)
 float LOADCELL_CALIBRATION = 420.0;
+const int TARE_WEIGHT = 250; // Bowl weight in grams to subtract from readings
+
+// Water Level Sensor Calibration (Raw ADC values)
+const int FULL_LEVEL = 2715;  // ADC value when water level is full
+const int EMPTY_LEVEL = 1200; // ADC value when water level is empty
 
 // =================================================================
 // ====================== SETUP ====================================
@@ -205,7 +210,7 @@ void setup()
     digitalWrite(PIN_LIGHT_MOSFET, LOW); // OFF
     Serial.println("  • Pump Relay... ✓ OFF");
     Serial.println("  • Fan Relay... ✓ OFF");
-    
+
     // Test MOSFET with quick pulse
     Serial.print("  • Light MOSFET (GPIO");
     Serial.print(PIN_LIGHT_MOSFET);
@@ -403,22 +408,29 @@ void readSensors()
 
     // Water Level (Analog)
     int rawWaterLevel = analogRead(PIN_WATER_LEVEL);
-    currentWaterLevel = map(rawWaterLevel, 0, 4095, 0, 100);
+    currentWaterLevel = map(rawWaterLevel, EMPTY_LEVEL, FULL_LEVEL, 0, 100);
     currentWaterLevel = constrain(currentWaterLevel, 0, 100);
     Serial.print("  💦 Water Level: ");
     Serial.print(currentWaterLevel);
     Serial.print("% (Raw: ");
     Serial.print(rawWaterLevel);
+    Serial.print(", Calibrated range: ");
+    Serial.print(EMPTY_LEVEL);
+    Serial.print("-");
+    Serial.print(FULL_LEVEL);
     Serial.println(")");
 
     // Bowl Weight (HX711)
     if (loadCellReady && loadCell.wait_ready_timeout(200))
     {
-        currentWeight = loadCell.get_units(3);  // Average of 3 readings
-        currentWeight = max(0L, currentWeight); // No negative weights
+        long rawWeight = loadCell.get_units(3);  // Average of 3 readings
+        currentWeight = rawWeight - TARE_WEIGHT; // Subtract bowl weight
+        currentWeight = max(0L, currentWeight);  // No negative weights
         Serial.print("  ⚖️  Bowl Weight: ");
         Serial.print(currentWeight);
-        Serial.println(" g");
+        Serial.print(" g (Raw: ");
+        Serial.print(rawWeight);
+        Serial.println("g)");
     }
     else
     {
@@ -427,13 +439,13 @@ void readSensors()
     }
 
     // Ultrasonic 1: Feeder Storage Tank Level
-    feederTankLevel = readUltrasonic(PIN_TRIG_FEED, PIN_ECHO_FEED, 30.0, 5.0);
+    feederTankLevel = readUltrasonic(PIN_TRIG_FEED, PIN_ECHO_FEED, 18.0, 5.0);
     Serial.print("  📦 Feeder Tank: ");
     Serial.print(feederTankLevel);
     Serial.println("%");
 
     // Ultrasonic 2: Water Storage Tank Level
-    waterTankLevel = readUltrasonic(PIN_TRIG_WATER, PIN_ECHO_WATER, 40.0, 5.0);
+    waterTankLevel = readUltrasonic(PIN_TRIG_WATER, PIN_ECHO_WATER, 17.0, 5.0);
     Serial.print("  🚰 Water Tank: ");
     Serial.print(waterTankLevel);
     Serial.println("%");
@@ -580,7 +592,7 @@ void setupWebServer()
 
     server.on("/api/light/off", HTTP_POST, []()
               {
-    Serial.println("\n� Light OFF command received");
+    Serial.println("\n💡 Light OFF command received");
     digitalWrite(PIN_LIGHT_MOSFET, LOW);
     lightActive = false;
     Serial.println("   Light turned OFF");
