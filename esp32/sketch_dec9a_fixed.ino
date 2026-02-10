@@ -92,7 +92,7 @@ float LOADCELL_CALIBRATION = 420.0;
 const int TARE_WEIGHT = 250; // Bowl weight in grams to subtract from readings
 
 // Water Level Sensor Calibration (Raw ADC values)
-const int FULL_LEVEL = 2715;  // ADC value when water level is full
+const int FULL_LEVEL = 2160;  // ADC value when water level is full
 const int EMPTY_LEVEL = 1200; // ADC value when water level is empty
 
 // =================================================================
@@ -228,8 +228,8 @@ void setup()
 
     // Servo
     feedServo.attach(PIN_SERVO);
-    feedServo.write(90); // Stop position for continuous servo (MG995)
-    Serial.println("  • Feed Servo... ✓ Stopped");
+    feedServo.write(0); // Closed position for 180° servo
+    Serial.println("  • Feed Servo... ✓ Initialized at 0° (closed)");
 
     // ========== Generate Device ID ==========
     uint8_t mac[6];
@@ -737,38 +737,30 @@ void handleStartServo()
         return;
     }
 
-    // MG995 Continuous Servo Sequence
-    // Forward 0.5s -> Stop -> Wait 5s -> Backward 0.5s -> Stop
+    // 180° Servo Sequence
+    // Open -> Wait -> Close
 
     Serial.println("  ✓ Starting feed dispense sequence...");
 
-    // Step 1: Move forward for 0.5 seconds
-    Serial.println("  → Moving forward (0.5s)");
-    feedServo.write(180); // Forward (full speed)
-    delay(500);
+    // Step 1: Open to dispense position (180°)
+    Serial.println("  → Opening to 180° (dispense position)");
+    feedServo.write(180); // Open position
+    delay(1000);          // Wait 1 second for servo to reach position
 
-    // Step 2: Stop
-    Serial.println("  → Stopping");
-    feedServo.write(90); // Stop
+    // Step 2: Wait for feed to drop
+    Serial.println("  → Waiting for feed to dispense (2s)");
+    delay(2000);
 
-    // Step 3: Wait 5 seconds
-    Serial.println("  → Waiting (5s)");
-    delay(5000);
-
-    // Step 4: Move backward for 0.5 seconds
-    Serial.println("  → Moving backward (0.5s)");
-    feedServo.write(0); // Backward (full speed)
-    delay(500);
-
-    // Step 5: Stop
-    Serial.println("  → Stopping");
-    feedServo.write(90); // Stop
+    // Step 3: Close back to starting position (0°)
+    Serial.println("  → Closing to 0° (closed position)");
+    feedServo.write(0); // Closed position
+    delay(1000);        // Wait 1 second for servo to reach position
 
     Serial.println("  ✓ Feed dispense sequence completed");
 
     StaticJsonDocument<256> doc;
     doc["status"] = "fed";
-    doc["sequence"] = "forward-stop-wait-backward-stop";
+    doc["sequence"] = "open-180-wait-close-0";
     doc["bowl_weight"] = currentWeight;
 
     String response;
