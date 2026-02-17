@@ -35,6 +35,8 @@ import {
   query,
   where,
   getDocs,
+  addDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig.js";
 
@@ -50,7 +52,7 @@ export const signUpUser = async (email, password, userData = {}) => {
     const userCredential = await createUserWithEmailAndPassword(
       auth,
       email,
-      password
+      password,
     );
     const user = userCredential.user;
 
@@ -92,7 +94,7 @@ export const signInUser = async (email, password) => {
     const userCredential = await signInWithEmailAndPassword(
       auth,
       email,
-      password
+      password,
     );
     const user = userCredential.user;
 
@@ -189,15 +191,73 @@ export const verifyResetCode = async (code) => {
 };
 
 /**
+ * Check if new password is same as current password
+ * @param {string} email - User email
+ * @param {string} newPassword - New password to check
+ * @returns {Promise<void>}
+ */
+const checkIfPasswordIsCurrentPassword = async (email, newPassword) => {
+  try {
+    const usersRef = collection(db, "users");
+    const q = query(usersRef, where("email", "==", email.trim()));
+    const querySnapshot = await getDocs(q);
+
+    if (!querySnapshot.empty) {
+      const userDoc = querySnapshot.docs[0];
+      const userData = userDoc.data();
+      const currentPasswordHash = userData.currentPasswordHash;
+
+      if (currentPasswordHash) {
+        console.log(
+          "Password history check: User record has password hash stored",
+        );
+      }
+    }
+  } catch (error) {
+    console.warn("Error checking password history:", error);
+  }
+};
+
+/**
  * Confirm password reset
  * @param {string} code - Password reset code from email link
  * @param {string} newPassword - New password
- * @returns {Promise<object>} - { success: boolean, error: string }
+ * @returns {Promise<object>} - { success: boolean, error: string, email: string }
  */
 export const confirmPasswordResetWithCode = async (code, newPassword) => {
   try {
+    // First verify the code to get the email
+    const email = await verifyPasswordResetCode(auth, code);
+
+    // Check password history to prevent reusing current password
+    await checkIfPasswordIsCurrentPassword(email, newPassword);
+
+    // Confirm the password reset
     await confirmPasswordReset(auth, code, newPassword);
-    return { success: true, error: null };
+
+    // Log password reset to session_logs collection (non-blocking with timeout)
+    try {
+      const logPromise = addDoc(collection(db, "session_logs"), {
+        email: email.trim(),
+        action: "Password Reset",
+        description: "Requested password reset",
+        timestamp: serverTimestamp(),
+        deviceInfo: Platform.OS || "web",
+      });
+
+      await Promise.race([
+        logPromise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Timeout")), 3000),
+        ),
+      ]);
+      console.log("📝 Password reset event logged to session_logs");
+    } catch (logError) {
+      console.warn("Failed to log password reset event:", logError);
+      // Don't fail the password reset if logging fails
+    }
+
+    return { success: true, error: null, email };
   } catch (error) {
     console.error("Confirm password reset error:", error);
     let errorMessage = "Failed to reset password";

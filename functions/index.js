@@ -65,7 +65,7 @@ async function getSemaphoreApiKey() {
   try {
     const client = new SecretManagerServiceClient();
     const [version] = await client.accessSecretVersion({
-      name: "projects/296742448098/secrets/SEMAPHORE_API_KEY/versions/1",
+      name: "projects/403239833979/secrets/SEMAPHORE_API_KEY/versions/1",
     });
     const apiKey = version.payload.data.toString("utf8");
     if (apiKey) {
@@ -1062,6 +1062,147 @@ exports.calculateMultiSensorAverages = onValueWritten(
     } catch (error) {
       console.error("Error in multi-sensor average calculation:", error);
       throw error;
+    }
+  },
+);
+
+/**
+ * Validate password reset - Check if new password was previously used
+ * @param {string} email - User email
+ * @param {string} newPassword - New password to validate
+ * @returns {Promise<object>} - { success: boolean, error?: string }
+ */
+exports.validatePasswordReset = onCall(
+  { region: "us-central1", timeoutSeconds: 60, memory: "256MB" },
+  async (request) => {
+    const { email, newPassword } = request.data;
+
+    // Validate inputs
+    if (!email || !newPassword) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Email and password are required",
+      );
+    }
+
+    try {
+      const bcrypt = require("bcryptjs");
+
+      // Get user document by email
+      const usersRef = db.collection("users");
+      const query = usersRef.where("email", "==", email.trim());
+      const snapshot = await query.get();
+
+      if (snapshot.empty) {
+        throw new HttpsError("not-found", "User not found");
+      }
+
+      const userDoc = snapshot.docs[0];
+      const userData = userDoc.data();
+
+      // Check against current password hash
+      if (userData.currentPasswordHash) {
+        const isCurrentPassword = await bcrypt.compare(
+          newPassword,
+          userData.currentPasswordHash,
+        );
+
+        if (isCurrentPassword) {
+          throw new HttpsError(
+            "invalid-argument",
+            "You cannot use your current password. Please choose a different password.",
+          );
+        }
+      }
+
+      // Check against password history (last 5 passwords)
+      const passwordHistory = userData.passwordHistory || [];
+      for (const oldPasswordHash of passwordHistory) {
+        const isSameAsOld = await bcrypt.compare(newPassword, oldPasswordHash);
+        if (isSameAsOld) {
+          throw new HttpsError(
+            "invalid-argument",
+            "You cannot reuse a previously used password. Please choose a different password.",
+          );
+        }
+      }
+
+      console.log("✅ Password validation passed for email:", email);
+      return { success: true };
+    } catch (error) {
+      console.error("Password validation error:", error);
+
+      // Return custom error messages
+      if (error.code === "invalid-argument" || error.code === "not-found") {
+        throw error;
+      }
+
+      throw new HttpsError(
+        "internal",
+        "Failed to validate password. Please try again.",
+      );
+    }
+  },
+);
+
+/**
+ * Store password hash when password is reset
+ * Called after successful password reset confirmation
+ * @param {string} uid - User UID
+ * @param {string} email - User email
+ * @returns {Promise<object>} - { success: boolean }
+ */
+exports.storePasswordHash = onCall(
+  { region: "us-central1", timeoutSeconds: 60, memory: "256MB" },
+  async (request) => {
+    const { uid, email, passwordHash } = request.data;
+
+    if (!uid || !email || !passwordHash) {
+      throw new HttpsError(
+        "invalid-argument",
+        "uid, email, and passwordHash are required",
+      );
+    }
+
+    try {
+      const userRef = db.collection("users").doc(uid);
+      const userDoc = await userRef.get();
+
+      if (!userDoc.exists()) {
+        throw new HttpsError("not-found", "User not found");
+      }
+
+      // Get current password history
+      const userData = userDoc.data();
+      const passwordHistory = userData.passwordHistory || [];
+
+      // Move current password to history
+      const newHistory = [
+        userData.currentPasswordHash,
+        ...passwordHistory.slice(0, 4), // Keep last 5 passwords total
+      ].filter(Boolean); // Remove undefined values
+
+      // Update user document
+      await userRef.update({
+        currentPasswordHash: passwordHash,
+        passwordHistory: newHistory,
+        passwordResetAt: new Date(),
+        lastPasswordChangeAt: new Date(),
+      });
+
+      console.log("✅ Password hash stored for user:", email);
+      return { success: true };
+    } catch (error) {
+      console.error("Error storing password hash:", error);
+
+      if (error.code === "not-found") {
+        throw error;
+      }
+
+      throw new HttpsError(
+        "internal",
+        "Failed to store password hash. Please contact support.",
+      );
     }
   },
 );
