@@ -2029,6 +2029,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     borderWidth: 1.5,
     borderColor: "#234187",
+    marginLeft: "-14%",
   },
   createAccountButtonText: {
     color: "#000",
