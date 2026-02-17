@@ -41,6 +41,7 @@ export default function VerifyIdentityScreen() {
   const [alertType, setAlertType] = useState("info");
   const [alertTitle, setAlertTitle] = useState("");
   const [alertMessage, setAlertMessage] = useState("");
+  const [isSendingOTP, setIsSendingOTP] = useState(false);
 
   const inputs = useRef([]);
   const navigation = useNavigation();
@@ -120,6 +121,7 @@ export default function VerifyIdentityScreen() {
         );
         return;
       }
+      setIsSendingOTP(true);
       try {
         // Format phone number with country code
         const phoneNumber = `0${inputValue}`; // Philippines country code
@@ -134,6 +136,7 @@ export default function VerifyIdentityScreen() {
             "Authentication Required",
             "Please log in first to verify your identity.",
           );
+          setIsSendingOTP(false);
           return;
         }
 
@@ -147,6 +150,7 @@ export default function VerifyIdentityScreen() {
             "User Not Found",
             "User record not found in database.",
           );
+          setIsSendingOTP(false);
           return;
         }
 
@@ -172,6 +176,7 @@ export default function VerifyIdentityScreen() {
             console.log(
               "🔒 Device locked due to multiple mobile number mismatches",
             );
+            setIsSendingOTP(false);
             return;
           }
 
@@ -183,6 +188,7 @@ export default function VerifyIdentityScreen() {
 
             "Mobile number does not match user records.",
           );
+          setIsSendingOTP(false);
           return;
         }
 
@@ -223,6 +229,7 @@ export default function VerifyIdentityScreen() {
           setSuccessModalVisible(true);
           setCountdown(300); // 5 minutes
           setCanResend(false);
+          setIsSendingOTP(false);
 
           // Auto-hide modal after 2 seconds
           setTimeout(() => {
@@ -230,6 +237,7 @@ export default function VerifyIdentityScreen() {
           }, 2000);
         } catch (firebaseError) {
           console.error("❌ Firebase Function Error:", firebaseError);
+          setIsSendingOTP(false);
           throw firebaseError;
         }
       } catch (error) {
@@ -244,9 +252,11 @@ export default function VerifyIdentityScreen() {
         let errorMessage = "Mobile number does not match user records";
 
         showAlert("error", "Invalid Mobile Number", errorMessage);
+        setIsSendingOTP(false);
       }
     } else {
       showAlert("error", "Error", "Only mobile OTP is supported.");
+      setIsSendingOTP(false);
     }
   };
 
@@ -398,10 +408,13 @@ export default function VerifyIdentityScreen() {
 
   const handleOutsideTap = () => {
     Keyboard.dismiss();
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      navigation.navigate("LogIn");
+    // Only navigate back if not in OTP screen
+    if (!showOtpScreen) {
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.navigate("LogIn");
+      }
     }
   };
 
@@ -579,10 +592,16 @@ export default function VerifyIdentityScreen() {
               </View>
 
               <TouchableOpacity
-                style={styles.sendButton}
+                style={[
+                  styles.sendButton,
+                  isSendingOTP && styles.sendButtonDisabled,
+                ]}
                 onPress={handleSendOTP}
+                disabled={isSendingOTP}
               >
-                <Text style={styles.sendText}>Send OTP</Text>
+                <Text style={styles.sendText}>
+                  {isSendingOTP ? "Sending..." : "Send OTP"}
+                </Text>
               </TouchableOpacity>
             </>
           )}
@@ -797,6 +816,9 @@ const styles = StyleSheet.create({
     width: "100%",
     paddingVertical: 16,
     alignItems: "center",
+  },
+  sendButtonDisabled: {
+    opacity: 0.6,
   },
   sendText: {
     color: "#fff",

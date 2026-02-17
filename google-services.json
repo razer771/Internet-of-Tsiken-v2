@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "296742448098",
-    "project_id": "internet-of-tsiken-690dd",
-    "storage_bucket": "internet-of-tsiken-690dd.firebasestorage.app"
+    "project_number": "403239833979",
+    "project_id": "internet-of-tsiken-f0ad4",
+    "storage_bucket": "internet-of-tsiken-f0ad4.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:296742448098:android:b844a85f9a8083a56527bb",
+        "mobilesdk_app_id": "1:403239833979:android:2c953fd22403bd4f5aedde",
         "android_client_info": {
           "package_name": "com.ailynmay.capstone"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyCixR0qDsaTJHrkrz39E8yzmu6PDKKZlB8"
+          "current_key": "AIzaSyCaBxQ0Dt2tnZUOdBkVoz4UhQyTWyg76-I"
         }
       ],
       "services": {
