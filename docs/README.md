@@ -353,3 +353,14 @@ sudo systemctl enable camera-stream
 
 verify:
 sudo systemctl is-enabled camera-stream
+
+RPI COMMANDS
+
+CPU temp check:
+vcgencmd measure_temp
+
+RAM check:
+free -h
+
+File path
+cd ~/Internet-of-Tsiken-v2
