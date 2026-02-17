@@ -15,9 +15,9 @@ const SERVO_CONFIG = {
     // Servo settings
     minAngle: 0,
     maxAngle: 180,
-    dispenseAngle: 90,    // Angle to open dispenser
-    closedAngle: 0,       // Angle when closed
-    dispenseDuration: 2000, // Duration in ms to keep open
+    dispenseAngle: 15,    // Angle to open dispenser (SG90)
+    closedAngle: 90,      // Angle when closed (resting pose)
+    dispenseDuration: 2000, // Duration in ms to keep open (2 seconds)
     endpoint: null,       // Will be set when connecting to actual module
   },
   waterSprinkler: {
@@ -53,12 +53,18 @@ export const initializeServos = async (config = {}) => {
     const waterSystemUrl = getWaterSystemUrl();
     const feedSystemUrl = getFeedSystemUrl();
     
+    console.log(`[ServoMotorService] 🔧 Initializing servos...`);
+    console.log(`[ServoMotorService]   Water System URL: ${waterSystemUrl || 'NOT CONFIGURED'}`);
+    console.log(`[ServoMotorService]   Feed System URL: ${feedSystemUrl || 'NOT CONFIGURED'}`);
+    
     if (waterSystemUrl && !SERVO_CONFIG.waterSprinkler.endpoint) {
       SERVO_CONFIG.waterSprinkler.endpoint = waterSystemUrl;
+      console.log(`[ServoMotorService]   ✓ Water endpoint set`);
     }
     
     if (feedSystemUrl && !SERVO_CONFIG.feedDispenser.endpoint) {
       SERVO_CONFIG.feedDispenser.endpoint = feedSystemUrl;
+      console.log(`[ServoMotorService]   ✓ Feed endpoint set`);
     }
     
     // Merge custom config if provided
@@ -111,25 +117,46 @@ const connectToServo = async (servoType) => {
       throw new Error(`${servo.name} motor not detected. Please check the connection.`);
     }
 
-    // Simulated connection attempt
+    // Try to ping the servo
     const isConnected = await pingServo(servo.endpoint);
     
-    if (!isConnected) {
-      throw new Error(`${servo.name} motor not responding. Please verify the motor is powered on.`);
+    if (isConnected) {
+      // Ping successful - definitely connected
+      connectionStatus[servoType] = {
+        connected: true,
+        lastUpdate: new Date().toISOString(),
+        error: null,
+        isOperating: false,
+      };
+      simulationMode = false;
+      
+      console.log(`✅ ${servo.name} connected and verified`);
+      
+      return {
+        connected: true,
+        servoId: servo.id,
+        name: servo.name,
+      };
+    } else {
+      // Ping failed, but keep endpoint configured so hardware calls can still be attempted
+      console.log(`⚠️ ${servo.name} ping failed, but will still attempt commands`);
+      
+      connectionStatus[servoType] = {
+        connected: false,
+        lastUpdate: new Date().toISOString(),
+        error: 'Ping failed, will attempt commands anyway',
+        isOperating: false,
+      };
+      
+      // Don't set simulationMode to true - let individual commands try hardware first
+      
+      return {
+        connected: false,
+        servoId: servo.id,
+        name: servo.name,
+        warning: 'Ping failed but endpoint configured',
+      };
     }
-
-    connectionStatus[servoType] = {
-      connected: true,
-      lastUpdate: new Date().toISOString(),
-      error: null,
-      isOperating: false,
-    };
-
-    return {
-      connected: true,
-      servoId: servo.id,
-      name: servo.name,
-    };
   } catch (error) {
     connectionStatus[servoType] = {
       connected: false,
@@ -160,14 +187,21 @@ const connectToServo = async (servoType) => {
  */
 const pingServo = async (endpoint) => {
   try {
-    // TODO: Implement actual ping logic
-    // Example for HTTP-based module:
-    // const response = await fetch(`${endpoint}/ping`, { timeout: 5000 });
-    // return response.ok;
+    console.log(`[ServoMotorService] Pinging ${endpoint}`);
+    const response = await Promise.race([
+      fetch(endpoint, { method: 'GET' }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
+    ]);
     
-    // For now, return false to trigger simulation mode
+    if (response.ok) {
+      const data = await response.json();
+      console.log(`[ServoMotorService] ✅ ESP32 connected: ${data.device || 'Unknown'}`);
+      return true;
+    }
+    console.log(`[ServoMotorService] Ping failed: HTTP ${response.status}`);
     return false;
   } catch (error) {
+    console.log(`[ServoMotorService] ⚠️ Ping failed:`, error.message);
     return false;
   }
 };
@@ -194,46 +228,61 @@ export const dispenseFeed = async (options = {}) => {
       };
     }
 
-    // Check connection status
-    if (simulationMode || !connectionStatus.feedDispenser.connected) {
-      // Simulate dispense operation
-      console.log(`[SIMULATED] Dispensing feed - Angle: ${angle}°, Duration: ${duration}ms`);
-      
-      connectionStatus.feedDispenser.isOperating = true;
-      
-      // Simulate the operation delay
-      await new Promise(resolve => setTimeout(resolve, Math.min(duration, 2000)));
-      
-      connectionStatus.feedDispenser.isOperating = false;
-      connectionStatus.feedDispenser.lastUpdate = new Date().toISOString();
-      
-      return {
-        success: true,
-        message: 'Feed dispensed successfully (simulated)',
-        isSimulated: true,
-        warning: connectionStatus.feedDispenser.error || 'Feed dispenser motor not detected. Operation simulated.',
-        duration,
-        angle,
-        timestamp: new Date().toISOString(),
-      };
+    // Always try real hardware first if an endpoint is configured
+    connectionStatus.feedDispenser.isOperating = true;
+
+    if (servo.endpoint) {
+      try {
+        console.log(`[ServoMotorService] 🍗 Dispensing feed via ESP32: angle=${angle}°, duration=${duration}ms`);
+        
+        const result = await sendServoCommand('feedDispenser', {
+          action: 'dispense',
+          angle: angle,
+          duration: duration,
+        });
+
+        connectionStatus.feedDispenser.connected = true;
+        connectionStatus.feedDispenser.error = null;
+        connectionStatus.feedDispenser.isOperating = false;
+        connectionStatus.feedDispenser.lastUpdate = new Date().toISOString();
+        simulationMode = false;
+
+        console.log(`[ServoMotorService] ✅ Feed dispensed successfully:`, result);
+
+        return {
+          success: true,
+          message: 'Feed dispensed successfully',
+          isSimulated: false,
+          duration,
+          angle,
+          timestamp: new Date().toISOString(),
+          esp32Response: result,
+        };
+      } catch (error) {
+        console.warn('[ServoMotorService] ❌ Hardware dispense failed:', error.message);
+        connectionStatus.feedDispenser.connected = false;
+        connectionStatus.feedDispenser.error = error.message;
+        connectionStatus.feedDispenser.isOperating = false;
+        // Fall through to simulation
+      }
     }
 
-    // Real hardware operation
-    connectionStatus.feedDispenser.isOperating = true;
-    
-    const result = await sendServoCommand('feedDispenser', {
-      action: 'dispense',
-      angle,
-      duration,
-    });
-    
+    // If no endpoint or hardware failed, simulate as fallback
+    console.log(`[SIMULATED] Dispensing feed - Angle: ${angle}°, Duration: ${duration}ms`);
+
+    // Simulate the operation delay
+    await new Promise(resolve => setTimeout(resolve, Math.min(duration, 2000)));
+
     connectionStatus.feedDispenser.isOperating = false;
     connectionStatus.feedDispenser.lastUpdate = new Date().toISOString();
-    
+
     return {
       success: true,
-      message: 'Feed dispensed successfully',
-      isSimulated: false,
+      message: hardwareAttempted
+        ? 'Hardware dispense failed. Simulated operation completed.'
+        : 'Feed dispensed successfully (simulated)',
+      isSimulated: true,
+      warning: connectionStatus.feedDispenser.error || 'Feed dispenser motor not detected. Operation simulated.',
       duration,
       angle,
       timestamp: new Date().toISOString(),
@@ -273,46 +322,57 @@ export const activateSprinkler = async (options = {}) => {
       };
     }
 
-    // Check connection status
-    if (simulationMode || !connectionStatus.waterSprinkler.connected) {
-      // Simulate sprinkler operation
-      console.log(`[SIMULATED] Activating sprinkler - Angle: ${angle}°, Duration: ${duration}ms`);
-      
-      connectionStatus.waterSprinkler.isOperating = true;
-      
-      // Simulate the operation delay
-      await new Promise(resolve => setTimeout(resolve, Math.min(duration, 2000)));
-      
-      connectionStatus.waterSprinkler.isOperating = false;
-      connectionStatus.waterSprinkler.lastUpdate = new Date().toISOString();
-      
-      return {
-        success: true,
-        message: 'Water sprinkler activated successfully (simulated)',
-        isSimulated: true,
-        warning: connectionStatus.waterSprinkler.error || 'Water sprinkler motor not detected. Operation simulated.',
-        duration,
-        angle,
-        timestamp: new Date().toISOString(),
-      };
+    // Always try real hardware first if an endpoint is configured
+    connectionStatus.waterSprinkler.isOperating = true;
+
+    let hardwareAttempted = false;
+    if (servo.endpoint) {
+      try {
+        hardwareAttempted = true;
+        const result = await sendServoCommand('waterSprinkler', {
+          action: 'activate',
+          angle,
+          duration,
+        });
+
+        connectionStatus.waterSprinkler.connected = true;
+        connectionStatus.waterSprinkler.error = null;
+        simulationMode = false;
+
+        connectionStatus.waterSprinkler.isOperating = false;
+        connectionStatus.waterSprinkler.lastUpdate = new Date().toISOString();
+
+        return {
+          success: true,
+          message: 'Water sprinkler activated successfully',
+          isSimulated: false,
+          duration,
+          angle,
+          timestamp: new Date().toISOString(),
+        };
+      } catch (error) {
+        console.warn('[ServoMotorService] Water hardware activate failed, falling back to simulation:', error.message);
+        connectionStatus.waterSprinkler.connected = false;
+        connectionStatus.waterSprinkler.error = error.message;
+      }
     }
 
-    // Real hardware operation
-    connectionStatus.waterSprinkler.isOperating = true;
-    
-    const result = await sendServoCommand('waterSprinkler', {
-      action: 'activate',
-      angle,
-      duration,
-    });
-    
+    // If no endpoint or hardware failed, simulate as fallback
+    console.log(`[SIMULATED] Activating sprinkler - Angle: ${angle}°, Duration: ${duration}ms`);
+
+    // Simulate the operation delay
+    await new Promise(resolve => setTimeout(resolve, Math.min(duration, 2000)));
+
     connectionStatus.waterSprinkler.isOperating = false;
     connectionStatus.waterSprinkler.lastUpdate = new Date().toISOString();
-    
+
     return {
       success: true,
-      message: 'Water sprinkler activated successfully',
-      isSimulated: false,
+      message: hardwareAttempted
+        ? 'Hardware activation failed. Simulated operation completed.'
+        : 'Water sprinkler activated successfully (simulated)',
+      isSimulated: true,
+      warning: connectionStatus.waterSprinkler.error || 'Water sprinkler motor not detected. Operation simulated.',
       duration,
       angle,
       timestamp: new Date().toISOString(),
@@ -345,32 +405,52 @@ const sendServoCommand = async (servoType, command) => {
   
   try {
     let endpoint = servo.endpoint;
+    let requestBody = {};
+    
+    // For feed dispenser, use ESP32 servo API
+    if (servoType === 'feedDispenser') {
+      endpoint = command.action === 'dispense' 
+        ? `${servo.endpoint}/api/servo/start`
+        : `${servo.endpoint}/api/servo/stop`;
+      // ESP32 servo expects: { angle, duration }
+      requestBody = {
+        angle: command.angle,
+        duration: command.duration,
+      };
+    }
     
     // For water sprinkler (micro water pump), use ESP32 pump API
     if (servoType === 'waterSprinkler') {
       endpoint = command.action === 'activate' 
         ? `${servo.endpoint}/api/pump/start`
         : `${servo.endpoint}/api/pump/stop`;
+      // ESP32 pump expects: { duration }
+      requestBody = {
+        duration: command.duration,
+      };
     }
     
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        duration: command.duration,
-        angle: command.angle,
-        action: command.action,
+    console.log(`[ServoMotorService] 📡 POST ${endpoint}`, requestBody);
+    
+    const response = await Promise.race([
+      fetch(endpoint, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
       }),
-      timeout: 10000, // 10 second timeout
-    });
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout after 10s')), 10000)
+      )
+    ]);
     
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
     
     const data = await response.json();
+    console.log(`[ServoMotorService] Response from ${endpoint}:`, data);
     return data;
   } catch (error) {
     console.error(`Hardware command error for ${servoType}:`, error);

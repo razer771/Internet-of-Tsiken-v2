@@ -24,9 +24,9 @@ import {
 
 /**
  * Update batch in Firestore
- * Updates chicksCount, daysCount, harvestDays and metadata
+ * Updates chicksCount, daysCount, harvestDays and initialChicksCount (if no mortality)
  */
-const updateBatchInFirestore = async (batchId, updates) => {
+const updateBatchInFirestore = async (batchId, updates, currentBatch) => {
   try {
     const batchDocRef = doc(firestoreDb, "brooderInfo", batchId);
 
@@ -39,13 +39,19 @@ const updateBatchInFirestore = async (batchId, updates) => {
       updatedAt: new Date(),
     };
 
+    // When updating chicksCount, also update initialChicksCount if no mortality reported
+    if (currentBatch && (currentBatch.mortalityCount || 0) === 0) {
+      // Sync initialChicksCount with the new chicksCount value
+      updateData.initialChicksCount = parseInt(updates.chicksCount);
+    }
+
     // Update the batch document
     await updateDoc(batchDocRef, updateData);
 
     console.log(
       "[UpdateBatch] Successfully updated batch:",
       batchId,
-      updateData
+      updateData,
     );
     return { success: true, batchId, updates: updateData };
   } catch (error) {
@@ -56,7 +62,7 @@ const updateBatchInFirestore = async (batchId, updates) => {
 
 /**
  * Log edit event to activity_logs collection
- * Records batch edit actions for audit trail
+ * Records batch edit actions for audit trail with change details
  * Stores in: activity_logs/editBatch_logs/events
  */
 const logEditEvent = async (
@@ -64,24 +70,26 @@ const logEditEvent = async (
   firstName,
   lastName,
   batchId,
-  batchNumber
+  batchNumber,
+  changes = undefined,
 ) => {
   try {
     const eventData = {
       userId: userId,
       batchId: batchId,
-      action: "Batch edited",
+      action: `Updated Batch ${batchNumber}`,
       description: `Batch ${batchNumber} information updated`,
       timestamp: serverTimestamp(),
       deviceInfo: Platform.OS,
       firstName: firstName,
       lastName: lastName,
+      ...(changes && { changes: changes }), // Include changes array if provided
     };
 
     // Add document to activity_logs/editBatch_logs/events subcollection
     const docRef = await addDoc(
       collection(firestoreDb, "activity_logs", "editBatch_logs", "events"),
-      eventData
+      eventData,
     );
 
     console.log("[LogEditEvent] Event logged successfully:", docRef.id);
@@ -173,50 +181,71 @@ export default function EditBatchModal({
   }, [visible]);
 
   const handleChicksChange = (text) => {
-    // Only allow numeric input, max 100
+    // Only allow numeric input
     const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
 
     if (numericText === "") {
       setChicksCount(numericText);
       setChicksError("");
-    } else if (numValue >= 0 && numValue <= 100) {
+    } else if (numValue >= 0) {
       setChicksCount(numericText);
-      setChicksError("");
-    } else {
-      setChicksError("Number of chicks cannot exceed 100");
+      // Show error if exceeds 100
+      if (numValue > 100) {
+        setChicksError("Number of chicks cannot exceed 100");
+      } else {
+        setChicksError("");
+      }
     }
   };
 
   const handleDaysChange = (text) => {
-    // Only allow numeric input, max 365
+    // Only allow numeric input
     const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
 
     if (numericText === "") {
       setDaysCount(numericText);
       setDaysError("");
-    } else if (numValue >= 0 && numValue <= 365) {
+    } else if (numValue >= 0) {
       setDaysCount(numericText);
-      setDaysError("");
-    } else {
-      setDaysError("Number of days cannot exceed 365");
+      let errors = [];
+      // Check if exceeds 45
+      if (numValue > 45) {
+        errors.push("Number of days cannot exceed 45");
+      }
+      // Check if days exceeds harvest days (if harvest is set)
+      if (harvestDays && parseInt(harvestDays) > 0) {
+        if (numValue > parseInt(harvestDays)) {
+          errors.push("Number of days cannot exceed expected harvest days");
+        }
+      }
+      setDaysError(errors.length > 0 ? errors[0] : "");
     }
   };
 
   const handleHarvestChange = (text) => {
-    // Only allow numeric input, max 365
+    // Only allow numeric input
     const numericText = text.replace(/[^0-9]/g, "");
     const numValue = parseInt(numericText);
 
     if (numericText === "") {
       setHarvestDays(numericText);
       setHarvestError("");
-    } else if (numValue >= 0 && numValue <= 365) {
+    } else if (numValue >= 0) {
       setHarvestDays(numericText);
-      setHarvestError("");
-    } else {
-      setHarvestError("Expected harvest days cannot exceed 365");
+      let errors = [];
+      // Check if exceeds 365
+      if (numValue > 365) {
+        errors.push("Expected harvest days cannot exceed 365");
+      }
+      // Check if harvest days is less than current days (if days is set)
+      if (daysCount && parseInt(daysCount) > 0) {
+        if (numValue < parseInt(daysCount)) {
+          errors.push("Expected harvest days cannot be less than current days");
+        }
+      }
+      setHarvestError(errors.length > 0 ? errors[0] : "");
     }
   };
 
@@ -257,7 +286,7 @@ export default function EditBatchModal({
 
           const today = new Date();
           const daysDiff = Math.floor(
-            (today - startDateObj) / (1000 * 60 * 60 * 24)
+            (today - startDateObj) / (1000 * 60 * 60 * 24),
           );
           const calculatedAge = daysDiff + parseInt(daysCount);
 
@@ -289,6 +318,19 @@ export default function EditBatchModal({
   };
 
   const handleSave = () => {
+    // Validate that days does not exceed harvest days
+    const daysValue = parseInt(daysCount);
+    const harvestValue = parseInt(harvestDays);
+
+    if (daysValue > harvestValue) {
+      Alert.alert(
+        "Invalid Input",
+        "Number of days cannot be greater than expected harvest days.\n\nPlease check your entries and try again.",
+      );
+      setDaysError("Number of days cannot exceed expected harvest days");
+      return;
+    }
+
     // Get current user info
     const currentUser = auth.currentUser;
     if (!currentUser) {
@@ -319,21 +361,37 @@ export default function EditBatchModal({
         // Store userInfo for later use
         userInfo = userInfoData;
 
-        // Update batch in Firestore
-        return updateBatchInFirestore(batchId, updates);
+        // Update batch in Firestore (pass currentBatch so function can check mortalityCount)
+        return updateBatchInFirestore(batchId, updates, batchData);
       })
       .then((result) => {
         console.log("[HandleSave] Batch updated in Firestore:", result);
 
-        // Log the edit event with batch number
+        // Log the edit event with batch number and changes
         const batchNumber =
           batchData?.batchNumber || batchData?.batchNo || "Unknown";
+
+        // Track which fields were changed
+        const changes = [];
+        if (parseInt(chicksCount) !== batchData?.chicksCount) {
+          changes.push(`Chicks: ${batchData?.chicksCount} → ${chicksCount}`);
+        }
+        if (parseInt(daysCount) !== batchData?.daysCount) {
+          changes.push(`Days: ${batchData?.daysCount} → ${daysCount}`);
+        }
+        if (parseInt(harvestDays) !== batchData?.harvestDays) {
+          changes.push(
+            `Harvest Days: ${batchData?.harvestDays} → ${harvestDays}`,
+          );
+        }
+
         logEditEvent(
           currentUser.uid,
           userInfo.firstname,
           userInfo.lastname,
           batchId,
-          batchNumber
+          batchNumber,
+          changes.length > 0 ? changes : undefined,
         );
 
         // Call the original callback for backward compatibility (AsyncStorage)
@@ -356,7 +414,7 @@ export default function EditBatchModal({
         console.error("[HandleSave] Error:", error);
         Alert.alert(
           "Error",
-          "Failed to save changes. Please try again.\n" + error.message
+          "Failed to save changes. Please try again.\n" + error.message,
         );
       });
   };
@@ -393,6 +451,7 @@ export default function EditBatchModal({
               value={chicksCount}
               onChangeText={handleChicksChange}
               keyboardType="numeric"
+              maxLength={5}
             />
             {chicksError ? (
               <Text style={styles.errorText}>{chicksError}</Text>
@@ -408,6 +467,7 @@ export default function EditBatchModal({
               value={daysCount}
               onChangeText={handleDaysChange}
               keyboardType="numeric"
+              maxLength={5}
             />
             {daysError ? (
               <Text style={styles.errorText}>{daysError}</Text>
@@ -423,6 +483,7 @@ export default function EditBatchModal({
               value={harvestDays}
               onChangeText={handleHarvestChange}
               keyboardType="numeric"
+              maxLength={5}
             />
             {harvestError ? (
               <Text style={styles.errorText}>{harvestError}</Text>

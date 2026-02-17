@@ -145,7 +145,7 @@ function ScreenWithRouteTracker({
   useFocusEffect(
     useCallback(() => {
       onRouteChange(routeName);
-    }, [routeName, onRouteChange])
+    }, [routeName, onRouteChange]),
   );
   return <Component {...props} />;
 }
@@ -194,7 +194,7 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       console.log(
         "🔔 Auth listener fired - hasInitialized:",
-        hasInitializedRef.current
+        hasInitializedRef.current,
       );
 
       // CRITICAL: Check if we're in the middle of a login flow FIRST
@@ -207,11 +207,11 @@ export default function App() {
 
       // Check if we're in the middle of account creation
       const isAccountCreationInProgress = await AsyncStorage.getItem(
-        "accountCreationInProgress"
+        "accountCreationInProgress",
       );
       if (isAccountCreationInProgress === "true") {
         console.log(
-          "⏸️ Account creation in progress - App.js skipping ALL auth handling"
+          "⏸️ Account creation in progress - App.js skipping ALL auth handling",
         );
         return;
       }
@@ -249,13 +249,13 @@ export default function App() {
             const userRole = (userData.role || "").toLowerCase();
 
             console.log(
-              `📊 Auth state - Status: ${accountStatus}, Role: ${userRole}`
+              `📊 Auth state - Status: ${accountStatus}, Role: ${userRole}`,
             );
 
             // Sign out unverified or inactive users - let them go through login flow
             if (!userData.verified || accountStatus === "inactive") {
               console.log(
-                "❌ Unverified or inactive user → signing out to force login"
+                "❌ Unverified or inactive user → signing out to force login",
               );
               await auth.signOut();
               setIsAuthenticated(false);
@@ -271,7 +271,7 @@ export default function App() {
               if (accountStatus === "active") {
                 if (userRole === "admin") {
                   console.log(
-                    "👤 [App.js] Active Admin → Navigating to AdminDashboard"
+                    "👤 [App.js] Active Admin → Navigating to AdminDashboard",
                   );
                   targetScreen = "AdminDashboard";
                 } else {
@@ -281,7 +281,7 @@ export default function App() {
               } else {
                 // Unknown status - default to Home
                 console.log(
-                  "⚠️ [App.js] Unknown status → Navigating to Home (default)"
+                  "⚠️ [App.js] Unknown status → Navigating to Home (default)",
                 );
                 targetScreen = "Home";
               }
@@ -299,7 +299,7 @@ export default function App() {
               hasInitializedRef.current = true;
             } else {
               console.log(
-                "✅ [App.js] Already initialized - NOT navigating (prevents re-mount)"
+                "✅ [App.js] Already initialized - NOT navigating (prevents re-mount)",
               );
             }
             setAuthLoading(false);
@@ -318,7 +318,7 @@ export default function App() {
           setIsAuthenticated(true);
           if (!hasInitializedRef.current) {
             console.log(
-              "❌ [App.js] Error fetching user data → Navigating to Home"
+              "❌ [App.js] Error fetching user data → Navigating to Home",
             );
             if (navigationRef.isReady()) {
               navigationRef.reset({
@@ -373,7 +373,7 @@ export default function App() {
         }
         // Allow default back behavior
         return false;
-      }
+      },
     );
 
     return () => backHandler.remove();
@@ -417,7 +417,7 @@ export default function App() {
                 style={[styles.content, !isAuthScreen && styles.contentWithNav]}
               >
                 <Stack.Navigator
-                  initialRouteName="LogIn"
+                  initialRouteName="JsonSplash"
                   screenOptions={{
                     headerShown: false,
                     animation: "slide_from_right",
@@ -432,7 +432,7 @@ export default function App() {
                     component={createTrackedScreen(
                       JsonSplashScreen,
                       "JsonSplash",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -440,7 +440,7 @@ export default function App() {
                     component={createTrackedScreen(
                       LogIn,
                       "LogIn",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -448,7 +448,7 @@ export default function App() {
                     component={createTrackedScreen(
                       LoginSuccess,
                       "LoginSuccess",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -456,7 +456,7 @@ export default function App() {
                     component={createTrackedScreen(
                       VerifyIdentity,
                       "VerifyIdentity",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -464,7 +464,7 @@ export default function App() {
                     component={createTrackedScreen(
                       PasswordUpdated,
                       "PasswordUpdated",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -472,7 +472,7 @@ export default function App() {
                     component={createTrackedScreen(
                       ResetPassword,
                       "ResetPassword",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -480,7 +480,7 @@ export default function App() {
                     component={createTrackedScreen(
                       MobileNumberInput,
                       "MobileNumberInput",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -488,7 +488,7 @@ export default function App() {
                     component={createTrackedScreen(
                       OTPVerification,
                       "OTPVerification",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -496,7 +496,7 @@ export default function App() {
                     component={createTrackedScreen(
                       ConfirmPassword,
                       "ConfirmPassword",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -504,7 +504,7 @@ export default function App() {
                     component={createTrackedScreen(
                       CreateNewPassword,
                       "CreateNewPassword",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
 
@@ -514,7 +514,7 @@ export default function App() {
                     component={createTrackedScreen(
                       Home,
                       "Home",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -522,7 +522,7 @@ export default function App() {
                     component={createTrackedScreen(
                       Notification,
                       "Notification",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -530,7 +530,7 @@ export default function App() {
                     component={createTrackedScreen(
                       ControlScreen,
                       "Control",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -538,7 +538,7 @@ export default function App() {
                     component={createTrackedScreen(
                       AppInfo,
                       "Settings",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -546,7 +546,7 @@ export default function App() {
                     component={createTrackedScreen(
                       TermsAndConditions,
                       "TermsAndConditions",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -554,7 +554,7 @@ export default function App() {
                     component={createTrackedScreen(
                       PrivacyPolicy,
                       "PrivacyPolicy",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -562,7 +562,7 @@ export default function App() {
                     component={createTrackedScreen(
                       InternetOfTsiken,
                       "InternetOfTsiken",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -570,7 +570,7 @@ export default function App() {
                     component={createTrackedScreen(
                       UserProfile,
                       "UserProfile",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -578,7 +578,7 @@ export default function App() {
                     component={createTrackedScreen(
                       EditProfile,
                       "EditProfile",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -586,7 +586,7 @@ export default function App() {
                     component={createTrackedScreen(
                       UserActivityLogs,
                       "ActivityLogs",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -594,7 +594,7 @@ export default function App() {
                     component={createTrackedScreen(
                       AdminActivityLogs,
                       "AdminActivityLogs",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -602,7 +602,7 @@ export default function App() {
                     component={createTrackedScreen(
                       Reports,
                       "Reports",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -610,7 +610,7 @@ export default function App() {
                     component={createTrackedScreen(
                       ViewReport,
                       "ViewReport",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -618,7 +618,7 @@ export default function App() {
                     component={createTrackedScreen(
                       Analytics,
                       "Analytics",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -626,7 +626,7 @@ export default function App() {
                     component={createTrackedScreen(
                       AdminDashboard,
                       "AdminDashboard",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -634,7 +634,7 @@ export default function App() {
                     component={createTrackedScreen(
                       UserManagement,
                       "UserManagement",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -642,7 +642,7 @@ export default function App() {
                     component={createTrackedScreen(
                       CreateAccount,
                       "CreateAccount",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -650,7 +650,7 @@ export default function App() {
                     component={createTrackedScreen(
                       AdminAnalytics,
                       "AdminAnalytics",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                   <Stack.Screen
@@ -658,7 +658,7 @@ export default function App() {
                     component={createTrackedScreen(
                       AdminNotification,
                       "AdminNotification",
-                      setCurrentRoute
+                      setCurrentRoute,
                     )}
                   />
                 </Stack.Navigator>

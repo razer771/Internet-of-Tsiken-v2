@@ -94,7 +94,7 @@ const logDeleteEvent = async (
   firstName,
   lastName,
   batchId,
-  batchNumber
+  batchNumber,
 ) => {
   try {
     const eventData = {
@@ -111,7 +111,7 @@ const logDeleteEvent = async (
     // Add document to activity_logs/deleteBatch_logs/events subcollection
     const docRef = await addDoc(
       collection(firestoreDb, "activity_logs", "deleteBatch_logs", "events"),
-      eventData
+      eventData,
     );
 
     console.log("[LogDeleteEvent] Event logged successfully:", docRef.id);
@@ -176,7 +176,7 @@ export const fetchBatches = async () => {
     // Query brooderInfo collection ordered by startDate descending
     const q = query(
       collection(firestoreDb, "brooderInfo"),
-      orderBy("startDate", "desc")
+      orderBy("startDate", "desc"),
     );
 
     const querySnapshot = await getDocs(q);
@@ -199,7 +199,7 @@ export const fetchBatches = async () => {
         // Auto-calculate daysCount using dynamic age calculation
         const calculatedDaysCount = calculateAge(
           data.startDate,
-          data.daysCount
+          data.daysCount,
         );
 
         return {
@@ -208,6 +208,7 @@ export const fetchBatches = async () => {
           chicksCount: data.chicksCount || 0,
           daysCount: calculatedDaysCount, // Dynamically calculated age
           age: calculatedDaysCount, // Also provide as 'age' for compatibility
+          originalDaysCount: data.daysCount, // Store original value from Firestore
           harvestDays: data.harvestDays || 0,
           startDate: data.startDate,
           // Keep original data for reference
@@ -221,7 +222,7 @@ export const fetchBatches = async () => {
   } catch (error) {
     console.error(
       "[FetchBatches] Error fetching batches from Firestore:",
-      error
+      error,
     );
     throw error;
   }
@@ -231,6 +232,7 @@ export default function ViewAllBatchesModal({
   visible,
   batches,
   selectedBatchIndex,
+  preSelectedBatchId = null,
   onSelectBatch,
   onDeleteBatch,
   onEditBatch,
@@ -241,18 +243,67 @@ export default function ViewAllBatchesModal({
   const [showDeleteSuccess, setShowDeleteSuccess] = useState(false);
   const [showDeleteError, setShowDeleteError] = useState(false);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
+  const [recalculatedBatches, setRecalculatedBatches] = useState(batches);
+  const [highlightedBatchId, setHighlightedBatchId] =
+    useState(preSelectedBatchId);
+  const scrollViewRef = React.useRef(null);
 
-  // Auto-select the most recent batch if none is selected
+  // Recalculate ages only when modal becomes visible
+  // This ensures we get fresh calculation from original daysCount in Firestore data
+  React.useEffect(() => {
+    if (visible && batches.length > 0) {
+      // Only recalculate if batches contain originalDaysCount (not already calculated)
+      // Otherwise use batches as-is to avoid double calculation
+      const updatedBatches = batches.map((batch) => {
+        // If batch has originalDaysCount, it means it was freshly fetched from Firestore
+        // In that case, recalculate to account for time elapsed since fetch
+        if (batch.originalDaysCount !== undefined && batch.startDate) {
+          const calculatedDays = calculateAge(
+            batch.startDate,
+            batch.originalDaysCount,
+          );
+
+          return {
+            ...batch,
+            daysCount: calculatedDays,
+            age: calculatedDays,
+          };
+        }
+        // Otherwise, return batch as-is (already calculated correctly)
+        return batch;
+      });
+      setRecalculatedBatches(updatedBatches);
+    } else {
+      setRecalculatedBatches(batches);
+    }
+    // Update highlighted batch ID when modal opens with new preSelectedBatchId
+    if (visible) {
+      setHighlightedBatchId(preSelectedBatchId);
+    }
+  }, [visible, batches, preSelectedBatchId]);
+
+  // Scroll to the selected batch when modal opens or selection changes
   React.useEffect(() => {
     if (
       visible &&
-      batches.length > 0 &&
-      (selectedBatchIndex === null || selectedBatchIndex >= batches.length)
+      selectedBatchIndex !== null &&
+      selectedBatchIndex >= 0 &&
+      selectedBatchIndex < recalculatedBatches.length &&
+      scrollViewRef.current
     ) {
-      // Select the last batch (most recent)
-      onSelectBatch(batches.length - 1);
+      // Scroll to the selected batch
+      // Estimate: each batch item is approximately 100 pixels tall
+      const yOffset = selectedBatchIndex * 100;
+      scrollViewRef.current.scrollTo({
+        y: yOffset,
+        animated: true,
+      });
+      console.log(
+        "[ViewAllBatches] Scrolled to selected batch index:",
+        selectedBatchIndex,
+      );
     }
-  }, [visible, batches, selectedBatchIndex, onSelectBatch]);
+  }, [visible, selectedBatchIndex, recalculatedBatches.length]);
 
   const handleDeletePress = (index) => {
     setBatchToDelete(index);
@@ -262,11 +313,11 @@ export default function ViewAllBatchesModal({
   const handleConfirmDelete = async () => {
     if (batchToDelete !== null) {
       try {
-        // Get the batch ID from the batches array
-        const batchId = batches[batchToDelete]?.id;
+        // Get the batch ID from the recalculatedBatches array
+        const batchId = recalculatedBatches[batchToDelete]?.id;
         const batchNumber =
-          batches[batchToDelete]?.batchNumber ||
-          batches[batchToDelete]?.batchNo ||
+          recalculatedBatches[batchToDelete]?.batchNumber ||
+          recalculatedBatches[batchToDelete]?.batchNo ||
           "Unknown";
 
         if (!batchId) {
@@ -287,7 +338,7 @@ export default function ViewAllBatchesModal({
             userInfo.firstname,
             userInfo.lastname,
             batchId,
-            batchNumber
+            batchNumber,
           );
         }
 
@@ -304,7 +355,7 @@ export default function ViewAllBatchesModal({
       } catch (error) {
         console.error("[HandleConfirmDelete] Error:", error);
         setDeleteErrorMessage(
-          error.message || "Failed to delete batch. Please try again."
+          error.message || "Failed to delete batch. Please try again.",
         );
         setShowDeleteError(true);
       }
@@ -323,11 +374,11 @@ export default function ViewAllBatchesModal({
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>All Batches</Text>
 
-            <ScrollView style={styles.batchesContainer}>
-              {batches.length === 0 ? (
+            <ScrollView ref={scrollViewRef} style={styles.batchesContainer}>
+              {recalculatedBatches.length === 0 ? (
                 <Text style={styles.emptyMessage}>No batches found.</Text>
               ) : (
-                batches.map((batch, idx) => {
+                recalculatedBatches.map((batch, idx) => {
                   // Map batch fields - support both old and new field names
                   const displayBatchNo =
                     batch.batchNumber !== undefined &&
@@ -367,7 +418,7 @@ export default function ViewAllBatchesModal({
                       } else if (typeof batch.startDate === "string") {
                         // ISO string
                         startDate = new Date(
-                          batch.startDate
+                          batch.startDate,
                         ).toLocaleDateString();
                       } else if (batch.startDate instanceof Date) {
                         // Date object
@@ -380,6 +431,13 @@ export default function ViewAllBatchesModal({
                   }
 
                   const isSelected = idx === selectedBatchIndex;
+                  const isHighlighted = batch.id === highlightedBatchId;
+
+                  // Calculate if batch is active (has chicks AND hasn't reached harvest)
+                  const chicksNum = parseInt(displayChicks, 10) || 0;
+                  const daysNum = parseInt(displayDays, 10) || 0;
+                  const harvestNum = parseInt(displayHarvest, 10) || 0;
+                  const isActiveBatch = chicksNum > 0 && daysNum < harvestNum;
 
                   return (
                     <View
@@ -387,6 +445,7 @@ export default function ViewAllBatchesModal({
                       style={[
                         styles.batchItem,
                         isSelected && styles.batchItemSelected,
+                        isHighlighted && styles.batchItemHighlighted,
                       ]}
                     >
                       <TouchableOpacity
@@ -421,14 +480,32 @@ export default function ViewAllBatchesModal({
                         {isSelected && (
                           <Text style={styles.selectedBadge}>✓ Selected</Text>
                         )}
+                        {isHighlighted && !isSelected && (
+                          <Text style={styles.activeBatchBadge}>
+                            🐣 Currently Active
+                          </Text>
+                        )}
                       </TouchableOpacity>
                       <View style={styles.actionButtons}>
                         <TouchableOpacity
-                          style={styles.deleteButton}
-                          onPress={() => handleDeletePress(idx)}
-                          activeOpacity={0.7}
+                          style={[
+                            styles.deleteButton,
+                            !isActiveBatch && styles.deleteButtonDisabled,
+                          ]}
+                          onPress={() =>
+                            isActiveBatch && handleDeletePress(idx)
+                          }
+                          disabled={!isActiveBatch}
+                          activeOpacity={isActiveBatch ? 0.7 : 1}
                         >
-                          <Text style={styles.deleteButtonText}>Delete</Text>
+                          <Text
+                            style={[
+                              styles.deleteButtonText,
+                              !isActiveBatch && styles.deleteButtonTextDisabled,
+                            ]}
+                          >
+                            Delete
+                          </Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -569,6 +646,11 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: "#2563eb",
   },
+  batchItemHighlighted: {
+    backgroundColor: "#fef3c7",
+    borderLeftWidth: 4,
+    borderLeftColor: "#f59e0b",
+  },
   batchContent: {
     flex: 1,
   },
@@ -583,6 +665,12 @@ const styles = StyleSheet.create({
   },
   selectedBadge: {
     color: "#2563eb",
+    fontWeight: "bold",
+    marginTop: 6,
+    fontSize: 13,
+  },
+  activeBatchBadge: {
+    color: "#f59e0b",
     fontWeight: "bold",
     marginTop: 6,
     fontSize: 13,
@@ -604,6 +692,13 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "700",
     fontSize: 12,
+  },
+  deleteButtonDisabled: {
+    backgroundColor: "#d1d5db",
+    opacity: 0.6,
+  },
+  deleteButtonTextDisabled: {
+    color: "#6b7280",
   },
   closeButton: {
     backgroundColor: "#154b99",

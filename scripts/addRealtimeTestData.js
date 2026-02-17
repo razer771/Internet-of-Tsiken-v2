@@ -13,13 +13,13 @@ const { getDatabase, ref, set, push } = require("firebase/database");
 
 // Your Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyAOC8S6aOGvfnUzp0Twb-7O727Un9FoUGE",
-  authDomain: "internet-of-tsiken-690dd.firebaseapp.com",
-  databaseURL: "https://internet-of-tsiken-690dd-default-rtdb.firebaseio.com", // Add your Realtime Database URL
-  projectId: "internet-of-tsiken-690dd",
-  storageBucket: "internet-of-tsiken-690dd.appspot.com",
-  messagingSenderId: "296742448098",
-  appId: "1:296742448098:web:8163021d84af262c6527bb",
+  apiKey: "AIzaSyBa6PE0nqkrFAqDm6AT2nIrZmv6qIfgiFM",
+  authDomain: "internet-of-tsiken-f0ad4.firebaseapp.com",
+  databaseURL: "https://internet-of-tsiken-f0ad4-default-rtdb.firebaseio.com", // Add your Realtime Database URL
+  projectId: "internet-of-tsiken-f0ad4",
+  storageBucket: "internet-of-tsiken-f0ad4.firebasestorage.app",
+  messagingSenderId: "403239833979",
+  appId: "1:403239833979:web:7b8656be94583bc45aedde",
 };
 
 // Initialize Firebase
@@ -66,7 +66,7 @@ async function addMultiSensorData() {
 
     console.log("\n✅ Multi-sensor test data added successfully!");
     console.log(
-      "\nIf Cloud Functions are deployed, they will automatically calculate averages."
+      "\nIf Cloud Functions are deployed, they will automatically calculate averages.",
     );
     console.log('Check Firestore collection "sensorAverages" for results.');
   } catch (error) {
@@ -97,7 +97,7 @@ async function addSingleSensorData() {
         const timestamp = Date.now() + i;
         const sensorRef = ref(
           database,
-          `sensorData/${TEST_USER_ID}/${sensorType}/${timestamp}`
+          `sensorData/${TEST_USER_ID}/${sensorType}/${timestamp}`,
         );
 
         let value;
@@ -130,7 +130,7 @@ async function addSingleSensorData() {
 
     console.log("\n✅ Single-sensor test data added successfully!");
     console.log(
-      "\nIf Cloud Functions are deployed, they will automatically calculate averages."
+      "\nIf Cloud Functions are deployed, they will automatically calculate averages.",
     );
   } catch (error) {
     console.error("❌ Error adding test data:", error);
@@ -144,10 +144,10 @@ async function main() {
   console.log("=".repeat(60));
   console.log("\nChoose data structure:");
   console.log(
-    "1. Multi-sensor readings (recommended for calculateMultiSensorAverages function)"
+    "1. Multi-sensor readings (recommended for calculateMultiSensorAverages function)",
   );
   console.log(
-    "2. Single-sensor readings (for calculateSensorAverages function)"
+    "2. Single-sensor readings (for calculateSensorAverages function)",
   );
   console.log("3. Both\n");
 

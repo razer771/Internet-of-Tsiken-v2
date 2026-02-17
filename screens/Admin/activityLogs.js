@@ -13,14 +13,22 @@ import {
 } from "react-native";
 import Header2 from "../navigation/adminHeader";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
-import { collection, getDocs, doc, getDoc } from "firebase/firestore";
-import { db } from "../../config/firebaseconfig";
+import {
+  collection,
+  getDocs,
+  doc,
+  getDoc,
+  addDoc,
+  Timestamp,
+} from "firebase/firestore";
+import { db, auth } from "../../config/firebaseconfig";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
+import { Asset } from "expo-asset";
 
 const COLUMN_WIDTHS = {
-  date: 150,
+  date: 140,
   time: 120,
   name: 200,
   action: 200,
@@ -32,26 +40,67 @@ const TABLE_WIDTH =
   COLUMN_WIDTHS.action;
 
 const LOGS_PER_PAGE = 10;
-const EXPORT_ENTRIES_PER_PAGE = 50;
 
 // Month names for date formatting
 const monthNamesShort = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
 ];
 
+// Nested collection structure for fetching logs
 const LOG_COLLECTIONS = [
-  "activity_logs", // Unified activity logs collection
-  "addFeedSchedule_logs",
-  "addWaterSchedule_logs",
-  "deleteFeedSchedule_logs",
-  "deleteWaterSchedule_logs",
-  "editFeedSchedule_logs",
-  "editWaterSchedule_logs",
-  "nightTime_logs",
-  "report_logs",
-  "session_logs",
-  "wateringActivity_logs",
+  {
+    parent: "activity_logs",
+    subcollections: [
+      { name: "addBatch_logs", documentPath: "events" },
+      { name: "deleteBatch_logs", documentPath: "events" },
+      { name: "editBatch_logs", documentPath: "events" },
+      { name: "nightTime_logs", documentPath: "events" },
+      { name: "report_logs", documentPath: "logs" },
+      { name: "editProfile", documentPath: "passwordChange" },
+      { name: "editProfile", documentPath: "userprofile" },
+      { name: "mortalityReporting", documentPath: "events" },
+      {
+        name: "feeding",
+        documentPath: [
+          "addFeedSchedule_logs",
+          "deleteFeedSchedule_logs",
+          "editFeedSchedule_logs",
+        ],
+      },
+      {
+        name: "watering",
+        documentPath: [
+          "addWaterSchedule_logs",
+          "deleteWaterSchedule_logs",
+          "editWaterSchedule_logs",
+        ],
+      },
+      {
+        name: "userManagement",
+        documentPath: [
+          "createAccount",
+          "updateAccount",
+          "disableAccess",
+          "forcePasswordChange",
+          "resetPassword",
+          "reactivateAccount",
+        ],
+      },
+    ],
+  },
+  { parent: "report_logs", subcollections: null }, // Top-level collection
+  { parent: "session_logs", subcollections: null }, // Top-level collection
 ];
 
 export default function ActivityLogs({ navigation }) {
@@ -68,25 +117,20 @@ export default function ActivityLogs({ navigation }) {
 
   // Calendar filter state
   const [showCalendar, setShowCalendar] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(null);
+  const [startDate, setStartDate] = useState(null);
+  const [endDate, setEndDate] = useState(null);
+  const [selectingStartDate, setSelectingStartDate] = useState(true); // Track which date we're selecting
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
   // Apply sorting - always by Date (newest first)
   useEffect(() => {
-    console.log(`🔄 Sorting logs by Date (newest first)`);
-    console.log(`📊 Total logs before sorting: ${allLogs.length}`);
-    
     let sorted = [...allLogs];
     sorted.sort((a, b) => {
       const timeA = a.timestamp.getTime();
       const timeB = b.timestamp.getTime();
       return timeB - timeA; // Newest first
     });
-    
-    console.log(`✅ Sorted by Date (newest first)`);
-    console.log(`First 3 dates: ${sorted.slice(0, 3).map(log => formatDateGMT8(log.timestamp)).join(', ')}`);
-    console.log(`📊 Total logs after sorting: ${sorted.length}`);
-    
+
     setFilteredLogs(sorted);
     setCurrentPage(1);
   }, [allLogs]);
@@ -98,7 +142,6 @@ export default function ActivityLogs({ navigation }) {
   useEffect(() => {
     // Prevent duplicate fetches in React StrictMode (development)
     if (hasFetchedRef.current) {
-      console.log("⏭️  Skipping duplicate fetch (already loaded)");
       return;
     }
 
@@ -109,7 +152,6 @@ export default function ActivityLogs({ navigation }) {
   const fetchAllLogs = async () => {
     try {
       setLoading(true);
-      console.log("📥 Fetching logs from multiple collections...");
 
       const allLogsArray = [];
       const userCacheTemp = {};
@@ -121,132 +163,169 @@ export default function ActivityLogs({ navigation }) {
         return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
       };
 
-      // Fetch logs from all collections
-      for (const collectionName of LOG_COLLECTIONS) {
-        try {
-          const logsSnapshot = await getDocs(collection(db, collectionName));
-          console.log(
-            `✅ Fetched ${logsSnapshot.size} logs from ${collectionName}`
-          );
+      // Helper function to fetch logs and process them
+      const processLog = async (logDoc, collectionPath) => {
+        const logData = logDoc.data();
 
-          for (const logDoc of logsSnapshot.docs) {
-            const logData = logDoc.data();
+        // Fetch user name and role
+        let userName = "Unknown User";
+        let userRole = "N/A";
 
-            // Fetch user name and role if userId exists
-            let userName = "Unknown User";
-            let userRole = "N/A";
+        // For userManagement logs, use adminId instead of userId for the name column
+        const isUserManagementLog = collectionPath.includes("userManagement");
+        const userIdToFetch = isUserManagementLog
+          ? logData.adminId
+          : logData.userId;
 
-            if (logData.userId) {
-              // Check if we have cached user data
-              if (userCacheTemp[logData.userId]) {
-                userName = userCacheTemp[logData.userId];
-              }
-              if (roleCacheTemp[logData.userId]) {
-                userRole = roleCacheTemp[logData.userId];
-              }
+        if (userIdToFetch) {
+          // Check if we have cached user data
+          if (userCacheTemp[userIdToFetch]) {
+            userName = userCacheTemp[userIdToFetch];
+          }
+          if (roleCacheTemp[userIdToFetch]) {
+            userRole = roleCacheTemp[userIdToFetch];
+          }
 
-              // If not cached, fetch from Firestore
-              if (
-                !userCacheTemp[logData.userId] ||
-                !roleCacheTemp[logData.userId]
-              ) {
-                try {
-                  const userDoc = await getDoc(
-                    doc(db, "users", logData.userId)
-                  );
-                  if (userDoc.exists()) {
-                    const userData = userDoc.data();
+          // If not cached, fetch from Firestore
+          if (!userCacheTemp[userIdToFetch] || !roleCacheTemp[userIdToFetch]) {
+            try {
+              const userDoc = await getDoc(doc(db, "users", userIdToFetch));
+              if (userDoc.exists()) {
+                const userData = userDoc.data();
 
-                    // Cache user name
-                    if (!userCacheTemp[logData.userId]) {
-                      userName =
-                        `${userData.firstName || ""} ${userData.lastName || ""}`.trim();
-                      userCacheTemp[logData.userId] = userName;
-                    }
+                // Cache user name
+                if (!userCacheTemp[userIdToFetch]) {
+                  userName =
+                    `${userData.firstName || ""} ${userData.lastName || ""}`.trim();
+                  userCacheTemp[userIdToFetch] = userName;
+                }
 
-                    // Cache and capitalize role
-                    if (!roleCacheTemp[logData.userId] && userData.role) {
-                      userRole = capitalizeFirstLetter(userData.role);
-                      roleCacheTemp[logData.userId] = userRole;
-                      console.log(
-                        `👤 Fetched role for user ${userName}: ${userRole}`
-                      );
-                    }
-                  }
-                } catch (error) {
-                  console.error(
-                    `❌ Error fetching user ${logData.userId}:`,
-                    error
-                  );
+                // Cache and capitalize role
+                if (!roleCacheTemp[userIdToFetch] && userData.role) {
+                  userRole = capitalizeFirstLetter(userData.role);
+                  roleCacheTemp[userIdToFetch] = userRole;
                 }
               }
-            }
-
-            // Use log's role if it exists and is not "N/A", otherwise use fetched role
-            const finalRole =
-              logData.role && logData.role !== "N/A"
-                ? capitalizeFirstLetter(logData.role)
-                : userRole;
-
-            // Safely convert timestamp - handle both Firestore Timestamp and ISO string
-            let timestamp;
-            try {
-              if (logData.timestamp?.toDate) {
-                // Firestore Timestamp object
-                timestamp = logData.timestamp.toDate();
-              } else if (typeof logData.timestamp === "string") {
-                // ISO string format
-                timestamp = new Date(logData.timestamp);
-              } else if (logData.timestamp instanceof Date) {
-                // Already a Date object
-                timestamp = logData.timestamp;
-              } else {
-                console.warn(
-                  "⚠️  Unknown timestamp format for log:",
-                  logDoc.id,
-                  logData.timestamp
-                );
-                timestamp = new Date(0); // Use epoch instead of current time
-              }
-
-              // Validate the timestamp
-              if (isNaN(timestamp.getTime())) {
-                console.warn(
-                  "⚠️  Invalid timestamp for log:",
-                  logDoc.id,
-                  "Using epoch"
-                );
-                timestamp = new Date(0); // Use epoch instead of current time
-              }
             } catch (error) {
-              console.warn(
-                "⚠️  Error converting timestamp for log:",
-                logDoc.id,
-                error
-              );
-              timestamp = new Date(0); // Use epoch instead of current time
+              console.error(`❌ Error fetching user ${userIdToFetch}:`, error);
             }
+          }
+        } else if (isUserManagementLog && logData.adminName) {
+          // Fallback: use adminName from the log if adminId is not available
+          userName = logData.adminName;
+        }
 
-            allLogsArray.push({
-              id: logDoc.id,
-              collectionName,
-              timestamp,
-              userName,
-              role: finalRole,
-              action: logData.action || "N/A",
-              description: logData.description || "N/A",
-              userId: logData.userId,
-            });
+        // Use log's role if it exists and is not "N/A", otherwise use fetched role
+        const finalRole =
+          logData.role && logData.role !== "N/A"
+            ? capitalizeFirstLetter(logData.role)
+            : userRole;
+
+        // Safely convert timestamp - handle both Firestore Timestamp and ISO string
+        let timestamp;
+        try {
+          if (logData.timestamp?.toDate) {
+            // Firestore Timestamp object
+            timestamp = logData.timestamp.toDate();
+          } else if (typeof logData.timestamp === "string") {
+            // ISO string format
+            timestamp = new Date(logData.timestamp);
+          } else if (logData.timestamp instanceof Date) {
+            // Already a Date object
+            timestamp = logData.timestamp;
+          } else {
+            console.warn(
+              "⚠️  Unknown timestamp format for log:",
+              logDoc.id,
+              logData.timestamp,
+            );
+            timestamp = new Date(0);
+          }
+
+          // Validate the timestamp
+          if (isNaN(timestamp.getTime())) {
+            console.warn(
+              "⚠️  Invalid timestamp for log:",
+              logDoc.id,
+              "Using epoch",
+            );
+            timestamp = new Date(0);
           }
         } catch (error) {
-          console.error(`❌ Error fetching from ${collectionName}:`, error);
+          console.warn(
+            "⚠️  Error converting timestamp for log:",
+            logDoc.id,
+            error,
+          );
+          timestamp = new Date(0);
+        }
+
+        allLogsArray.push({
+          id: logDoc.id,
+          collectionName: collectionPath,
+          timestamp,
+          userName,
+          role: finalRole,
+          action: logData.action || "N/A",
+          description: logData.description || "N/A",
+          userId: logData.userId,
+        });
+      };
+
+      // Fetch logs from all collections (top-level and nested)
+      for (const config of LOG_COLLECTIONS) {
+        try {
+          if (config.subcollections === null) {
+            // Top-level collection (report_logs, session_logs)
+            const logsSnapshot = await getDocs(collection(db, config.parent));
+
+            for (const logDoc of logsSnapshot.docs) {
+              await processLog(logDoc, config.parent);
+            }
+          } else {
+            // Nested collections under activity_logs
+            for (const subConfig of config.subcollections) {
+              try {
+                const subCollectionName = subConfig.name;
+                const documentPaths = Array.isArray(subConfig.documentPath)
+                  ? subConfig.documentPath
+                  : [subConfig.documentPath];
+
+                for (const docPath of documentPaths) {
+                  try {
+                    const eventsSnapshot = await getDocs(
+                      collection(db, config.parent, subCollectionName, docPath),
+                    );
+
+                    for (const logDoc of eventsSnapshot.docs) {
+                      await processLog(
+                        logDoc,
+                        `${config.parent}/${subCollectionName}/${docPath}`,
+                      );
+                    }
+                  } catch (error) {
+                    console.error(
+                      `❌ Error fetching from ${config.parent}/${subCollectionName}/${docPath}:`,
+                      error,
+                    );
+                  }
+                }
+              } catch (error) {
+                console.error(
+                  `❌ Error processing subcollection ${subConfig.name}:`,
+                  error,
+                );
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`❌ Error fetching from ${config.parent}:`, error);
         }
       }
 
       // Sort by timestamp descending (newest first)
       allLogsArray.sort((a, b) => b.timestamp - a.timestamp);
 
-      console.log(`✅ Fetched total of ${allLogsArray.length} logs`);
       setAllLogs(allLogsArray);
       setUserCache(userCacheTemp);
       setLoading(false);
@@ -288,77 +367,42 @@ export default function ActivityLogs({ navigation }) {
     const minutes = String(gmt8Date.getUTCMinutes()).padStart(2, "0");
     const ampm = hours >= 12 ? "PM" : "AM";
     hours = hours % 12 || 12;
-    return `${hours}:${minutes}${ampm}`; // No space between minutes and AM/PM
+    return `${hours}:${minutes} ${ampm}`; // No space between minutes and AM/PM
   };
 
   const handleGenerateReport = async () => {
     try {
-      console.log("📊 Generate Report button pressed");
-      console.log(`📤 Exporting ${filteredLogs.length} filtered logs`);
-
+      // Use filteredLogs which is already filtered by date (if selected)
       const logsToExport = filteredLogs;
 
       if (logsToExport.length === 0) {
-        console.log("⚠️ No logs to export");
-        Alert.alert(
-          "No Data",
-          "No logs to export."
-        );
+        Alert.alert("No Data", "No logs to export.");
         return;
       }
 
-      // Calculate pagination
-      const totalPages = Math.ceil(
-        logsToExport.length / EXPORT_ENTRIES_PER_PAGE
-      );
-      console.log(
-        `📄 Export will create ${totalPages} page(s) (${EXPORT_ENTRIES_PER_PAGE} entries per page)`
-      );
+      // Prepare all entries in a single export page
+      const formattedEntries = logsToExport.map((log, idx) => ({
+        No: idx + 1,
+        Date: formatDateGMT8(log.timestamp),
+        Time: formatTimeGMT8(log.timestamp),
+        Name: log.userName,
+        Action: log.action,
+        Description: log.description,
+      }));
 
-      // Prepare export data with pagination
-      const exportPages = [];
-      for (let page = 0; page < totalPages; page++) {
-        const startIdx = page * EXPORT_ENTRIES_PER_PAGE;
-        const endIdx = Math.min(
-          startIdx + EXPORT_ENTRIES_PER_PAGE,
-          logsToExport.length
-        );
-        const pageEntries = logsToExport.slice(startIdx, endIdx);
-
-        const formattedEntries = pageEntries.map((log, idx) => ({
-          No: startIdx + idx + 1,
-          Date: formatDateGMT8(log.timestamp),
-          Time: formatTimeGMT8(log.timestamp),
-          Name: log.userName,
-          Action: log.action,
-        }));
-
-        exportPages.push({
-          pageNumber: page + 1,
-          totalPages,
+      const exportPages = [
+        {
+          pageNumber: 1,
+          totalPages: 1,
           entries: formattedEntries,
           entriesCount: formattedEntries.length,
-        });
-
-        console.log(
-          `✅ Page ${page + 1} of ${totalPages} prepared (${formattedEntries.length} entries)`
-        );
-      }
-
-      // Navigate to preview screen with export data
-      console.log("🚀 Navigating to GenerateLogReport preview screen");
-      navigation.navigate("GenerateLogReport", {
-        exportData: exportPages,
-        totalLogs: logsToExport.length,
-        filters: {
-          name: "All",
-          sortBy: sortBy,
         },
-        onExportPDF: async () => {
-          await generatePDF(exportPages, {
-            sortBy: sortBy,
-          });
-        },
+      ];
+
+      // Generate PDF directly with all data
+      await generatePDF(exportPages, {
+        sortBy: "Date (newest first)",
+        dateFilter: formatRecordDate(),
       });
     } catch (error) {
       console.error("❌ Error generating report:", error);
@@ -368,7 +412,15 @@ export default function ActivityLogs({ navigation }) {
 
   const generatePDF = async (exportPages, filters) => {
     try {
-      console.log("📄 Starting PDF generation...");
+      // Load logo as base64
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        },
+      );
 
       // Generate HTML content for PDF
       let htmlContent = `
@@ -377,25 +429,41 @@ export default function ActivityLogs({ navigation }) {
         <head>
           <meta charset="UTF-8">
           <style>
+            @page {
+              size: 8.5in 11in;
+              margin: 0.3in 0.5in 0.3in 0.5in;
+            }
             body {
               font-family: Arial, sans-serif;
-              margin: 20px;
+              margin: 0;
+              padding: 0;
             }
             .header {
-              text-align: center;
-              margin-bottom: 30px;
+              margin-bottom: 20px;
               border-bottom: 2px solid #133E87;
-              padding-bottom: 20px;
+              padding-bottom: 15px;
+            }
+            .header-top {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-bottom: 10px;
+            }
+            .logo {
+              width: 50px;
+              height: 50px;
+              border-radius: 25px;
+              margin-right: 15px;
             }
             .company-name {
               font-size: 24px;
               font-weight: bold;
               color: #133E87;
-              margin-bottom: 5px;
             }
             .report-title {
-              font-size: 20px;
+              font-size: 15px;
               color: #333;
+              text-align: center;
               margin-bottom: 15px;
             }
             .filter-info {
@@ -444,11 +512,13 @@ export default function ActivityLogs({ navigation }) {
         // Add header for each page
         htmlContent += `
           <div class="header">
-            <div class="company-name">Smart Brooder Systems Inc.</div>
-            <div class="report-title">Activity Logs Report</div>
-            <div class="filter-info">
-              Sorted by: ${filters.sortBy}
+            <div class="header-top">
+              <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Company Logo" />
+              <div class="company-name">Internet of Tsiken</div>
             </div>
+            <div class="report-title">Activity Logs Report <br>
+            Record Date : ${filters.dateFilter} <br>
+            Date Generated : ${formatDateGMT8(new Date())} ${formatTimeGMT8(new Date())} </div>
           </div>
         `;
 
@@ -457,11 +527,12 @@ export default function ActivityLogs({ navigation }) {
           <table>
             <thead>
               <tr>
-                <th style="width: 8%;">No</th>
-                <th style="width: 20%;">Date</th>
-                <th style="width: 15%;">Time</th>
-                <th style="width: 30%;">Name</th>
-                <th style="width: 27%;">Action</th>
+                <th style="width: 3%;">No</th>
+                <th style="width: 10%;">Date</th>
+                <th style="width: 8%;">Time</th>
+                <th style="width: 15%;">Name</th>
+                <th style="width: 20%;">Action</th>
+                <th style="width: 22%;">Description</th>
               </tr>
             </thead>
             <tbody>
@@ -476,6 +547,7 @@ export default function ActivityLogs({ navigation }) {
               <td>${entry.Time}</td>
               <td>${entry.Name}</td>
               <td>${entry.Action}</td>
+              <td>${entry.Description}</td>
             </tr>
           `;
         });
@@ -483,17 +555,13 @@ export default function ActivityLogs({ navigation }) {
         htmlContent += `
             </tbody>
           </table>
-          <div class="page-number">Page ${page.pageNumber} of ${page.totalPages}</div>
+          ${pageIndex > 0 ? `<div class="page-number">Page ${pageIndex + 1} of ${exportPages.length}</div>` : ""}
         `;
 
         // Add page break except for last page
         if (pageIndex < exportPages.length - 1) {
           htmlContent += '<div class="page-break"></div>';
         }
-
-        console.log(
-          `✅ Page ${page.pageNumber} of ${page.totalPages} exported`
-        );
       });
 
       htmlContent += `
@@ -505,18 +573,47 @@ export default function ActivityLogs({ navigation }) {
       const { uri } = await Print.printToFileAsync({
         html: htmlContent,
         base64: false,
+        width: 612,
+        height: 792,
       });
-      console.log("✅ PDF generated successfully:", uri);
 
       // Create a permanent copy in the document directory
-      const fileName = `ActivityLogs_${new Date().getTime()}.pdf`;
+      const fileName = `${formatPDFFilename()}.pdf`;
       const fileUri = FileSystem.documentDirectory + fileName;
 
       await FileSystem.copyAsync({
         from: uri,
         to: fileUri,
       });
-      console.log("📁 PDF saved to:", fileUri);
+
+      // Log the report generation
+      try {
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          // Get user details
+          const userDoc = await getDoc(doc(db, "users", currentUser.uid));
+          const userData = userDoc.data();
+          const userName = userData
+            ? `${userData.firstName || ""} ${userData.lastName || ""}`.trim()
+            : "Unknown User";
+          const userRole = userData?.role || "Admin";
+
+          // Log to activity_logs/report_logs collection
+          await addDoc(collection(db, "activity_logs", "report_logs", "logs"), {
+            action: "Generated logs report",
+            description: "Generated Activity Logs report",
+            fileName: fileName,
+            reportName: "Activity Logs Report",
+            role: userRole,
+            timestamp: Timestamp.now(),
+            type: "pdf",
+            userId: currentUser.uid,
+            userName: userName,
+          });
+        }
+      } catch (logError) {
+        console.error("❌ Error logging report generation:", logError);
+      }
 
       // Share the PDF
       if (await Sharing.isAvailableAsync()) {
@@ -524,10 +621,6 @@ export default function ActivityLogs({ navigation }) {
           mimeType: "application/pdf",
           dialogTitle: "Share Activity Logs Report",
         });
-        console.log("📤 PDF shared successfully");
-        Alert.alert("Success", "PDF generated and ready to share!", [
-          { text: "OK" },
-        ]);
       } else {
         Alert.alert("Success", `PDF saved to: ${fileUri}`, [{ text: "OK" }]);
       }
@@ -546,39 +639,101 @@ export default function ActivityLogs({ navigation }) {
   const handleNextPage = () => {
     if (currentPage < totalPages) {
       setCurrentPage(currentPage + 1);
-      console.log(`➡️ Page ${currentPage + 1} of ${totalPages}`);
     }
   };
 
   const handlePrevPage = () => {
     if (currentPage > 1) {
       setCurrentPage(currentPage - 1);
-      console.log(`⬅️ Page ${currentPage - 1} of ${totalPages}`);
     }
   };
 
   // Apply date filtering
   useEffect(() => {
-    console.log(`🔄 Filtering logs by date`);
-    
     let filtered = [...allLogs];
-    
-    // Apply date filter if selected
-    if (selectedDate) {
+
+    // Apply date range filter if both dates are selected
+    if (startDate && endDate) {
       filtered = filtered.filter((log) => {
-        const logDate = formatDateGMT8(log.timestamp);
-        const selectedDateStr = formatDateGMT8(selectedDate);
-        return logDate === selectedDateStr;
+        const logTime = log.timestamp.getTime();
+        const startTime = new Date(startDate);
+        startTime.setHours(0, 0, 0, 0);
+        const endTime = new Date(endDate);
+        endTime.setHours(23, 59, 59, 999);
+        return logTime >= startTime.getTime() && logTime <= endTime.getTime();
       });
-      console.log(`📅 Filtered ${filtered.length} logs for date: ${formatDateGMT8(selectedDate)}`);
+    } else if (startDate) {
+      // If only start date is selected, show logs from that day onwards
+      filtered = filtered.filter((log) => {
+        const logTime = log.timestamp.getTime();
+        const startTime = new Date(startDate);
+        startTime.setHours(0, 0, 0, 0);
+        return logTime >= startTime.getTime();
+      });
     }
-    
+
     // Sort by timestamp descending (newest first)
     filtered.sort((a, b) => b.timestamp - a.timestamp);
-    
+
     setFilteredLogs(filtered);
     setCurrentPage(1);
-  }, [allLogs, selectedDate]);
+  }, [allLogs, startDate, endDate]);
+
+  // Format record date for PDF - avoid redundancy like "18-Jan-2026 - 18-Jan-2026"
+  const formatRecordDate = () => {
+    if (!startDate && !endDate) {
+      return "All dates";
+    }
+
+    if (startDate && endDate) {
+      const startStr = formatDateGMT8(startDate);
+      const endStr = formatDateGMT8(endDate);
+
+      // If dates are the same, show only one
+      if (startStr === endStr) {
+        return startStr;
+      }
+
+      // If dates are different, show range
+      return `${startStr} - ${endStr}`;
+    }
+
+    // If only start date is selected
+    if (startDate) {
+      return `From ${formatDateGMT8(startDate)}`;
+    }
+
+    return "All dates";
+  };
+
+  // Format PDF filename based on date range
+  const formatPDFFilename = () => {
+    if (!startDate && !endDate) {
+      // No dates selected - use generation date
+      const dateGenerated = formatDateGMT8(new Date());
+      return `ActivityLogs_${dateGenerated}`;
+    }
+
+    if (startDate && endDate) {
+      const startStr = formatDateGMT8(startDate);
+      const endStr = formatDateGMT8(endDate);
+
+      // If dates are the same, show only one
+      if (startStr === endStr) {
+        return `ActivityLogs_${startStr}`;
+      }
+
+      // If dates are different, show range
+      return `ActivityLogs_${startStr}_to_${endStr}`;
+    }
+
+    // If only start date is selected
+    if (startDate) {
+      return `ActivityLogs_from_${formatDateGMT8(startDate)}`;
+    }
+
+    return "ActivityLogs";
+  };
 
   // Calendar functions
   const getDaysInMonth = (date) => {
@@ -590,49 +745,90 @@ export default function ActivityLogs({ navigation }) {
     const startingDayOfWeek = firstDay.getDay();
 
     const days = [];
-    
+
     // Add empty cells for days before month starts
     for (let i = 0; i < startingDayOfWeek; i++) {
       days.push(null);
     }
-    
+
     // Add days of the month
     for (let i = 1; i <= daysInMonth; i++) {
       days.push(new Date(year, month, i));
     }
-    
+
     return days;
   };
 
   const handleDateSelect = (date) => {
-    setSelectedDate(date);
-    setShowCalendar(false);
-    console.log(`📅 Date selected: ${formatDateGMT8(date)}`);
+    // Validate: prevent future dates
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const selectedDateNormalized = new Date(date);
+    selectedDateNormalized.setHours(0, 0, 0, 0);
+
+    if (selectedDateNormalized > today) {
+      Alert.alert(
+        "Invalid Date",
+        "You cannot select a future date. Please select today or an earlier date.",
+      );
+      return;
+    }
+
+    if (selectingStartDate) {
+      setStartDate(date);
+      setSelectingStartDate(false); // Switch to selecting end date
+    } else {
+      // Validate: end date must be >= start date
+      if (startDate && new Date(date) < new Date(startDate)) {
+        Alert.alert(
+          "Invalid Range",
+          "End date must be the same as or after the start date.",
+        );
+        return;
+      }
+      setEndDate(date);
+      setShowCalendar(false);
+    }
   };
 
   const handleClearFilter = () => {
-    setSelectedDate(null);
+    setStartDate(null);
+    setEndDate(null);
+    setSelectingStartDate(true);
     setShowCalendar(false);
-    console.log(`🗑️ Date filter cleared`);
   };
 
   const handlePrevMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
+    setCurrentMonth(
+      new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1),
+    );
   };
 
   const handleNextMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
+    setCurrentMonth(
+      new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1),
+    );
   };
 
   const monthNames = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
   ];
 
   return (
     <SafeAreaView style={styles.safe}>
       <Header2 />
-      
+
       {/* Back Button */}
       <View style={styles.backButtonContainer}>
         <TouchableOpacity
@@ -651,9 +847,7 @@ export default function ActivityLogs({ navigation }) {
           <Text style={styles.loadingText}>Loading activity logs...</Text>
         </View>
       ) : (
-        <ScrollView 
-          contentContainerStyle={styles.pageContent}
-        >
+        <ScrollView contentContainerStyle={styles.pageContent}>
           {/* Buttons Row */}
           <View style={styles.buttonsRow}>
             <TouchableOpacity
@@ -687,8 +881,8 @@ export default function ActivityLogs({ navigation }) {
           <View style={styles.resultsInfo}>
             <Text style={styles.resultsText}>
               Showing {currentLogs.length > 0 ? startIndex + 1 : 0}-
-              {Math.min(endIndex, filteredLogs.length)} of{" "}
-              {filteredLogs.length} logs
+              {Math.min(endIndex, filteredLogs.length)} of {filteredLogs.length}{" "}
+              logs
             </Text>
           </View>
 
@@ -699,13 +893,21 @@ export default function ActivityLogs({ navigation }) {
               onPress={() => setShowCalendar(true)}
               activeOpacity={0.7}
             >
-              <MaterialCommunityIcons name="calendar-blank" size={20} color="#000" />
+              <MaterialCommunityIcons
+                name="calendar-blank"
+                size={20}
+                color="#000"
+              />
               <Text style={styles.dateFilterButtonText}>
-                {selectedDate ? formatDateGMT8(selectedDate) : "Date"}
+                {startDate && endDate
+                  ? `${formatDateGMT8(startDate)} to ${formatDateGMT8(endDate)}`
+                  : startDate
+                    ? `From ${formatDateGMT8(startDate)}`
+                    : "Date Range"}
               </Text>
             </TouchableOpacity>
-            
-            {selectedDate && (
+
+            {(startDate || endDate) && (
               <TouchableOpacity
                 style={styles.clearDateFilterButton}
                 onPress={handleClearFilter}
@@ -727,58 +929,112 @@ export default function ActivityLogs({ navigation }) {
               <View style={styles.calendarModal}>
                 {/* Calendar Header */}
                 <View style={styles.calendarHeader}>
-                  <TouchableOpacity onPress={handlePrevMonth} style={styles.calendarNavButton}>
-                    <MaterialCommunityIcons name="chevron-left" size={28} color="#0EA5E9" />
+                  <TouchableOpacity
+                    onPress={handlePrevMonth}
+                    style={styles.calendarNavButton}
+                  >
+                    <MaterialCommunityIcons
+                      name="chevron-left"
+                      size={28}
+                      color="#0EA5E9"
+                    />
                   </TouchableOpacity>
-                  
+
                   <Text style={styles.calendarHeaderText}>
-                    {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+                    {monthNames[currentMonth.getMonth()]}{" "}
+                    {currentMonth.getFullYear()}
                   </Text>
-                  
-                  <TouchableOpacity onPress={handleNextMonth} style={styles.calendarNavButton}>
-                    <MaterialCommunityIcons name="chevron-right" size={28} color="#0EA5E9" />
+                  <Text style={styles.calendarDateSelectingText}>
+                    {selectingStartDate
+                      ? "Select Start Date"
+                      : "Select End Date"}
+                  </Text>
+
+                  <TouchableOpacity
+                    onPress={handleNextMonth}
+                    style={styles.calendarNavButton}
+                  >
+                    <MaterialCommunityIcons
+                      name="chevron-right"
+                      size={28}
+                      color="#0EA5E9"
+                    />
                   </TouchableOpacity>
                 </View>
 
                 {/* Day Names */}
                 <View style={styles.calendarDayNames}>
-                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                    <View key={day} style={styles.calendarDayNameCell}>
-                      <Text style={styles.calendarDayNameText}>{day}</Text>
-                    </View>
-                  ))}
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
+                    (day) => (
+                      <View key={day} style={styles.calendarDayNameCell}>
+                        <Text style={styles.calendarDayNameText}>{day}</Text>
+                      </View>
+                    ),
+                  )}
                 </View>
 
                 {/* Calendar Grid */}
                 <View style={styles.calendarGrid}>
-                  {getDaysInMonth(currentMonth).map((date, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={[
-                        styles.calendarDayCell,
-                        !date && styles.calendarDayCellEmpty,
-                        date && selectedDate && 
-                        date.toDateString() === selectedDate.toDateString() && 
-                        styles.calendarDayCellSelected,
-                      ]}
-                      onPress={() => date && handleDateSelect(date)}
-                      disabled={!date}
-                      activeOpacity={0.7}
-                    >
-                      {date && (
-                        <Text
-                          style={[
-                            styles.calendarDayText,
-                            selectedDate && 
-                            date.toDateString() === selectedDate.toDateString() && 
-                            styles.calendarDayTextSelected,
-                          ]}
-                        >
-                          {date.getDate()}
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  ))}
+                  {getDaysInMonth(currentMonth).map((date, index) => {
+                    // Check if date is in the future
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const dateNormalized = date ? new Date(date) : null;
+                    if (dateNormalized) dateNormalized.setHours(0, 0, 0, 0);
+                    const isFutureDate =
+                      dateNormalized && dateNormalized > today;
+
+                    // Check if date is the start date
+                    const isStartDate =
+                      startDate &&
+                      date &&
+                      date.toDateString() ===
+                        new Date(startDate).toDateString();
+
+                    // Check if date is the end date
+                    const isEndDate =
+                      endDate &&
+                      date &&
+                      date.toDateString() === new Date(endDate).toDateString();
+
+                    // Check if date is in range (between start and end)
+                    const isInRange =
+                      startDate &&
+                      endDate &&
+                      dateNormalized &&
+                      dateNormalized > new Date(startDate) &&
+                      dateNormalized < new Date(endDate);
+
+                    return (
+                      <TouchableOpacity
+                        key={index}
+                        style={[
+                          styles.calendarDayCell,
+                          !date && styles.calendarDayCellEmpty,
+                          isFutureDate && styles.calendarDayCellDisabled,
+                          isInRange && styles.calendarDayCellInRange,
+                          (isStartDate || isEndDate) &&
+                            styles.calendarDayCellSelected,
+                        ]}
+                        onPress={() => date && handleDateSelect(date)}
+                        disabled={!date || isFutureDate}
+                        activeOpacity={0.7}
+                      >
+                        {date && (
+                          <Text
+                            style={[
+                              styles.calendarDayText,
+                              isFutureDate && styles.calendarDayTextDisabled,
+                              (isStartDate || isEndDate) &&
+                                styles.calendarDayTextSelected,
+                            ]}
+                          >
+                            {date.getDate()}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
 
                 {/* Calendar Footer */}
@@ -788,9 +1044,11 @@ export default function ActivityLogs({ navigation }) {
                     onPress={handleClearFilter}
                     activeOpacity={0.7}
                   >
-                    <Text style={styles.calendarClearButtonText}>Clear Filter</Text>
+                    <Text style={styles.calendarClearButtonText}>
+                      Clear Filter
+                    </Text>
                   </TouchableOpacity>
-                  
+
                   <TouchableOpacity
                     style={styles.calendarCloseButton}
                     onPress={() => setShowCalendar(false)}
@@ -823,14 +1081,10 @@ export default function ActivityLogs({ navigation }) {
                   >
                     <Text style={styles.headerText}>Date</Text>
                   </View>
-                  <View
-                    style={[styles.cell, { width: COLUMN_WIDTHS.time }]}
-                  >
+                  <View style={[styles.cell, { width: COLUMN_WIDTHS.time }]}>
                     <Text style={styles.headerText}>Time</Text>
                   </View>
-                  <View
-                    style={[styles.cell, { width: COLUMN_WIDTHS.name }]}
-                  >
+                  <View style={[styles.cell, { width: COLUMN_WIDTHS.name }]}>
                     <Text style={styles.headerText}>Name</Text>
                   </View>
                   <View
@@ -917,8 +1171,7 @@ export default function ActivityLogs({ navigation }) {
                 <Text
                   style={[
                     styles.paginationButtonText,
-                    currentPage === 1 &&
-                      styles.paginationButtonTextDisabled,
+                    currentPage === 1 && styles.paginationButtonTextDisabled,
                   ]}
                 >
                   Previous
@@ -932,8 +1185,7 @@ export default function ActivityLogs({ navigation }) {
               <TouchableOpacity
                 style={[
                   styles.paginationButton,
-                  currentPage === totalPages &&
-                    styles.paginationButtonDisabled,
+                  currentPage === totalPages && styles.paginationButtonDisabled,
                 ]}
                 onPress={handleNextPage}
                 disabled={currentPage === totalPages}
@@ -968,7 +1220,7 @@ const BORDER = "#E5E7EB";
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#ffffff" },
-  
+
   // Back Button Styles
   backButtonContainer: {
     paddingHorizontal: 12,
@@ -988,7 +1240,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#133E87",
   },
-  
+
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
@@ -1085,7 +1337,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
 
-  horizontalScroll: { maxHeight: 600 },
+  horizontalScroll: { flexShrink: 1 },
 
   table: {
     borderLeftWidth: 1,
@@ -1211,6 +1463,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#000",
   },
+  calendarDateSelectingText: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
+    textAlign: "center",
+  },
   calendarDayNames: {
     flexDirection: "row",
     marginBottom: 10,
@@ -1243,6 +1501,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#1E40AF",
     borderRadius: 8,
   },
+  calendarDayCellInRange: {
+    backgroundColor: "#BFDBFE",
+    borderRadius: 0,
+  },
+  calendarDayCellDisabled: {
+    opacity: 0.4,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 8,
+  },
   calendarDayText: {
     fontSize: 16,
     color: "#000",
@@ -1250,6 +1517,9 @@ const styles = StyleSheet.create({
   calendarDayTextSelected: {
     color: "#fff",
     fontWeight: "600",
+  },
+  calendarDayTextDisabled: {
+    color: "#999",
   },
   calendarFooter: {
     flexDirection: "row",

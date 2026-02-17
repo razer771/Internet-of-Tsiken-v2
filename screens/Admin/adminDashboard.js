@@ -34,6 +34,7 @@ export default function AdminDashboard() {
   const [predatorDetections, setPredatorDetections] = useState(0);
   const [lastDetectionTime, setLastDetectionTime] = useState(null);
   const [recentLogs, setRecentLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(true);
 
   // Prevent duplicate fetches (React StrictMode protection)
   const hasFetchedRef = useRef(false);
@@ -81,40 +82,69 @@ export default function AdminDashboard() {
       console.log("Total users:", total);
 
       // Fetch brooder batches to calculate mortality rate
-      let totalInitialChicks = 0;
-      let totalCurrentChicks = 0;
+      let totalAliveChicks = 0; // Sum of chicksCount (alive now)
+      let totalDeathCount = 0; // Sum of count from mortality records
       let batchCount = 0;
 
       // Get all brooder info documents
       const brooderRef = collection(db, "brooderInfo");
       const brooderSnapshot = await getDocs(brooderRef);
-      
+
+      // Step 1: Sum all alive chicks from brooderInfo
       brooderSnapshot.forEach((doc) => {
         const data = doc.data();
         batchCount++;
-        
-        // Calculate mortality based on initial vs current chick count
-        const initialChicks = data.initialChicksCount || data.chicksCount || 0;
-        const currentChicks = data.chicksCount || 0;
-        
-        totalInitialChicks += initialChicks;
-        totalCurrentChicks += currentChicks;
+        const chicksCount = data.chicksCount || 0;
+        totalAliveChicks += chicksCount;
       });
 
-      setTotalBatches(batchCount);
-      setTotalChicks(totalCurrentChicks);
+      console.log("Total alive chicks:", totalAliveChicks);
+      console.log("Total batches:", batchCount);
 
-      // Calculate mortality rate: (initial - current) / initial * 100
+      // Step 2: Sum all deaths from mortality records for all batches
+      const batchPromises = brooderSnapshot.docs.map(async (doc) => {
+        const batchId = doc.id;
+        try {
+          const mortalityRecordsRef = collection(
+            db,
+            "mortality",
+            batchId,
+            "records",
+          );
+          const recordsSnapshot = await getDocs(mortalityRecordsRef);
+
+          recordsSnapshot.docs.forEach((recordDoc) => {
+            const recordData = recordDoc.data();
+            const count = recordData.count || 0;
+            totalDeathCount += count;
+          });
+        } catch (error) {
+          console.warn(`Error fetching mortality for batch ${batchId}:`, error);
+        }
+      });
+
+      await Promise.all(batchPromises);
+
+      console.log("Total deaths:", totalDeathCount);
+
+      // Step 3: Calculate total initial chicks (alive + dead)
+      const totalInitialChicks = totalAliveChicks + totalDeathCount;
+
+      // Step 4: Calculate mortality rate (2 decimal places)
       let mortality = 0;
       if (totalInitialChicks > 0) {
-        const deaths = totalInitialChicks - totalCurrentChicks;
-        mortality = Math.round((deaths / totalInitialChicks) * 100);
+        mortality = parseFloat(
+          ((totalDeathCount / totalInitialChicks) * 100).toFixed(2),
+        );
         mortality = Math.max(0, mortality); // Ensure non-negative
       }
-      
+
+      setTotalBatches(batchCount);
+      setTotalChicks(totalAliveChicks);
       setMortalityRate(mortality);
+
       console.log("Mortality rate:", mortality + "%");
-      console.log("Total batches:", batchCount);
+      console.log("Total initial chicks:", totalInitialChicks);
     } catch (error) {
       console.error("Error fetching farm metrics:", error);
     }
@@ -122,83 +152,81 @@ export default function AdminDashboard() {
 
   const fetchPredatorDetections = async () => {
     try {
-      console.log("Fetching predator detections from Firestore...");
-
-      // Get detections from the last 7 days
-      const now = new Date();
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      console.log("Fetching ALL-TIME predator detections from Firestore...");
 
       let detectionCount = 0;
       let latestDetection = null;
 
-      // Try to fetch from predator_detections or detection_logs collection
+      // Fetch from /predatorAttacks/{batchId}/attacks/ structure
       try {
-        const detectionsRef = collection(db, "predator_detections");
-        const detectionsSnapshot = await getDocs(detectionsRef);
+        const predatorAttacksRef = collection(db, "predatorAttacks");
+        const batchesSnapshot = await getDocs(predatorAttacksRef);
 
-        detectionsSnapshot.forEach((doc) => {
-          const data = doc.data();
-          let detectionDate;
+        console.log(
+          `Found ${batchesSnapshot.docs.length} batches in predatorAttacks`,
+        );
 
-          if (data.timestamp) {
-            if (data.timestamp.toDate) {
-              detectionDate = data.timestamp.toDate();
-            } else if (data.timestamp.seconds) {
-              detectionDate = new Date(data.timestamp.seconds * 1000);
-            } else if (data.timestamp instanceof Date) {
-              detectionDate = data.timestamp;
-            }
+        // Iterate through each batch and fetch its attacks subcollection
+        for (const batchDoc of batchesSnapshot.docs) {
+          const batchId = batchDoc.id;
 
-            if (detectionDate && detectionDate >= sevenDaysAgo) {
+          try {
+            // Fetch attacks subcollection for this batch
+            const attacksRef = collection(
+              db,
+              "predatorAttacks",
+              batchId,
+              "attacks",
+            );
+            const attacksSnapshot = await getDocs(attacksRef);
+
+            console.log(
+              `Found ${attacksSnapshot.docs.length} attacks in batch ${batchId}`,
+            );
+
+            // Process all attacks (no date filter)
+            attacksSnapshot.docs.forEach((doc) => {
+              const data = doc.data();
+              const attackDatetime = data.attack_datetime;
+
               detectionCount++;
 
               // Track the most recent detection
-              if (!latestDetection || detectionDate > latestDetection) {
-                latestDetection = detectionDate;
-              }
-            }
-          }
-        });
-      } catch (e) {
-        console.log("No predator_detections collection found, trying camera_logs...");
-        
-        // Fallback: try camera_logs or object_detection_logs
-        try {
-          const cameraLogsRef = collection(db, "camera_logs");
-          const cameraQuery = query(
-            cameraLogsRef,
-            where("type", "==", "predator_detected")
-          );
-          const cameraSnapshot = await getDocs(cameraQuery);
-
-          cameraSnapshot.forEach((doc) => {
-            const data = doc.data();
-            let detectionDate;
-
-            if (data.timestamp) {
-              if (data.timestamp.toDate) {
-                detectionDate = data.timestamp.toDate();
-              } else if (data.timestamp.seconds) {
-                detectionDate = new Date(data.timestamp.seconds * 1000);
-              }
-
-              if (detectionDate && detectionDate >= sevenDaysAgo) {
-                detectionCount++;
-                if (!latestDetection || detectionDate > latestDetection) {
-                  latestDetection = detectionDate;
+              if (attackDatetime) {
+                let attackDate;
+                try {
+                  if (
+                    attackDatetime.toDate &&
+                    typeof attackDatetime.toDate === "function"
+                  ) {
+                    attackDate = attackDatetime.toDate();
+                  } else if (attackDatetime.seconds) {
+                    attackDate = new Date(attackDatetime.seconds * 1000);
+                  } else if (attackDatetime instanceof Date) {
+                    attackDate = attackDatetime;
+                  } else {
+                    attackDate = new Date(attackDatetime);
+                  }
+                  if (!latestDetection || attackDate > latestDetection) {
+                    latestDetection = attackDate;
+                  }
+                } catch (error) {
+                  console.warn("Error processing attack timestamp:", error);
                 }
               }
-            }
-          });
-        } catch (err) {
-          console.log("No camera_logs collection found either");
+            });
+          } catch (error) {
+            console.warn(`Error fetching attacks for batch ${batchId}:`, error);
+          }
         }
+      } catch (e) {
+        console.warn("Error fetching predatorAttacks collection:", e);
       }
 
       setPredatorDetections(detectionCount);
       setLastDetectionTime(latestDetection);
-      
-      console.log("Predator detections (last 7 days):", detectionCount);
+
+      console.log("Predator detections (ALL TIME):", detectionCount);
       if (latestDetection) {
         console.log("Last detection:", latestDetection.toLocaleString());
       }
@@ -229,7 +257,7 @@ export default function AdminDashboard() {
       if (diffMinutes < 1) {
         return "Just now";
       } else if (diffMinutes < 60) {
-        return `${diffMinutes} minute${diffMinutes !== 1 ? "s" : ""} ago`;
+        return `${diffMinutes} min${diffMinutes !== 1 ? "s" : ""} ago`;
       } else if (diffHours < 24) {
         return `${diffHours} hour${diffHours !== 1 ? "s" : ""} ago`;
       } else {
@@ -244,76 +272,73 @@ export default function AdminDashboard() {
   const fetchActivityLogs = async () => {
     try {
       console.log("Fetching activity logs from Firestore...");
+      setLoadingLogs(true);
 
       const logCollections = [
-        "addFeedSchedule_logs",
-        "deleteFeedSchedule_logs",
-        "editFeedSchedule_logs",
-        "nightTime_logs",
-        "report_logs",
+        "activity_logs/addBatch_logs/events",
+        "activity_logs/deleteBatch_logs/events",
+        "activity_logs/editBatch_logs/events",
+        "activity_logs/feeding/addFeedSchedule_logs",
+        "activity_logs/feeding/deleteFeedSchedule_logs",
+        "activity_logs/feeding/editFeedSchedule_logs",
+        "activity_logs/nightTime_logs/events",
+        "activity_logs/report_logs/logs",
+        "activity_logs/watering/addWaterSchedule_logs",
+        "activity_logs/watering/deleteWaterSchedule_logs",
+        "activity_logs/watering/editWaterSchedule_logs",
+        "activity_logs/editProfile/passwordChange",
+        "activity_logs/editProfile/userprofile",
+        "activity_logs/userManagement/createAccount",
+        "activity_logs/userManagement/updateAccount",
+        "activity_logs/userManagement/disableAccess",
+        "activity_logs/userManagement/forcePasswordChange",
+        "activity_logs/userManagement/reactivateAccount",
+        "activity_logs/mortalityReporting/events",
         "session_logs",
-        "wateringActivity_logs",
       ];
 
-      const allLogs = [];
-
-      // Fetch logs from each collection
-      for (const collectionName of logCollections) {
+      // Fetch all collections in parallel for better performance
+      const collectionPromises = logCollections.map(async (collectionPath) => {
         try {
-          const logsRef = collection(db, collectionName);
-          const logsSnapshot = await getDocs(logsRef);
+          const logsRef = collection(db, collectionPath);
+          const logsQuery = query(
+            logsRef,
+            orderBy("timestamp", "desc"),
+            limit(5), // Reduced from 10 to 5 per collection for faster fetch
+          );
+          const logsSnapshot = await getDocs(logsQuery);
 
           console.log(
-            `Fetched ${logsSnapshot.size} logs from ${collectionName}`
+            `Fetched ${logsSnapshot.size} logs from ${collectionPath}`,
           );
 
-          // Process each log document
-          for (const docSnap of logsSnapshot.docs) {
+          return logsSnapshot.docs.map((docSnap) => {
             const logData = docSnap.data();
+            const userId = logData.userId || logData.adminId;
 
-            // Fetch user data from users collection
-            let firstName = "Unknown";
-            let lastName = "User";
-
-            if (logData.userId) {
-              try {
-                const userRef = doc(db, "users", logData.userId);
-                const userDoc = await getDoc(userRef);
-
-                if (userDoc.exists()) {
-                  const userData = userDoc.data();
-                  firstName = userData.firstName || "Unknown";
-                  lastName = userData.lastName || "User";
-                }
-              } catch (userError) {
-                console.warn(
-                  `Error fetching user ${logData.userId}:`,
-                  userError.message
-                );
-              }
-            }
-
-            // Create a unified log entry
-            allLogs.push({
+            return {
               id: docSnap.id,
-              collection: collectionName,
-              userId: logData.userId || "Unknown",
-              firstName: firstName,
-              lastName: lastName,
+              collection: collectionPath,
+              userId: userId || "Unknown",
               action: logData.action || logData.type || "action",
               description:
                 logData.description ||
-                getDefaultDescription(collectionName, logData),
+                getDefaultDescription(collectionPath, logData),
               timestamp: logData.timestamp,
-            });
-          }
+            };
+          });
         } catch (collectionError) {
           console.warn(
-            `Error fetching ${collectionName}:`,
-            collectionError.message
+            `Error fetching ${collectionPath}:`,
+            collectionError.message,
           );
+          return [];
         }
-      }
+      });
+
+      // Wait for all collections to be fetched in parallel
+      const allLogsArrays = await Promise.all(collectionPromises);
+      const allLogs = allLogsArrays.flat();
 
       console.log("Merged logs:", allLogs.length);
 
@@ -324,35 +349,109 @@ export default function AdminDashboard() {
         return timeB - timeA;
       });
 
-      console.log("Sorted logs:", sortedLogs.length);
-
-      // Limit to 10 most recent
+      // Limit to 10 most recent overall
       const recentLogs = sortedLogs.slice(0, 10);
 
-      console.log("Recent logs (limited to 10):", recentLogs.length);
+      // Collect unique user IDs
+      const uniqueUserIds = [
+        ...new Set(recentLogs.map((log) => log.userId).filter(Boolean)),
+      ];
 
-      setRecentLogs(recentLogs);
+      console.log("Fetching user data for", uniqueUserIds.length, "users");
+
+      // Fetch all user data in parallel
+      const userPromises = uniqueUserIds.map(async (userId) => {
+        try {
+          const userRef = doc(db, "users", userId);
+          const userDoc = await getDoc(userRef);
+
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            return {
+              userId,
+              firstName: userData.firstName || "Unknown",
+              lastName: userData.lastName || "User",
+            };
+          }
+        } catch (userError) {
+          console.warn(`Error fetching user ${userId}:`, userError.message);
+        }
+        return { userId, firstName: "Unknown", lastName: "User" };
+      });
+
+      const users = await Promise.all(userPromises);
+
+      // Create user lookup map
+      const userMap = {};
+      users.forEach((user) => {
+        userMap[user.userId] = user;
+      });
+
+      // Enrich logs with user data
+      const enrichedLogs = recentLogs.map((log) => {
+        const user = userMap[log.userId] || {
+          firstName: "Unknown",
+          lastName: "User",
+        };
+        return {
+          ...log,
+          firstName: user.firstName,
+          lastName: user.lastName,
+        };
+      });
+
+      console.log("Recent logs (limited to 10):", enrichedLogs.length);
+
+      setRecentLogs(enrichedLogs);
+      setLoadingLogs(false);
     } catch (error) {
       console.error("Error fetching activity logs:", error);
+      setLoadingLogs(false);
     }
   };
 
-  const getDefaultDescription = (collectionName, logData) => {
-    switch (collectionName) {
-      case "addFeedSchedule_logs":
+  const getDefaultDescription = (collectionPath, logData) => {
+    switch (collectionPath) {
+      case "activity_logs/addBatch_logs/events":
+        return "Added new batch";
+      case "activity_logs/deleteBatch_logs/events":
+        return "Deleted batch";
+      case "activity_logs/editBatch_logs/events":
+        return "Edited batch";
+      case "activity_logs/feeding/addFeedSchedule_logs":
         return "Added feed schedule";
-      case "deleteFeedSchedule_logs":
+      case "activity_logs/feeding/deleteFeedSchedule_logs":
         return "Deleted feed schedule";
-      case "editFeedSchedule_logs":
+      case "activity_logs/feeding/editFeedSchedule_logs":
         return "Edited feed schedule";
-      case "nightTime_logs":
+      case "activity_logs/nightTime_logs/events":
         return "Updated night time settings";
+      case "activity_logs/report_logs/logs":
+        return `Generated ${logData.type || "report"} report`;
+      case "activity_logs/watering/addWaterSchedule_logs":
+        return "Added water schedule";
+      case "activity_logs/watering/deleteWaterSchedule_logs":
+        return "Deleted water schedule";
+      case "activity_logs/watering/editWaterSchedule_logs":
+        return "Edited water schedule";
+      case "activity_logs/editProfile/passwordChange":
+        return "Changed password";
+      case "activity_logs/editProfile/userprofile":
+        return "Updated profile";
+      case "activity_logs/userManagement/createAccount":
+        return "Created user account";
+      case "activity_logs/userManagement/updateAccount":
+        return "Updated user account";
+      case "activity_logs/userManagement/disableAccess":
+        return "Disabled user access";
+      case "activity_logs/userManagement/forcePasswordChange":
+        return "Forced password change";
+      case "activity_logs/userManagement/reactivateAccount":
+        return "Reactivated user account";
       case "report_logs":
         return `Generated ${logData.type || "report"} report`;
       case "session_logs":
         return logData.action === "login" ? "Logged in" : "Logged out";
-      case "wateringActivity_logs":
-        return "Performed watering activity";
       default:
         return "Performed system action";
     }
@@ -367,7 +466,9 @@ export default function AdminDashboard() {
       >
         {/* Welcome Card */}
         <View style={styles.welcomeCard}>
-          <Text style={styles.welcomeTitle}>Welcome, {firstName || "Administrator"}!</Text>
+          <Text style={styles.welcomeTitle}>
+            Welcome, {firstName || "Administrator"}!
+          </Text>
         </View>
 
         {/* Metrics Row */}
@@ -385,27 +486,52 @@ export default function AdminDashboard() {
                 Mortality Rate
               </Text>
             </View>
-            <Text style={[styles.metricValue, mortalityRate > 10 && { color: "#ef4444" }]}>{mortalityRate}%</Text>
+            <Text
+              style={[
+                styles.metricValue,
+                mortalityRate > 10 && { color: "#ef4444" },
+              ]}
+            >
+              {mortalityRate}%
+            </Text>
             <Text style={styles.metricSub}>{totalChicks} chicks active</Text>
           </View>
         </View>
 
         {/* Predator Detection */}
-        <View style={[styles.reportCard, predatorDetections > 0 && { borderColor: "#f97316", borderWidth: 2 }]}>
+        <View
+          style={[
+            styles.reportCard,
+            predatorDetections > 0 && {
+              borderColor: "#f97316",
+              borderWidth: 2,
+            },
+          ]}
+        >
           <View style={styles.reportLeft}>
             <Text style={styles.reportTitle}>Predator Detection</Text>
-            <Text style={[styles.reportValue, predatorDetections > 0 && { color: "#f97316" }]}>
+            <Text
+              style={[
+                styles.reportValue,
+                predatorDetections > 0 && { color: "#f97316" },
+              ]}
+            >
               {predatorDetections}
             </Text>
             <Text style={styles.reportSub}>
-              {predatorDetections === 0 
-                ? "No threats detected" 
-                : lastDetectionTime 
-                  ? `Last: ${getRelativeTime(lastDetectionTime)}`
+              {predatorDetections === 0
+                ? "No threats detected"
+                : lastDetectionTime
+                  ? `Last detected: ${getRelativeTime(lastDetectionTime)}`
                   : "Last 7 days"}
             </Text>
           </View>
-          <View style={[styles.reportCircleIcon, predatorDetections > 0 && { backgroundColor: "#fff7ed" }]}>
+          <View
+            style={[
+              styles.reportCircleIcon,
+              predatorDetections > 0 && { backgroundColor: "#fff7ed" },
+            ]}
+          >
             <MaterialCommunityIcons
               name="shield-alert"
               size={28}
@@ -535,24 +661,32 @@ export default function AdminDashboard() {
         {/* Recent System Activity */}
         <View style={styles.activityCard}>
           <Text style={styles.activityTitle}>Recent System Activity</Text>
-          {recentLogs.length === 0 ? (
+          {loadingLogs ? (
+            <View style={styles.activityItem}>
+              <Text style={styles.activityDesc}>Loading activity...</Text>
+            </View>
+          ) : recentLogs.length === 0 ? (
             <View style={styles.activityItem}>
               <Text style={styles.activityDesc}>No recent activity</Text>
             </View>
           ) : (
-            recentLogs.map((log) => (
+            recentLogs.map((log, index) => (
               <View
-                key={`${log.collection}-${log.id}`}
+                key={`${log.collection}-${log.id}-${index}`}
                 style={styles.activityItem}
               >
                 <View>
                   <Text style={styles.activityUser}>
                     {log.firstName || "Unknown"} {log.lastName || "User"}
                   </Text>
-                  <Text style={styles.activityDesc}>{log.description || "No description"}</Text>
+                  <Text style={styles.activityDesc}>
+                    {log.action || "No action"}
+                  </Text>
                 </View>
                 <Text style={styles.activityTime}>
-                  {log.timestamp ? getRelativeTime(log.timestamp) : "Unknown time"}
+                  {log.timestamp
+                    ? getRelativeTime(log.timestamp)
+                    : "Unknown time"}
                 </Text>
               </View>
             ))

@@ -24,14 +24,20 @@ const { onValueWritten } = require("firebase-functions/v2/database");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
-const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const {
+  getFirestore,
+  FieldValue,
+  Timestamp,
+} = require("firebase-admin/firestore");
+const { getAuth } = require("firebase-admin/auth");
 const nodemailer = require("nodemailer");
+const axios = require("axios");
 
-// Initialize Twilio
-const accountSid = "ACcc5a4257b42b456747083860b3a61773";
-const authToken = "8448f54ce691e603a6e074d437c90031";
-const twilioClient = require("twilio")(accountSid, authToken);
-const verifyServiceSid = "VAf81f3e93faa06bb33bd946e3a7fb1da5";
+// Load environment variables from .env file (for local development)
+require("dotenv").config();
+
+// Import Google Cloud Secret Manager client
+const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
 
 // Initialize Firebase Admin
 initializeApp();
@@ -39,9 +45,190 @@ initializeApp();
 const db = getFirestore();
 const rtdb = getDatabase();
 
+// Semaphore API Configuration
+const SEMAPHORE_API_URL = "https://semaphore.co/api/v4/messages"; // Use /messages endpoint for custom SMS
+const OTP_EXPIRY_MINUTES = 10;
+
 /**
- * Send SMS OTP using Twilio Verify API
- * Sends a verification code via SMS to the provided phone number
+ * Get Semaphore API Key from environment variable
+/**
+ * Get Semaphore API Key from environment variable or functions config
+ * Supports both .env file (local) and Firebase functions.config (production)
+ * @returns {string} - Semaphore API key
+ */
+/**
+ * Get Semaphore API Key from Google Secret Manager (production) or .env (local)
+ * @returns {Promise<string>} - Semaphore API key
+ */
+async function getSemaphoreApiKey() {
+  // 1. Try Google Secret Manager (production)
+  try {
+    const client = new SecretManagerServiceClient();
+    const [version] = await client.accessSecretVersion({
+      name: "projects/403239833979/secrets/SEMAPHORE_API_KEY/versions/1",
+    });
+    const apiKey = version.payload.data.toString("utf8");
+    if (apiKey) {
+      console.log(
+        "✅ [SOURCE: Secret Manager] API key fetched from Secret Manager",
+      );
+      return apiKey;
+    }
+  } catch (error) {
+    console.warn(
+      "⚠️ Could not fetch API key from Secret Manager:",
+      error.message,
+    );
+  }
+
+  // 2. Fallback to environment variable (local development)
+  if (process.env.SEMAPHORE_API_KEY) {
+    console.log("✅ [SOURCE: .env] API key found in environment variables");
+    return process.env.SEMAPHORE_API_KEY;
+  }
+
+  throw new Error(
+    "SEMAPHORE_API_KEY not found in Secret Manager or environment variables",
+  );
+}
+
+/**
+ * Format phone number from international format to local format
+ * Converts +639171234567 → 09171234567
+ * @param {string} phone - Phone number in any format
+ * @returns {string} - Phone number in local format (09XXXXXXXXX)
+ */
+function formatPhoneNumber(phone) {
+  if (!phone) return null;
+
+  // Remove all spaces, dashes, and parentheses
+  let cleaned = phone.replace(/[\s\-\(\)]/g, "");
+
+  // If it starts with +63, convert to 0 format
+  if (cleaned.startsWith("+63")) {
+    return "0" + cleaned.substring(3);
+  }
+
+  // If it already starts with 09, return as is
+  if (cleaned.startsWith("09")) {
+    return cleaned;
+  }
+
+  // If it starts with 63 (without +), convert to 0 format
+  if (cleaned.startsWith("63")) {
+    return "0" + cleaned.substring(2);
+  }
+
+  return cleaned;
+}
+
+/**
+ * Generate a random 6-digit OTP
+ * @returns {string} - 6-digit OTP
+ */
+function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+/**
+ * Check if OTP has expired
+ * @param {Timestamp} createdAt - Timestamp when OTP was created
+ * @returns {boolean} - True if expired, false otherwise
+ */
+function isOTPExpired(createdAt) {
+  if (!createdAt) return true;
+
+  const now = new Date();
+  const otpAge = (now - createdAt.toDate()) / 1000 / 60; // Age in minutes
+  return otpAge > OTP_EXPIRY_MINUTES;
+}
+
+/**
+ * Send SMS via Semaphore Messages API
+ * Uses the /messages endpoint to send custom SMS content
+ * @param {string} phoneNumber - Local format phone number (09XXXXXXXXX)
+ * @param {string} message - Custom message content to send
+ * @returns {Promise<object>} - Semaphore API response
+ */
+async function sendSemaphoreSMS(phoneNumber, message) {
+  try {
+    console.log(`📞 Starting sendSemaphoreSMS with phone: ${phoneNumber}`);
+
+    // Ensure phone number is in 09... format for Semaphore
+    let localPhone = formatPhoneNumber(phoneNumber);
+    console.log(
+      `📱 Phone number formatted for Semaphore (local format): ${localPhone}`,
+    );
+
+    // Use local format for Semaphore
+    const sendPhone = localPhone; // 09XXXXXXXXX format
+    console.log(`📱 Will send to: ${sendPhone}`);
+
+    // Get API key from environment variable
+    const apiKey = await getSemaphoreApiKey();
+    console.log(`✅ API key retrieved successfully`);
+
+    if (!apiKey || apiKey.length === 0) {
+      throw new Error("API key is empty or undefined");
+    }
+
+    console.log(`📤 Sending POST request to Semaphore Messages API...`);
+    console.log(
+      `📋 Request details: phone=${sendPhone}, message_length=${message.length}`,
+    );
+
+    // Semaphore Messages endpoint requires application/x-www-form-urlencoded format
+    const params = new URLSearchParams();
+    params.append("apikey", apiKey.trim());
+    params.append("number", sendPhone); // Use local format (09XXXXXXXXX)
+    params.append("message", message);
+
+    console.log(`📦 Request Parameters:`, {
+      apikey: `${apiKey.substring(0, 8)}...`,
+      number: sendPhone,
+      message: message,
+    });
+
+    const response = await axios.post(SEMAPHORE_API_URL, params, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+    });
+
+    console.log(`✅ SMS sent successfully via Semaphore to ${sendPhone}`);
+    console.log(`📊 Semaphore Response:`, response.data);
+
+    // Semaphore Messages endpoint returns a message object or array
+    if (Array.isArray(response.data) && response.data.length > 0) {
+      console.log(`✅ Message sent with ID: ${response.data[0].message_id}`);
+    } else if (response.data.message_id) {
+      console.log(`✅ Message sent with ID: ${response.data.message_id}`);
+    }
+
+    return response.data;
+  } catch (error) {
+    console.error(`❌ Error sending SMS via Semaphore OTP:`, error.message);
+    console.error(`📋 Full error stack:`, error);
+    if (error.response) {
+      console.error(`📋 Semaphore API Error Response:`, {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data,
+      });
+    }
+    if (error.code === "ENOTFOUND" || error.code === "ECONNREFUSED") {
+      throw new Error(
+        `Network error connecting to Semaphore API: ${error.message}`,
+      );
+    }
+    throw new Error(`Failed to send SMS: ${error.message}`);
+  }
+}
+
+/**
+ * Send SMS OTP using Semaphore API
+ * Generates OTP, stores it in Firestore, and sends it via Semaphore SMS
+ * API key stored as environment variable (SEMAPHORE_API_KEY)
  */
 exports.sendSMSOTP = onCall(async (request) => {
   try {
@@ -54,28 +241,46 @@ exports.sendSMSOTP = onCall(async (request) => {
 
     console.log(`📱 Sending SMS OTP to: ${phone}`);
 
+    // Normalize phone number to local format (09XXXXXXXXX) for database lookup
+    const normalizedPhone = formatPhoneNumber(phone);
+    console.log(`📱 Normalized phone number: ${normalizedPhone}`);
+
     // Check if phone number exists in Firestore users collection
     // Check both "mobile" and "phone" fields for compatibility
     let usersSnapshot = await db
       .collection("users")
-      .where("mobile", "==", phone)
+      .where("mobile", "==", normalizedPhone)
       .limit(1)
       .get();
 
-    // If not found in "mobile" field, try "phone" field
+    // If not found in "mobile" field, try "phone" field with normalized format
     if (usersSnapshot.empty) {
       console.log(
-        `⚠️ Phone not found in "mobile" field, checking "phone" field...`
+        `⚠️ Phone not found in "mobile" field with ${normalizedPhone}, checking "phone" field...`,
       );
       usersSnapshot = await db
         .collection("users")
-        .where("phone", "==", phone)
+        .where("phone", "==", normalizedPhone)
+        .limit(1)
+        .get();
+    }
+
+    // Also try with + prefix format if still not found
+    if (usersSnapshot.empty) {
+      const internationalPhone = "+63" + normalizedPhone.substring(1);
+      console.log(
+        `⚠️ Phone not found in "phone" field, checking with international format: ${internationalPhone}...`,
+      );
+      usersSnapshot = await db
+        .collection("users")
+        .where("phone", "==", internationalPhone)
         .limit(1)
         .get();
     }
 
     if (usersSnapshot.empty) {
       console.log(`❌ Phone number not found in database: ${phone}`);
+      console.log(`📋 Tried searching for: ${normalizedPhone}`);
       // Log all users for debugging
       const allUsers = await db.collection("users").limit(5).get();
       allUsers.forEach((doc) => {
@@ -87,28 +292,59 @@ exports.sendSMSOTP = onCall(async (request) => {
       });
       throw new HttpsError(
         "not-found",
-        "Mobile number does not match user records"
+        "Mobile number does not match user records",
       );
     }
 
-    console.log(`✅ Phone number found in database: ${phone}`);
+    console.log(`✅ Phone number found in database: ${normalizedPhone}`);
 
-    // Send verification code using Twilio Verify
-    const verification = await twilioClient.verify.v2
-      .services(verifyServiceSid)
-      .verifications.create({
-        to: phone,
-        channel: "sms",
-      });
+    // Generate OTP
+    const otp = generateOTP();
+    console.log(`📝 Generated OTP: ${otp}`);
 
-    console.log(`✅ SMS OTP sent successfully. SID: ${verification.sid}`);
-    console.log(`Status: ${verification.status}`);
+    // Store OTP in Firestore for verification
+    // Use normalized phone for consistent document IDs
+    const otpDocId = `otp_${normalizedPhone.replace(/[+\s\-]/g, "")}`;
+    const now = Timestamp.now();
+    const expiryTime = new Date(
+      now.toDate().getTime() + OTP_EXPIRY_MINUTES * 60 * 1000,
+    );
+
+    await db
+      .collection("otpVerifications")
+      .doc(otpDocId)
+      .set(
+        {
+          phone: normalizedPhone,
+          otp: otp,
+          createdAt: now,
+          expiresAt: Timestamp.fromDate(expiryTime),
+          attempts: 0,
+          verified: false,
+        },
+        { merge: true },
+      );
+
+    console.log(`✅ OTP stored in Firestore with ID: ${otpDocId}`);
+
+    // Send SMS via Semaphore
+    // Use actual generated OTP (not placeholder)
+    const message = `Your Internet of Tsiken OTP code is: ${otp}. This code will expire in ${OTP_EXPIRY_MINUTES} minutes.`;
+
+    try {
+      await sendSemaphoreSMS(normalizedPhone, message);
+    } catch (smsError) {
+      console.error(`⚠️ Failed to send SMS: ${smsError.message}`);
+      // Delete the OTP record if SMS sending failed
+      await db.collection("otpVerifications").doc(otpDocId).delete();
+      throw new HttpsError("internal", "Failed to send SMS. Please try again.");
+    }
 
     return {
       success: true,
       phone: phone,
-      status: verification.status,
-      sid: verification.sid,
+      message: "OTP sent successfully. Check your SMS.",
+      expiresIn: OTP_EXPIRY_MINUTES * 60, // seconds
     };
   } catch (error) {
     console.error("❌ Error sending SMS OTP:", error);
@@ -122,8 +358,8 @@ exports.sendSMSOTP = onCall(async (request) => {
 });
 
 /**
- * Verify SMS OTP using Twilio Verify API
- * Verifies the OTP code entered by the user
+ * Verify SMS OTP using Firestore-based verification
+ * Fetches OTP from Firestore, checks match and expiry
  */
 exports.verifySMSOTP = onCall(async (request) => {
   try {
@@ -131,38 +367,94 @@ exports.verifySMSOTP = onCall(async (request) => {
 
     // Validate input
     if (!phone) {
-      throw new Error("Phone number is required");
+      throw new HttpsError("invalid-argument", "Phone number is required");
     }
     if (!otp) {
-      throw new Error("OTP code is required");
+      throw new HttpsError("invalid-argument", "OTP code is required");
     }
 
     console.log(`🔐 Verifying OTP for: ${phone}`);
 
-    // Verify the OTP code using Twilio Verify
-    const verificationCheck = await twilioClient.verify.v2
-      .services(verifyServiceSid)
-      .verificationChecks.create({
-        to: phone,
-        code: otp,
+    // Fetch OTP from Firestore
+    const otpDocId = `otp_${phone.replace(/[+\s\-]/g, "")}`;
+    const otpDoc = await db.collection("otpVerifications").doc(otpDocId).get();
+
+    if (!otpDoc.exists) {
+      console.log(`❌ OTP not found in Firestore for ${phone}`);
+      throw new HttpsError(
+        "not-found",
+        "No OTP found. Please request a new OTP.",
+      );
+    }
+
+    const otpData = otpDoc.data();
+
+    // Check if OTP has expired
+    if (isOTPExpired(otpData.createdAt)) {
+      console.log(`❌ OTP expired for ${phone}`);
+      // Delete expired OTP
+      await db.collection("otpVerifications").doc(otpDocId).delete();
+      throw new HttpsError(
+        "invalid-argument",
+        "OTP has expired. Please request a new OTP.",
+      );
+    }
+
+    // Check if OTP matches
+    if (otpData.otp !== otp) {
+      console.log(
+        `❌ OTP mismatch for ${phone}. Attempts: ${otpData.attempts + 1}`,
+      );
+
+      // Increment attempts
+      const newAttempts = (otpData.attempts || 0) + 1;
+      const maxAttempts = 5;
+
+      if (newAttempts >= maxAttempts) {
+        console.log(`❌ Max OTP attempts exceeded for ${phone}`);
+        await db.collection("otpVerifications").doc(otpDocId).delete();
+        throw new HttpsError(
+          "permission-denied",
+          "Maximum verification attempts exceeded. Please request a new OTP.",
+        );
+      }
+
+      // Update attempts
+      await db.collection("otpVerifications").doc(otpDocId).update({
+        attempts: newAttempts,
       });
 
-    console.log(`Verification status: ${verificationCheck.status}`);
-
-    if (verificationCheck.status === "approved") {
-      console.log(`✅ OTP verified successfully for ${phone}`);
-      return {
-        success: true,
-        phone: phone,
-        status: verificationCheck.status,
-      };
-    } else {
-      console.log(`❌ OTP verification failed for ${phone}`);
-      throw new Error("Invalid OTP code");
+      throw new HttpsError(
+        "invalid-argument",
+        `Invalid OTP. Ensure the number is correct and try again.`,
+      );
     }
+
+    // OTP is valid
+    console.log(`✅ OTP verified successfully for ${phone}`);
+
+    // Mark as verified in Firestore
+    await db.collection("otpVerifications").doc(otpDocId).update({
+      verified: true,
+      verifiedAt: Timestamp.now(),
+    });
+
+    return {
+      success: true,
+      phone: phone,
+      message: "OTP verified successfully",
+    };
   } catch (error) {
     console.error("❌ Error verifying SMS OTP:", error);
-    throw new Error(error.message || "Failed to verify SMS OTP");
+    // If it's already an HttpsError, throw it as-is
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    // Otherwise, wrap it in an HttpsError
+    throw new HttpsError(
+      "internal",
+      error.message || "Failed to verify SMS OTP",
+    );
   }
 });
 
@@ -298,6 +590,185 @@ If you have any questions, please contact your administrator.
 });
 
 /**
+ * Create User Account (Admin Only)
+ * Creates a new user account without signing them in
+ * Allows admins to create accounts without being logged out
+ */
+exports.createUserAccount = onCall(
+  {
+    region: "us-central1",
+  },
+  async (request) => {
+    try {
+      // Verify the caller is an admin
+      const callerUid = request.auth?.uid;
+      if (!callerUid) {
+        throw new HttpsError("unauthenticated", "User must be authenticated");
+      }
+
+      // Check if caller is admin
+      const callerDoc = await db.collection("users").doc(callerUid).get();
+      console.log("Caller UID:", callerUid);
+      console.log("Caller doc exists:", callerDoc.exists);
+      console.log("Caller data:", callerDoc.data());
+      console.log("Caller role:", callerDoc.data()?.role);
+
+      if (!callerDoc.exists || callerDoc.data().role !== "admin") {
+        console.error(
+          "Permission denied - caller role:",
+          callerDoc.data()?.role,
+        );
+        throw new HttpsError(
+          "permission-denied",
+          "Only administrators can create accounts",
+        );
+      }
+
+      const {
+        email,
+        password,
+        firstName,
+        middleName,
+        lastName,
+        mobileNumber,
+        role,
+      } = request.data;
+
+      // Validate required fields
+      if (
+        !email ||
+        !password ||
+        !firstName ||
+        !lastName ||
+        !mobileNumber ||
+        !role
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Missing required fields: email, password, firstName, lastName, mobileNumber, or role",
+        );
+      }
+
+      console.log(`Creating account for: ${email}`);
+
+      // Check if email already exists
+      const existingUsers = await db
+        .collection("users")
+        .where("email", "==", email)
+        .limit(1)
+        .get();
+
+      if (!existingUsers.empty) {
+        throw new HttpsError("already-exists", "Email already exists");
+      }
+
+      // Create Firebase Authentication user (DOES NOT SIGN THEM IN)
+      const auth = getAuth();
+      const userRecord = await auth.createUser({
+        email: email,
+        password: password,
+        emailVerified: false, // All users start unverified
+        disabled: false,
+      });
+
+      console.log(`Firebase Auth user created: ${userRecord.uid}`);
+
+      // Create full name
+      const fullName = middleName
+        ? `${firstName} ${middleName} ${lastName}`
+        : `${firstName} ${lastName}`;
+
+      // Use mobileNumber passed from frontend (already formatted as 09XXXXXXXXX)
+      // Save to both mobileNumber and phone fields with same value
+      const phoneNumber = mobileNumber;
+
+      // Get admin info for logging
+      const adminData = callerDoc.data();
+      const createdByAdminName =
+        adminData.fullname || adminData.displayName || adminData.email;
+
+      // Create Firestore user document
+      await db
+        .collection("users")
+        .doc(userRecord.uid)
+        .set({
+          uid: userRecord.uid,
+          email: email,
+          firstName: firstName,
+          middleName: middleName || "",
+          lastName: lastName,
+          fullname: fullName,
+          displayName: fullName,
+          role: role.toLowerCase(),
+          mobileNumber: phoneNumber,
+          phone: phoneNumber,
+          accountStatus: "active",
+          accountType: "standard",
+          verified: false,
+          phoneVerified: false,
+          otpVerified: false,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          createdBy: createdByAdminName,
+          createdByUid: callerUid,
+          failedLoginAttempts: 0,
+          failedOtpAttempts: 0,
+          mobileVerificationAttempts: 0,
+          passwordHistory: [],
+          loginHistory: [],
+          mustShowPasswordUpdated: false,
+          deviceLockUntil: null,
+          lastFailedLogin: null,
+          lastLoginAttempt: null,
+          lastVerified: null,
+          lastOTPVerified: null,
+          lastMobileVerified: null,
+          ipAddress: null,
+          userAgent: null,
+        });
+
+      console.log(`User profile saved to Firestore: ${userRecord.uid}`);
+
+      // Log activity
+      await db
+        .collection("activity_logs")
+        .doc("userManagement")
+        .collection("createAccount")
+        .add({
+          adminId: callerUid,
+          adminName: createdByAdminName,
+          action: `Account created for ${fullName} as ${role}`,
+          description: `Created new ${role} account for ${fullName} (${email})`,
+          timestamp: FieldValue.serverTimestamp(),
+          newUserId: userRecord.uid,
+          newUserEmail: email,
+          newUserName: fullName,
+          newUserRole: role.toLowerCase(),
+          userId: userRecord.uid,
+        });
+
+      console.log(`Account creation logged successfully`);
+
+      return {
+        success: true,
+        uid: userRecord.uid,
+        email: email,
+        fullName: fullName,
+      };
+    } catch (error) {
+      console.error("Error creating user account:", error);
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      throw new HttpsError(
+        "internal",
+        error.message || "Failed to create account",
+      );
+    }
+  },
+);
+
+/**
  * Cloud Function triggered when sensor data is written to Realtime Database
  * Path pattern: /sensorData/{userId}/{sensorType}/{timestamp}
  */
@@ -312,7 +783,7 @@ exports.calculateSensorAverages = onValueWritten(
       const { userId, sensorType, timestamp } = event.params;
 
       console.log(
-        `Processing sensor data: userId=${userId}, sensorType=${sensorType}, timestamp=${timestamp}`
+        `Processing sensor data: userId=${userId}, sensorType=${sensorType}, timestamp=${timestamp}`,
       );
 
       // Get the data that was written
@@ -348,7 +819,7 @@ exports.calculateSensorAverages = onValueWritten(
       const average = sum / values.length;
 
       console.log(
-        `Calculated average for ${sensorType}: ${average} (from ${values.length} readings)`
+        `Calculated average for ${sensorType}: ${average} (from ${values.length} readings)`,
       );
 
       // Save to Firestore sensorAverages collection
@@ -376,7 +847,7 @@ exports.calculateSensorAverages = onValueWritten(
       console.error("Error calculating sensor averages:", error);
       throw error;
     }
-  }
+  },
 );
 
 /**
@@ -436,7 +907,7 @@ exports.calculateGlobalSensorAverages = onValueWritten(
       const average = sum / allValues.length;
 
       console.log(
-        `Global average for ${sensorType}: ${average} (from ${allValues.length} readings)`
+        `Global average for ${sensorType}: ${average} (from ${allValues.length} readings)`,
       );
 
       // Save to Firestore with "global_" prefix
@@ -466,7 +937,7 @@ exports.calculateGlobalSensorAverages = onValueWritten(
       console.error("Error calculating global sensor averages:", error);
       throw error;
     }
-  }
+  },
 );
 
 /**
@@ -494,7 +965,7 @@ exports.calculateMultiSensorAverages = onValueWritten(
       const { userId, readingId } = event.params;
 
       console.log(
-        `Processing multi-sensor reading: userId=${userId}, readingId=${readingId}`
+        `Processing multi-sensor reading: userId=${userId}, readingId=${readingId}`,
       );
 
       const newData = event.data.after.val();
@@ -513,7 +984,7 @@ exports.calculateMultiSensorAverages = onValueWritten(
         "location",
       ];
       const sensorTypes = Object.keys(newData).filter(
-        (key) => !excludedFields.includes(key)
+        (key) => !excludedFields.includes(key),
       );
 
       if (sensorTypes.length === 0) {
@@ -538,7 +1009,7 @@ exports.calculateMultiSensorAverages = onValueWritten(
             const allReadings = snapshot.val();
             const values = Object.values(allReadings)
               .filter(
-                (reading) => reading && typeof reading[sensorType] === "number"
+                (reading) => reading && typeof reading[sensorType] === "number",
               )
               .map((reading) => reading[sensorType]);
 
@@ -565,7 +1036,7 @@ exports.calculateMultiSensorAverages = onValueWritten(
             });
 
             console.log(
-              `Saved average for ${sensorType}: ${average.toFixed(2)}`
+              `Saved average for ${sensorType}: ${average.toFixed(2)}`,
             );
 
             return {
@@ -577,7 +1048,7 @@ exports.calculateMultiSensorAverages = onValueWritten(
             console.error(`Error processing ${sensorType}:`, error);
             return { sensorType, error: error.message };
           }
-        })
+        }),
       );
 
       console.log("Multi-sensor processing complete:", results);
@@ -592,5 +1063,146 @@ exports.calculateMultiSensorAverages = onValueWritten(
       console.error("Error in multi-sensor average calculation:", error);
       throw error;
     }
-  }
+  },
+);
+
+/**
+ * Validate password reset - Check if new password was previously used
+ * @param {string} email - User email
+ * @param {string} newPassword - New password to validate
+ * @returns {Promise<object>} - { success: boolean, error?: string }
+ */
+exports.validatePasswordReset = onCall(
+  { region: "us-central1", timeoutSeconds: 60, memory: "256MB" },
+  async (request) => {
+    const { email, newPassword } = request.data;
+
+    // Validate inputs
+    if (!email || !newPassword) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Email and password are required",
+      );
+    }
+
+    try {
+      const bcrypt = require("bcryptjs");
+
+      // Get user document by email
+      const usersRef = db.collection("users");
+      const query = usersRef.where("email", "==", email.trim());
+      const snapshot = await query.get();
+
+      if (snapshot.empty) {
+        throw new HttpsError("not-found", "User not found");
+      }
+
+      const userDoc = snapshot.docs[0];
+      const userData = userDoc.data();
+
+      // Check against current password hash
+      if (userData.currentPasswordHash) {
+        const isCurrentPassword = await bcrypt.compare(
+          newPassword,
+          userData.currentPasswordHash,
+        );
+
+        if (isCurrentPassword) {
+          throw new HttpsError(
+            "invalid-argument",
+            "You cannot use your current password. Please choose a different password.",
+          );
+        }
+      }
+
+      // Check against password history (last 5 passwords)
+      const passwordHistory = userData.passwordHistory || [];
+      for (const oldPasswordHash of passwordHistory) {
+        const isSameAsOld = await bcrypt.compare(newPassword, oldPasswordHash);
+        if (isSameAsOld) {
+          throw new HttpsError(
+            "invalid-argument",
+            "You cannot reuse a previously used password. Please choose a different password.",
+          );
+        }
+      }
+
+      console.log("✅ Password validation passed for email:", email);
+      return { success: true };
+    } catch (error) {
+      console.error("Password validation error:", error);
+
+      // Return custom error messages
+      if (error.code === "invalid-argument" || error.code === "not-found") {
+        throw error;
+      }
+
+      throw new HttpsError(
+        "internal",
+        "Failed to validate password. Please try again.",
+      );
+    }
+  },
+);
+
+/**
+ * Store password hash when password is reset
+ * Called after successful password reset confirmation
+ * @param {string} uid - User UID
+ * @param {string} email - User email
+ * @returns {Promise<object>} - { success: boolean }
+ */
+exports.storePasswordHash = onCall(
+  { region: "us-central1", timeoutSeconds: 60, memory: "256MB" },
+  async (request) => {
+    const { uid, email, passwordHash } = request.data;
+
+    if (!uid || !email || !passwordHash) {
+      throw new HttpsError(
+        "invalid-argument",
+        "uid, email, and passwordHash are required",
+      );
+    }
+
+    try {
+      const userRef = db.collection("users").doc(uid);
+      const userDoc = await userRef.get();
+
+      if (!userDoc.exists()) {
+        throw new HttpsError("not-found", "User not found");
+      }
+
+      // Get current password history
+      const userData = userDoc.data();
+      const passwordHistory = userData.passwordHistory || [];
+
+      // Move current password to history
+      const newHistory = [
+        userData.currentPasswordHash,
+        ...passwordHistory.slice(0, 4), // Keep last 5 passwords total
+      ].filter(Boolean); // Remove undefined values
+
+      // Update user document
+      await userRef.update({
+        currentPasswordHash: passwordHash,
+        passwordHistory: newHistory,
+        passwordResetAt: new Date(),
+        lastPasswordChangeAt: new Date(),
+      });
+
+      console.log("✅ Password hash stored for user:", email);
+      return { success: true };
+    } catch (error) {
+      console.error("Error storing password hash:", error);
+
+      if (error.code === "not-found") {
+        throw error;
+      }
+
+      throw new HttpsError(
+        "internal",
+        "Failed to store password hash. Please contact support.",
+      );
+    }
+  },
 );

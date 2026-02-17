@@ -15,7 +15,14 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "../../../config/firebaseconfig";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  addDoc,
+  collection,
+  serverTimestamp,
+} from "firebase/firestore";
 import {
   updatePassword,
   EmailAuthProvider,
@@ -60,7 +67,7 @@ export default function EditProfile({ navigation }) {
   // Success popup state
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState(
-    "Your profile has been updated"
+    "Your profile has been updated",
   );
 
   // Unsaved changes modal state
@@ -232,6 +239,31 @@ export default function EditProfile({ navigation }) {
   };
 
   // Format name to Title Case
+  // Format phone number from any format to local format (09XXXXXXXXX)
+  const formatPhoneNumber = (phone) => {
+    if (!phone) return null;
+
+    // Remove all spaces, dashes, and parentheses
+    let cleaned = phone.replace(/[\s\-\(\)]/g, "");
+
+    // If it starts with +63, convert to 0 format
+    if (cleaned.startsWith("+63")) {
+      return "0" + cleaned.substring(3);
+    }
+
+    // If it already starts with 09, return as is
+    if (cleaned.startsWith("09")) {
+      return cleaned;
+    }
+
+    // If it starts with 63 (without +), convert to 0 format
+    if (cleaned.startsWith("63")) {
+      return "0" + cleaned.substring(2);
+    }
+
+    return cleaned;
+  };
+
   const formatToTitleCase = (name) => {
     return name
       .trim()
@@ -391,7 +423,7 @@ export default function EditProfile({ navigation }) {
       const formattedFirstName = formatToTitleCase(firstName);
       const formattedMiddleName = formatToTitleCase(middleName);
       const formattedLastName = formatToTitleCase(lastName);
-      const trimmedPhone = phone.trim();
+      const formattedPhone = formatPhoneNumber(phone.trim());
 
       // Build update object with only changed fields
       const updateData = {};
@@ -401,27 +433,28 @@ export default function EditProfile({ navigation }) {
       if (formattedFirstName !== originalFirstName) {
         updateData.firstName = formattedFirstName;
         fieldsChanged.push(
-          `firstName: "${originalFirstName}" → "${formattedFirstName}"`
+          `firstName: "${originalFirstName}" → "${formattedFirstName}"`,
         );
       }
 
       if (formattedMiddleName !== originalMiddleName) {
         updateData.middleName = formattedMiddleName;
         fieldsChanged.push(
-          `middleName: "${originalMiddleName}" → "${formattedMiddleName}"`
+          `middleName: "${originalMiddleName}" → "${formattedMiddleName}"`,
         );
       }
 
       if (formattedLastName !== originalLastName) {
         updateData.lastName = formattedLastName;
         fieldsChanged.push(
-          `lastName: "${originalLastName}" → "${formattedLastName}"`
+          `lastName: "${originalLastName}" → "${formattedLastName}"`,
         );
       }
 
-      if (trimmedPhone !== originalPhone) {
-        updateData.phone = trimmedPhone;
-        fieldsChanged.push(`phone: "${originalPhone}" → "${trimmedPhone}"`);
+      if (formattedPhone && formattedPhone !== originalPhone) {
+        // Update only "phone" field
+        updateData.phone = formattedPhone;
+        fieldsChanged.push(`phone: "${originalPhone}" → "${formattedPhone}"`);
       }
 
       // Always update timestamp
@@ -444,6 +477,26 @@ export default function EditProfile({ navigation }) {
 
         console.log("✅ Profile updated successfully");
         console.log("📝 Fields changed:", fieldsChanged);
+
+        // Log activity to activity_logs/editProfile/userprofile
+        try {
+          await addDoc(
+            collection(db, "activity_logs", "editProfile", "userprofile"),
+            {
+              userId: currentUser.uid,
+              action: "Profile updated",
+              description: `Updated profile: ${fieldsChanged.join(", ")}`,
+              timestamp: serverTimestamp(),
+              deviceInfo: Platform.OS,
+              firstName: formattedFirstName,
+              lastName: formattedLastName,
+            },
+          );
+          console.log("✅ Activity logged successfully");
+        } catch (logError) {
+          console.error("⚠️ Failed to log activity:", logError);
+          // Don't block the flow if logging fails
+        }
       } else {
         console.log("ℹ️ No changes detected - profile not updated");
       }
@@ -452,7 +505,8 @@ export default function EditProfile({ navigation }) {
       setOriginalFirstName(formattedFirstName);
       setOriginalMiddleName(formattedMiddleName);
       setOriginalLastName(formattedLastName);
-      setOriginalPhone(trimmedPhone);
+      setOriginalPhone(formattedPhone);
+      setPhone(formattedPhone); // Update the display value to formatted version
 
       // Clear password fields to prevent unsaved changes warning
       setCurrentPassword("");
@@ -506,8 +560,8 @@ export default function EditProfile({ navigation }) {
       error = "New password must be different from your current password";
     }
     // Check length
-    else if (password.length < 6) {
-      error = "Minimum 6 characters required";
+    else if (password.length < 8) {
+      error = "Minimum 8 characters required";
     } else if (password.length > 20) {
       error = "Maximum 20 characters allowed";
     }
@@ -605,7 +659,7 @@ export default function EditProfile({ navigation }) {
       // Try to reauthenticate with current password
       const credential = EmailAuthProvider.credential(
         currentUser.email,
-        currentPassword
+        currentPassword,
       );
       await reauthenticateWithCredential(currentUser, credential);
 
@@ -623,11 +677,11 @@ export default function EditProfile({ navigation }) {
         setPasswordErrorMessage("Current password is incorrect");
       } else if (error.code === "auth/too-many-requests") {
         setPasswordErrorMessage(
-          "Too many failed attempts. Please try again later"
+          "Too many failed attempts. Please try again later",
         );
       } else {
         setPasswordErrorMessage(
-          "Failed to verify current password. Please try again"
+          "Failed to verify current password. Please try again",
         );
       }
       setShowPasswordErrorModal(true);
@@ -662,6 +716,26 @@ export default function EditProfile({ navigation }) {
         await updatePassword(currentUser, newPassword);
         console.log("✅ Password updated successfully");
 
+        // Log activity to activity_logs/editProfile/passwordChange
+        try {
+          await addDoc(
+            collection(db, "activity_logs", "editProfile", "passwordChange"),
+            {
+              userId: currentUser.uid,
+              action: "Password changed",
+              description: "User successfully changed their password",
+              timestamp: serverTimestamp(),
+              deviceInfo: Platform.OS,
+              firstName: firstName,
+              lastName: lastName,
+            },
+          );
+          console.log("✅ Password change activity logged successfully");
+        } catch (logError) {
+          console.error("⚠️ Failed to log password change activity:", logError);
+          // Don't block the flow if logging fails
+        }
+
         // Clear password fields
         setCurrentPassword("");
         setNewPassword("");
@@ -675,6 +749,8 @@ export default function EditProfile({ navigation }) {
         setShowSuccess(true);
         setTimeout(() => {
           setShowSuccess(false);
+          // Navigate back to previous screen after password update
+          navigation.goBack();
         }, 2000);
       } catch (passwordError) {
         console.error("Password update error:", passwordError);
@@ -975,33 +1051,19 @@ export default function EditProfile({ navigation }) {
             </View>
             <TextInput
               style={styles.input}
-              placeholder="+639123456789"
+              placeholder="09123456789"
               keyboardType="phone-pad"
               value={phone}
               onChangeText={(text) => {
-                // Remove any non-numeric characters except +
-                let cleanText = text.replace(/[^0-9+]/g, "");
+                // Remove any non-numeric characters
+                let cleanText = text.replace(/[^0-9]/g, "");
 
-                // If starts with 0, replace with +63
-                if (cleanText.startsWith("0")) {
-                  cleanText = "+63" + cleanText.substring(1);
-                }
-
-                // If doesn't start with +63, add it
-                if (
-                  !cleanText.startsWith("+63") &&
-                  cleanText.length > 0 &&
-                  !cleanText.startsWith("+")
-                ) {
-                  cleanText = "+63" + cleanText;
-                }
-
-                // Limit to +63 + 10 digits = 13 characters
-                if (cleanText.length <= 13) {
+                // Limit to 11 digits (09XXXXXXXXX)
+                if (cleanText.length <= 11) {
                   setPhone(cleanText);
                 }
               }}
-              maxLength={13}
+              maxLength={11}
             />
 
             {/* Save Changes Button */}

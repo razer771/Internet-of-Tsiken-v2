@@ -12,7 +12,15 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import CalendarModal from "../../navigation/CalendarModal";
-import { getFirestore, doc, getDoc } from "firebase/firestore";
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  collection,
+  query,
+  orderBy,
+  getDocs,
+} from "firebase/firestore";
 import { db } from "../../../config/firebaseconfig";
 
 const Icon = Feather;
@@ -59,27 +67,33 @@ export default function GenerateReportModal({
 
   const [duplicateBatchError, setDuplicateBatchError] = useState("");
 
-  // Fetch brooder info from Firestore
+  // Fetch latest brooder info from Firestore
   useEffect(() => {
     const fetchBrooderInfo = async () => {
       try {
         setLoadingBrooderInfo(true);
         setBrooderInfoError(null);
 
-        const docRef = doc(db, "brooderInfo", "batch1");
-        const docSnap = await getDoc(docRef);
+        // Query for the latest batch ordered by batchNumber descending
+        const q = query(
+          collection(db, "brooderInfo"),
+          orderBy("batchNumber", "desc"),
+        );
+        const querySnapshot = await getDocs(q);
 
-        if (docSnap.exists()) {
-          const data = docSnap.data();
+        if (querySnapshot.empty) {
+          console.log("No brooder batches found");
+          setBrooderInfoError("No brooder batches available");
+        } else {
+          // Get the latest batch (first document after ordering by batchNumber desc)
+          const latestBatchDoc = querySnapshot.docs[0];
+          const data = latestBatchDoc.data();
           setBrooderInfo({
             chicksCount: data.chicksCount || 0,
             daysCount: data.daysCount || 0,
             harvestDays: data.harvestDays || 0,
           });
-          console.log("Brooder info fetched successfully:", data);
-        } else {
-          console.log("No brooder info document found");
-          setBrooderInfoError("No brooder information available");
+          console.log("Latest brooder info fetched successfully:", data);
         }
       } catch (error) {
         console.error("Error fetching brooder info:", error);

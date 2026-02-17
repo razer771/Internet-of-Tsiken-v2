@@ -208,12 +208,9 @@ const pingModule = async (endpoint) => {
  * @returns {Promise<Object>} Water level reading
  */
 export const getWaterLevel = async () => {
-  console.log(`💧 getWaterLevel called - simulationMode: ${simulationMode}, connected: ${connectionStatus.waterSensor.connected}`);
-  
   try {
     if (simulationMode || !connectionStatus.waterSensor.connected) {
       // Return simulated value with warning
-      console.log('⚠️ Using simulated water level');
       return {
         success: true,
         level: simulatedValues.waterLevel,
@@ -224,7 +221,6 @@ export const getWaterLevel = async () => {
       };
     }
 
-    console.log('📡 Reading from hardware...');
     const level = await readFromHardware('waterSensor');
     
     connectionStatus.waterSensor.lastUpdate = new Date().toISOString();
@@ -269,7 +265,6 @@ export const getFeederLevel = async () => {
       };
     }
 
-    // TODO: Implement actual sensor reading
     const level = await readFromHardware('feederSensor');
     
     connectionStatus.feederSensor.lastUpdate = new Date().toISOString();
@@ -297,31 +292,79 @@ export const getFeederLevel = async () => {
 };
 
 /**
- * Get both sensor readings at once
- * @returns {Promise<Object>} Both water and feeder levels
+ * Get all sensor readings from ESP32
+ * @returns {Promise<Object>} All sensor data including temperature, humidity, air quality, weight, etc.
  */
 export const getAllSensorReadings = async () => {
   try {
-    const [waterReading, feederReading] = await Promise.all([
-      getWaterLevel(),
-      getFeederLevel(),
-    ]);
+    // Get ESP32 endpoint URL
+    const waterSystemUrl = getWaterSystemUrl();
+    
+    if (!waterSystemUrl) {
+      console.warn('⚠️ ESP32 URL not configured, using simulated values');
+      return {
+        success: true,
+        simulationMode: true,
+        temperature: 25,
+        humidity: 60,
+        air_quality: 350,
+        feed_weight: 150,
+        water_level: simulatedValues.waterLevel,
+        feeder_tank_level: simulatedValues.feederLevel,
+        water_tank_level: 75,
+        fan_status: 'off',
+        light_status: 'off',
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    console.log(`📡 Fetching all sensors from: ${waterSystemUrl}/api/sensors`);
+    
+    // Fetch all sensor data from ESP32
+    const response = await fetch(`${waterSystemUrl}/api/sensors`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      timeout: 5000,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log('📊 Sensor data received:', data);
 
     return {
       success: true,
-      water: waterReading,
-      feeder: feederReading,
-      connectionStatus: { ...connectionStatus },
-      simulationMode,
+      simulationMode: false,
+      temperature: data.temperature || 0,
+      humidity: data.humidity || 0,
+      air_quality: data.air_quality || 0,
+      feed_weight: data.feed_weight || 0,
+      water_level: data.water_level || 0,
+      feeder_tank_level: data.feeder_tank_level || 0,
+      water_tank_level: data.water_tank_level || 0,
+      fan_status: data.fan_status || 'off',
+      light_status: data.light_status || 'off',
       timestamp: new Date().toISOString(),
     };
   } catch (error) {
-    console.error('Error reading sensors:', error);
+    console.error('❌ Error reading sensors from ESP32:', error.message);
     return {
       success: false,
       error: error.message,
-      water: { level: simulatedValues.waterLevel, isSimulated: true },
-      feeder: { level: simulatedValues.feederLevel, isSimulated: true },
+      simulationMode: true,
+      temperature: 25,
+      humidity: 60,
+      air_quality: 350,
+      feed_weight: 150,
+      water_level: simulatedValues.waterLevel,
+      feeder_tank_level: simulatedValues.feederLevel,
+      water_tank_level: 75,
+      fan_status: 'off',
+      light_status: 'off',
       timestamp: new Date().toISOString(),
     };
   }
@@ -340,8 +383,6 @@ const readFromHardware = async (sensorType) => {
   }
   
   try {
-    console.log(`📊 Reading ${sensorType} from: ${sensor.endpoint}`);
-    
     // Call ESP32 /api/sensors endpoint
     const response = await fetch(sensor.endpoint, {
       method: 'GET',
@@ -355,21 +396,22 @@ const readFromHardware = async (sensorType) => {
     }
     
     const data = await response.json();
-    console.log(`📦 Sensor data received:`, JSON.stringify(data));
     
     // Parse response based on sensor type
     // ESP32 returns: { "water": { "level": 75, ... }, "simulationMode": false, ... }
     if (sensorType === 'waterSensor' && data.water) {
-      console.log(`💧 Water level: ${data.water.level}%`);
       return data.water.level || 0;
     } else if (sensorType === 'feederSensor' && data.feeder) {
-      console.log(`🌾 Feeder level: ${data.feeder.level}%`);
       return data.feeder.level || 0;
     }
     
     throw new Error('Invalid sensor data format');
   } catch (error) {
     console.error(`❌ Hardware read error for ${sensorType}:`, error.message);
+    // Mark disconnected and switch to simulation to avoid repeated failing requests
+    connectionStatus[sensorType].connected = false;
+    connectionStatus[sensorType].error = error.message;
+    simulationMode = true;
     throw error;
   }
 };

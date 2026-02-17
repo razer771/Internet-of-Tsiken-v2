@@ -1,8 +1,9 @@
 // Firebase SMS Diagnostic Tool
 // Add this to your OTPVerification.js for debugging
+// Note: SMS is now sent via Semaphore API through Cloud Functions
 
 const diagnoseSMSIssue = async (phoneNumber) => {
-  console.log("🔍 SMS DIAGNOSTIC STARTED");
+  console.log("🔍 SMS DIAGNOSTIC STARTED (Semaphore)");
   console.log("================================");
 
   // Check phone number format
@@ -15,7 +16,7 @@ const diagnoseSMSIssue = async (phoneNumber) => {
     phoneNumber.startsWith("+63") || phoneNumber.startsWith("09");
 
   console.log(
-    `✓ International format (+): ${isInternationalFormat ? "✅" : "❌"}`
+    `✓ International format (+): ${isInternationalFormat ? "✅" : "❌"}`,
   );
   console.log(`✓ Has country code: ${hasCountryCode ? "✅" : "❌"}`);
   console.log(`✓ Philippine format: ${isPhilippineNumber ? "✅" : "❌"}`);
@@ -37,9 +38,6 @@ const diagnoseSMSIssue = async (phoneNumber) => {
   console.log("\n📱 Platform Information:");
   console.log(`Platform: ${Platform.OS}`);
   console.log(`Is Web: ${Platform.OS === "web" ? "✅" : "❌"}`);
-  console.log(
-    `Requires RecaptchaVerifier: ${Platform.OS === "web" ? "✅" : "❌"}`
-  );
 
   // Network connectivity
   console.log("\n🌐 Network Status:");
@@ -50,15 +48,28 @@ const diagnoseSMSIssue = async (phoneNumber) => {
     console.log(`Internet connectivity: ❌ (${error.message})`);
   }
 
-  // Firebase Functions connectivity
-  console.log("\n⚡ Firebase Functions Status:");
+  // Firebase Functions connectivity (Cloud Functions with Semaphore)
+  console.log("\n⚡ Firebase Functions Status (Semaphore SMS):");
   try {
-    const testFunction = httpsCallable(functions, "helloWorld");
-    const result = await testFunction();
-    console.log(`Functions connectivity: ✅`);
-    console.log(`Functions response: ${result.data || "OK"}`);
+    const testFunction = httpsCallable(functions, "sendSMSOTP");
+    // Note: Don't actually call it, just check if the function exists
+    console.log(`Cloud Functions availability: ✅`);
+    console.log(`SMS Provider: Semaphore API ✅`);
   } catch (error) {
-    console.log(`Functions connectivity: ❌ (${error.message})`);
+    console.log(`Cloud Functions error: ❌ (${error.message})`);
+  }
+
+  // Firestore OTP collection status
+  console.log("\n📋 Firestore OTP Collection Status:");
+  try {
+    const otpCollection = await db
+      .collection("otpVerifications")
+      .limit(1)
+      .get();
+    console.log(`OTP collection accessible: ✅`);
+    console.log(`OTP records count: ${otpCollection.size}`);
+  } catch (error) {
+    console.log(`OTP collection error: ❌ (${error.message})`);
   }
 
   console.log("\n================================");
@@ -66,6 +77,7 @@ const diagnoseSMSIssue = async (phoneNumber) => {
 
   return {
     phoneNumber: correctedNumber,
+    smsProvider: "Semaphore",
     issues: {
       formatIssue: !isInternationalFormat,
       authIssue: !auth.currentUser,

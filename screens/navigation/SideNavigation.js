@@ -65,7 +65,7 @@ export default function SideNavigation({ visible, onClose, navigation }) {
 
     if (item === "User Profile" && navigation) {
       console.log(
-        "[SideNavigation] Attempting to navigate to UserProfile screen"
+        "[SideNavigation] Attempting to navigate to UserProfile screen",
       );
       try {
         navigation.navigate("UserProfile");
@@ -97,7 +97,7 @@ export default function SideNavigation({ visible, onClose, navigation }) {
         try {
           await addDoc(collection(db, "session_logs"), {
             userId: currentUser.uid,
-            action: "logout",
+            action: "Log out",
             description: "Logged out",
             timestamp: serverTimestamp(),
             deviceInfo: Platform.OS,
@@ -107,7 +107,7 @@ export default function SideNavigation({ visible, onClose, navigation }) {
         } catch (logError) {
           console.log(
             "⚠️ Failed to log logout event (non-critical):",
-            logError.message
+            logError.message,
           );
         }
       }

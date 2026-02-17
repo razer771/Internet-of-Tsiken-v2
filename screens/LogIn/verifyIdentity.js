@@ -41,6 +41,7 @@ export default function VerifyIdentityScreen() {
   const [alertType, setAlertType] = useState("info");
   const [alertTitle, setAlertTitle] = useState("");
   const [alertMessage, setAlertMessage] = useState("");
+  const [isSendingOTP, setIsSendingOTP] = useState(false);
 
   const inputs = useRef([]);
   const navigation = useNavigation();
@@ -116,13 +117,14 @@ export default function VerifyIdentityScreen() {
         showAlert(
           "error",
           "Incomplete Mobile Number",
-          "Enter the 10-digit mobile number"
+          "Enter the 10-digit mobile number",
         );
         return;
       }
+      setIsSendingOTP(true);
       try {
         // Format phone number with country code
-        const phoneNumber = `+63${inputValue}`; // Philippines country code
+        const phoneNumber = `0${inputValue}`; // Philippines country code
 
         console.log("🔄 Verifying mobile number:", phoneNumber);
 
@@ -132,8 +134,9 @@ export default function VerifyIdentityScreen() {
           showAlert(
             "error",
             "Authentication Required",
-            "Please log in first to verify your identity."
+            "Please log in first to verify your identity.",
           );
+          setIsSendingOTP(false);
           return;
         }
 
@@ -145,8 +148,9 @@ export default function VerifyIdentityScreen() {
           showAlert(
             "error",
             "User Not Found",
-            "User record not found in database."
+            "User record not found in database.",
           );
+          setIsSendingOTP(false);
           return;
         }
 
@@ -170,8 +174,9 @@ export default function VerifyIdentityScreen() {
             setMobileLockCountdown(10);
             setInputValue("");
             console.log(
-              "🔒 Device locked due to multiple mobile number mismatches"
+              "🔒 Device locked due to multiple mobile number mismatches",
             );
+            setIsSendingOTP(false);
             return;
           }
 
@@ -181,8 +186,9 @@ export default function VerifyIdentityScreen() {
             "error",
             "Incorrect Mobile Number",
 
-            "Mobile number does not match user records."
+            "Mobile number does not match user records.",
           );
+          setIsSendingOTP(false);
           return;
         }
 
@@ -214,16 +220,16 @@ export default function VerifyIdentityScreen() {
           });
           setVerificationId(phoneNumber);
 
-          console.log("==========================================");
+          console.log("=========================================");
           console.log(`📱 SMS sent to: ${phoneNumber}`);
-          console.log(`✅ SMS OTP sent via Twilio`);
-          console.log(`Verification SID: ${response.data.sid}`);
-          console.log("==========================================");
+          console.log(`✅ SMS OTP sent via Semaphore`);
+          console.log("=========================================");
 
           setShowOtpScreen(true);
           setSuccessModalVisible(true);
           setCountdown(300); // 5 minutes
           setCanResend(false);
+          setIsSendingOTP(false);
 
           // Auto-hide modal after 2 seconds
           setTimeout(() => {
@@ -231,6 +237,7 @@ export default function VerifyIdentityScreen() {
           }, 2000);
         } catch (firebaseError) {
           console.error("❌ Firebase Function Error:", firebaseError);
+          setIsSendingOTP(false);
           throw firebaseError;
         }
       } catch (error) {
@@ -245,9 +252,11 @@ export default function VerifyIdentityScreen() {
         let errorMessage = "Mobile number does not match user records";
 
         showAlert("error", "Invalid Mobile Number", errorMessage);
+        setIsSendingOTP(false);
       }
     } else {
       showAlert("error", "Error", "Only mobile OTP is supported.");
+      setIsSendingOTP(false);
     }
   };
 
@@ -275,7 +284,7 @@ export default function VerifyIdentityScreen() {
       showAlert(
         "error",
         "Device Locked",
-        `Too many failed attempts. Please wait ${lockCountdown} seconds before trying again.`
+        `Too many failed attempts. Please wait ${lockCountdown} seconds before trying again.`,
       );
       return;
     }
@@ -302,7 +311,7 @@ export default function VerifyIdentityScreen() {
       if (response.data && response.data.success) {
         // Reset attempts on success
         setOtpAttempts(0);
-        console.log("✅ Phone number verified successfully with Twilio!");
+        console.log("✅ Phone number verified successfully with Semaphore!");
         console.log("Phone:", confirmationResult.phone);
 
         // Update Firestore verification status and fetch user data
@@ -327,15 +336,15 @@ export default function VerifyIdentityScreen() {
             showAlert(
               "success",
               "Success",
-              "Phone number verified successfully!"
+              "Phone number verified successfully!",
             );
 
             // Navigate based on user role after a short delay
             setTimeout(() => {
               console.log("🚀 Starting navigation after verification...");
-              if (userData.role === "Admin") {
+              if (userData.role === "admin") {
                 console.log(
-                  "🔀 Navigating to AdminDashboard (OTP verified admin)"
+                  "🔀 Navigating to AdminDashboard (OTP verified admin)",
                 );
                 navigation.reset({
                   index: 0,
@@ -343,7 +352,7 @@ export default function VerifyIdentityScreen() {
                 });
               } else {
                 console.log(
-                  "🔀 Navigating to Home (OTP verified regular user)"
+                  "🔀 Navigating to Home (OTP verified regular user)",
                 );
                 navigation.reset({
                   index: 0,
@@ -371,7 +380,7 @@ export default function VerifyIdentityScreen() {
           showAlert(
             "error",
             "Device Locked",
-            "Too many failed attempts. Your device has been locked for 10 seconds."
+            "Too many failed attempts. Your device has been locked for 10 seconds.",
           );
         } else {
           // Show remaining attempts
@@ -384,7 +393,7 @@ export default function VerifyIdentityScreen() {
       showAlert(
         "error",
         "Error",
-        error.message || "Failed to verify OTP. Please try again."
+        error.message || "Failed to verify OTP. Please try again.",
       );
     }
   };
@@ -399,10 +408,13 @@ export default function VerifyIdentityScreen() {
 
   const handleOutsideTap = () => {
     Keyboard.dismiss();
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      navigation.navigate("LogIn");
+    // Only navigate back if not in OTP screen
+    if (!showOtpScreen) {
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.navigate("LogIn");
+      }
     }
   };
 
@@ -572,6 +584,7 @@ export default function VerifyIdentityScreen() {
                   style={styles.input}
                   placeholder="Enter 10-digit mobile number"
                   keyboardType="phone-pad"
+                  n
                   maxLength={10}
                   value={inputValue}
                   onChangeText={setInputValue}
@@ -579,10 +592,16 @@ export default function VerifyIdentityScreen() {
               </View>
 
               <TouchableOpacity
-                style={styles.sendButton}
+                style={[
+                  styles.sendButton,
+                  isSendingOTP && styles.sendButtonDisabled,
+                ]}
                 onPress={handleSendOTP}
+                disabled={isSendingOTP}
               >
-                <Text style={styles.sendText}>Send OTP</Text>
+                <Text style={styles.sendText}>
+                  {isSendingOTP ? "Sending..." : "Send OTP"}
+                </Text>
               </TouchableOpacity>
             </>
           )}
@@ -797,6 +816,9 @@ const styles = StyleSheet.create({
     width: "100%",
     paddingVertical: 16,
     alignItems: "center",
+  },
+  sendButtonDisabled: {
+    opacity: 0.6,
   },
   sendText: {
     color: "#fff",

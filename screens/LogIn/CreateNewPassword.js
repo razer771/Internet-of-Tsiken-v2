@@ -96,14 +96,17 @@ export default function CreateNewPassword() {
   };
 
   const validatePassword = (password) => {
-    const minLength = 6;
+    const minLength = 8;
     const hasUpperCase = /[A-Z]/.test(password);
     const hasLowerCase = /[a-z]/.test(password);
     const hasNumber = /[0-9]/.test(password);
     const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
 
     if (password.length < minLength) {
-      return "Password must be at least 6 characters long";
+      return "Password must be at least 8 characters long";
+    }
+    if (password.length > 20) {
+      return "Password must not exceed 20 characters";
     }
     if (!hasUpperCase) {
       return "Password must contain at least one uppercase letter";
@@ -290,7 +293,12 @@ export default function CreateNewPassword() {
               value={newPassword}
               onChangeText={(text) => {
                 setNewPassword(text);
-                if (errors.newPassword) {
+                // Validate password in real-time
+                if (text.length > 0) {
+                  const passwordError = validatePassword(text);
+                  setErrors({ ...errors, newPassword: passwordError });
+                } else {
+                  // Clear error if field is empty
                   setErrors({ ...errors, newPassword: "" });
                 }
               }}
@@ -377,17 +385,11 @@ export default function CreateNewPassword() {
         {/* Password Requirements */}
         <View style={styles.requirementsContainer}>
           <Text style={styles.requirementsTitle}>Password must contain:</Text>
-          <Text style={styles.requirementItem}>• At least 6 characters</Text>
-          <Text style={styles.requirementItem}>
-            • One uppercase letter (A-Z)
-          </Text>
-          <Text style={styles.requirementItem}>
-            • One lowercase letter (a-z)
-          </Text>
-          <Text style={styles.requirementItem}>• One number (0-9)</Text>
-          <Text style={styles.requirementItem}>
-            • One special character (!@#$%^&*)
-          </Text>
+          <Text style={styles.requirementItem}>• At least 8 characters</Text>
+          <Text style={styles.requirementItem}>• One uppercase letter</Text>
+          <Text style={styles.requirementItem}>• One lowercase letter</Text>
+          <Text style={styles.requirementItem}>• One number </Text>
+          <Text style={styles.requirementItem}>• One special character</Text>
         </View>
       </KeyboardAwareScrollView>
 

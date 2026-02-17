@@ -50,6 +50,10 @@ import {
   configureWaterSystemUserId,
 } from "../../../modules/ServoMotorService";
 import CameraStream from "../../../modules/CameraStream";
+import {
+  fetchSunsetTime,
+  formatSunsetDateTime,
+} from "../../../modules/SunsetService";
 import { useAdminNotifications } from "../../Admin/AdminNotificationContext";
 import { useNotifications } from "./NotificationContext";
 
@@ -84,7 +88,7 @@ const fetchNightTimeSchedule = async () => {
   } catch (error) {
     console.error(
       "[FetchNightTime] Error fetching night time schedule:",
-      error
+      error,
     );
     return null;
   }
@@ -126,7 +130,7 @@ const updateNightTimeSchedule = async (
   newTime,
   userId,
   firstName,
-  lastName
+  lastName,
 ) => {
   try {
     console.log("[UpdateNightTime] Updating night time schedule...");
@@ -153,7 +157,7 @@ const updateNightTimeSchedule = async (
         updatedAt: new Date().toISOString(),
         updatedBy: userId,
       },
-      { merge: true }
+      { merge: true },
     );
 
     console.log("[UpdateNightTime] Night time schedule updated successfully");
@@ -164,7 +168,7 @@ const updateNightTimeSchedule = async (
       const oldTimeFormatted = oldTime ? formatTimeGMT8(oldTime) : "N/A";
 
       const logEntry = {
-        action: "Set Night Time",
+        action: `Set night time at ${newTimeFormatted}`,
         description: `Night time starts at ${newTimeFormatted}`,
         firstName: firstName,
         lastName: lastName,
@@ -178,7 +182,7 @@ const updateNightTimeSchedule = async (
 
       await addDoc(
         collection(db, "activity_logs", "nightTime_logs", "events"),
-        logEntry
+        logEntry,
       );
 
       console.log("[UpdateNightTime] Activity logged successfully");
@@ -196,7 +200,7 @@ const updateNightTimeSchedule = async (
   } catch (error) {
     console.error(
       "[UpdateNightTime] Error updating night time schedule:",
-      error
+      error,
     );
     return {
       success: false,
@@ -291,7 +295,7 @@ export default function ControlScreen({ navigation }) {
       // Save to Firestore: activity_logs/{actionType}/{auto-generated-id}
       await addDoc(
         collection(db, "activity_logs", actionType, "logs"),
-        logRecord
+        logRecord,
       );
 
       console.log(`✅ [LOGGING] Logged to ${actionType}:`, logRecord);
@@ -314,12 +318,24 @@ export default function ControlScreen({ navigation }) {
   const [sensorError, setSensorError] = useState(null);
   const [isSimulated, setIsSimulated] = useState(true);
 
+  // NEW STATE VARIABLES
+  const [temperature, setTemperature] = useState(0);
+  const [humidity, setHumidity] = useState(0);
+  const [airQuality, setAirQuality] = useState(0);
+  const [bowlWeight, setBowlWeight] = useState(0);
+  const [fanOn, setFanOn] = useState(false);
+  const [waterStorageLevel, setWaterStorageLevel] = useState(0);
+  const [feedStorageLevel, setFeedStorageLevel] = useState(0);
+
   // Lighting control
   const [lightOn, setLightOn] = useState(false);
 
   // night schedule (time)
   const [nightStart, setNightStart] = useState(new Date());
   const [showNightPicker, setShowNightPicker] = useState(false);
+  const [sunsetLoading, setSunsetLoading] = useState(true);
+  const [sunsetError, setSunsetError] = useState(null);
+  const [isSunsetAutomated, setIsSunsetAutomated] = useState(false);
 
   // feed schedule: can add / delete / edit
   const [feeds, setFeeds] = useState([]);
@@ -344,13 +360,13 @@ export default function ControlScreen({ navigation }) {
 
         // Initialize sensors
         const initResult = await initializeSensors();
-        console.log("Sensor initialization:", initResult);
+        console.log("Sensor initialization:");
 
         // Configure ESP32 with user ID for scheduled watering
         const user = auth.currentUser;
         if (user) {
           console.log(
-            "📡 Configuring ESP32 with user ID for scheduled watering..."
+            "📡 Configuring ESP32 with user ID for scheduled watering...",
           );
           await configureWaterSystemUserId(user.uid);
         }
@@ -365,11 +381,11 @@ export default function ControlScreen({ navigation }) {
         }, 5000);
       } catch (error) {
         console.error("Sensor initialization error:", error);
-        setSensorError("Failed to initialize sensors. Using simulated data.");
+        setSensorError("Failed to initialize sensors.");
         setIsSimulated(true);
         // Set default values on error
-        setWaterNow(85);
-        setFeederNow(62);
+        setWaterNow(0);
+        setFeederNow(0);
       } finally {
         setSensorLoading(false);
       }
@@ -400,10 +416,7 @@ export default function ControlScreen({ navigation }) {
           throw new Error("ESP32 responded with error");
         }
       } catch (error) {
-        console.warn(
-          "[Solar] Failed to fetch from ESP32, using simulated data:",
-          error.message
-        );
+        console.warn("[Solar] Failed to fetch from ESP32.", error.message);
         setSolarPowerLevel(30); // Fallback to simulated
         setIsSolarSimulated(true);
       } finally {
@@ -420,63 +433,175 @@ export default function ControlScreen({ navigation }) {
     };
   }, []);
 
-  // Fetch night time schedule from Firestore on mount
+  // Fetch sunset time and night time schedule on mount
   useEffect(() => {
     const loadNightTimeSchedule = async () => {
       try {
+        setSunsetLoading(true);
+        setSunsetError(null);
+
         console.log(
-          "[NightTime] Loading night time schedule from Firestore..."
+          "[NightTime] Automating night time schedule with sunset API...",
         );
-        const nightTimeData = await fetchNightTimeSchedule();
 
-        if (nightTimeData) {
-          // Get the time value - try multiple field names for compatibility
-          const timeValue = nightTimeData.nightTime || nightTimeData.time;
+        // Fetch sunset time from SunriseSunset.io API
+        console.log(
+          "[NightTime] Fetching sunset time from SunriseSunset.io...",
+        );
+        const sunsetResult = await fetchSunsetTime();
 
-          if (timeValue) {
-            // Convert ISO string or timestamp to Date object
-            const timeDate =
-              timeValue instanceof Date ? timeValue : new Date(timeValue);
+        if (sunsetResult.success) {
+          console.log(
+            "[NightTime] Sunset time fetched successfully:",
+            sunsetResult.formattedDateTime,
+          );
+          setNightStart(sunsetResult.sunsetTime);
+          setIsSunsetAutomated(true);
 
-            setNightStart(timeDate);
-            console.log(
-              "[NightTime] Night time loaded successfully:",
-              fmtTime(timeDate)
+          // Update Firestore with the sunset time
+          try {
+            const docRef = doc(db, "nightTime", "1");
+            await setDoc(
+              docRef,
+              {
+                nightTime: sunsetResult.sunsetTimeIso,
+                time: sunsetResult.sunsetTimeIso,
+                selectedTimeGMT8Formatted: sunsetResult.formattedDateTime,
+                automatedViaSunset: true,
+                sunsetFetchedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              },
+              { merge: true },
             );
-          } else {
-            console.warn("[NightTime] No time value found in document");
+            console.log("[NightTime] Firestore updated with sunset time");
+          } catch (firestoreError) {
+            console.warn(
+              "[NightTime] Failed to update Firestore with sunset time:",
+              firestoreError,
+            );
+            // Don't fail - just log the warning
           }
         } else {
+          // Sunset API failed - fall back to stored Firestore data
           console.warn(
-            "[NightTime] Night time document not found, using default time"
+            "[NightTime] Failed to fetch sunset time:",
+            sunsetResult.error,
           );
+          setSunsetError(sunsetResult.error);
+          setIsSunsetAutomated(false);
+
+          console.log(
+            "[NightTime] Falling back to stored night time schedule...",
+          );
+          const nightTimeData = await fetchNightTimeSchedule();
+
+          if (nightTimeData) {
+            // Get the time value - try multiple field names for compatibility
+            const timeValue = nightTimeData.nightTime || nightTimeData.time;
+
+            if (timeValue) {
+              // Convert ISO string or timestamp to Date object
+              const timeDate =
+                timeValue instanceof Date ? timeValue : new Date(timeValue);
+
+              setNightStart(timeDate);
+              console.log(
+                "[NightTime] Night time loaded from Firestore:",
+                fmtTime(timeDate),
+              );
+            } else {
+              console.warn("[NightTime] No time value found in document");
+            }
+          } else {
+            console.warn(
+              "[NightTime] Night time document not found, using default time",
+            );
+          }
         }
       } catch (error) {
         console.error("[NightTime] Error loading night time schedule:", error);
+        setSunsetError(error.message || "Unknown error occurred");
         // Keep default time on error
+      } finally {
+        setSunsetLoading(false);
       }
     };
 
     loadNightTimeSchedule();
   }, []);
 
-  // Update sensor values from readings
+  // UPDATED: Update sensor values from readings with new fields
   const updateSensorValues = useCallback((readings) => {
     if (readings) {
-      // Update water level
-      if (readings.water) {
-        setWaterNow(readings.water.level || 0);
+      // Map new fields from ESP32 response
+      
+      // Temperature from DHT22
+      if (readings.temperature !== undefined) {
+        setTemperature(readings.temperature || 0);
+      }
+      
+      // Humidity from DHT22
+      if (readings.humidity !== undefined) {
+        setHumidity(readings.humidity || 0);
+      }
+      
+      // Air Quality from MQ135
+      if (readings.air_quality !== undefined) {
+        setAirQuality(readings.air_quality || 0);
+      }
+      
+      // Bowl Weight from Load Cell (HX711) - Feeder Mass
+      if (readings.feed_weight !== undefined) {
+        setBowlWeight(readings.feed_weight || 0);
+      }
+      
+      // Water Level from Analog Sensor (Drinker)
+      if (readings.water_level !== undefined) {
+        setWaterNow(readings.water_level || 0);
+      }
+      
+      // Feeder Storage from Ultrasonic 1 (Tank level)
+      if (readings.feeder_tank_level !== undefined) {
+        const feedStorageVal = readings.feeder_tank_level;
+        console.log(`[Storage] Feed storage level: ${feedStorageVal}%`);
+        setFeederNow(feedStorageVal);
+        setFeedStorageLevel(feedStorageVal);
+      } else if (readings.feeder && readings.feeder.level !== undefined) {
+        const feedStorageVal = readings.feeder.level;
+        console.log(`[Storage] Feed storage level (legacy): ${feedStorageVal}%`);
+        setFeederNow(feedStorageVal);
+        setFeedStorageLevel(feedStorageVal);
+      }
+      
+      // Water Storage from Ultrasonic 2 (Tank level)
+      if (readings.water_tank_level !== undefined) {
+        const waterStorageVal = readings.water_tank_level;
+        console.log(`[Storage] Water storage level: ${waterStorageVal}%`);
+        setWaterStorageLevel(waterStorageVal);
+      }
+      
+      // Fan Status sync
+      if (readings.fan_status !== undefined) {
+        setFanOn(readings.fan_status === 'on');
+      }
+      
+      // Light Status sync
+      if (readings.light_status !== undefined) {
+        setLightOn(readings.light_status === 'on');
+      }
+
+      // Legacy support for old structure
+      if (readings.water && readings.water.level !== undefined) {
+        // Only use this if water_level is not provided
+        if (readings.water_level === undefined) {
+          setWaterNow(readings.water.level || 0);
+        }
         if (readings.water.isSimulated) {
           setIsSimulated(true);
         }
         if (readings.water.error || readings.water.warning) {
           setSensorError(readings.water.error || readings.water.warning);
         }
-      }
-
-      // Update feeder level
-      if (readings.feeder) {
-        setFeederNow(readings.feeder.level || 0);
       }
 
       // Check simulation mode
@@ -531,15 +656,15 @@ export default function ControlScreen({ navigation }) {
 
       setFeeds(loadedFeeds);
 
-      console.log("[FetchFeeds] Total feeds fetched:", loadedFeeds.length);
-      console.log(
-        "📋 [SORT] Feeds loaded and sorted in ascending order (GMT+8):"
-      );
-      loadedFeeds.forEach((f) => {
-        console.log(
-          `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`
-        );
-      });
+      // console.log("[FetchFeeds] Total feeds fetched:", loadedFeeds.length);
+      // console.log(
+      //   "📋 [SORT] Feeds loaded and sorted in ascending order (GMT+8):",
+      // );
+      // loadedFeeds.forEach((f) => {
+      //   console.log(
+      //     `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`,
+      //   );
+      // });
     } catch (err) {
       console.error("Failed to load feeds:", err);
     }
@@ -549,7 +674,7 @@ export default function ControlScreen({ navigation }) {
     try {
       // Fetch ALL watering schedules from "wateringSchedules" collection (no userId filter)
       const wateringSnapshot = await getDocs(
-        collection(db, "wateringSchedules")
+        collection(db, "wateringSchedules"),
       );
 
       const loadedWaterings = [];
@@ -560,7 +685,7 @@ export default function ControlScreen({ navigation }) {
         // Skip duplicates based on wateringId
         if (seenIds.has(data.wateringId)) {
           console.warn(
-            `Duplicate wateringId ${data.wateringId} found, skipping`
+            `Duplicate wateringId ${data.wateringId} found, skipping`,
           );
           return;
         }
@@ -581,18 +706,18 @@ export default function ControlScreen({ navigation }) {
 
       // Sort by time in ascending order (earliest to latest)
       loadedWaterings.sort(
-        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time),
       );
       setWaterings(loadedWaterings);
-      console.log(
-        `💧 [LOAD] Watering schedules loaded from database: ${loadedWaterings.length} total`
-      );
-      console.log("💧 [SORT] Watering schedules sorted:");
-      loadedWaterings.forEach((w) => {
-        console.log(
-          `  - ${w.time} (${w.label}) = ${timeToMinutes(w.time)} minutes`
-        );
-      });
+      // console.log(
+      //   `💧 [LOAD] Watering schedules loaded from database: ${loadedWaterings.length} total`,
+      // );
+      // console.log("💧 [SORT] Watering schedules sorted:");
+      // loadedWaterings.forEach((w) => {
+      //   console.log(
+      //     `  - ${w.time} (${w.label}) = ${timeToMinutes(w.time)} minutes`,
+      //   );
+      // });
     } catch (err) {
       console.error("Failed to load watering schedules:", err);
     }
@@ -642,7 +767,7 @@ export default function ControlScreen({ navigation }) {
 
   // Camera server auto-discovery - no user input needed!
   const [cameraServerUrl, setCameraServerUrl] = useState(
-    "http://rpi5desktop.local:5000"
+    "http://rpi5desktop.local:5000",
   );
   const [showServerInput, setShowServerInput] = useState(false);
 
@@ -688,7 +813,7 @@ export default function ControlScreen({ navigation }) {
         //   navigation.navigate("Analytics");
         // }
       },
-    })
+    }),
   ).current;
 
   // Handlers
@@ -698,22 +823,121 @@ export default function ControlScreen({ navigation }) {
     setShowFeedAddPicker(true);
   };
 
-  // Handle light toggle with Firestore sync
+  // Handle light toggle with ESP32 control
   const handleLightToggle = async (newValue) => {
-    const lightStatus = newValue ? "On" : "Off";
-    setLightOn(newValue);
-
+    console.log(`[Light] Toggle requested: ${newValue ? 'ON' : 'OFF'}`);
+    setLightOn(newValue); // Optimistic update
+    
     try {
-      const sensorsRef = doc(db, "sensors", "current");
-      await updateDoc(sensorsRef, { lightStatus });
-      await logActivity("lightToggle", {
-        status: lightStatus,
+      const { getWaterSystemUrl } = await import("../../../config/esp32config");
+      const url = getWaterSystemUrl();
+      
+      if (!url) {
+        throw new Error("ESP32 not configured. Check esp32config.js");
+      }
+      
+      const endpoint = newValue ? '/api/light/on' : '/api/light/off';
+      const fullUrl = `${url}${endpoint}`;
+      
+      console.log(`[Light] Sending request to: ${fullUrl}`);
+      
+      const response = await fetch(fullUrl, { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log(`[Light] Response:`, data);
+      console.log(`[Light] Successfully turned ${newValue ? 'ON' : 'OFF'}`);
+      
+      // Update state from server response
+      if (data.light_status !== undefined) {
+        setLightOn(data.light_status === 'on');
+      } else if (data.status !== undefined) {
+        setLightOn(data.status === 'on');
+      }
+
+      // Log activity
+      await logActivity("lightControl_logs", {
+        action: newValue ? "light_started" : "light_stopped",
+        status: newValue ? "on" : "off",
         timestamp: new Date().toISOString(),
       });
-      console.log("[Light] Toggle synced with Firestore:", lightStatus);
+      
+      // Sync with Firestore
+      try {
+        const sensorsRef = doc(db, "sensors", "current");
+        await updateDoc(sensorsRef, { lightStatus: newValue ? "On" : "Off" });
+      } catch (firestoreError) {
+        console.warn("[Light] Firestore sync failed:", firestoreError.message);
+      }
     } catch (error) {
-      console.error("[Light] Error syncing with Firestore:", error);
-      setLightOn(!newValue); // Revert on error
+      console.error("[Light] Control failed:", error.message);
+      setLightOn(!newValue); // Revert on fail
+      Alert.alert(
+        "Light Control Error", 
+        `Could not reach light controller.\n\nError: ${error.message}\n\nPlease check:\n1. ESP32 is powered on\n2. WiFi connection\n3. IP address in esp32config.js`
+      );
+    }
+  };
+
+  // NEW: Handle Fan Toggle
+  const handleFanToggle = async (value) => {
+    console.log(`[Fan] Toggle requested: ${value ? 'ON' : 'OFF'}`);
+    setFanOn(value); // Optimistic update
+    
+    try {
+      const { getWaterSystemUrl } = await import("../../../config/esp32config");
+      const url = getWaterSystemUrl();
+      
+      if (!url) {
+        throw new Error("ESP32 not configured. Check esp32config.js");
+      }
+      
+      const endpoint = value ? '/api/fan/start' : '/api/fan/stop';
+      const fullUrl = `${url}${endpoint}`;
+      
+      console.log(`[Fan] Sending request to: ${fullUrl}`);
+      
+      const response = await fetch(fullUrl, { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log(`[Fan] Response:`, data);
+      console.log(`[Fan] Successfully turned ${value ? 'ON' : 'OFF'}`);
+      
+      // Update state from server response
+      if (data.fan_status !== undefined) {
+        setFanOn(data.fan_status === 'on');
+      }
+
+      // Log activity
+      await logActivity("fanControl_logs", {
+        action: value ? "fan_started" : "fan_stopped",
+        status: value ? "on" : "off",
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("[Fan] Control failed:", error.message);
+      setFanOn(!value); // Revert on fail
+      Alert.alert(
+        "Fan Control Error", 
+        `Could not reach fan controller.\n\nError: ${error.message}\n\nPlease check:\n1. ESP32 is powered on\n2. WiFi connection\n3. IP address in esp32config.js`
+      );
     }
   };
 
@@ -760,7 +984,7 @@ export default function ControlScreen({ navigation }) {
         "[Solar] Alert sent - Power:",
         powerLevel + "%",
         "Threshold:",
-        alertThreshold + "%"
+        alertThreshold + "%",
       );
     }
   };
@@ -860,6 +1084,8 @@ export default function ControlScreen({ navigation }) {
           feedId: nextId,
           label: label,
           time: formattedTime,
+          userId: user.uid, // Required by ESP32 for filtering
+          duration: 5, // Duration in seconds (5s default)
           timestamp: new Date().toISOString(),
         });
 
@@ -867,7 +1093,7 @@ export default function ControlScreen({ navigation }) {
         await addDoc(
           collection(db, "activity_logs", "feeding", "addFeedSchedule_logs"),
           {
-            action: "New feeding schedule",
+            action: `New feeding schedule: ${formattedTime}`,
             description: `Added ${formattedTime}`,
             firstName,
             lastName,
@@ -877,7 +1103,7 @@ export default function ControlScreen({ navigation }) {
             timestamp: new Date().toISOString(),
             userId: user.uid,
             feedId: nextId,
-          }
+          },
         );
 
         // Add user notification
@@ -908,12 +1134,12 @@ export default function ControlScreen({ navigation }) {
     setFeeds((s) => {
       const updated = [...s, newFeed];
       const sorted = updated.sort(
-        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time),
       );
       console.log("📋 [SORT] Feeds after adding new schedule:");
       sorted.forEach((f) => {
         console.log(
-          `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`
+          `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`,
         );
       });
       return sorted;
@@ -948,7 +1174,7 @@ export default function ControlScreen({ navigation }) {
         },
         { text: "Cancel", style: "cancel" },
       ],
-      { cancelable: true }
+      { cancelable: true },
     );
   };
 
@@ -968,12 +1194,12 @@ export default function ControlScreen({ navigation }) {
       if (user) {
         // Delete all feed documents from Firestore for this user
         const deletePromises = feeds.map((feed) =>
-          deleteDoc(doc(db, "feeds", `${user.uid}_${feed.id}`))
+          deleteDoc(doc(db, "feeds", `${user.uid}_${feed.id}`)),
         );
         await Promise.all(deletePromises);
 
         console.log(
-          `✅ Deleted ${feeds.length} feeding schedules from Firestore`
+          `✅ Deleted ${feeds.length} feeding schedules from Firestore`,
         );
 
         // Add user notification
@@ -1021,7 +1247,7 @@ export default function ControlScreen({ navigation }) {
     if (selectedToDelete.length === 0) {
       Alert.alert(
         "No selection",
-        "Please select at least one schedule to delete."
+        "Please select at least one schedule to delete.",
       );
       return;
     }
@@ -1037,13 +1263,13 @@ export default function ControlScreen({ navigation }) {
           onPress: async () => {
             console.log(
               "📄 [ACTION] Deleting selected feeds:",
-              selectedToDelete
+              selectedToDelete,
             );
 
             // Prevent duplicate submissions
             if (isSubmitting) {
               console.warn(
-                "Submit already in progress, ignoring duplicate click"
+                "Submit already in progress, ignoring duplicate click",
               );
               return;
             }
@@ -1055,17 +1281,17 @@ export default function ControlScreen({ navigation }) {
               if (user) {
                 // Delete selected feed documents from Firestore
                 const deletePromises = selectedToDelete.map((feedId) =>
-                  deleteDoc(doc(db, "feeds", `${user.uid}_${feedId}`))
+                  deleteDoc(doc(db, "feeds", `${user.uid}_${feedId}`)),
                 );
                 await Promise.all(deletePromises);
 
                 console.log(
-                  `✅ Deleted ${selectedToDelete.length} selected feeding schedules`
+                  `✅ Deleted ${selectedToDelete.length} selected feeding schedules`,
                 );
 
                 // Get deleted feed times for notification
                 const deletedFeeds = feeds.filter((f) =>
-                  selectedToDelete.includes(f.id)
+                  selectedToDelete.includes(f.id),
                 );
                 const deletedTimes = deletedFeeds.map((f) => f.time).join(", ");
 
@@ -1088,7 +1314,7 @@ export default function ControlScreen({ navigation }) {
               console.error("Failed to delete selected feeds:", err);
               Alert.alert(
                 "Error",
-                "Failed to delete selected schedules: " + err.message
+                "Failed to delete selected schedules: " + err.message,
               );
               setIsSubmitting(false);
               return;
@@ -1106,7 +1332,7 @@ export default function ControlScreen({ navigation }) {
           },
         },
       ],
-      { cancelable: true }
+      { cancelable: true },
     );
   };
 
@@ -1194,6 +1420,8 @@ export default function ControlScreen({ navigation }) {
           feedId: feedId,
           label: feeds[feedEdit.idx].label,
           time: newTime,
+          userId: user.uid, // Required by ESP32
+          duration: 5, // Duration in seconds
           timestamp: new Date().toISOString(),
         });
 
@@ -1201,7 +1429,7 @@ export default function ControlScreen({ navigation }) {
         await addDoc(
           collection(db, "activity_logs", "feeding", "editFeedSchedule_logs"),
           {
-            action: "Updated feeding time",
+            action: `Changed feeding time from ${oldTime} to ${newTime}`,
             description: `Changed from ${oldTime} to ${newTime}`,
             firstName,
             lastName,
@@ -1212,7 +1440,7 @@ export default function ControlScreen({ navigation }) {
             timestamp: new Date().toISOString(),
             userId: user.uid,
             feedId,
-          }
+          },
         );
 
         // Add user notification
@@ -1243,12 +1471,12 @@ export default function ControlScreen({ navigation }) {
       const copy = [...s];
       copy[feedEdit.idx].time = newTime;
       const sorted = copy.sort(
-        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time),
       );
       console.log("📋 [SORT] Feeds after editing schedule:");
       sorted.forEach((f) => {
         console.log(
-          `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`
+          `  - ${f.time} (${f.label}) = ${timeToMinutes(f.time)} minutes`,
         );
       });
       return sorted;
@@ -1314,7 +1542,7 @@ export default function ControlScreen({ navigation }) {
         await addDoc(
           collection(db, "activity_logs", "feeding", "deleteFeedSchedule_logs"),
           {
-            action: "Removed a feeding schedule",
+            action: `Removed ${feedToDelete.time} feeding schedule`,
             description: `${feedToDelete.time} has been removed`,
             firstName,
             lastName,
@@ -1322,7 +1550,7 @@ export default function ControlScreen({ navigation }) {
             timestamp: new Date().toISOString(),
             userId: user.uid,
             feedId: pendingDeleteFeedId,
-          }
+          },
         );
 
         // Add user notification
@@ -1363,6 +1591,7 @@ export default function ControlScreen({ navigation }) {
   // State for manual action operations
   const [isDispensing, setIsDispensing] = useState(false);
   const [isSprinklerActive, setIsSprinklerActive] = useState(false);
+  const [isPumpTesting, setIsPumpTesting] = useState(false);
   const [servoError, setServoError] = useState(null);
 
   // Motor warning modal state
@@ -1384,10 +1613,34 @@ export default function ControlScreen({ navigation }) {
     try {
       setIsDispensing(true);
       setServoError(null);
+      console.log("🍗 Testing feed dispenser...");
 
-      const result = await dispenseFeed();
+      // Get ESP32 URL from config
+      const { getFeedSystemUrl } = await import("../../../config/esp32config");
+      const esp32Url = getFeedSystemUrl();
 
-      if (result.success) {
+      if (!esp32Url) {
+        showMotorWarning(
+          "Configuration Error",
+          "ESP32 feed system URL not configured. Please check esp32config.js",
+        );
+        return;
+      }
+
+      // Send servo start command directly to ESP32
+      const response = await fetch(`${esp32Url}/api/servo/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          angle: 45, // Dispense angle (open position)
+          duration: 5000, // 5 seconds dispense
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log("✅ Feed dispense successful:", data);
+
         // Add admin notification for successful feeding
         const currentUser = auth.currentUser;
         const userName = currentUser?.email || "User";
@@ -1399,33 +1652,93 @@ export default function ControlScreen({ navigation }) {
         });
 
         // Log manual feeding activity
-        await logActivity("wateringActivity_logs", {
+        await logActivity("feedingActivity_logs", {
           action: "Manual feed dispensed",
-          description: "User manually dispensed feed",
-          status: result.isSimulated ? "Simulated" : "Completed",
+          description: "User manually dispensed feed via ESP32",
+          status: "Completed",
+          angle: 45,
+          duration: 5000,
         });
-
-        // Show warning modal if simulated
-        if (result.isSimulated && result.warning) {
-          showMotorWarning(
-            "Motor Not Detected",
-            result.warning + "\n\nThe operation was simulated."
-          );
-        }
       } else {
+        const errorText = await response.text();
+        console.error("❌ Feed dispense failed:", response.status, errorText);
         showMotorWarning(
-          "Dispense Error",
-          result.error || "Failed to dispense feed."
+          "Feed Dispense Failed",
+          `ESP32 returned error: ${response.status}\n${errorText}`,
         );
       }
     } catch (error) {
-      console.error("Dispense error:", error);
+      console.error("❌ Feed dispense error:", error);
       showMotorWarning(
-        "Error",
-        "Feed dispenser motor not detected. Please check the connection."
+        "Connection Error",
+        `Failed to connect to ESP32: ${error.message}\n\nPlease check if ESP32 is powered on and connected to the network.`,
       );
     } finally {
       setIsDispensing(false);
+    }
+  };
+
+  const handleTestPump = async () => {
+    try {
+      setIsPumpTesting(true);
+      console.log("💧 Testing water pump...");
+
+      // Get ESP32 URL from config
+      const { getWaterSystemUrl } = await import("../../../config/esp32config");
+      const esp32Url = getWaterSystemUrl();
+
+      if (!esp32Url) {
+        showMotorWarning(
+          "Configuration Error",
+          "ESP32 water system URL not configured. Please check esp32config.js",
+        );
+        return;
+      }
+
+      // Send pump start command directly to ESP32
+      const response = await fetch(`${esp32Url}/api/pump/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ duration: 5000 }), // 5 seconds test
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log("✅ Pump test successful:", data);
+
+        // Log activity
+        await logActivity("pumpTest_logs", {
+          action: "Test water pump",
+          description: "User tested water pump via ESP32",
+          status: "Completed",
+          duration: 5000,
+        });
+
+        // Add admin notification
+        const currentUser = auth.currentUser;
+        const userName = currentUser?.email || "User";
+        addNotification({
+          category: "User Activity",
+          title: "Water pump tested",
+          description: `${userName} tested water pump at ${new Date().toLocaleString()}`,
+          type: "testing",
+        });
+      } else {
+        const errorText = await response.text();
+        console.error("❌ Pump test failed:", response.status, errorText);
+        showMotorWarning(
+          "Pump Test Failed",
+          `ESP32 returned error: ${response.status}\n${errorText}`,
+        );
+      }
+    } catch (error) {
+      console.error("❌ Pump test error:", error);
+      showMotorWarning(
+        "Connection Error",
+        `Failed to connect to ESP32: ${error.message}\n\nPlease check if ESP32 is powered on and connected to the network.`,
+      );
+    } finally {
+      setIsPumpTesting(false);
     }
   };
 
@@ -1458,23 +1771,82 @@ export default function ControlScreen({ navigation }) {
         if (result.isSimulated && result.warning) {
           showMotorWarning(
             "Motor Not Detected",
-            result.warning + "\n\nThe operation was simulated."
+            result.warning + "\n\nThe operation was simulated.",
           );
         }
       } else {
         showMotorWarning(
           "Sprinkler Error",
-          result.error || "Failed to activate sprinkler."
+          result.error || "Failed to activate sprinkler.",
         );
       }
     } catch (error) {
       console.error("Sprinkler error:", error);
       showMotorWarning(
         "Error",
-        "Water sprinkler motor not detected. Please check the connection."
+        "Water sprinkler motor not detected. Please check the connection.",
       );
     } finally {
       setIsSprinklerActive(false);
+    }
+  };
+
+  const handleTestLighting = () => {
+    // Simply open the test lighting modal
+    setTestLightingModalVisible(true);
+  };
+
+  const handleTestLightToggle = async (newValue) => {
+    console.log(`[TestLight] Toggle requested: ${newValue ? 'ON' : 'OFF'}`);
+    setTestLightOn(newValue); // Optimistic update
+
+    try {
+      // Call ESP32 API
+      const endpoint = newValue ? '/api/light/on' : '/api/light/off';
+      const fullUrl = `http://${esp32IpAddress}${endpoint}`;
+      
+      console.log(`[TestLight] Sending request to: ${fullUrl}`);
+      
+      const response = await fetch(fullUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log(`[TestLight] Response:`, data);
+      
+      // Sync state from ESP32 response
+      if (data.light_status !== undefined) {
+        setTestLightOn(data.light_status === 'on');
+      } else if (data.status !== undefined) {
+        setTestLightOn(data.status === 'on');
+      }
+
+      // Log test lighting activity
+      await logActivity("lightingTest_logs", {
+        action: `Test lighting turned ${newValue ? 'ON' : 'OFF'}`,
+        description: `User tested lighting via modal`,
+        status: "Completed",
+        timestamp: new Date().toISOString(),
+      });
+      
+      console.log(`[TestLight] Successfully turned ${newValue ? 'ON' : 'OFF'}`);
+    } catch (error) {
+      console.error('[TestLight] Error:', error);
+      
+      // Revert optimistic update on error
+      setTestLightOn(!newValue);
+      
+      showMotorWarning(
+        "Connection Error",
+        `Could not connect to ESP32.\n\nError: ${error.message}\n\nPlease check if ESP32 is online at ${esp32IpAddress}`,
+      );
     }
   };
 
@@ -1539,13 +1911,15 @@ export default function ControlScreen({ navigation }) {
           wateringId: nextId,
           label: label,
           time: formattedTime,
+          userId: user.uid, // Required by ESP32 for filtering
+          duration: 5, // Duration in seconds (5s default)
           timestamp: new Date().toISOString(),
         });
 
         await addDoc(
           collection(db, "activity_logs", "watering", "addWaterSchedule_logs"),
           {
-            action: "New watering schedule",
+            action: `New watering schedule: ${formattedTime}`,
             description: `Added ${formattedTime}`,
             firstName,
             lastName,
@@ -1555,7 +1929,7 @@ export default function ControlScreen({ navigation }) {
             timestamp: new Date().toISOString(),
             userId: user.uid,
             waterId: nextId,
-          }
+          },
         );
 
         // Add user notification
@@ -1585,7 +1959,7 @@ export default function ControlScreen({ navigation }) {
     setWaterings((s) => {
       const updated = [...s, newWater];
       return updated.sort(
-        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time),
       );
     });
 
@@ -1630,7 +2004,7 @@ export default function ControlScreen({ navigation }) {
 
     // Check for duplicate time (excluding current schedule being edited)
     const isDuplicate = waterings.some(
-      (w, i) => w.time === newTime && i !== waterEdit.idx
+      (w, i) => w.time === newTime && i !== waterEdit.idx,
     );
     if (isDuplicate) {
       setConfirmEditVisible(false);
@@ -1661,13 +2035,15 @@ export default function ControlScreen({ navigation }) {
           wateringId,
           label: waterings[waterEdit.idx].label,
           time: newTime,
+          userId: user.uid, // Required by ESP32
+          duration: 5, // Duration in seconds
           timestamp: new Date().toISOString(),
         });
 
         await addDoc(
           collection(db, "activity_logs", "watering", "editWaterSchedule_logs"),
           {
-            action: "Updated watering time",
+            action: `Changed watering time from ${oldTime} to ${newTime}`,
             description: `Changed from ${oldTime} to ${newTime}`,
             firstName,
             lastName,
@@ -1678,7 +2054,7 @@ export default function ControlScreen({ navigation }) {
             timestamp: new Date().toISOString(),
             userId: user.uid,
             wateringId,
-          }
+          },
         );
 
         // Add user notification
@@ -1703,7 +2079,7 @@ export default function ControlScreen({ navigation }) {
     setWaterings((s) =>
       s
         .map((w, i) => (i === waterEdit.idx ? { ...w, time: newTime } : w))
-        .sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time))
+        .sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)),
     );
 
     setConfirmEditVisible(false);
@@ -1727,7 +2103,7 @@ export default function ControlScreen({ navigation }) {
     if (!waterToDelete) {
       console.warn(
         "❌ Water schedule not found in list:",
-        pendingDeleteWaterId
+        pendingDeleteWaterId,
       );
       setConfirmDeleteWaterVisible(false);
       setPendingDeleteWaterId(null);
@@ -1755,7 +2131,7 @@ export default function ControlScreen({ navigation }) {
 
         console.log("🔥 Deleting from Firestore...");
         await deleteDoc(
-          doc(db, "wateringSchedules", `${pendingDeleteWaterId}`)
+          doc(db, "wateringSchedules", `${pendingDeleteWaterId}`),
         );
 
         console.log("📝 Adding delete log...");
@@ -1764,10 +2140,10 @@ export default function ControlScreen({ navigation }) {
             db,
             "activity_logs",
             "watering",
-            "deleteWaterSchedule_logs"
+            "deleteWaterSchedule_logs",
           ),
           {
-            action: "Removed a water schedule",
+            action: `Removed water schedule: ${waterToDelete.time}`,
             description: `${waterToDelete.time} has been removed`,
             firstName,
             lastName,
@@ -1775,7 +2151,7 @@ export default function ControlScreen({ navigation }) {
             timestamp: new Date().toISOString(),
             userId: user.uid,
             waterId: pendingDeleteWaterId,
-          }
+          },
         );
 
         // Add user notification
@@ -1845,7 +2221,7 @@ export default function ControlScreen({ navigation }) {
         // Convert scheduledTime to GMT+8 and format
         const scheduledTimeDate = new Date(pendingWaterSchedule.time);
         const gmt8Time = new Date(
-          scheduledTimeDate.getTime() + 8 * 60 * 60 * 1000
+          scheduledTimeDate.getTime() + 8 * 60 * 60 * 1000,
         );
         const hours = gmt8Time.getUTCHours();
         const minutes = gmt8Time.getUTCMinutes();
@@ -1860,7 +2236,7 @@ export default function ControlScreen({ navigation }) {
             liters: pendingWaterSchedule.liters,
             duration: pendingWaterSchedule.duration,
             action: "New watering schedule",
-          }
+          },
         );
 
         // Log activity to Firestore
@@ -1892,12 +2268,12 @@ export default function ControlScreen({ navigation }) {
         setConfirmedWaterDate(
           pendingWaterSchedule.date
             ? new Date(pendingWaterSchedule.date)
-            : new Date()
+            : new Date(),
         );
         setConfirmedWaterTime(
           pendingWaterSchedule.time
             ? new Date(pendingWaterSchedule.time)
-            : new Date()
+            : new Date(),
         );
       }
     } catch (err) {
@@ -1977,13 +2353,13 @@ export default function ControlScreen({ navigation }) {
 
       // Save to Firestore nightTime collection
       console.log(
-        "💾 [DATABASE] Saving night time to Firestore nightTime/1..."
+        "💾 [DATABASE] Saving night time to Firestore nightTime/1...",
       );
       const updateResult = await updateNightTimeSchedule(
         time.toISOString(),
         user.uid,
         firstName,
-        lastName
+        lastName,
       );
 
       if (!updateResult.success) {
@@ -2015,7 +2391,6 @@ export default function ControlScreen({ navigation }) {
   // Test Lighting modal state
   const [testLightingModalVisible, setTestLightingModalVisible] =
     useState(false);
-  const [testBrightness, setTestBrightness] = useState(50);
   const [testLightOn, setTestLightOn] = useState(false);
 
   return (
@@ -2032,24 +2407,78 @@ export default function ControlScreen({ navigation }) {
           <View style={styles.sensorBanner}>
             <Ionicons name="warning-outline" size={16} color="#856404" />
             <Text style={styles.sensorBannerText}>
-              Sensor module not detected. Using simulated data.
+              Sensor module not detected.
             </Text>
           </View>
         )}
 
-        {/* Real-time cards */}
-        <View style={styles.rowCenter}>
+        {/* 1. UPDATED REAL-TIME SENSORS GRID */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: 8 }}>
+          {/* Water Level */}
           <StatCard
             label="Water Level"
-            value={sensorLoading ? "..." : `${waterNow}%`}
-            dotColor={isSimulated ? "#FFC107" : "#4CAF50"}
+            value={sensorLoading ? "..." : `${Math.round(waterNow)}%`}
+            subValue={waterNow > 80 ? "Full (Safety Active)" : "Normal"}
+            icon="water"
+            color="#2196F3"
             loading={sensorLoading}
             isSimulated={isSimulated}
           />
+          {/* Feeder / Weight */}
           <StatCard
-            label="Feeder Level"
-            value={sensorLoading ? "..." : `${feederNow}%`}
-            dotColor={isSimulated ? "#FFC107" : "#2196F3"}
+            label="Feeder Mass"
+            value={sensorLoading ? "..." : `${Math.round(bowlWeight)}g`}
+            subValue={bowlWeight > 500 ? "Bowl Full" : "Ready"}
+            icon="nutrition"
+            color="#FF9800"
+            loading={sensorLoading}
+            isSimulated={isSimulated}
+          />
+          {/* Temperature */}
+          <StatCard
+            label="Temperature"
+            value={sensorLoading ? "..." : `${temperature}°C`}
+            icon="thermometer"
+            color="#F44336"
+            loading={sensorLoading}
+            isSimulated={isSimulated}
+          />
+          {/* Humidity */}
+          <StatCard
+            label="Humidity"
+            value={sensorLoading ? "..." : `${humidity}%`}
+            icon="water-outline"
+            color="#00BCD4"
+            loading={sensorLoading}
+            isSimulated={isSimulated}
+          />
+          {/* Air Quality */}
+          <StatCard
+            label="Air Quality"
+            value={sensorLoading ? "..." : `${airQuality}`}
+            subValue="PPM"
+            icon="cloud-outline"
+            color="#9E9E9E"
+            loading={sensorLoading}
+            isSimulated={isSimulated}
+          />
+          {/* Water Storage Tank Level (Ultrasonic 2) */}
+          <StatCard
+            label="Water Storage"
+            value={sensorLoading ? "..." : `${Math.round(waterStorageLevel)}%`}
+            subValue={waterStorageLevel < 20 ? "Low - Refill Soon" : "Normal"}
+            icon="water"
+            color="#2196F3"
+            loading={sensorLoading}
+            isSimulated={isSimulated}
+          />
+          {/* Feed Storage Tank Level (Ultrasonic 1) */}
+          <StatCard
+            label="Feed Storage"
+            value={sensorLoading ? "..." : `${Math.round(feedStorageLevel)}%`}
+            subValue={feedStorageLevel < 20 ? "Low - Refill Soon" : "Normal"}
+            icon="nutrition"
+            color="#FF9800"
             loading={sensorLoading}
             isSimulated={isSimulated}
           />
@@ -2073,26 +2502,84 @@ export default function ControlScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
+        {/* 2. VENTILATION CONTROL (New Section) */}
+        <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
+          <CardHeader icon="hardware-chip-outline" title="Ventilation System" />
+          <View style={[styles.innerBox, { justifyContent: 'space-between', marginTop: 15 }]}>
+            <View>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: '#333' }}>Exhaust Fan</Text>
+              <Text style={styles.smallNote}>
+                {fanOn ? "Active - Cooling system running" : "Inactive - System idle"}
+              </Text>
+            </View>
+            <Switch
+              value={fanOn}
+              onValueChange={handleFanToggle}
+              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
+              thumbColor="#fff"
+            />
+          </View>
+        </View>
+
         {/* Night Schedule */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader icon="moon-outline" title="Night Schedule" />
           <View style={styles.rowSpace}>
             <View style={{ flex: 1 }}>
               <Text style={styles.smallLabel}>Night Time Start</Text>
-              <TouchableOpacity
-                style={styles.timeInput}
-                onPress={() => {
-                  console.log("📄 [ACTION] User clicked night time picker");
-                  setShowNightPicker(true);
-                }}
-              >
-                <Text style={styles.timeText}>{fmtTime(nightStart)}</Text>
-                <Ionicons name="time-outline" size={18} color={PRIMARY} />
-              </TouchableOpacity>
+              {sunsetLoading ? (
+                <View
+                  style={[
+                    styles.timeInput,
+                    { justifyContent: "center", alignItems: "center" },
+                  ]}
+                >
+                  <ActivityIndicator size="small" color={PRIMARY} />
+                  <Text style={[styles.timeText, { marginLeft: 8 }]}>
+                    Fetching sunset...
+                  </Text>
+                </View>
+              ) : (
+                <View
+                  style={[
+                    styles.timeInput,
+                    {
+                      backgroundColor: isSunsetAutomated
+                        ? "#E8F5E9"
+                        : "#FFF3E0",
+                      borderColor: isSunsetAutomated ? GREEN : YELLOW,
+                    },
+                  ]}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.timeText}>
+                      {formatSunsetDateTime(nightStart)}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        color: isSunsetAutomated ? GREEN : YELLOW,
+                        marginTop: 4,
+                      }}
+                    >
+                      {isSunsetAutomated
+                        ? "📍 Auto-set via Sunset API"
+                        : "⚠️ Using stored schedule"}
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name={isSunsetAutomated ? "checkmark-circle" : "warning"}
+                    size={20}
+                    color={isSunsetAutomated ? GREEN : YELLOW}
+                  />
+                </View>
+              )}
             </View>
           </View>
           <Text style={[styles.smallNote, { marginTop: 8 }]}>
-            Solar power will activate at this time
+            {sunsetError
+              ? `⚠️ API Error: ${sunsetError}`
+              : "Solar power will activate at sunset time"}
           </Text>
         </View>
 
@@ -2164,7 +2651,7 @@ export default function ControlScreen({ navigation }) {
                     onPress={() => {
                       console.log(
                         "📄 [ACTION] User clicked delete feed button for id:",
-                        f.id
+                        f.id,
                       );
                       setPendingDeleteFeedId(f.id);
                       setConfirmDeleteFeedVisible(true);
@@ -2275,7 +2762,7 @@ export default function ControlScreen({ navigation }) {
                       console.log(
                         "🗑️ [ACTION] Delete button clicked for water schedule:",
                         w.id,
-                        w.time
+                        w.time,
                       );
                       setPendingDeleteWaterId(w.id);
                       setConfirmDeleteWaterVisible(true);
@@ -2324,6 +2811,29 @@ export default function ControlScreen({ navigation }) {
             style={[
               styles.testBtn,
               { marginTop: 10 },
+              isPumpTesting && styles.testBtnDisabled,
+            ]}
+            onPress={handleTestPump}
+            disabled={isPumpTesting}
+          >
+            {isPumpTesting ? (
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <ActivityIndicator
+                  size="small"
+                  color={PRIMARY}
+                  style={{ marginRight: 8 }}
+                />
+                <Text style={styles.testBtnText}>Testing Pump...</Text>
+              </View>
+            ) : (
+              <Text style={styles.testBtnText}>Test Water Pump</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.testBtn,
+              { marginTop: 10 },
               isSprinklerActive && styles.testBtnDisabled,
             ]}
             onPress={handleSprinkler}
@@ -2348,7 +2858,7 @@ export default function ControlScreen({ navigation }) {
           {/* New Test Lighting Button */}
           <TouchableOpacity
             style={[styles.testBtn, { marginTop: 10 }]}
-            onPress={() => setTestLightingModalVisible(true)}
+            onPress={handleTestLighting}
           >
             <Text style={styles.testBtnText}>Test Lighting</Text>
           </TouchableOpacity>
@@ -2360,25 +2870,45 @@ export default function ControlScreen({ navigation }) {
           <View
             style={[
               styles.innerBox,
-              { marginTop: 8, borderColor: BORDER_OVERLAY },
+              {
+                marginTop: 8,
+                borderColor: BORDER_OVERLAY,
+                paddingVertical: 12,
+                paddingHorizontal: 12,
+                flexDirection: "column",
+              },
             ]}
           >
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Ionicons
-                name="sunny-outline"
-                size={18}
-                color="#333"
-                style={{ marginRight: 8 }}
-              />
-              <Text style={{ fontWeight: "600" }}>Incandescent Light</Text>
+            {/* Incandescent Light Control */}
+            <View style={{ width: "100%" }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 8,
+                }}
+              >
+                <Text style={{ fontWeight: "600", fontSize: 14 }}>
+                  Incandescent Light (MOSFET)
+                </Text>
+                <Switch
+                  value={lightOn}
+                  onValueChange={handleLightToggle}
+                  trackColor={{ false: "#B0B0B0", true: PRIMARY }}
+                  ios_backgroundColor="#B0B0B0"
+                  thumbColor="#fff"
+                />
+              </View>
+              
+              {/* Status text */}
+              <Text style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
+                Status: {lightOn ? "🟢 ON" : "⚫ OFF"}
+              </Text>
+              <Text style={{ fontSize: 11, color: "#999", marginTop: 2, fontStyle: 'italic' }}>
+                Connected to ESP32 GPIO16 via MOSFET
+              </Text>
             </View>
-            <Switch
-              value={lightOn}
-              onValueChange={handleLightToggle}
-              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
-              ios_backgroundColor="#B0B0B0"
-              thumbColor="#fff"
-            />
           </View>
         </View>
         {/* Power Schedule */}
@@ -2404,7 +2934,7 @@ export default function ControlScreen({ navigation }) {
               <Text
                 style={{ fontSize: 12, color: "#856404", fontWeight: "600" }}
               >
-                ⚠️ Using simulated data - ESP32 offline
+                ⚠️ ESP32 offline
               </Text>
             </View>
           )}
@@ -2527,7 +3057,7 @@ export default function ControlScreen({ navigation }) {
                 minute: "2-digit",
               });
               const isDuplicate = waterings.some(
-                (w) => w.time === formattedTime
+                (w) => w.time === formattedTime,
               );
 
               if (isDuplicate) {
@@ -2697,7 +3227,7 @@ export default function ControlScreen({ navigation }) {
                     minute: "2-digit",
                   });
                   const isDuplicate = feeds.some(
-                    (f, i) => i !== feedEdit.idx && f.time === newTime
+                    (f, i) => i !== feedEdit.idx && f.time === newTime,
                   );
                   if (isDuplicate) {
                     setShowDuplicateModal(true);
@@ -2710,7 +3240,7 @@ export default function ControlScreen({ navigation }) {
                     minute: "2-digit",
                   });
                   const isDuplicate = waterings.some(
-                    (w, i) => i !== waterEdit.idx && w.time === newTime
+                    (w, i) => i !== waterEdit.idx && w.time === newTime,
                   );
                   if (isDuplicate) {
                     setShowDuplicateWaterModal(true);
@@ -3260,65 +3790,40 @@ export default function ControlScreen({ navigation }) {
           <View
             style={[styles.popupBox, { width: 320, alignItems: "stretch" }]}
           >
-            <Text
-              style={{ fontWeight: "700", fontSize: 16, textAlign: "center" }}
-            >
-              Test Lighting
-            </Text>
-            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
-              Adjust the brightness and toggle the light to test.
-            </Text>
-
-            {/* Light Toggle Switch */}
+            {/* Header with Close Button */}
             <View
               style={{
-                marginVertical: 16,
                 flexDirection: "row",
                 justifyContent: "space-between",
                 alignItems: "center",
+                marginBottom: 8,
               }}
             >
-              <Text style={{ fontWeight: "600", fontSize: 14 }}>
-                Light Status
+              <Text style={{ fontWeight: "700", fontSize: 16 }}>
+                Test Lighting
               </Text>
-              <Switch
-                value={testLightOn}
-                onValueChange={setTestLightOn}
-                trackColor={{ false: "#B0B0B0", true: PRIMARY }}
-                ios_backgroundColor="#B0B0B0"
-                thumbColor="#fff"
-              />
+              <TouchableOpacity
+                onPress={() => setTestLightingModalVisible(false)}
+                style={{ padding: 4 }}
+              >
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
             </View>
 
-            {/* Brightness Slider */}
-            <View style={{ marginVertical: 12 }}>
-              <Text
-                style={{
-                  fontWeight: "600",
-                  marginBottom: 6,
-                  textAlign: "center",
-                }}
-              >
-                Brightness: {testBrightness}%
-              </Text>
-              <Slider
-                minimumValue={0}
-                maximumValue={100}
-                step={1}
-                value={testBrightness}
-                onValueChange={setTestBrightness}
-                minimumTrackTintColor={PRIMARY}
-                maximumTrackTintColor="#e2e8f0"
-                thumbTintColor={PRIMARY}
-                disabled={!testLightOn}
-                style={{ opacity: testLightOn ? 1 : 0.5 }}
-              />
-            </View>
+            {/* Toggle Button */}
             <TouchableOpacity
-              style={[styles.primaryBtn, { marginTop: 10 }]}
-              onPress={() => setTestLightingModalVisible(false)}
+              style={[
+                styles.primaryBtn,
+                {
+                  marginTop: 10,
+                  backgroundColor: testLightOn ? "#4CAF50" : "#F44336",
+                },
+              ]}
+              onPress={() => handleTestLightToggle(!testLightOn)}
             >
-              <Text style={styles.primaryBtnText}>Close</Text>
+              <Text style={styles.primaryBtnText}>
+                {testLightOn ? "ON" : "OFF"}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -3328,30 +3833,30 @@ export default function ControlScreen({ navigation }) {
 }
 
 /* ---------------- helpers ---------------- */
-function StatCard({ label, value, dotColor, loading, isSimulated }) {
+function StatCard({ label, value, subValue, icon, color, dotColor, loading, isSimulated, fullWidth }) {
   return (
-    <View style={styles.statCard}>
-      <View style={styles.statLeft}>
-        <View style={[styles.dot, { backgroundColor: dotColor }]} />
-        <View>
-          <Text style={styles.statLabel}>{label}</Text>
-          {isSimulated && <Text style={styles.simulatedLabel}>Simulated</Text>}
-        </View>
+    <View style={[styles.statCard, fullWidth ? { width: '100%' } : { width: '48%' }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+        {icon && <Ionicons name={icon} size={18} color={color || dotColor} style={{ marginRight: 6 }} />}
+        {!icon && <View style={[styles.dot, { backgroundColor: dotColor }]} />}
+        <Text style={{ fontSize: 13, color: '#666', fontWeight: '600' }}>{label}</Text>
       </View>
-      <View style={styles.statRight}>
-        <View
-          style={[
-            styles.statBox,
-            { borderLeftColor: isSimulated ? "#FFC107" : PRIMARY },
-          ]}
-        >
-          {loading ? (
-            <ActivityIndicator size="small" color={PRIMARY} />
-          ) : (
-            <Text style={styles.statValue}>{value}</Text>
+      {loading ? (
+        <ActivityIndicator size="small" color={PRIMARY} />
+      ) : (
+        <>
+          <Text style={{ fontSize: 20, fontWeight: '700', color: '#333' }}>{value}</Text>
+          {subValue && (
+            <Text style={{
+              fontSize: 11,
+              color: subValue.includes("Full") ? RED : '#999',
+              marginTop: 2
+            }}>
+              {subValue}
+            </Text>
           )}
-        </View>
-      </View>
+        </>
+      )}
     </View>
   );
 }
@@ -3408,17 +3913,12 @@ const styles = StyleSheet.create({
   },
 
   statCard: {
-    width: "100%",
-    maxWidth: 340,
-    height: 55,
+    minHeight: 85,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "#ffff",
     marginVertical: 6,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    padding: 12,
     backgroundColor: "#ffffff",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },

@@ -11,10 +11,11 @@ import {
   Platform,
   Modal,
   Alert,
+  LayoutAnimation,
 } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import Header2 from "../navigation/adminHeader";
-// import { getFunctions, httpsCallable } from "firebase/functions";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -27,6 +28,8 @@ import {
   query,
   where,
   getDocs,
+  addDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -148,7 +151,7 @@ export default function CreateAccount({ navigation }) {
   };
 
   const validatePassword = (password) => {
-    const hasMinLength = password.length >= 6;
+    const hasMinLength = password.length >= 8;
     const hasMaxLength = password.length <= 20;
     const hasUpperCase = /[A-Z]/.test(password);
     const hasLowerCase = /[a-z]/.test(password);
@@ -175,7 +178,7 @@ export default function CreateAccount({ navigation }) {
       newErrors.firstName = "First name must not exceed 20 characters.";
     } else if (!validateName(firstName.trim(), "First name")) {
       newErrors.firstName =
-        "First name must be at least 2 characters and contain only letters, spaces, or periods.";
+        "First name must be at least 2 characters and contain only letters, space, comma or period.";
     }
 
     // Last Name validation
@@ -185,7 +188,7 @@ export default function CreateAccount({ navigation }) {
       newErrors.lastName = "Last name must not exceed 20 characters.";
     } else if (!validateName(lastName.trim(), "Last name")) {
       newErrors.lastName =
-        "Last name must be at least 2 characters and contain only letters, spaces, or periods.";
+        "Last name must be at least 2 characters and contain only letters, space, comma or period.";
     }
 
     // Email validation
@@ -210,8 +213,8 @@ export default function CreateAccount({ navigation }) {
     // Password validation
     if (!password) {
       newErrors.password = "Password is required.";
-    } else if (password.length < 6) {
-      newErrors.password = "Password must be at least 6 characters.";
+    } else if (password.length < 8) {
+      newErrors.password = "Password must be at least 8 characters.";
     } else if (password.length > 20) {
       newErrors.password = "Password must not exceed 20 characters.";
     } else if (!/[A-Z]/.test(password)) {
@@ -223,8 +226,7 @@ export default function CreateAccount({ navigation }) {
     } else if (!/[0-9]/.test(password)) {
       newErrors.password = "Password must contain at least one number.";
     } else if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
-      newErrors.password =
-        "Password must contain at least one symbol (!@#$%^&* etc).";
+      newErrors.password = "Password must contain at least one symbol.";
     }
 
     // Confirm Password validation
@@ -242,6 +244,9 @@ export default function CreateAccount({ navigation }) {
       newErrors.role = "Role is required.";
     }
 
+    LayoutAnimation.configureNext(
+      LayoutAnimation.Presets.easeInEaseOut
+    );
     setErrors(newErrors);
 
     // If no errors, proceed with save
@@ -250,29 +255,6 @@ export default function CreateAccount({ navigation }) {
 
       // Set flag to prevent App.js from interfering during account creation
       await AsyncStorage.setItem("accountCreationInProgress", "true");
-
-      // Save current admin's email for re-authentication
-      const currentAdminEmail = auth.currentUser?.email;
-      const currentAdminUid = auth.currentUser?.uid;
-      console.log("Current admin email:", currentAdminEmail);
-      console.log("Current admin UID:", currentAdminUid);
-
-      // Fetch current admin's name from Firestore
-      let createdByAdminName = "Unknown Admin";
-      if (currentAdminUid) {
-        try {
-          const adminDocRef = doc(db, "users", currentAdminUid);
-          const adminDoc = await getDoc(adminDocRef);
-          if (adminDoc.exists()) {
-            const adminData = adminDoc.data();
-            createdByAdminName =
-              adminData.fullname || adminData.displayName || currentAdminEmail;
-            console.log("Admin who is creating account:", createdByAdminName);
-          }
-        } catch (error) {
-          console.log("Could not fetch admin name:", error);
-        }
-      }
 
       try {
         // Step 1: Check if email already exists in Firestore
@@ -283,107 +265,60 @@ export default function CreateAccount({ navigation }) {
 
         if (!emailSnapshot.empty) {
           console.log("❌ Email already exists in database:", email);
+          await AsyncStorage.removeItem("accountCreationInProgress");
           showAlert(
             "error",
             "Email Already Exists",
-            "This email is already registered."
+            "This email is already registered.",
           );
           return; // Stop execution, do not create account
         }
         console.log("✅ Email is unique, proceeding with account creation");
 
-        // Step 2: Create Firebase Authentication account
-        console.log("Creating Firebase Authentication account...");
-        const userCredential = await createUserWithEmailAndPassword(
-          auth,
-          email,
-          password
-        );
-        const user = userCredential.user;
-        console.log("Firebase Auth account created:", user.uid);
+        // Step 2: Call Firebase Function to create user (DOES NOT SIGN OUT ADMIN)
+        console.log("Creating account via Firebase Function...");
+        const functions = getFunctions();
+        const createUserAccount = httpsCallable(functions, "createUserAccount");
 
-        // Step 3: Store additional user data in Firestore
-        console.log("Saving user profile to Firestore...");
-        const fullName = middleName
-          ? `${firstName} ${middleName} ${lastName}`
-          : `${firstName} ${lastName}`;
+        // Format mobile number from 9175246023 to 09175246023
+        const formattedMobileNumber = "0" + mobileNumber;
 
-        // Format phone number with country code
-        const formattedPhone = `+63${mobileNumber}`;
-
-        await setDoc(doc(db, "users", user.uid), {
-          uid: user.uid,
+        const result = await createUserAccount({
           email: email,
+          password: password,
           firstName: firstName,
-          middleName: middleName || "",
+          middleName: middleName,
           lastName: lastName,
-          fullname: fullName,
-          displayName: fullName,
+          mobileNumber: formattedMobileNumber,
           role: role,
-          mobileNumber: mobileNumber,
-          phone: formattedPhone,
-          accountStatus: "active",
-          accountType: "standard",
-          verified: role === "Admin" ? true : false,
-          phoneVerified: false,
-          otpVerified: false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          createdBy: createdByAdminName,
-          createdByUid: currentAdminUid || null,
-          failedLoginAttempts: 0,
-          failedOtpAttempts: 0,
-          mobileVerificationAttempts: 0,
-          passwordHistory: [],
-          loginHistory: [],
-          mustShowPasswordUpdated: false,
-          deviceLockUntil: null,
-          lastFailedLogin: null,
-          lastLoginAttempt: null,
-          lastVerified: null,
-          lastOTPVerified: null,
-          lastMobileVerified: null,
-          ipAddress: null,
-          userAgent: null,
         });
-        console.log("User profile saved to Firestore");
 
-        // Step 4: Send credentials email via Firebase Function
-        console.log("Sending credentials email...");
-        try {
-          // TODO: Re-enable Firebase Functions
-          const functions = getFunctions();
-          const sendAccountEmail = httpsCallable(functions, "sendAccountEmail");
-
-          const result = await sendAccountEmail({
-            email: email,
-            username: email, // Using email as username
-            password: password,
-            firstName: firstName, // Pass first name for personalization
-          });
-
-          if (result.data.success) {
-            console.log("Email sent successfully");
-
-            // if (result.data.success) {
-            //    console.log("Email skipped (test mode)");
-          } else {
-            console.error("Failed to send email:", result.data.error);
-            // Don't fail the entire process if email fails
-          }
-        } catch (emailError) {
-          console.error("Error sending email:", emailError);
-          // Don't fail the entire process if email fails
+        if (!result.data.success) {
+          throw new Error("Failed to create account");
         }
 
-        // Step 5: Sign out the newly created user
-        await auth.signOut();
-        console.log("New user signed out");
+        const newUserId = result.data.uid;
+        console.log("✅ Account created successfully:", newUserId);
 
-        // Step 6: Show success modal
+        // Step 3: Send credentials email
+        console.log("Sending credentials email...");
+        try {
+          const sendAccountEmail = httpsCallable(functions, "sendAccountEmail");
+          await sendAccountEmail({
+            email: email,
+            username: email,
+            password: password,
+            firstName: firstName,
+          });
+          console.log("✅ Email sent successfully");
+        } catch (emailError) {
+          console.error("⚠️ Failed to send email:", emailError);
+          // Don't fail if email fails
+        }
+
+        // Step 4: Show success modal and navigate back
         setSuccessVisible(true);
 
-        // Step 7: Redirect after 2.5 seconds
         setTimeout(async () => {
           setSuccessVisible(false);
 
@@ -396,37 +331,42 @@ export default function CreateAccount({ navigation }) {
           });
         }, 2500);
       } catch (error) {
-        console.error("Error creating account:", error);
+        console.error("❌ Error creating account:", error);
 
         // Clear the flag in case of error
         await AsyncStorage.removeItem("accountCreationInProgress");
 
-        // Handle Firebase Authentication errors
-        let errorMessage = "Failed to create account. Please try again.";
-
-        if (error.code === "auth/email-already-in-use") {
-          errorMessage = "This email is already registered.";
-          setErrors({ ...errors, email: errorMessage });
-        } else if (error.code === "auth/invalid-email") {
-          errorMessage = "Invalid email address.";
-          setErrors({ ...errors, email: errorMessage });
-        } else if (error.code === "auth/weak-password") {
-          errorMessage = "Password is too weak.";
-          setErrors({ ...errors, password: errorMessage });
-        } else if (error.code === "auth/network-request-failed") {
-          errorMessage = "Network error. Please check your connection.";
+        // Handle specific Cloud Function errors
+        if (error.code === "functions/already-exists") {
+          showAlert(
+            "error",
+            "Email Exists",
+            "This email is already registered.",
+          );
+        } else if (error.code === "functions/permission-denied") {
+          showAlert(
+            "error",
+            "Permission Denied",
+            "You don't have permission to create accounts.",
+          );
+        } else if (error.code === "functions/unauthenticated") {
+          showAlert(
+            "error",
+            "Authentication Required",
+            "Please log in again to create accounts.",
+          );
+        } else if (error.code === "functions/invalid-argument") {
+          showAlert(
+            "error",
+            "Invalid Data",
+            "Please check all fields and try again.",
+          );
         } else {
-          // Generic error for other cases
-          errorMessage = error.message || errorMessage;
-        }
-
-        // Show alert for non-field-specific errors
-        if (
-          error.code !== "auth/email-already-in-use" &&
-          error.code !== "auth/invalid-email" &&
-          error.code !== "auth/weak-password"
-        ) {
-          showAlert("error", "Account Creation Failed", errorMessage);
+          showAlert(
+            "error",
+            "Account Creation Failed",
+            error.message || "An unexpected error occurred. Please try again.",
+          );
         }
       }
     }
@@ -441,13 +381,18 @@ export default function CreateAccount({ navigation }) {
       <Header2 />
 
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+        style={{ flex: 1 }}
       >
         <ScrollView
+          style={{ flex: 1 }}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          scrollEnabled={true}
+          scrollEventThrottle={16}
+          removeClippedSubviews={false}
+          nestedScrollEnabled={true}
         >
           {/* Card Container */}
           <View style={styles.card}>
@@ -469,21 +414,32 @@ export default function CreateAccount({ navigation }) {
               onChangeText={(text) => {
                 setFirstName(text);
                 // Real-time validation
-                if (text.length > 20) {
+                if (!text.trim()) {
+                  setErrors({ ...errors, firstName: null });
+                } else if (text.length < 2) {
+                  setErrors({
+                    ...errors,
+                    firstName: "First name must be at least 2 characters.",
+                  });
+                } else if (text.length > 20) {
                   setErrors({
                     ...errors,
                     firstName: "First name must not exceed 20 characters.",
                   });
-                } else if (errors.firstName) {
+                } else if (!/^[a-zA-Z., ]+$/.test(text)) {
+                  setErrors({
+                    ...errors,
+                    firstName:
+                      "First name must contain only letters, spaces, periods, or commas.",
+                  });
+                } else {
                   setErrors({ ...errors, firstName: null });
                 }
               }}
               onFocus={() => setFocusedField("firstName")}
               onBlur={() => setFocusedField(null)}
             />
-            {errors.firstName && (
-              <Text style={styles.errorText}>{errors.firstName}</Text>
-            )}
+            <Text style={styles.errorText}>{errors.firstName || ""}</Text>
 
             {/* Middle Name */}
             <Text style={styles.label}>Middle Name</Text>
@@ -498,21 +454,32 @@ export default function CreateAccount({ navigation }) {
               onChangeText={(text) => {
                 setMiddleName(text);
                 // Real-time validation
-                if (text.length > 20) {
+                if (!text.trim()) {
+                  setErrors({ ...errors, middleName: null });
+                } else if (text.length < 2) {
+                  setErrors({
+                    ...errors,
+                    middleName: "Middle name must be at least 2 characters.",
+                  });
+                } else if (text.length > 20) {
                   setErrors({
                     ...errors,
                     middleName: "Middle name must not exceed 20 characters.",
                   });
-                } else if (errors.middleName) {
+                } else if (!/^[a-zA-Z. ]+$/.test(text)) {
+                  setErrors({
+                    ...errors,
+                    middleName:
+                      "Middle name must contain only letters, spaces, or periods.",
+                  });
+                } else {
                   setErrors({ ...errors, middleName: null });
                 }
               }}
               onFocus={() => setFocusedField("middleName")}
               onBlur={() => setFocusedField(null)}
             />
-            {errors.middleName && (
-              <Text style={styles.errorText}>{errors.middleName}</Text>
-            )}
+            <Text style={styles.errorText}>{errors.middleName || ""}</Text>
 
             {/* Last Name */}
             <View style={styles.labelRow}>
@@ -530,21 +497,32 @@ export default function CreateAccount({ navigation }) {
               onChangeText={(text) => {
                 setLastName(text);
                 // Real-time validation
-                if (text.length > 20) {
+                if (!text.trim()) {
+                  setErrors({ ...errors, lastName: null });
+                } else if (text.length < 2) {
+                  setErrors({
+                    ...errors,
+                    lastName: "Last name must be at least 2 characters.",
+                  });
+                } else if (text.length > 20) {
                   setErrors({
                     ...errors,
                     lastName: "Last name must not exceed 20 characters.",
                   });
-                } else if (errors.lastName) {
+                } else if (!/^[a-zA-Z., ]+$/.test(text)) {
+                  setErrors({
+                    ...errors,
+                    lastName:
+                      "Last name must contain only letters, spaces, periods, or commas.",
+                  });
+                } else {
                   setErrors({ ...errors, lastName: null });
                 }
               }}
               onFocus={() => setFocusedField("lastName")}
               onBlur={() => setFocusedField(null)}
             />
-            {errors.lastName && (
-              <Text style={styles.errorText}>{errors.lastName}</Text>
-            )}
+            <Text style={styles.errorText}>{errors.lastName || ""}</Text>
 
             {/* Email */}
             <View style={styles.labelRow}>
@@ -561,12 +539,19 @@ export default function CreateAccount({ navigation }) {
               onChangeText={(text) => {
                 setEmail(text);
                 // Real-time validation
-                if (text.length > 50) {
+                if (!text.trim()) {
+                  setErrors({ ...errors, email: null });
+                } else if (text.length > 50) {
                   setErrors({
                     ...errors,
                     email: "Email must not exceed 50 characters.",
                   });
-                } else if (errors.email) {
+                } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
+                  setErrors({
+                    ...errors,
+                    email: "Please enter a valid email address.",
+                  });
+                } else {
                   setErrors({ ...errors, email: null });
                 }
               }}
@@ -575,9 +560,7 @@ export default function CreateAccount({ navigation }) {
               onFocus={() => setFocusedField("email")}
               onBlur={() => setFocusedField(null)}
             />
-            {errors.email && (
-              <Text style={styles.errorText}>{errors.email}</Text>
-            )}
+            <Text style={styles.errorText}>{errors.email || ""}</Text>
 
             {/* Mobile Number */}
             <View style={styles.labelRow}>
@@ -600,7 +583,15 @@ export default function CreateAccount({ navigation }) {
                   // Only allow numeric input
                   const numericText = text.replace(/[^0-9]/g, "");
                   setMobileNumber(numericText);
-                  if (errors.mobileNumber) {
+                  // Real-time validation
+                  if (!numericText) {
+                    setErrors({ ...errors, mobileNumber: null });
+                  } else if (numericText.length < 10) {
+                    setErrors({
+                      ...errors,
+                      mobileNumber: "Mobile number must be 10 digits.",
+                    });
+                  } else if (numericText.length === 10) {
                     setErrors({ ...errors, mobileNumber: null });
                   }
                 }}
@@ -611,9 +602,7 @@ export default function CreateAccount({ navigation }) {
                 onBlur={() => setFocusedField(null)}
               />
             </View>
-            {errors.mobileNumber && (
-              <Text style={styles.errorText}>{errors.mobileNumber}</Text>
-            )}
+            <Text style={styles.errorText}>{errors.mobileNumber || ""}</Text>
 
             {/* Password */}
             <View style={styles.labelRow}>
@@ -635,10 +624,10 @@ export default function CreateAccount({ navigation }) {
                   // Real-time validation for password requirements
                   if (!text) {
                     setErrors({ ...errors, password: null });
-                  } else if (text.length < 6) {
+                  } else if (text.length < 8) {
                     setErrors({
                       ...errors,
-                      password: "Password must be at least 6 characters.",
+                      password: "Password must be at least 8 characters.",
                     });
                   } else if (text.length > 20) {
                     setErrors({
@@ -667,8 +656,7 @@ export default function CreateAccount({ navigation }) {
                   ) {
                     setErrors({
                       ...errors,
-                      password:
-                        "Password must contain at least one symbol (!@#$%^&* etc).",
+                      password: "Password must contain at least one symbol.",
                     });
                   } else {
                     setErrors({ ...errors, password: null });
@@ -689,9 +677,7 @@ export default function CreateAccount({ navigation }) {
                 />
               </TouchableOpacity>
             </View>
-            {errors.password && (
-              <Text style={styles.errorText}>{errors.password}</Text>
-            )}
+            <Text style={styles.errorText}>{errors.password || ""}</Text>
 
             {/* Confirm Password */}
             <View style={styles.labelRow}>
@@ -713,23 +699,10 @@ export default function CreateAccount({ navigation }) {
                   // Real-time validation for confirm password
                   if (!text) {
                     setErrors({ ...errors, confirmPassword: null });
-                  } else if (
-                    text.length < 6 ||
-                    text.length > 20 ||
-                    !/[A-Z]/.test(text) ||
-                    !/[a-z]/.test(text) ||
-                    !/[0-9]/.test(text) ||
-                    !/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(text)
-                  ) {
-                    setErrors({
-                      ...errors,
-                      confirmPassword:
-                        "Confirm password must meet all password requirements.",
-                    });
                   } else if (password && text !== password) {
                     setErrors({
                       ...errors,
-                      confirmPassword: "Password don't match.",
+                      confirmPassword: "Passwords don't match.",
                     });
                   } else {
                     setErrors({ ...errors, confirmPassword: null });
@@ -750,9 +723,7 @@ export default function CreateAccount({ navigation }) {
                 />
               </TouchableOpacity>
             </View>
-            {errors.confirmPassword && (
-              <Text style={styles.errorText}>{errors.confirmPassword}</Text>
-            )}
+            <Text style={styles.errorText}>{errors.confirmPassword || ""}</Text>
 
             {/* Role */}
             <View style={styles.labelRow}>
@@ -804,49 +775,52 @@ export default function CreateAccount({ navigation }) {
                 </View>
               )}
             </View>
-            {errors.role && <Text style={styles.errorText}>{errors.role}</Text>}
+            <Text style={styles.errorText}>{errors.role || ""}</Text>
 
-            {/* Save Changes Button */}
-            <TouchableOpacity
-              style={[
-                styles.saveButton,
-                pressedBtn === "save" && styles.saveButtonPressed,
-              ]}
-              activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("save")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={handleSaveChanges}
-            >
-              <Text
+            {/* Buttons Container - Prevents flickering */}
+            <View style={styles.buttonsContainer}>
+              {/* Save Changes Button */}
+              <TouchableOpacity
                 style={[
-                  styles.saveButtonText,
-                  pressedBtn === "save" && styles.saveButtonTextPressed,
+                  styles.saveButton,
+                  pressedBtn === "save" && styles.saveButtonPressed,
                 ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("save")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={handleSaveChanges}
               >
-                Create Account
-              </Text>
-            </TouchableOpacity>
+                <Text
+                  style={[
+                    styles.saveButtonText,
+                    pressedBtn === "save" && styles.saveButtonTextPressed,
+                  ]}
+                >
+                  Create Account
+                </Text>
+              </TouchableOpacity>
 
-            {/* Cancel Button */}
-            <TouchableOpacity
-              style={[
-                styles.cancelButton,
-                pressedBtn === "cancel" && styles.cancelButtonPressed,
-              ]}
-              activeOpacity={0.8}
-              onPressIn={() => setPressedBtn("cancel")}
-              onPressOut={() => setPressedBtn(null)}
-              onPress={handleCancel}
-            >
-              <Text
+              {/* Cancel Button */}
+              <TouchableOpacity
                 style={[
-                  styles.cancelButtonText,
-                  pressedBtn === "cancel" && styles.cancelButtonTextPressed,
+                  styles.cancelButton,
+                  pressedBtn === "cancel" && styles.cancelButtonPressed,
                 ]}
+                activeOpacity={0.8}
+                onPressIn={() => setPressedBtn("cancel")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={handleCancel}
               >
-                Cancel
-              </Text>
-            </TouchableOpacity>
+                <Text
+                  style={[
+                    styles.cancelButtonText,
+                    pressedBtn === "cancel" && styles.cancelButtonTextPressed,
+                  ]}
+                >
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -890,6 +864,9 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 18,
     paddingBottom: 40,
+    flexGrow: 1,
+    justifyContent: "flex-start",
+    minHeight: "100%",
   },
   card: {
     backgroundColor: "#fff",
@@ -901,6 +878,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
+    width: "100%",
   },
   title: {
     fontSize: 24,
@@ -962,6 +940,7 @@ const styles = StyleSheet.create({
     color: "#DC2626",
     marginTop: 4,
     marginLeft: 2,
+    minHeight: 18,
   },
   passwordContainer: {
     position: "relative",
@@ -1072,6 +1051,9 @@ const styles = StyleSheet.create({
   },
   cancelButtonTextPressed: {
     color: "#fff",
+  },
+  buttonsContainer: {
+    marginTop: 24,
   },
   successOverlay: {
     flex: 1,

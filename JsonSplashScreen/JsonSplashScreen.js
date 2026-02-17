@@ -25,7 +25,7 @@ export default function JsonSplashScreen({ navigation }) {
         onAnimationFinish={() => {
           console.log("Animation finished");
           // Optional: Navigate immediately when animation finishes
-          // navigation.replace("LogIn");
+          navigation.replace("LogIn");
         }}
       />
     </View>

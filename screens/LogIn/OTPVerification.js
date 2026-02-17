@@ -19,9 +19,9 @@ import { Ionicons } from "@expo/vector-icons";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { auth, db } from "../../config/firebaseconfig.js";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
-// Removed Firebase phone-auth specific imports; using Twilio Verify exclusively
+// SMS OTP authentication via Semaphore API (Cloud Functions)
 import {
   checkOTPLockout,
   incrementOTPAttempts,
@@ -139,7 +139,7 @@ export default function OTPVerification() {
     title,
     message,
     onConfirm = null,
-    showCancel = false
+    showCancel = false,
   ) => {
     setModalType(type);
     setModalTitle(title);
@@ -282,7 +282,7 @@ export default function OTPVerification() {
 
       console.log(
         "Twilio Verify SMS sent. SID:",
-        response.data.verificationSid
+        response.data.verificationSid,
       );
       return { success: true, verificationSid: response.data.verificationSid };
     } catch (error) {
@@ -296,7 +296,7 @@ export default function OTPVerification() {
       showModal(
         "error",
         "Error",
-        `Failed to send verification code: ${error.message}`
+        `Failed to send verification code: ${error.message}`,
       );
       return { success: false, error: error.message };
     }
@@ -307,7 +307,7 @@ export default function OTPVerification() {
       showModal(
         "info",
         "Please Wait",
-        `You can resend OTP in ${resendCooldown} seconds.`
+        `You can resend OTP in ${resendCooldown} seconds.`,
       );
       return;
     }
@@ -324,7 +324,7 @@ export default function OTPVerification() {
       showModal(
         "success",
         "OTP Sent",
-        "A new verification code was sent to your phone."
+        "A new verification code was sent to your phone.",
       );
 
       // Reset OTP input boxes
@@ -399,8 +399,8 @@ export default function OTPVerification() {
           "error",
           "Account Locked",
           `Too many failed OTP attempts. Please try again in ${formatLockoutTime(
-            lockoutStatus.remainingTime
-          )}.`
+            lockoutStatus.remainingTime,
+          )}.`,
         );
         return;
       }
@@ -433,7 +433,8 @@ export default function OTPVerification() {
         // Update user document in Firestore
         const user = auth.currentUser;
         if (user) {
-          await updateDoc(doc(db, "users", user.uid), {
+          const userDocRef = doc(db, "users", user.uid);
+          await updateDoc(userDocRef, {
             verified: true,
             lastVerified: new Date(),
             phone: confirmationResult.phone || mobileNumber,
@@ -443,9 +444,44 @@ export default function OTPVerification() {
             failedOtpAttempts: 0,
           });
           console.log("✅ User verification status updated in Firestore");
+
+          // Fetch user role to determine navigation
+          console.log("🔍 Fetching user document for navigation...");
+          const userDoc = await getDoc(userDocRef);
+          console.log("📄 User doc exists:", userDoc.exists());
+
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            console.log(
+              "📋 Full user data:",
+              JSON.stringify(userData, null, 2),
+            );
+            console.log("👤 User role (raw):", userData.role);
+            const userRole = userData.role?.toLowerCase();
+            console.log("👤 User role (lowercase):", userRole);
+
+            // Navigate based on role
+            if (userRole === "admin") {
+              console.log("✅ Admin verified, navigating to Admin Dashboard");
+              navigation.reset({
+                index: 0,
+                routes: [{ name: "AdminDashboard" }],
+              });
+            } else {
+              console.log(
+                "✅ User verified, navigating to User Dashboard via LoginSuccess",
+              );
+              console.log("🔍 Role was:", userRole, "!== 'admin'");
+              navigation.navigate("LoginSuccess");
+            }
+          } else {
+            console.log("❌ User doc doesn't exist, fallback to LoginSuccess");
+            navigation.navigate("LoginSuccess");
+          }
+        } else {
+          // Fallback if no current user
+          navigation.navigate("LoginSuccess");
         }
-        // Navigate forward after successful verification
-        navigation.navigate("LoginSuccess");
       } else {
         throw new Error("Invalid OTP code");
       }
@@ -476,11 +512,11 @@ export default function OTPVerification() {
         showModal(
           "error",
           "Account Locked",
-          "Too many failed OTP attempts. Your account is locked temporarily."
+          "Too many failed OTP attempts. Your account is locked temporarily.",
         );
       } else {
         setErrors({
-          otp: `${errorMessage} ${remainingAttempts} attempts remaining.`,
+          otp: "Invalid OTP. Ensure the number is correct and try again.",
         });
         // Clear OTP inputs on failed attempt
         setOtp(["", "", "", "", "", ""]);
@@ -502,7 +538,7 @@ export default function OTPVerification() {
         closeModal();
         navigation.goBack();
       },
-      true // showCancel
+      true, // showCancel
     );
   };
 

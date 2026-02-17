@@ -14,8 +14,9 @@ import Icon from "react-native-vector-icons/Feather";
 import { useNavigation } from "@react-navigation/native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { auth } from "../../config/firebaseconfig";
+import { auth, db } from "../../config/firebaseconfig";
 import { signOut } from "firebase/auth";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { useAdminNotifications } from "../Admin/AdminNotificationContext";
 
 const MenuIcon = ({ size = 22, color = "#1a1a1a", style, ...props }) => (
@@ -77,16 +78,38 @@ export default function Header2() {
 
   const handleConfirmLogout = async () => {
     try {
+      const currentUser = auth.currentUser;
+
+      // Log logout event to session_logs collection (non-blocking)
+      if (currentUser) {
+        try {
+          await addDoc(collection(db, "session_logs"), {
+            userId: currentUser.uid,
+            action: "Log out",
+            description: "Logged out",
+            timestamp: serverTimestamp(),
+            deviceInfo: Platform.OS,
+            email: currentUser.email,
+          });
+          console.log("📝 Admin logout event logged to session_logs");
+        } catch (logError) {
+          console.log(
+            "⚠️ Failed to log admin logout event (non-critical):",
+            logError.message,
+          );
+        }
+      }
+
       // Sign out from Firebase
       await signOut(auth);
-      
+
       // Clear stored admin data
       await AsyncStorage.removeItem("isAdminBypass");
       await AsyncStorage.removeItem("adminEmail");
-      
+
       console.log("Admin logged out successfully");
       setLogoutModalVisible(false);
-      
+
       // Navigate to Login screen and reset navigation stack
       navigation.reset({
         index: 0,
@@ -130,7 +153,7 @@ export default function Header2() {
             {unreadCount > 0 && (
               <View style={styles.notificationBadge}>
                 <Text style={styles.notificationBadgeText}>
-                  {unreadCount > 9 ? '9+' : String(unreadCount)}
+                  {unreadCount > 9 ? "9+" : String(unreadCount)}
                 </Text>
               </View>
             )}
@@ -156,25 +179,33 @@ export default function Header2() {
         <View style={styles.modalOverlay}>
           <View style={styles.logoutModal}>
             <View style={styles.warningIconContainer}>
-              <MaterialCommunityIcons name="alert-outline" size={48} color="#DC2626" />
+              <MaterialCommunityIcons
+                name="alert-outline"
+                size={48}
+                color="#DC2626"
+              />
             </View>
             <Text style={styles.logoutTitle}>Confirm Logout</Text>
-            <Text style={styles.logoutMessage}>Are you sure you want to log out?</Text>
-            
+            <Text style={styles.logoutMessage}>
+              Are you sure you want to log out?
+            </Text>
+
             <TouchableOpacity
               style={[
                 styles.confirmLogoutButton,
-                confirmBtnPressed && styles.confirmLogoutButtonPressed
+                confirmBtnPressed && styles.confirmLogoutButtonPressed,
               ]}
               activeOpacity={0.8}
               onPressIn={() => setConfirmBtnPressed(true)}
               onPressOut={() => setConfirmBtnPressed(false)}
               onPress={handleConfirmLogout}
             >
-              <Text style={[
-                styles.confirmLogoutButtonText,
-                confirmBtnPressed && styles.confirmLogoutButtonTextPressed
-              ]}>
+              <Text
+                style={[
+                  styles.confirmLogoutButtonText,
+                  confirmBtnPressed && styles.confirmLogoutButtonTextPressed,
+                ]}
+              >
                 Confirm
               </Text>
             </TouchableOpacity>
@@ -182,17 +213,19 @@ export default function Header2() {
             <TouchableOpacity
               style={[
                 styles.cancelLogoutButton,
-                cancelBtnPressed && styles.cancelLogoutButtonPressed
+                cancelBtnPressed && styles.cancelLogoutButtonPressed,
               ]}
               activeOpacity={0.8}
               onPressIn={() => setCancelBtnPressed(true)}
               onPressOut={() => setCancelBtnPressed(false)}
               onPress={handleCancelLogout}
             >
-              <Text style={[
-                styles.cancelLogoutButtonText,
-                cancelBtnPressed && styles.cancelLogoutButtonTextPressed
-              ]}>
+              <Text
+                style={[
+                  styles.cancelLogoutButtonText,
+                  cancelBtnPressed && styles.cancelLogoutButtonTextPressed,
+                ]}
+              >
                 Cancel
               </Text>
             </TouchableOpacity>
