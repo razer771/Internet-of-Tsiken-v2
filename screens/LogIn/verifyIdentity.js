@@ -12,12 +12,12 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation } from "@react-navigation/native";
-import { auth, db } from "../../config/firebaseconfig.js";
+import app, { auth, db } from "../../config/firebaseconfig.js";
 import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 
 // Initialize Firebase Functions
-const functions = getFunctions(undefined, "us-central1");
+const functions = getFunctions(app, "us-central1");
 
 export default function VerifyIdentityScreen() {
   const [selectedOption, setSelectedOption] = useState("mobile");

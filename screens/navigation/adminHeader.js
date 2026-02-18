@@ -130,13 +130,17 @@ export default function Header2() {
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
       <View style={styles.header}>
         <View style={styles.leftSection}>
-          <View style={styles.logoContainer}>
+          <TouchableOpacity
+            style={styles.logoContainer}
+            onPress={() => navigation.navigate("AdminDashboard")}
+            activeOpacity={0.7}
+          >
             <Image
               source={require("../../assets/logo.png")}
               style={styles.logo}
               resizeMode="contain"
             />
-          </View>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.centerSection}>
@@ -180,35 +184,15 @@ export default function Header2() {
           <View style={styles.logoutModal}>
             <View style={styles.warningIconContainer}>
               <MaterialCommunityIcons
-                name="alert-outline"
+                name="logout"
                 size={48}
                 color="#DC2626"
               />
             </View>
-            <Text style={styles.logoutTitle}>Confirm Logout</Text>
+            <Text style={styles.logoutTitle}>Logout</Text>
             <Text style={styles.logoutMessage}>
-              Are you sure you want to log out?
+              Are you sure you want to logout?
             </Text>
-
-            <TouchableOpacity
-              style={[
-                styles.confirmLogoutButton,
-                confirmBtnPressed && styles.confirmLogoutButtonPressed,
-              ]}
-              activeOpacity={0.8}
-              onPressIn={() => setConfirmBtnPressed(true)}
-              onPressOut={() => setConfirmBtnPressed(false)}
-              onPress={handleConfirmLogout}
-            >
-              <Text
-                style={[
-                  styles.confirmLogoutButtonText,
-                  confirmBtnPressed && styles.confirmLogoutButtonTextPressed,
-                ]}
-              >
-                Confirm
-              </Text>
-            </TouchableOpacity>
 
             <TouchableOpacity
               style={[
@@ -227,6 +211,26 @@ export default function Header2() {
                 ]}
               >
                 Cancel
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.confirmLogoutButton,
+                confirmBtnPressed && styles.confirmLogoutButtonPressed,
+              ]}
+              activeOpacity={0.8}
+              onPressIn={() => setConfirmBtnPressed(true)}
+              onPressOut={() => setConfirmBtnPressed(false)}
+              onPress={handleConfirmLogout}
+            >
+              <Text
+                style={[
+                  styles.confirmLogoutButtonText,
+                  confirmBtnPressed && styles.confirmLogoutButtonTextPressed,
+                ]}
+              >
+                Logout
               </Text>
             </TouchableOpacity>
           </View>
@@ -341,17 +345,17 @@ const styles = StyleSheet.create({
   logoutTitle: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#DC2626",
+    color: "#000",
     marginBottom: 12,
     textAlign: "center",
   },
   logoutMessage: {
     fontSize: 15,
-    color: "#444",
+    color: "#777",
     textAlign: "center",
     marginBottom: 24,
   },
-  confirmLogoutButton: {
+  cancelLogoutButton: {
     width: "100%",
     backgroundColor: "#fff",
     borderWidth: 1,
@@ -361,37 +365,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
-  confirmLogoutButtonPressed: {
-    backgroundColor: "#133E87",
-    borderColor: "#133E87",
-  },
-  confirmLogoutButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#000",
-  },
-  confirmLogoutButtonTextPressed: {
-    color: "#fff",
-  },
-  cancelLogoutButton: {
-    width: "100%",
-    backgroundColor: "#133E87",
-    borderWidth: 1,
-    borderColor: "#133E87",
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
   cancelLogoutButtonPressed: {
-    backgroundColor: "#0F2D5C",
-    borderColor: "#0F2D5C",
+    backgroundColor: "#F3F4F6",
+    borderColor: "#9CA3AF",
   },
   cancelLogoutButtonText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#fff",
+    color: "#6B7280",
   },
   cancelLogoutButtonTextPressed: {
-    color: "#E0E0E0",
+    color: "#4B5563",
+  },
+  confirmLogoutButton: {
+    width: "100%",
+    backgroundColor: "#EF4444",
+    borderWidth: 1,
+    borderColor: "#EF4444",
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  confirmLogoutButtonPressed: {
+    backgroundColor: "#DC2626",
+    borderColor: "#DC2626",
+  },
+  confirmLogoutButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  confirmLogoutButtonTextPressed: {
+    color: "#fff",
   },
 });

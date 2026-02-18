@@ -758,7 +758,7 @@ const styles = StyleSheet.create({
   },
   confirmDeleteButton: {
     flex: 1,
-    backgroundColor: "#ef4444",
+    backgroundColor: "#22c55e",
     borderRadius: 8,
     paddingVertical: 12,
     alignItems: "center",

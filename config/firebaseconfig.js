@@ -1,10 +1,12 @@
-// If you haven’t yet installed Firebase, run: // 👉 npm install firebase
-import { initializeApp } from "firebase/app";
-// Import the functions for persistence
-import { initializeAuth, getReactNativePersistence } from "firebase/auth";
-import { initializeFirestore } from "firebase/firestore";
-import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
-import { getAnalytics, isSupported } from "firebase/analytics"; // For the analytics warning
+// Firebase v9 modular SDK — safe for React Native (no HTTP referer needed)
+import { initializeApp, getApps } from "firebase/app";
+import {
+  initializeAuth,
+  getAuth,
+  getReactNativePersistence,
+} from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBa6PE0nqkrFAqDm6AT2nIrZmv6qIfgiFM",
@@ -16,35 +18,22 @@ const firebaseConfig = {
   measurementId: "G-LD936L51CP",
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Initialize Firebase App (idempotent)
+const app =
+  getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
-export const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(ReactNativeAsyncStorage),
-});
+// Use initializeAuth with AsyncStorage persistence on first init.
+// If already initialized (e.g., fast refresh), reuse the existing instance.
+let auth;
+try {
+  auth = initializeAuth(app, {
+    persistence: getReactNativePersistence(AsyncStorage),
+  });
+} catch (e) {
+  auth = getAuth(app);
+}
 
-// Initialize Firestore with offline persistence support
-// Using AsyncStorage for React Native offline persistence
-export const db = initializeFirestore(app, {
-  localCache: {
-    kind: "persistent",
-    tabManager: {
-      kind: "shared",
-    },
-  },
-});
+const db = getFirestore(app);
 
-// Conditionally initialize Analytics to fix the other warning
-let analytics;
-(async () => {
-  if (await isSupported()) {
-    try {
-      analytics = getAnalytics(app);
-    } catch (e) {
-      console.log("Failed to initialize Analytics", e);
-    }
-  }
-})();
-
-export { analytics };
 export default app;
+export { auth, db };

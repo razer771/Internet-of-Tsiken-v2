@@ -11,6 +11,8 @@ import {
   PanResponder,
   Modal,
 } from "react-native";
+import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
+import ChickIcon from "./ChickIcon";
 import QuickSetupModal from "./QuickSetupModal";
 import ViewAllBatchesModal, {
   fetchBatches,
@@ -1745,7 +1747,7 @@ export default function QuickOverviewSetup({ navigation }) {
           <View style={styles.container}>
             {/* Welcome Section */}
             <View style={styles.welcomeSection}>
-              <Text style={styles.greeting}>Hello, {userName}! 👋</Text>
+              <Text style={styles.greeting}>Hello, {userName}! <MaterialCommunityIcons name="hand-wave-outline" size={24} color="#133E87" /></Text>
               <Text style={styles.date}>{todayDate}</Text>
             </View>
 
@@ -1756,9 +1758,12 @@ export default function QuickOverviewSetup({ navigation }) {
                   <Text style={styles.statusLabel}>System Status</Text>
                   <Text style={styles.statusText}>All Systems Normal</Text>
                 </View>
-                <View style={styles.statusIconContainer}>
-                  <Text style={styles.statusIcon}>⚡</Text>
-                </View>
+                <MaterialCommunityIcons
+                  name="lightning-bolt-outline"
+                  size={34}
+                  color="#133E87"
+                  style={{ marginLeft: 10 }}
+                />
               </View>
             </View>
 
@@ -1771,8 +1776,8 @@ export default function QuickOverviewSetup({ navigation }) {
             </View>
             <View style={styles.brooderCard}>
               <View style={styles.brooderRow}>
-                <View style={styles.brooderIconContainer}>
-                  <Text style={styles.brooderIconText}>🐣</Text>
+                <View style={styles.brooderIconWrapper}>
+                  <ChickIcon size={28} color="#133E87" />
                 </View>
                 <View style={styles.brooderTextContainer}>
                   <Text style={styles.brooderLabel}>Total Chicks</Text>
@@ -1783,8 +1788,8 @@ export default function QuickOverviewSetup({ navigation }) {
               <View style={styles.brooderDivider} />
 
               <View style={styles.brooderRow}>
-                <View style={styles.brooderIconContainer}>
-                  <Text style={styles.brooderIconText}>📅</Text>
+                <View style={styles.brooderIconWrapper}>
+                  <MaterialCommunityIcons name="calendar-clock" size={24} color="#133E87" />
                 </View>
                 <View style={styles.brooderTextContainer}>
                   <Text style={styles.brooderLabel}>Age</Text>
@@ -1799,8 +1804,8 @@ export default function QuickOverviewSetup({ navigation }) {
               <View style={styles.brooderDivider} />
 
               <View style={styles.brooderRow}>
-                <View style={styles.brooderIconContainer}>
-                  <Text style={styles.brooderIconText}>🎯</Text>
+                <View style={styles.brooderIconWrapper}>
+                  <MaterialCommunityIcons name="target" size={24} color="#133E87" />
                 </View>
                 <View style={styles.brooderTextContainer}>
                   <Text style={styles.brooderLabel}>Expected Harvest</Text>
@@ -1916,7 +1921,7 @@ export default function QuickOverviewSetup({ navigation }) {
             <View style={styles.sensorGrid}>
               {/* Water Level Card */}
               <View style={styles.sensorCard}>
-                <Text style={styles.sensorIcon}>💧</Text>
+                <MaterialCommunityIcons name="water-outline" size={32} color="#133E87" />
                 <Text style={styles.sensorLabel}>Water Level</Text>
                 <Text style={styles.sensorValue}>
                   {loadingSensorData ? "..." : `${sensorData.waterLevel}%`}
@@ -1925,7 +1930,7 @@ export default function QuickOverviewSetup({ navigation }) {
 
               {/* Feed Level Card */}
               <View style={styles.sensorCard}>
-                <Text style={styles.sensorIcon}>🍴</Text>
+                <MaterialCommunityIcons name="seed-outline" size={32} color="#133E87" />
                 <Text style={styles.sensorLabel}>Feed Level</Text>
                 <Text style={styles.sensorValue}>
                   {loadingSensorData ? "..." : `${sensorData.feedLevel}%`}
@@ -1934,7 +1939,9 @@ export default function QuickOverviewSetup({ navigation }) {
 
               {/* Solar Charge Card */}
               <View style={styles.sensorCard}>
-                <Text style={styles.sensorIcon}>☀️</Text>
+                <View style={{ marginTop: 8, marginBottom: 4 }}>
+                  <MaterialCommunityIcons name="white-balance-sunny" size={32} color="#133E87" />
+                </View>
                 <Text style={styles.sensorLabel}>Solar Charge</Text>
                 <Text style={styles.sensorValue}>
                   {loadingSensorData ? "..." : `${sensorData.solarCharge}%`}
@@ -1943,7 +1950,9 @@ export default function QuickOverviewSetup({ navigation }) {
 
               {/* Light Status Card */}
               <View style={styles.sensorCard}>
-                <Text style={styles.sensorIcon}>💡</Text>
+                <View style={{ marginTop: 8, marginBottom: 4 }}>
+                  <MaterialCommunityIcons name="lightbulb-on-outline" size={32} color="#133E87" />
+                </View>
                 <Text style={styles.sensorLabel}>Light Status</Text>
                 <Text style={styles.sensorValue}>
                   {loadingSensorData ? "..." : sensorData.lightStatus}
@@ -2143,11 +2152,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 20,
     marginBottom: 24,
-    shadowColor: "#22c55e",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 6,
   },
   statusHeader: {
     flexDirection: "row",
@@ -2165,17 +2169,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#ffffff",
   },
-  statusIconContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "rgba(255, 255, 255, 0.25)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  statusIcon: {
-    fontSize: 30,
-  },
   sensorGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -2188,16 +2181,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
     alignItems: "center",
-  },
-  sensorIcon: {
-    fontSize: 32,
-    marginBottom: 8,
+    overflow: "visible",
   },
   sensorLabel: {
     fontSize: 13,
@@ -2230,11 +2215,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginBottom: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
   },
   alertItem: {
     flexDirection: "row",
@@ -2275,28 +2255,16 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginBottom: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
   },
   brooderRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 12,
   },
-  brooderIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#dbeafe",
+  brooderIconWrapper: {
+    marginRight: 12,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 16,
-  },
-  brooderIconText: {
-    fontSize: 24,
   },
   brooderTextContainer: {
     flex: 1,
@@ -2328,11 +2296,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingVertical: 14,
     alignItems: "center",
-    shadowColor: "#22c55e",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
   },
   addBtnText: {
     color: "#fff",
@@ -2345,11 +2308,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingVertical: 14,
     alignItems: "center",
-    shadowColor: "#154b99",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
   },
   editBtnText: {
     color: "#fff",
@@ -2362,11 +2320,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingVertical: 14,
     alignItems: "center",
-    shadowColor: "#ef4444",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
   },
   deleteBtnText: {
     color: "#fff",
@@ -2518,11 +2471,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 32,
     alignItems: "center",
-    shadowColor: "#E53935",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
   },
   mortalityBtnText: {
     color: "#fff",

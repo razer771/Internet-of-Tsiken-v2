@@ -36,7 +36,7 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
 import { Asset } from "expo-asset";
-import { getAuth } from "firebase/auth";
+import { auth } from "../../config/firebaseconfig";
 
 const { width: windowWidth } = Dimensions.get("window");
 
@@ -2859,7 +2859,6 @@ export default function AdminAnalytics({ navigation }) {
     description = null,
   ) => {
     try {
-      const auth = getAuth();
       const currentUser = auth.currentUser;
 
       if (!currentUser) {
