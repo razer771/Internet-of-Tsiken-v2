@@ -826,7 +826,7 @@ export default function EditProfile({ navigation }) {
             <Ionicons
               name="checkmark-circle-outline"
               size={60}
-              color="#1D3B71"
+              color="#22C55E"
             />
 
             <Text style={styles.modalTitle}>Save Changes</Text>
@@ -1387,7 +1387,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   confirmButton: {
-    backgroundColor: "#1D3B71",
+    backgroundColor: "#22C55E",
   },
   confirmButtonText: {
     color: "#fff",

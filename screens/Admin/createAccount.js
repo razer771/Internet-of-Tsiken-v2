@@ -1009,9 +1009,9 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   saveButton: {
-    backgroundColor: "#3b4cca",
+    backgroundColor: "#1E4D99",
     borderWidth: 0.4,
-    borderColor: "#D1D5DB",
+    borderColor: "#1E4D99",
     borderRadius: 8,
     paddingVertical: 14,
     alignItems: "center",
@@ -1019,8 +1019,8 @@ const styles = StyleSheet.create({
     height: 48,
   },
   saveButtonPressed: {
-    backgroundColor: "#3b4cca",
-    borderColor: "#3b4cca",
+    backgroundColor: "#163A73",
+    borderColor: "#163A73",
   },
   saveButtonText: {
     fontSize: 15,

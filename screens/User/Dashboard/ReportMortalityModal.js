@@ -12,6 +12,7 @@ import {
   Platform,
   ScrollView,
 } from "react-native";
+import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { auth } from "../../../config/firebaseconfig";
 import { db as firestoreDb } from "../../../config/firebaseconfig";
 import {
@@ -759,7 +760,11 @@ export default function ReportMortalityModal({
                 <Text style={styles.dateButtonText}>
                   {formatDate(dateOfDeath)}
                 </Text>
-                <Text style={styles.dateIcon}>📅</Text>
+                <MaterialCommunityIcons 
+                  name="calendar" 
+                  size={20} 
+                  color="#666" 
+                />
               </TouchableOpacity>
               {showDatePicker && (
                 <DateTimePicker

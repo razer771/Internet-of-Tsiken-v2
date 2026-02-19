@@ -25,6 +25,7 @@ import {
   sendPasswordResetEmail,
   confirmPasswordReset,
   verifyPasswordResetCode,
+  signOut,
 } from "firebase/auth";
 import {
   doc,
