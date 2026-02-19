@@ -324,6 +324,7 @@ export default function ControlScreen({ navigation }) {
   const [airQuality, setAirQuality] = useState(0);
   const [bowlWeight, setBowlWeight] = useState(0);
   const [fanOn, setFanOn] = useState(false);
+  const [vitaminOn, setVitaminOn] = useState(false);
   const [waterStorageLevel, setWaterStorageLevel] = useState(0);
   const [feedStorageLevel, setFeedStorageLevel] = useState(0);
 
@@ -583,6 +584,11 @@ export default function ControlScreen({ navigation }) {
       // Fan Status sync
       if (readings.fan_status !== undefined) {
         setFanOn(readings.fan_status === 'on');
+      }
+
+      // Vitamin system sync
+      if (readings.vitamin_system_enabled !== undefined) {
+        setVitaminOn(readings.vitamin_system_enabled === true);
       }
       
       // Light Status sync
@@ -935,18 +941,124 @@ export default function ControlScreen({ navigation }) {
       console.error("[Fan] Control failed:", error.message);
       setFanOn(!value); // Revert on fail
       Alert.alert(
-        "Fan Control Error", 
+        "Fan Control Error",
         `Could not reach fan controller.\n\nError: ${error.message}\n\nPlease check:\n1. ESP32 is powered on\n2. WiFi connection\n3. IP address in esp32config.js`
       );
     }
   };
 
+  // Handle Vitamin System Toggle (ON = peristaltic pump dispenses at schedule; OFF = water pump dispenses)
+  const handleVitaminToggle = async (value) => {
+    console.log(`[Vitamin] Toggle requested: ${value ? 'ON' : 'OFF'}`);
+    setVitaminOn(value); // Optimistic update
+
+    try {
+      const { getWaterSystemUrl } = await import("../../../config/esp32config");
+      const url = getWaterSystemUrl();
+
+      if (!url) {
+        throw new Error("ESP32 not configured. Check esp32config.js");
+      }
+
+      const endpoint = value ? '/api/vitamin/enable' : '/api/vitamin/disable';
+      const fullUrl = `${url}${endpoint}`;
+
+      console.log(`[Vitamin] Sending request to: ${fullUrl}`);
+
+      const response = await fetch(fullUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log(`[Vitamin] Response:`, data);
+
+      if (data.vitamin_system_enabled !== undefined) {
+        setVitaminOn(data.vitamin_system_enabled);
+      }
+
+      await logActivity("vitaminControl_logs", {
+        action: value ? "vitamin_system_enabled" : "vitamin_system_disabled",
+        status: value ? "on" : "off",
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("[Vitamin] Control failed:", error.message);
+      setVitaminOn(!value); // Revert on fail
+      Alert.alert(
+        "Vitamin System Error",
+        `Could not reach vitamin pump controller.\n\nError: ${error.message}\n\nPlease check:\n1. ESP32 is powered on\n2. WiFi connection\n3. IP address in esp32config.js`
+      );
+    }
+  };
+
+  // Handle Test Vitamin Pump
+  const handleTestVitaminPump = async () => {
+    try {
+      setIsVitaminPumpTesting(true);
+      console.log("💊 Testing vitamin pump...");
+
+      const { getWaterSystemUrl } = await import("../../../config/esp32config");
+      const esp32Url = getWaterSystemUrl();
+
+      if (!esp32Url) {
+        showMotorWarning(
+          "Configuration Error",
+          "ESP32 water system URL not configured. Please check esp32config.js",
+        );
+        return;
+      }
+
+      const response = await fetch(`${esp32Url}/api/vitamin/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ duration: 5000 }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log("✅ Vitamin pump test successful:", data);
+
+        await logActivity("vitaminPumpTest_logs", {
+          action: "Test vitamin pump",
+          description: "User tested vitamin peristaltic pump via ESP32",
+          status: "Completed",
+          duration: 5000,
+        });
+
+        const currentUser = auth.currentUser;
+        const userName = currentUser?.email || "User";
+        addNotification({
+          category: "User Activity",
+          title: "Vitamin pump tested",
+          description: `${userName} tested vitamin pump at ${new Date().toLocaleString()}`,
+          type: "testing",
+        });
+      } else {
+        const errorText = await response.text();
+        console.error("❌ Vitamin pump test failed:", response.status, errorText);
+        showMotorWarning(
+          "Vitamin Pump Test Failed",
+          `ESP32 returned error: ${response.status}\n${errorText}`,
+        );
+      }
+    } catch (error) {
+      console.error("❌ Vitamin pump test error:", error);
+      showMotorWarning(
+        "Connection Error",
+        `Failed to connect to ESP32: ${error.message}\n\nPlease check if ESP32 is powered on and connected to the network.`,
+      );
+    } finally {
+      setIsVitaminPumpTesting(false);
+    }
+  };
+
   // Check solar power threshold and send alerts if needed
   const checkPowerThreshold = (powerLevel) => {
-    const now = Date.now();
-    const thirtyMinInMs = 30 * 60 * 1000;
-
-    // Only alert if below threshold AND 30 minutes have passed since last alert
     if (
       powerLevel <= alertThreshold &&
       (!lastAlertTime || now - lastAlertTime > thirtyMinInMs)
@@ -1592,6 +1704,7 @@ export default function ControlScreen({ navigation }) {
   const [isDispensing, setIsDispensing] = useState(false);
   const [isSprinklerActive, setIsSprinklerActive] = useState(false);
   const [isPumpTesting, setIsPumpTesting] = useState(false);
+  const [isVitaminPumpTesting, setIsVitaminPumpTesting] = useState(false);
   const [servoError, setServoError] = useState(null);
 
   // Motor warning modal state
@@ -2521,6 +2634,32 @@ export default function ControlScreen({ navigation }) {
           </View>
         </View>
 
+        {/* 3. VITAMIN SYSTEM */}
+        <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
+          <CardHeader icon="flask-outline" title="Vitamin System" />
+          <View style={[styles.innerBox, { justifyContent: 'space-between', marginTop: 15 }]}>
+            <View>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: '#333' }}>Peristaltic Pump</Text>
+              <Text style={styles.smallNote}>
+                {vitaminOn
+                  ? "Active - Vitamin pump dispenses at watering schedule"
+                  : "Inactive - Water pump dispenses at watering schedule"}
+              </Text>
+            </View>
+            <Switch
+              value={vitaminOn}
+              onValueChange={handleVitaminToggle}
+              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
+              thumbColor="#fff"
+            />
+          </View>
+          <Text style={[styles.smallNote, { marginTop: 6, fontSize: 11, fontStyle: 'italic' }]}>
+            {vitaminOn
+              ? "ON: Peristaltic pump runs at scheduled watering times"
+              : "OFF: Regular water pump runs at scheduled watering times"}
+          </Text>
+        </View>
+
         {/* Night Schedule */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader icon="moon-outline" title="Night Schedule" />
@@ -2827,6 +2966,29 @@ export default function ControlScreen({ navigation }) {
               </View>
             ) : (
               <Text style={styles.testBtnText}>Test Water Pump</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.testBtn,
+              { marginTop: 10 },
+              isVitaminPumpTesting && styles.testBtnDisabled,
+            ]}
+            onPress={handleTestVitaminPump}
+            disabled={isVitaminPumpTesting}
+          >
+            {isVitaminPumpTesting ? (
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <ActivityIndicator
+                  size="small"
+                  color={PRIMARY}
+                  style={{ marginRight: 8 }}
+                />
+                <Text style={styles.testBtnText}>Testing Vitamin Pump...</Text>
+              </View>
+            ) : (
+              <Text style={styles.testBtnText}>Test Vitamin Pump</Text>
             )}
           </TouchableOpacity>
 

@@ -28,7 +28,8 @@
 #define PIN_SERVO 13        // Servo motor for feeding
 #define PIN_RELAY_PUMP 26   // Water pump relay
 #define PIN_RELAY_FAN 27    // Exhaust fan relay
-#define PIN_LIGHT_MOSFET 16 // Incandescent light (PWM capable)
+#define PIN_LIGHT_MOSFET 16  // Incandescent light (PWM capable)
+#define PIN_RELAY_VITAMIN 14 // Peristaltic pump relay for vitamins
 // ⚠️  GPIO16 NOTE: Can conflict with PSRAM on some ESP32 boards
 // If MOSFET doesn't respond, try: GPIO 25, 32, or 33 instead
 
@@ -69,8 +70,12 @@ int waterTankLevel = 0;  // Ultrasonic 2 - Water storage
 bool fanActive = false;
 bool lightActive = false;
 bool pumpActive = false;
+bool vitaminPumpActive = false;
+bool vitaminSystemEnabled = false; // If true, peristaltic pump dispenses at watering schedule; otherwise water pump does
 unsigned long pumpStartTime = 0;
 unsigned long pumpDuration = 0;
+unsigned long vitaminPumpStartTime = 0;
+unsigned long vitaminPumpDuration = 0;
 unsigned long lastScheduleCheck = 0;
 unsigned long lastSensorRead = 0;
 unsigned long bootTime = 0;
@@ -208,8 +213,11 @@ void setup()
     digitalWrite(PIN_RELAY_PUMP, HIGH);  // OFF
     digitalWrite(PIN_RELAY_FAN, HIGH);   // OFF
     digitalWrite(PIN_LIGHT_MOSFET, LOW); // OFF
+    pinMode(PIN_RELAY_VITAMIN, OUTPUT);
+    digitalWrite(PIN_RELAY_VITAMIN, HIGH); // Vitamin pump OFF
     Serial.println("  • Pump Relay... ✓ OFF");
     Serial.println("  • Fan Relay... ✓ OFF");
+    Serial.println("  • Vitamin Pump Relay (GPIO14)... ✓ OFF");
 
     // Test MOSFET with quick pulse
     Serial.print("  • Light MOSFET (GPIO");
@@ -355,6 +363,12 @@ void loop()
     if (pumpActive && (millis() - pumpStartTime >= pumpDuration))
     {
         stopPump();
+    }
+
+    // Auto-stop vitamin pump
+    if (vitaminPumpActive && (millis() - vitaminPumpStartTime >= vitaminPumpDuration))
+    {
+        stopVitaminPump();
     }
 }
 
@@ -571,10 +585,48 @@ void setupWebServer()
     Serial.println("🌀 Fan turned OFF");
     server.send(200, "application/json", "{\"fan_status\":\"off\",\"message\":\"Fan stopped\"}"); });
 
+    // Vitamin pump control
+    server.on("/api/vitamin/start", HTTP_POST, []()
+              {
+    if (vitaminPumpActive) {
+        server.send(400, "application/json", "{\"error\":\"Vitamin pump already running\"}");
+        return;
+    }
+    int duration = 5000;
+    if (server.hasArg("plain")) {
+        StaticJsonDocument<200> doc;
+        DeserializationError err = deserializeJson(doc, server.arg("plain"));
+        if (!err && doc.containsKey("duration")) {
+            duration = constrain((int)doc["duration"], 1000, 30000);
+        }
+    }
+    digitalWrite(PIN_RELAY_VITAMIN, LOW); // Active LOW = ON
+    vitaminPumpActive = true;
+    vitaminPumpStartTime = millis();
+    vitaminPumpDuration = duration;
+    Serial.println("💊 Vitamin pump started for " + String(duration / 1000) + "s");
+    server.send(200, "application/json", "{\"vitamin_pump_status\":\"on\",\"message\":\"Vitamin pump started\"}"); });
+
+    server.on("/api/vitamin/stop", HTTP_POST, []()
+              {
+    stopVitaminPump();
+    server.send(200, "application/json", "{\"vitamin_pump_status\":\"off\",\"message\":\"Vitamin pump stopped\"}"); });
+
+    server.on("/api/vitamin/enable", HTTP_POST, []()
+              {
+    vitaminSystemEnabled = true;
+    Serial.println("💊 Vitamin system ENABLED - peristaltic pump will dispense at watering schedule");
+    server.send(200, "application/json", "{\"vitamin_system_enabled\":true,\"message\":\"Vitamin system enabled\"}"); });
+
+    server.on("/api/vitamin/disable", HTTP_POST, []()
+              {
+    vitaminSystemEnabled = false;
+    Serial.println("💊 Vitamin system DISABLED - water pump will dispense at watering schedule");
+    server.send(200, "application/json", "{\"vitamin_system_enabled\":false,\"message\":\"Vitamin system disabled\"}"); });
+
     // Light control
     server.on("/api/light/on", HTTP_POST, []()
               {
-    Serial.println("\n💡 Light ON command received");
     digitalWrite(PIN_LIGHT_MOSFET, HIGH);
     lightActive = true;
     
@@ -636,6 +688,8 @@ void handleGetSensors()
     doc["fan_status"] = fanActive ? "on" : "off";
     doc["light_status"] = lightActive ? "on" : "off";
     doc["pump_status"] = pumpActive ? "on" : "off";
+    doc["vitamin_pump_status"] = vitaminPumpActive ? "on" : "off";
+    doc["vitamin_system_enabled"] = vitaminSystemEnabled;
 
     // System info
     JsonObject system = doc.createNestedObject("system");
@@ -721,6 +775,16 @@ void stopPump()
         digitalWrite(PIN_RELAY_PUMP, HIGH); // Active LOW relay = OFF
         pumpActive = false;
         Serial.println("  ⏹️  Pump stopped");
+    }
+}
+
+void stopVitaminPump()
+{
+    if (vitaminPumpActive)
+    {
+        digitalWrite(PIN_RELAY_VITAMIN, HIGH); // Active LOW relay = OFF
+        vitaminPumpActive = false;
+        Serial.println("  ⏹️  Vitamin pump stopped");
     }
 }
 
@@ -840,7 +904,9 @@ void checkWateringSchedules(String currentTime)
                 {
                     JsonObject fields = result["document"]["fields"];
                     String scheduleTime = fields["time"]["stringValue"].as<String>();
-                    int scheduleDuration = fields["duration"]["integerValue"].as<int>() * 1000;
+                    // FIX: Firestore returns integerValue as a JSON string, not a number
+                    int scheduleDuration = String(fields["duration"]["integerValue"].as<String>()).toInt() * 1000;
+                    if (scheduleDuration <= 0) scheduleDuration = 5000; // Default 5s if parse fails
                     String scheduleUserId = fields["userId"]["stringValue"].as<String>();
                     String documentName = result["document"]["name"].as<String>();
                     String scheduleId = documentName.substring(documentName.lastIndexOf('/') + 1);
@@ -848,15 +914,30 @@ void checkWateringSchedules(String currentTime)
                     if (scheduleUserId == userId)
                     {
                         String scheduleHHMM = convertTo24Hour(scheduleTime);
+                        // FIX: Track scheduleId+time so the same schedule can re-run daily
+                        String execKey = scheduleId + "_" + currentTime;
 
-                        if (scheduleHHMM == currentTime && lastExecutedWaterSchedule != scheduleId)
+                        if (scheduleHHMM == currentTime && lastExecutedWaterSchedule != execKey)
                         {
                             Serial.println("✅ Executing scheduled watering!");
-                            digitalWrite(PIN_RELAY_PUMP, LOW);
-                            pumpActive = true;
-                            pumpStartTime = millis();
-                            pumpDuration = scheduleDuration;
-                            lastExecutedWaterSchedule = scheduleId;
+                            if (vitaminSystemEnabled)
+                            {
+                                // Vitamin system ON: use peristaltic pump
+                                Serial.println("💊 Vitamin system active - using peristaltic pump");
+                                digitalWrite(PIN_RELAY_VITAMIN, LOW);
+                                vitaminPumpActive = true;
+                                vitaminPumpStartTime = millis();
+                                vitaminPumpDuration = scheduleDuration;
+                            }
+                            else
+                            {
+                                // Vitamin system OFF: use water pump as usual
+                                digitalWrite(PIN_RELAY_PUMP, LOW);
+                                pumpActive = true;
+                                pumpStartTime = millis();
+                                pumpDuration = scheduleDuration;
+                            }
+                            lastExecutedWaterSchedule = execKey;
                         }
                     }
                 }
@@ -903,14 +984,16 @@ void checkFeedingSchedules(String currentTime)
                     if (scheduleUserId == userId)
                     {
                         String scheduleHHMM = convertTo24Hour(scheduleTime);
+                        // FIX: Track scheduleId+time so the same schedule can re-run daily
+                        String execKey = scheduleId + "_" + currentTime;
 
-                        if (scheduleHHMM == currentTime && lastExecutedFeedSchedule != scheduleId)
+                        if (scheduleHHMM == currentTime && lastExecutedFeedSchedule != execKey)
                         {
                             // SAFETY CHECK: Don't feed if bowl is full
                             if (currentWeight > MAX_BOWL_WEIGHT)
                             {
                                 Serial.println("⚠️  Scheduled feeding ABORTED: Bowl is full (" + String(currentWeight) + "g)");
-                                lastExecutedFeedSchedule = scheduleId; // Mark as executed to avoid retries
+                                lastExecutedFeedSchedule = execKey; // Mark as executed to avoid retries
                                 continue;
                             }
 
@@ -935,7 +1018,7 @@ void checkFeedingSchedules(String currentTime)
                             feedServo.write(90); // Stop
 
                             Serial.println("  ✓ Scheduled feeding completed");
-                            lastExecutedFeedSchedule = scheduleId;
+                            lastExecutedFeedSchedule = execKey;
                         }
                     }
                 }
