@@ -944,11 +944,7 @@ export default function ActivityLogs({ navigation }) {
                     {monthNames[currentMonth.getMonth()]}{" "}
                     {currentMonth.getFullYear()}
                   </Text>
-                  <Text style={styles.calendarDateSelectingText}>
-                    {selectingStartDate
-                      ? "Select Start Date"
-                      : "Select End Date"}
-                  </Text>
+               
 
                   <TouchableOpacity
                     onPress={handleNextMonth}

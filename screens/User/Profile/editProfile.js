@@ -5,14 +5,13 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
-  KeyboardAvoidingView,
   Platform,
   Modal,
   Image,
   ActivityIndicator,
   Alert,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "../../../config/firebaseconfig";
 import {
@@ -817,6 +816,15 @@ export default function EditProfile({ navigation }) {
     );
   }
 
+  // Calculate change detection
+  const hasProfileChanges =
+    firstName !== originalFirstName ||
+    middleName !== originalMiddleName ||
+    lastName !== originalLastName ||
+    phone !== originalPhone;
+  const hasPasswordChanges =
+    currentPassword || newPassword || confirmPassword;
+
   return (
     <>
       {/* SAVE CONFIRMATION MODAL */}
@@ -955,21 +963,22 @@ export default function EditProfile({ navigation }) {
       </Modal>
 
       {/* MAIN SCREEN */}
-      <KeyboardAvoidingView
+      <KeyboardAwareScrollView
         style={{ flex: 1, backgroundColor: "#fff" }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
+        contentContainerStyle={styles.scrollContainer}
+        enableOnAndroid={true}
+        extraScrollHeight={100}
+        scrollToOverflowEnabled={true}
       >
-        <ScrollView contentContainerStyle={styles.scrollContainer}>
-          {/* Back Button */}
-          <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
-            <Ionicons name="arrow-back" size={28} color="#1D3B71" />
-            <Text style={styles.backText}>Back</Text>
-          </TouchableOpacity>
+        {/* Back Button */}
+        <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
+          <Ionicons name="arrow-back" size={28} color="#1D3B71" />
+          <Text style={styles.backText}>Back</Text>
+        </TouchableOpacity>
 
-          <View style={styles.centerContent}>
-            {/* Profile Icon */}
-            <View style={styles.profileContainer}>
+        <View style={styles.centerContent}>
+          {/* Profile Icon */}
+          <View style={styles.profileContainer}>
               <View style={styles.profileCircle}>
                 <Ionicons name="person" size={80} color="#1D3B71" />
               </View>
@@ -1068,9 +1077,12 @@ export default function EditProfile({ navigation }) {
 
             {/* Save Changes Button */}
             <TouchableOpacity
-              style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+              style={[
+                styles.saveButton,
+                (saving || !hasProfileChanges || !!firstNameError || !!middleNameError || !!lastNameError) && styles.saveButtonDisabled,
+              ]}
               onPress={handleSaveProfile}
-              disabled={saving}
+              disabled={!!(saving || !hasProfileChanges || !!firstNameError || !!middleNameError || !!lastNameError)}
             >
               {saving ? (
                 <ActivityIndicator color="#fff" />
@@ -1164,9 +1176,12 @@ export default function EditProfile({ navigation }) {
 
             {/* Save Password Button */}
             <TouchableOpacity
-              style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+              style={[
+                styles.saveButton,
+                (saving || !hasPasswordChanges || !!currentPasswordError || !!newPasswordError || !!confirmPasswordError) && styles.saveButtonDisabled,
+              ]}
               onPress={handleSavePassword}
-              disabled={saving}
+              disabled={!!(saving || !hasPasswordChanges || !!currentPasswordError || !!newPasswordError || !!confirmPasswordError)}
             >
               {saving ? (
                 <ActivityIndicator color="#fff" />
@@ -1174,9 +1189,8 @@ export default function EditProfile({ navigation }) {
                 <Text style={styles.saveButtonText}>Save Password</Text>
               )}
             </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </View>
+      </KeyboardAwareScrollView>
     </>
   );
 }

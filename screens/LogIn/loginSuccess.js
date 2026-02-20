@@ -17,7 +17,7 @@ export default function LoginSuccess() {
   const [canResend, setCanResend] = useState(false);
 
   useEffect(() => {
-    const loadUserData = async () => {
+    const loadUserDataAndNavigate = async () => {
       try {
         const user = auth.currentUser;
         if (user) {
@@ -25,21 +25,44 @@ export default function LoginSuccess() {
           if (userDoc.exists()) {
             const userData = userDoc.data();
             console.log("✅ User dashboard data loaded:", userData);
+            
+            // Determine destination based on user role
+            const userRole = (userData.role || "").toLowerCase();
+            let destination = "Home"; // default for regular users
+            
+            if (userRole === "admin") {
+              destination = "AdminDashboard";
+              console.log("🔀 Admin user detected, will navigate to AdminDashboard");
+            } else if (userRole === "user") {
+              destination = "Home";
+              console.log("🔀 Regular user detected, will navigate to Home");
+            } else {
+              console.log(`⚠️ Unknown role "${userRole}", defaulting to Home`);
+              destination = "Home";
+            }
+            
+            // Set timer to navigate after 3 seconds
+            const timer = setTimeout(() => {
+              console.log(`Dashboard loaded! Navigating to ${destination}...`);
+              navigation.replace(destination);
+            }, 3000);
+            
+            return () => clearTimeout(timer);
           }
         }
       } catch (error) {
         console.error("Error loading user data:", error);
+        // Fallback navigation after 3 seconds if there's an error
+        const timer = setTimeout(() => {
+          console.log("Error loading user data. Navigating to Home...");
+          navigation.replace("Home");
+        }, 3000);
+        
+        return () => clearTimeout(timer);
       }
     };
 
-    loadUserData();
-
-    const timer = setTimeout(() => {
-      console.log("Dashboard loaded! Navigating to Home...");
-      navigation.replace("Home");
-    }, 3000);
-
-    return () => clearTimeout(timer);
+    loadUserDataAndNavigate();
   }, [navigation]);
 
   // Countdown effect
