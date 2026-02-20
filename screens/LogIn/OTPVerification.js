@@ -18,10 +18,12 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { auth, db } from "../../config/firebaseconfig.js";
+import app, { auth, db } from "../../config/firebaseconfig.js";
 import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 // SMS OTP authentication via Semaphore API (Cloud Functions)
+// const functions = getFunctions(undefined, "us-central1");
+const functions = getFunctions(app, "us-central1");
 import {
   checkOTPLockout,
   incrementOTPAttempts,
@@ -32,7 +34,7 @@ import {
 const Logo = require("../../assets/logo.png");
 
 // Initialize Firebase Functions
-const functions = getFunctions(undefined, "us-central1");
+// const functions = getFunctions(undefined, "us-central1");
 
 // Reusable Branded Modal Component
 const BrandedModal = ({

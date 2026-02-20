@@ -38,8 +38,8 @@ const char *WIFI_SSID = "mzkmbp";
 const char *WIFI_PASSWORD = "ncmaganda";
 
 // Firebase Configuration (Using API Key and Project ID for REST calls)
-const char *FIREBASE_API_KEY = "AIzaSyAOC8S6aOGvfnUzp0Twb-7O727Un9FoUGE";
-const char *FIREBASE_PROJECT_ID = "internet-of-tsiken-690dd";
+const char *FIREBASE_API_KEY = "AIzaSyBa6PE0nqkrFAqDm6AT2nIrZmv6qIfgiFM";
+const char *FIREBASE_PROJECT_ID = "internet-of-tsiken-f0ad4";
 
 // Safety Thresholds
 const int MAX_BOWL_WEIGHT = 500; // Grams (Stop feeding if > 500g)

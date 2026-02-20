@@ -2419,8 +2419,8 @@ export default function ControlScreen({ navigation }) {
             label="Water Level"
             value={sensorLoading ? "..." : `${Math.round(waterNow)}%`}
             subValue={waterNow > 80 ? "Full (Safety Active)" : "Normal"}
-            icon="water"
-            color="#2196F3"
+            icon="water-outline"
+            color="#133E87"
             loading={sensorLoading}
             isSimulated={isSimulated}
           />
@@ -2429,8 +2429,8 @@ export default function ControlScreen({ navigation }) {
             label="Feeder Mass"
             value={sensorLoading ? "..." : `${Math.round(bowlWeight)}g`}
             subValue={bowlWeight > 500 ? "Bowl Full" : "Ready"}
-            icon="nutrition"
-            color="#FF9800"
+            icon="nutrition-outline"
+            color="#133E87"
             loading={sensorLoading}
             isSimulated={isSimulated}
           />
@@ -2438,8 +2438,8 @@ export default function ControlScreen({ navigation }) {
           <StatCard
             label="Temperature"
             value={sensorLoading ? "..." : `${temperature}°C`}
-            icon="thermometer"
-            color="#F44336"
+            icon="thermometer-outline"
+            color="#133E87"
             loading={sensorLoading}
             isSimulated={isSimulated}
           />
@@ -2448,7 +2448,7 @@ export default function ControlScreen({ navigation }) {
             label="Humidity"
             value={sensorLoading ? "..." : `${humidity}%`}
             icon="water-outline"
-            color="#00BCD4"
+            color="#133E87"
             loading={sensorLoading}
             isSimulated={isSimulated}
           />
@@ -2458,7 +2458,7 @@ export default function ControlScreen({ navigation }) {
             value={sensorLoading ? "..." : `${airQuality}`}
             subValue="PPM"
             icon="cloud-outline"
-            color="#9E9E9E"
+            color="#133E87"
             loading={sensorLoading}
             isSimulated={isSimulated}
           />
@@ -2467,8 +2467,8 @@ export default function ControlScreen({ navigation }) {
             label="Water Storage"
             value={sensorLoading ? "..." : `${Math.round(waterStorageLevel)}%`}
             subValue={waterStorageLevel < 20 ? "Low - Refill Soon" : "Normal"}
-            icon="water"
-            color="#2196F3"
+            icon="water-outline"
+            color="#133E87"
             loading={sensorLoading}
             isSimulated={isSimulated}
           />
@@ -2477,8 +2477,8 @@ export default function ControlScreen({ navigation }) {
             label="Feed Storage"
             value={sensorLoading ? "..." : `${Math.round(feedStorageLevel)}%`}
             subValue={feedStorageLevel < 20 ? "Low - Refill Soon" : "Normal"}
-            icon="nutrition"
-            color="#FF9800"
+            icon="cube-outline"
+            color="#133E87"
             loading={sensorLoading}
             isSimulated={isSimulated}
           />
@@ -2621,7 +2621,7 @@ export default function ControlScreen({ navigation }) {
                       ]}
                     >
                       {selectedToDelete.includes(f.id) && (
-                        <Text style={{ color: "#fff" }}>✓</Text>
+                        <Ionicons name="checkmark" size={18} color="#fff" />
                       )}
                     </TouchableOpacity>
                   ) : (
@@ -2731,7 +2731,7 @@ export default function ControlScreen({ navigation }) {
                       ]}
                     >
                       {selectedToDelete.includes(w.id) && (
-                        <Text style={{ color: "#fff" }}>✓</Text>
+                        <Ionicons name="checkmark" size={18} color="#fff" />
                       )}
                     </TouchableOpacity>
                   ) : (
@@ -2902,9 +2902,16 @@ export default function ControlScreen({ navigation }) {
               </View>
               
               {/* Status text */}
-              <Text style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
-                Status: {lightOn ? "🟢 ON" : "⚫ OFF"}
-              </Text>
+              <View style={styles.statusRow}>
+                <Text style={styles.statusLabel}>Status:</Text>
+                <Ionicons
+                  name="ellipse"
+                  size={14}
+                  color={lightOn ? "#22c55e" : "#000"}
+                  style={{ marginHorizontal: 6 }}
+                />
+                <Text style={styles.statusValue}>{lightOn ? "ON" : "OFF"}</Text>
+              </View>
               <Text style={{ fontSize: 11, color: "#999", marginTop: 2, fontStyle: 'italic' }}>
                 Connected to ESP32 GPIO16 via MOSFET
               </Text>
@@ -2961,13 +2968,35 @@ export default function ControlScreen({ navigation }) {
                         : RED,
               }}
             >
+              <Ionicons
+                name={
+                  solarPowerLevel > 75
+                    ? "checkmark-circle"
+                    : solarPowerLevel > 50
+                      ? "radio-button-on"
+                      : solarPowerLevel > 30
+                        ? "warning"
+                        : "alert-circle"
+                }
+                size={14}
+                color={
+                  solarPowerLevel > 75
+                    ? GREEN
+                    : solarPowerLevel > 50
+                      ? YELLOW
+                      : solarPowerLevel > 30
+                        ? "#FF9800"
+                        : RED
+                }
+                style={{ marginRight: 4 }}
+              />
               {solarPowerLevel > 75
-                ? "✅ Excellent Power"
+                ? "Excellent Power"
                 : solarPowerLevel > 50
-                  ? "🟡 Good Power"
+                  ? "Good Power"
                   : solarPowerLevel > 30
-                    ? "🟠 Moderate Power"
-                    : "🔴 Low Power"}
+                    ? "Moderate Power"
+                    : "Low Power"}
             </Text>
 
             {/* Horizontal bar container with threshold indicator */}
@@ -3201,7 +3230,7 @@ export default function ControlScreen({ navigation }) {
             <TouchableOpacity
               style={[
                 styles.primaryBtn,
-                { backgroundColor: "#999", flex: 1, marginRight: 6 },
+                { backgroundColor: "#e5e7eb", flex: 1, marginRight: 6 },
               ]}
               onPress={() => {
                 if (feedEdit.open) {
@@ -3218,7 +3247,7 @@ export default function ControlScreen({ navigation }) {
               <Text style={styles.primaryBtnText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.primaryBtn, { flex: 1 }]}
+              style={[styles.primaryBtn, { flex: 1, backgroundColor: "#22c55e" }]}
               onPress={() => {
                 // Check for duplicate before showing confirm modal
                 if (feedEdit.open && feedEdit.idx !== null) {
@@ -3310,15 +3339,15 @@ export default function ControlScreen({ navigation }) {
             </Text>
             <View style={{ flexDirection: "row", marginTop: 12 }}>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                style={[styles.smallActionBtn, { backgroundColor: "#E5E7EB" }]}
                 onPress={() => setConfirmDeleteVisible(false)}
               >
-                <Text style={styles.smallActionText}>Cancel</Text>
+                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
                   styles.smallActionBtn,
-                  { backgroundColor: RED, marginLeft: 8 },
+                  { backgroundColor: "#22C55E", marginLeft: 8 },
                 ]}
                 onPress={confirmDeleteAll}
               >
@@ -3484,19 +3513,19 @@ export default function ControlScreen({ navigation }) {
             </Text>
             <View style={{ flexDirection: "row", marginTop: 12 }}>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                style={[styles.smallActionBtn, { backgroundColor: "#E5E7EB" }]}
                 onPress={() => {
                   setConfirmFeedSaveVisible(false);
                   setShowFeedAddPicker(false);
                   setPendingFeedTime(null);
                 }}
               >
-                <Text style={styles.smallActionText}>Cancel</Text>
+                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
                   styles.smallActionBtn,
-                  { backgroundColor: PRIMARY, marginLeft: 8 },
+                  { backgroundColor: "#22C55E", marginLeft: 8 },
                 ]}
                 onPress={confirmAddFeed}
               >
@@ -3557,18 +3586,18 @@ export default function ControlScreen({ navigation }) {
             </Text>
             <View style={{ flexDirection: "row", marginTop: 12 }}>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                style={[styles.smallActionBtn, { backgroundColor: "#E5E7EB" }]}
                 onPress={() => {
                   setConfirmEditVisible(false);
                   setFeedEdit({ open: false, idx: null, timeDate: new Date() });
                 }}
               >
-                <Text style={styles.smallActionText}>Cancel</Text>
+                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
                   styles.smallActionBtn,
-                  { backgroundColor: PRIMARY, marginLeft: 8 },
+                  { backgroundColor: "#22C55E", marginLeft: 8 },
                 ]}
                 onPress={() => {
                   if (feedEdit.open) {
@@ -3603,18 +3632,18 @@ export default function ControlScreen({ navigation }) {
             </Text>
             <View style={{ flexDirection: "row", marginTop: 12 }}>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                style={[styles.smallActionBtn, { backgroundColor: "#E5E7EB" }]}
                 onPress={() => {
                   setConfirmDeleteFeedVisible(false);
                   setPendingDeleteFeedId(null);
                 }}
               >
-                <Text style={styles.smallActionText}>Cancel</Text>
+                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
                   styles.smallActionBtn,
-                  { backgroundColor: RED, marginLeft: 8 },
+                  { backgroundColor: "#22C55E", marginLeft: 8 },
                 ]}
                 onPress={confirmDeleteFeed}
               >
@@ -3642,15 +3671,15 @@ export default function ControlScreen({ navigation }) {
             </Text>
             <View style={{ flexDirection: "row", marginTop: 12 }}>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                style={[styles.smallActionBtn, { backgroundColor: "#E5E7EB" }]}
                 onPress={() => setConfirmDeleteWaterVisible(false)}
               >
-                <Text style={styles.smallActionText}>Cancel</Text>
+                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
                   styles.smallActionBtn,
-                  { backgroundColor: RED, marginLeft: 8 },
+                  { backgroundColor: "#22C55E", marginLeft: 8 },
                 ]}
                 onPress={confirmDeleteWater}
               >
@@ -3710,18 +3739,18 @@ export default function ControlScreen({ navigation }) {
             </Text>
             <View style={{ flexDirection: "row", marginTop: 12 }}>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                style={[styles.smallActionBtn, { backgroundColor: "#e5e7eb" }]}
                 onPress={() => {
                   setConfirmWaterAddVisible(false);
                   setPendingWaterTime(null);
                 }}
               >
-                <Text style={styles.smallActionText}>Cancel</Text>
+                <Text style={[styles.smallActionText, { color: "#334155" }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
                   styles.smallActionBtn,
-                  { backgroundColor: PRIMARY, marginLeft: 8 },
+                  { backgroundColor: "#22c55e", marginLeft: 8 },
                 ]}
                 onPress={confirmAddWater}
               >
@@ -3741,10 +3770,7 @@ export default function ControlScreen({ navigation }) {
       >
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
-            <Image
-              source={require("../../../assets/logo.png")}
-              style={{ width: 56, height: 56 }}
-            />
+            <Ionicons name="checkmark-circle" size={56} color="#22c55e" />
             <Text style={styles.popupText}>Saved Successfully!</Text>
           </View>
         </View>
@@ -3867,9 +3893,9 @@ function CardHeader({ icon, title, rightText }) {
       <View style={{ flexDirection: "row", alignItems: "center" }}>
         <Ionicons
           name={icon}
-          size={20}
+          size={24}
           color={PRIMARY}
-          style={{ marginRight: 8 }}
+          style={{ marginRight: 12 }}
         />
         <Text style={styles.cardTitle}>{title}</Text>
       </View>
@@ -3960,6 +3986,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    paddingVertical: 6,
+    minHeight: 36,
   },
   cardTitle: { fontSize: 16, fontWeight: "700", color: PRIMARY },
   cardRightValue: { fontWeight: "700", color: PRIMARY },
@@ -3981,6 +4009,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#e2e8f0",
+  },
+
+  statusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 4,
+  },
+  statusLabel: {
+    fontSize: 12,
+    color: "#666",
+    fontWeight: "600",
+  },
+  statusValue: {
+    fontSize: 12,
+    color: "#666",
+    fontWeight: "600",
   },
 
   rowSpace: {
