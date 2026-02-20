@@ -10,7 +10,6 @@ import {
   Modal,
   FlatList,
   Button,
-  Alert,
   Platform,
   ActivityIndicator,
 } from "react-native";
@@ -19,6 +18,7 @@ import {
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Calendar } from "react-native-calendars";
 import Header2 from "../navigation/adminHeader";
+import BrandedAlertModal from "../navigation/BrandedAlertModal";
 import { fetchBatches } from "../User/Dashboard/viewallbatchesModal";
 import { db as firestoreDb } from "../../config/firebaseconfig";
 import {
@@ -681,6 +681,19 @@ export default function AdminAnalytics({ navigation }) {
   const [isLoadingWaterConsumption, setIsLoadingWaterConsumption] =
     useState(false);
   const [waterConsumptionError, setWaterConsumptionError] = useState(null);
+
+  // Branded Alert Modal state
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertConfig, setAlertConfig] = useState({
+    type: "info",
+    title: "",
+    message: "",
+  });
+
+  const showAlert = (type, title, message) => {
+    setAlertConfig({ type, title, message });
+    setAlertVisible(true);
+  };
 
   const formatFilterDisplay = (filterData) => {
     if (!filterData) return "";
@@ -1639,7 +1652,7 @@ export default function AdminAnalytics({ navigation }) {
       );
 
       if (!batchId) {
-        Alert.alert("Error", "Please select a batch from the filter");
+        showAlert("error", "Error", "Please select a batch from the filter");
         return [];
       }
 
@@ -1675,7 +1688,11 @@ export default function AdminAnalytics({ navigation }) {
       return allRecords;
     } catch (error) {
       console.error("[FetchFeedExport] Error:", error);
-      Alert.alert("Error", "Failed to fetch feed data: " + error.message);
+      showAlert(
+        "error",
+        "Error",
+        "Failed to fetch feed data: " + error.message,
+      );
       return [];
     }
   };
@@ -1692,7 +1709,7 @@ export default function AdminAnalytics({ navigation }) {
       );
 
       if (!batchId) {
-        Alert.alert("Error", "Please select a batch from the filter");
+        showAlert("error", "Error", "Please select a batch from the filter");
         return [];
       }
 
@@ -1728,7 +1745,11 @@ export default function AdminAnalytics({ navigation }) {
       return allRecords;
     } catch (error) {
       console.error("[FetchWaterExport] Error:", error);
-      Alert.alert("Error", "Failed to fetch water data: " + error.message);
+      showAlert(
+        "error",
+        "Error",
+        "Failed to fetch water data: " + error.message,
+      );
       return [];
     }
   };
@@ -2997,7 +3018,7 @@ export default function AdminAnalytics({ navigation }) {
 
     if (!startDateStr || !endDateStr) {
       console.error("[GenerateMortalityReportPDF] Failed to convert dates!");
-      Alert.alert("Error", "Failed to process date range");
+      showAlert("error", "Error", "Failed to process date range");
       setIsGeneratingReport(false);
       return;
     }
@@ -3019,7 +3040,8 @@ export default function AdminAnalytics({ navigation }) {
         console.warn(
           "[GenerateMortalityReportPDF] No records found, showing alert",
         );
-        Alert.alert(
+        showAlert(
+          "info",
           "No Data",
           "No mortality records found for the selected date range",
         );
@@ -3579,11 +3601,19 @@ export default function AdminAnalytics({ navigation }) {
       await Sharing.shareAsync(newPath);
       console.log("[GenerateMortalityReportPDF] PDF shared successfully");
 
-      Alert.alert("Success", "Mortality report exported successfully!");
+      showAlert(
+        "success",
+        "Success",
+        "Mortality report exported successfully!",
+      );
     } catch (error) {
       console.error("Error generating report:", error);
       console.error("Error stack:", error.stack);
-      Alert.alert("Error", "Failed to generate report: " + error.message);
+      showAlert(
+        "error",
+        "Error",
+        "Failed to generate report: " + error.message,
+      );
     } finally {
       setIsGeneratingReport(false);
     }
@@ -3598,7 +3628,7 @@ export default function AdminAnalytics({ navigation }) {
     // Get the selected batch from the filter
     const selectedBatch = chartFilters["feed"]?.batchId;
     if (!selectedBatch) {
-      Alert.alert("Error", "Please select a batch from the filter");
+      showAlert("error", "Error", "Please select a batch from the filter");
       return;
     }
 
@@ -3607,7 +3637,11 @@ export default function AdminAnalytics({ navigation }) {
       const records = await fetchFeedRecordsForExport(selectedBatch);
 
       if (records.length === 0) {
-        Alert.alert("No Data", "No feed records found for the selected batch");
+        showAlert(
+          "info",
+          "No Data",
+          "No feed records found for the selected batch",
+        );
         setIsGeneratingFeedReport(false);
         return;
       }
@@ -4222,10 +4256,18 @@ export default function AdminAnalytics({ navigation }) {
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
 
-      Alert.alert("Success", "Feed Consumption report exported successfully!");
+      showAlert(
+        "success",
+        "Success",
+        "Feed Consumption report exported successfully!",
+      );
     } catch (error) {
       console.error("Error generating feed report:", error);
-      Alert.alert("Error", "Failed to generate report: " + error.message);
+      showAlert(
+        "error",
+        "Error",
+        "Failed to generate report: " + error.message,
+      );
     } finally {
       setIsGeneratingFeedReport(false);
     }
@@ -4240,7 +4282,7 @@ export default function AdminAnalytics({ navigation }) {
     // Get the selected batch from the filter
     const selectedBatch = chartFilters["water"]?.batchId;
     if (!selectedBatch) {
-      Alert.alert("Error", "Please select a batch from the filter");
+      showAlert("error", "Error", "Please select a batch from the filter");
       return;
     }
 
@@ -4249,7 +4291,11 @@ export default function AdminAnalytics({ navigation }) {
       const records = await fetchWaterRecordsForExport(selectedBatch);
 
       if (records.length === 0) {
-        Alert.alert("No Data", "No water records found for the selected batch");
+        showAlert(
+          "info",
+          "No Data",
+          "No water records found for the selected batch",
+        );
         setIsGeneratingFeedReport(false);
         return;
       }
@@ -4865,10 +4911,18 @@ export default function AdminAnalytics({ navigation }) {
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
 
-      Alert.alert("Success", "Water Consumption report exported successfully!");
+      showAlert(
+        "success",
+        "Success",
+        "Water Consumption report exported successfully!",
+      );
     } catch (error) {
       console.error("Error generating water report:", error);
-      Alert.alert("Error", "Failed to generate report: " + error.message);
+      showAlert(
+        "error",
+        "Error",
+        "Failed to generate report: " + error.message,
+      );
     } finally {
       setIsGeneratingFeedReport(false);
     }
@@ -4885,7 +4939,7 @@ export default function AdminAnalytics({ navigation }) {
     const endDateFilter = chartFilters["solar"]?.endDate;
 
     if (!startDateFilter || !endDateFilter) {
-      Alert.alert("Error", "Please select a date range from the filter");
+      showAlert("error", "Error", "Please select a date range from the filter");
       return;
     }
 
@@ -4906,7 +4960,8 @@ export default function AdminAnalytics({ navigation }) {
       const snapshot = await getDocs(q);
 
       if (snapshot.docs.length === 0) {
-        Alert.alert(
+        showAlert(
+          "info",
           "No Data",
           "No energy usage records found for the selected date range",
         );
@@ -4983,9 +5038,15 @@ export default function AdminAnalytics({ navigation }) {
       });
 
       // Calculate average usage and extremes
-      const usageValues = usageByDate.map(item => item.usage).filter(val => val > 0);
-      const averageUsage = usageValues.length > 0 ? usageValues.reduce((a, b) => a + b, 0) / usageValues.length : 0;
-      const highestUsage = usageValues.length > 0 ? Math.max(...usageValues) : 0;
+      const usageValues = usageByDate
+        .map((item) => item.usage)
+        .filter((val) => val > 0);
+      const averageUsage =
+        usageValues.length > 0
+          ? usageValues.reduce((a, b) => a + b, 0) / usageValues.length
+          : 0;
+      const highestUsage =
+        usageValues.length > 0 ? Math.max(...usageValues) : 0;
       const lowestUsage = usageValues.length > 0 ? Math.min(...usageValues) : 0;
 
       // Find dates for highest and lowest usage
@@ -5015,19 +5076,25 @@ export default function AdminAnalytics({ navigation }) {
             trendHtml = '<span style="color: #999;">New usage</span>';
           } else if (previousUsage > 0) {
             // Calculate percentage change normally
-            const percentageChangeRaw = ((item.usage - previousUsage) / previousUsage) * 100;
-            const percentageChange = percentageChangeRaw % 1 === 0 ? Math.floor(percentageChangeRaw) : percentageChangeRaw.toFixed(1);
+            const percentageChangeRaw =
+              ((item.usage - previousUsage) / previousUsage) * 100;
+            const percentageChange =
+              percentageChangeRaw % 1 === 0
+                ? Math.floor(percentageChangeRaw)
+                : percentageChangeRaw.toFixed(1);
             if (percentageChange > 0) {
               trendHtml = `<span style="color: #F44336;">↑</span> <span style="color: #F44336;">+${percentageChange}%</span>`;
             } else if (percentageChange < 0) {
               trendHtml = `<span style="color: #4CAF50;">↓</span> <span style="color: #4CAF50;">${percentageChange}%</span>`;
             } else {
-              trendHtml = '<span style="color: #999;">→</span> <span style="color: #999;">0%</span>';
+              trendHtml =
+                '<span style="color: #999;">→</span> <span style="color: #999;">0%</span>';
             }
           }
         }
 
-        const displayUsage = item.usage % 1 === 0 ? Math.floor(item.usage) : item.usage.toFixed(2);
+        const displayUsage =
+          item.usage % 1 === 0 ? Math.floor(item.usage) : item.usage.toFixed(2);
         tableRows += `
           <tr>
             <td>${item.date}</td>
@@ -5038,7 +5105,8 @@ export default function AdminAnalytics({ navigation }) {
       });
 
       // Add total row
-      const displayTotalUsage = totalUsage % 1 === 0 ? Math.floor(totalUsage) : totalUsage.toFixed(2);
+      const displayTotalUsage =
+        totalUsage % 1 === 0 ? Math.floor(totalUsage) : totalUsage.toFixed(2);
       tableRows += `
         <tr style="background-color: #e8e8e8; font-weight: bold;">
           <td style="text-align: center;">TOTAL</td>
@@ -5265,10 +5333,18 @@ export default function AdminAnalytics({ navigation }) {
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
 
-      Alert.alert("Success", "Energy Trends report exported successfully!");
+      showAlert(
+        "success",
+        "Success",
+        "Energy Trends report exported successfully!",
+      );
     } catch (error) {
       console.error("[generateEnergyTrendsReportPDF] Error:", error);
-      Alert.alert("Error", "Failed to generate report: " + error.message);
+      showAlert(
+        "error",
+        "Error",
+        "Failed to generate report: " + error.message,
+      );
     } finally {
       setIsGeneratingFeedReport(false);
     }
@@ -5281,7 +5357,7 @@ export default function AdminAnalytics({ navigation }) {
    */
   const generateMortalityBatchReportPDF = async (startDateStr, endDateStr) => {
     if (!startDateStr || !endDateStr) {
-      Alert.alert("Error", "Please select both start and end dates");
+      showAlert("error", "Error", "Please select both start and end dates");
       return;
     }
 
@@ -5373,7 +5449,8 @@ export default function AdminAnalytics({ navigation }) {
         0,
       );
       if (totalDeaths === 0) {
-        Alert.alert(
+        showAlert(
+          "info",
           "No Data",
           "No mortality records found for the selected date range",
         );
@@ -5632,7 +5709,8 @@ export default function AdminAnalytics({ navigation }) {
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
 
-      Alert.alert(
+      showAlert(
+        "success",
         "Success",
         "Mortality Per Batch report exported successfully!",
       );
@@ -5640,7 +5718,11 @@ export default function AdminAnalytics({ navigation }) {
       // Modal closed automatically - no need to set state
     } catch (error) {
       console.error("Error generating batch report:", error);
-      Alert.alert("Error", "Failed to generate report: " + error.message);
+      showAlert(
+        "error",
+        "Error",
+        "Failed to generate report: " + error.message,
+      );
     } finally {
       setIsGeneratingBatchReport(false);
     }
@@ -5738,7 +5820,8 @@ export default function AdminAnalytics({ navigation }) {
       );
 
       if (allAttacks.length === 0) {
-        Alert.alert(
+        showAlert(
+          "info",
           "No Data",
           "No predator attacks found in the selected date range.",
         );
@@ -6296,9 +6379,17 @@ export default function AdminAnalytics({ navigation }) {
         dialogTitle: "Share Predator Attacks Report",
       });
 
-      Alert.alert("Success", "Predator Attacks report exported successfully!");
+      showAlert(
+        "success",
+        "Success",
+        "Predator Attacks report exported successfully!",
+      );
 
-      Alert.alert("Success", "Predator Attacks report exported successfully!");
+      showAlert(
+        "success",
+        "Success",
+        "Predator Attacks report exported successfully!",
+      );
 
       // Log the report generation
       try {
@@ -6314,7 +6405,11 @@ export default function AdminAnalytics({ navigation }) {
       }
     } catch (error) {
       console.error("[GeneratePredatorReport] Error:", error);
-      Alert.alert("Error", "Failed to generate report. Please try again.");
+      showAlert(
+        "error",
+        "Error",
+        "Failed to generate report. Please try again.",
+      );
     } finally {
       setIsGeneratingPredatorReport(false);
     }
@@ -6343,7 +6438,7 @@ export default function AdminAnalytics({ navigation }) {
 
     // Validate dates are set
     if (!startDateStr || !endDateStr) {
-      Alert.alert("Error", "Unable to determine date range for export.");
+      showAlert("error", "Error", "Unable to determine date range for export.");
       return;
     }
 
@@ -6502,7 +6597,8 @@ export default function AdminAnalytics({ navigation }) {
       );
 
       if (allAttacks.length === 0) {
-        Alert.alert(
+        showAlert(
+          "info",
           "No Data",
           "No predator attacks found in the selected date range.",
         );
@@ -7126,10 +7222,18 @@ export default function AdminAnalytics({ navigation }) {
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
 
-      Alert.alert("Success", "Attacks Per Batch report exported successfully!");
+      showAlert(
+        "success",
+        "Success",
+        "Attacks Per Batch report exported successfully!",
+      );
     } catch (error) {
       console.error("[GenerateAttacksPerBatchReport] Error:", error);
-      Alert.alert("Error", "Failed to generate report: " + error.message);
+      showAlert(
+        "error",
+        "Error",
+        "Failed to generate report: " + error.message,
+      );
     } finally {
       setIsGeneratingAttacksBatchReport(false);
     }
@@ -7238,7 +7342,8 @@ export default function AdminAnalytics({ navigation }) {
 
       // Check if there is any data
       if (totalSuccessActivations === 0) {
-        Alert.alert(
+        showAlert(
+          "info",
           "No Data",
           "No successful feed activations found for the selected date range.",
         );
@@ -7508,10 +7613,18 @@ export default function AdminAnalytics({ navigation }) {
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
 
-      Alert.alert("Success", "Feed Per Batch report exported successfully!");
+      showAlert(
+        "success",
+        "Success",
+        "Feed Per Batch report exported successfully!",
+      );
     } catch (error) {
       console.error("[GenerateFeedPerBatchReport] Error:", error);
-      Alert.alert("Error", "Failed to generate report: " + error.message);
+      showAlert(
+        "error",
+        "Error",
+        "Failed to generate report: " + error.message,
+      );
     } finally {
       setIsGeneratingFeedBatchReport(false);
     }
@@ -7627,7 +7740,8 @@ export default function AdminAnalytics({ navigation }) {
 
       // Check if there is any data
       if (totalSuccessActivations === 0) {
-        Alert.alert(
+        showAlert(
+          "info",
           "No Data",
           "No successful water activations found for the selected date range.",
         );
@@ -7918,10 +8032,18 @@ export default function AdminAnalytics({ navigation }) {
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
 
-      Alert.alert("Success", "Water Per Batch report exported successfully!");
+      showAlert(
+        "success",
+        "Success",
+        "Water Per Batch report exported successfully!",
+      );
     } catch (error) {
       console.error("[GenerateWaterPerBatchReport] Error:", error);
-      Alert.alert("Error", "Failed to generate report: " + error.message);
+      showAlert(
+        "error",
+        "Error",
+        "Failed to generate report: " + error.message,
+      );
     } finally {
       setIsGeneratingWaterBatchReport(false);
     }
@@ -8180,7 +8302,8 @@ export default function AdminAnalytics({ navigation }) {
         return `${day}-${months[parseInt(month) - 1]}-${year}`;
       };
       if (totalDeaths === 0) {
-        Alert.alert(
+        showAlert(
+          "info",
           "No Data",
           "No mortality records found for the selected date range.",
         );
@@ -8579,7 +8702,11 @@ export default function AdminAnalytics({ navigation }) {
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
 
-      Alert.alert("Success", "Cause of Death report exported successfully!");
+      showAlert(
+        "success",
+        "Success",
+        "Cause of Death report exported successfully!",
+      );
       setExportCauseModalVisible(false);
     } catch (error) {
       console.error("Error generating cause of death report:", error);
@@ -8698,11 +8825,19 @@ export default function AdminAnalytics({ navigation }) {
         // Share PDF with custom filename
         await Sharing.shareAsync(newPath);
 
-        Alert.alert("Success", "System Overview report exported successfully!");
+        showAlert(
+          "success",
+          "Success",
+          "System Overview report exported successfully!",
+        );
       } catch (fallbackError) {
         console.error("Error creating branded error page:", fallbackError);
         // Fallback to alert if branded error page fails
-        Alert.alert("Error", "Failed to generate report: " + error.message);
+        showAlert(
+          "error",
+          "Error",
+          "Failed to generate report: " + error.message,
+        );
       }
       setExportCauseModalVisible(false);
     } finally {
@@ -8737,7 +8872,7 @@ export default function AdminAnalytics({ navigation }) {
 
       // Validate dates
       if (!startDateStr || !endDateStr) {
-        Alert.alert("Error", "Failed to determine date range");
+        showAlert("error", "Error", "Failed to determine date range");
         return;
       }
 
@@ -8951,7 +9086,8 @@ export default function AdminAnalytics({ navigation }) {
       }
 
       if (totalAttacks === 0) {
-        Alert.alert(
+        showAlert(
+          "info",
           "No Data",
           "No predator attacks found for the selected date range.",
         );
@@ -9536,10 +9672,18 @@ export default function AdminAnalytics({ navigation }) {
       // Share PDF with custom filename
       await Sharing.shareAsync(newPath);
 
-      Alert.alert("Success", "Predator Types report exported successfully!");
+      showAlert(
+        "success",
+        "Success",
+        "Predator Types report exported successfully!",
+      );
     } catch (error) {
       console.error("Error generating Predator Types report:", error);
-      Alert.alert("Error", "Failed to generate report: " + error.message);
+      showAlert(
+        "error",
+        "Error",
+        "Failed to generate report: " + error.message,
+      );
     } finally {
       setIsGeneratingPredatorTypesReport(false);
     }
@@ -10342,6 +10486,13 @@ export default function AdminAnalytics({ navigation }) {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <BrandedAlertModal
+        visible={alertVisible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertVisible(false)}
+      />
       <Header2 />
       <ScrollView contentContainerStyle={styles.container}>
         {/* Back Button */}
@@ -13162,10 +13313,10 @@ export default function AdminAnalytics({ navigation }) {
 
                           // Validate: Do not allow future dates
                           if (selectedDate > today) {
-                            Alert.alert(
+                            showAlert(
+                              "error",
                               "Invalid Date",
                               "Future dates are not allowed. Please select today or an earlier date.",
-                              [{ text: "OK" }],
                             );
                             return;
                           }
@@ -13188,10 +13339,10 @@ export default function AdminAnalytics({ navigation }) {
                             const maxDays = 365;
 
                             if (diffDays > maxDays - 1) {
-                              Alert.alert(
+                              showAlert(
+                                "error",
                                 "Invalid Range",
                                 `Please select a date range within ${maxDays} days.`,
-                                [{ text: "OK" }],
                               );
                               return;
                             }
@@ -13454,10 +13605,10 @@ export default function AdminAnalytics({ navigation }) {
 
                     // Validate: Do not allow future dates
                     if (selectedDate > today) {
-                      Alert.alert(
+                      showAlert(
+                        "error",
                         "Invalid Date",
                         "Future dates are not allowed. Please select today or an earlier date.",
-                        [{ text: "OK" }],
                       );
                       return;
                     }
@@ -13994,11 +14145,19 @@ function ReportsTab({ barData = [], metrics = [] }) {
   };
 
   const handleExportPdf = () => {
-    Alert.alert("Export PDF", "PDF export is not implemented in this demo.");
+    showAlert(
+      "info",
+      "Export PDF",
+      "PDF export is not implemented in this demo.",
+    );
   };
 
   const handleExportCsv = () => {
-    Alert.alert("Export CSV", "CSV export is not implemented in this demo.");
+    showAlert(
+      "info",
+      "Export CSV",
+      "CSV export is not implemented in this demo.",
+    );
   };
 
   const handleGenerateAnother = () => {
