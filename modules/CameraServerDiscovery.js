@@ -5,6 +5,7 @@
  */
 async function tryGetPublicUrl() {
   const localUrls = [
+    'http://10.146.150.156:5000',  // Current network
     'http://10.180.11.156:5000',
     'http://192.168.68.134:5000',
     'http://192.168.1.19:5000',
@@ -48,7 +49,8 @@ function generateIPsToScan() {
   
   // Common subnet prefixes
   const subnets = [
-    '10.180.11',   // Current network
+    '10.146.150',  // Current network (Feb 2026)
+    '10.180.11',   // Previous network
     '192.168.68',  // Previous network
     '192.168.1',   // Most common home router
     '192.168.0',   // Second most common
