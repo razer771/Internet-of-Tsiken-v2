@@ -42,6 +42,7 @@ export default function VerifyIdentityScreen() {
   const [alertTitle, setAlertTitle] = useState("");
   const [alertMessage, setAlertMessage] = useState("");
   const [isSendingOTP, setIsSendingOTP] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
 
   const inputs = useRef([]);
   const navigation = useNavigation();
@@ -227,7 +228,7 @@ export default function VerifyIdentityScreen() {
 
           setShowOtpScreen(true);
           setSuccessModalVisible(true);
-          setCountdown(300); // 5 minutes
+          setCountdown(60); // 1 minute
           setCanResend(false);
           setIsSendingOTP(false);
 
@@ -280,18 +281,21 @@ export default function VerifyIdentityScreen() {
 
   // Verify OTP using Firebase Functions
   const handleVerifyLogin = async () => {
+    setIsVerifying(true);
     if (isLocked) {
       showAlert(
         "error",
         "Device Locked",
         `Too many failed attempts. Please wait ${lockCountdown} seconds before trying again.`,
       );
+      setIsVerifying(false);
       return;
     }
 
     const enteredOtp = otp.join("");
     if (!confirmationResult) {
       showAlert("error", "Error", "No OTP request found.");
+      setIsVerifying(false);
       return;
     }
 
@@ -333,6 +337,7 @@ export default function VerifyIdentityScreen() {
             const userData = userDoc.data();
             console.log("👤 User role:", userData.role || "Regular user");
 
+            setIsVerifying(false);
             showAlert(
               "success",
               "Success",
@@ -377,6 +382,7 @@ export default function VerifyIdentityScreen() {
           setIsLocked(true);
           setLockCountdown(10);
           setOtp(["", "", "", "", "", ""]);
+          setIsVerifying(false);
           showAlert(
             "error",
             "Device Locked",
@@ -385,11 +391,13 @@ export default function VerifyIdentityScreen() {
         } else {
           // Show remaining attempts
           const remainingAttempts = 5 - newAttempts;
+          setIsVerifying(false);
           showAlert("error", "Invalid OTP", `Check you message and try again.`);
         }
       }
     } catch (error) {
       console.error("OTP Verification Error:", error);
+      setIsVerifying(false);
       showAlert(
         "error",
         "Error",
@@ -407,15 +415,8 @@ export default function VerifyIdentityScreen() {
   };
 
   const handleOutsideTap = () => {
+    // Only dismiss keyboard - no navigation from outside taps
     Keyboard.dismiss();
-    // Only navigate back if not in OTP screen
-    if (!showOtpScreen) {
-      if (navigation.canGoBack()) {
-        navigation.goBack();
-      } else {
-        navigation.navigate("LogIn");
-      }
-    }
   };
 
   const formatLockoutTime = (seconds) => {
@@ -539,10 +540,11 @@ export default function VerifyIdentityScreen() {
               </View>
 
               <TouchableOpacity
-                style={styles.verifyButton}
+                style={[styles.verifyButton, isVerifying && styles.verifyButtonDisabled]}
                 onPress={handleVerifyLogin}
+                disabled={isVerifying}
               >
-                <Text style={styles.verifyText}>Verify</Text>
+                <Text style={styles.verifyText}>{isVerifying ? "Verifying..." : "Verify"}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.backButton} onPress={handleBack}>
@@ -866,6 +868,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: "center",
     marginBottom: 10,
+  },
+  verifyButtonDisabled: {
+    opacity: 0.6,
   },
   verifyText: {
     color: "#fff",

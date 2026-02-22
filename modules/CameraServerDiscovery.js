@@ -5,7 +5,8 @@
  */
 async function tryGetPublicUrl() {
   const localUrls = [
-    'http://10.75.26.156:5000',
+    'http://10.146.150.156:5000',  // Current network
+    'http://10.180.11.156:5000',
     'http://192.168.68.134:5000',
     'http://192.168.1.19:5000',
     'http://10.193.174.156:5000'
@@ -48,7 +49,8 @@ function generateIPsToScan() {
   
   // Common subnet prefixes
   const subnets = [
-    '10.75.26',    // Current network (Pi IP: 10.75.26.156)
+    '10.146.150',  // Current network (Feb 2026)
+    '10.180.11',   // Previous network
     '192.168.68',  // Previous network
     '192.168.1',   // Most common home router
     '192.168.0',   // Second most common
@@ -56,7 +58,7 @@ function generateIPsToScan() {
     '172.20.10',   // iOS hotspot
     '10.0.0',      // Corporate/Apple
     '10.0.1',      // Corporate variation
-    '10.193.174',  // Previous network
+    '10.193.174',  // Old network
     '172.27.223',  // Mobile carrier
     '192.168.137', // Windows hotspot
   ];
