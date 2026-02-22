@@ -49,6 +49,10 @@ const rtdb = getDatabase();
 const SEMAPHORE_API_URL = "https://semaphore.co/api/v4/messages"; // Use /messages endpoint for custom SMS
 const OTP_EXPIRY_MINUTES = 10;
 
+// For local development, fallback to hardcoded key
+const FIREBASE_API_KEY =
+  process.env.FIREBASE_API_KEY || "AIzaSyBa6PE0nqkrFAqDm6AT2nIrZmv6qIfgiFM";
+
 /**
  * Get Semaphore API Key from environment variable
 /**
@@ -737,14 +741,14 @@ exports.createUserAccount = onCall(
         .add({
           adminId: callerUid,
           adminName: createdByAdminName,
-          action: `Account created for ${fullName} as ${role}`,
+          action: `${role} account created: ${fullName}`,
           description: `Created new ${role} account for ${fullName} (${email})`,
           timestamp: FieldValue.serverTimestamp(),
           newUserId: userRecord.uid,
           newUserEmail: email,
           newUserName: fullName,
           newUserRole: role.toLowerCase(),
-          userId: userRecord.uid,
+          userId: callerUid,
         });
 
       console.log(`Account creation logged successfully`);
@@ -1087,10 +1091,16 @@ exports.validatePasswordReset = onCall(
 
     try {
       const bcrypt = require("bcryptjs");
+      const crypto = require("crypto");
+
+      // Helper function to hash password as SHA-256 (for comparing old passwords)
+      function hashPasswordSHA256(password) {
+        return crypto.createHash("sha256").update(password).digest("hex");
+      }
 
       // Get user document by email
       const usersRef = db.collection("users");
-      const query = usersRef.where("email", "==", email.trim());
+      const query = usersRef.where("email", "==", email.trim().toLowerCase());
       const snapshot = await query.get();
 
       if (snapshot.empty) {
@@ -1100,14 +1110,95 @@ exports.validatePasswordReset = onCall(
       const userDoc = snapshot.docs[0];
       const userData = userDoc.data();
 
-      // Check against current password hash
+      console.log("🔍 Validating password reset for:", email);
+      console.log(
+        "📊 Current password hash exists?",
+        !!userData.currentPasswordHash,
+      );
+      console.log(
+        "📊 Password history count:",
+        (userData.passwordHistory || []).length,
+      );
+
+      async function isCurrentPasswordViaAuth(emailToCheck, passwordToCheck) {
+        if (!FIREBASE_API_KEY) {
+          throw new HttpsError(
+            "failed-precondition",
+            "FIREBASE_API_KEY is not configured",
+          );
+        }
+
+        const url =
+          "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=" +
+          FIREBASE_API_KEY;
+
+        try {
+          await axios.post(url, {
+            email: emailToCheck,
+            password: passwordToCheck,
+            returnSecureToken: false,
+          });
+          return true;
+        } catch (error) {
+          const errorCode =
+            error &&
+            error.response &&
+            error.response.data &&
+            error.response.data.error &&
+            error.response.data.error.message;
+
+          if (
+            errorCode === "INVALID_PASSWORD" ||
+            errorCode === "INVALID_LOGIN_CREDENTIALS"
+          ) {
+            return false;
+          }
+
+          if (errorCode === "EMAIL_NOT_FOUND") {
+            throw new HttpsError("not-found", "User not found");
+          }
+
+          throw new HttpsError(
+            "internal",
+            "Failed to validate password. Please try again.",
+          );
+        }
+      }
+
+      // Check against current password hash (bcryptjs format)
       if (userData.currentPasswordHash) {
+        console.log(
+          "🔐 Comparing new password against current hash (bcryptjs)...",
+        );
         const isCurrentPassword = await bcrypt.compare(
           newPassword,
           userData.currentPasswordHash,
         );
 
         if (isCurrentPassword) {
+          console.log(
+            "❌ Password validation failed: User tried to use current password",
+          );
+          throw new HttpsError(
+            "invalid-argument",
+            "You cannot use your current password. Please choose a different password.",
+          );
+        }
+      } else {
+        console.log(
+          "ℹ️ First reset - no current hash to check against for email:",
+          email,
+        );
+
+        const isCurrentPassword = await isCurrentPasswordViaAuth(
+          email.trim().toLowerCase(),
+          newPassword,
+        );
+
+        if (isCurrentPassword) {
+          console.log(
+            "❌ Password validation failed: User tried to use current password",
+          );
           throw new HttpsError(
             "invalid-argument",
             "You cannot use your current password. Please choose a different password.",
@@ -1115,15 +1206,53 @@ exports.validatePasswordReset = onCall(
         }
       }
 
-      // Check against password history (last 5 passwords)
+      // Check against password history (both SHA-256 old format and bcryptjs new format)
       const passwordHistory = userData.passwordHistory || [];
-      for (const oldPasswordHash of passwordHistory) {
-        const isSameAsOld = await bcrypt.compare(newPassword, oldPasswordHash);
-        if (isSameAsOld) {
-          throw new HttpsError(
-            "invalid-argument",
-            "You cannot reuse a previously used password. Please choose a different password.",
-          );
+      const newPasswordSHA256 = hashPasswordSHA256(newPassword);
+
+      for (let i = 0; i < passwordHistory.length; i++) {
+        const oldPasswordHash = passwordHistory[i];
+        if (oldPasswordHash) {
+          // Check if it's a SHA-256 hash (64 hex characters) or bcryptjs hash (starts with $2a$ or $2b$)
+          if (
+            oldPasswordHash.length === 64 &&
+            /^[a-f0-9]{64}$/.test(oldPasswordHash)
+          ) {
+            // It's a SHA-256 hash - compare directly
+            console.log(
+              `🔐 Comparing new password against SHA-256 history[${i}]...`,
+            );
+            if (newPasswordSHA256 === oldPasswordHash) {
+              console.log(
+                `❌ Password validation failed: User tried to reuse old password (SHA-256)`,
+              );
+              throw new HttpsError(
+                "invalid-argument",
+                "You cannot reuse a previously used password. Please choose a different password.",
+              );
+            }
+          } else if (
+            oldPasswordHash.startsWith("$2a$") ||
+            oldPasswordHash.startsWith("$2b$")
+          ) {
+            // It's a bcryptjs hash - use bcrypt.compare
+            console.log(
+              `🔐 Comparing new password against bcryptjs history[${i}]...`,
+            );
+            const isSameAsOld = await bcrypt.compare(
+              newPassword,
+              oldPasswordHash,
+            );
+            if (isSameAsOld) {
+              console.log(
+                `❌ Password validation failed: User tried to reuse old password (bcryptjs)`,
+              );
+              throw new HttpsError(
+                "invalid-argument",
+                "You cannot reuse a previously used password. Please choose a different password.",
+              );
+            }
+          }
         }
       }
 
@@ -1150,21 +1279,28 @@ exports.validatePasswordReset = onCall(
  * Called after successful password reset confirmation
  * @param {string} uid - User UID
  * @param {string} email - User email
+ * @param {string} password - Plaintext password to hash and store
  * @returns {Promise<object>} - { success: boolean }
  */
 exports.storePasswordHash = onCall(
   { region: "us-central1", timeoutSeconds: 60, memory: "256MB" },
   async (request) => {
-    const { uid, email, passwordHash } = request.data;
+    const { uid, email, password } = request.data;
 
-    if (!uid || !email || !passwordHash) {
+    if (!uid || !email || !password) {
       throw new HttpsError(
         "invalid-argument",
-        "uid, email, and passwordHash are required",
+        "uid, email, and password are required",
       );
     }
 
     try {
+      const bcrypt = require("bcryptjs");
+
+      // Hash the password with bcryptjs (matching validatePasswordReset method)
+      const saltRounds = 10;
+      const passwordHash = await bcrypt.hash(password, saltRounds);
+
       const userRef = db.collection("users").doc(uid);
       const userDoc = await userRef.get();
 
@@ -1190,7 +1326,7 @@ exports.storePasswordHash = onCall(
         lastPasswordChangeAt: new Date(),
       });
 
-      console.log("✅ Password hash stored for user:", email);
+      console.log("✅ Password hash stored securely for user:", email);
       return { success: true };
     } catch (error) {
       console.error("Error storing password hash:", error);

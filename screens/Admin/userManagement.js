@@ -24,6 +24,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Reusable Branded Alert Modal Component
 const BrandedAlertModal = ({ visible, type, title, message, onClose }) => {
@@ -97,7 +98,7 @@ export default function UserManagement({ navigation }) {
     middleName: "",
     lastName: "",
     email: "",
-    phone: "",
+    phone: "09",
     role: "Worker",
   });
   const [originalEmail, setOriginalEmail] = useState("");
@@ -130,6 +131,13 @@ export default function UserManagement({ navigation }) {
   const [deleteConfirmBtnPressed, setDeleteConfirmBtnPressed] = useState(false);
   const [deleteCancelBtnPressed, setDeleteCancelBtnPressed] = useState(false);
   const [deleteSuccessVisible, setDeleteSuccessVisible] = useState(false);
+
+  // Mark As Active Modal
+  const [markAsActiveVisible, setMarkAsActiveVisible] = useState(false);
+  const [markAsActiveBtnPressed, setMarkAsActiveBtnPressed] = useState(false);
+  const [cancelMarkAsActiveBtnPressed, setCancelMarkAsActiveBtnPressed] =
+    useState(false);
+  const [markAsActiveSuccessVisible, setMarkAsActiveSuccessVisible] = useState(false);
 
   // Alert Modal
   const [alertVisible, setAlertVisible] = useState(false);
@@ -241,6 +249,53 @@ export default function UserManagement({ navigation }) {
     };
   }, []);
 
+  // Clear account creation protection flag after UserManagement fully loads
+  useEffect(() => {
+    const clearAccountCreationFlag = async () => {
+      try {
+        const isCreating = await AsyncStorage.getItem("accountCreationInProgress");
+        const storedAdminUid = await AsyncStorage.getItem("adminContextUid");
+        const currentUid = auth.currentUser?.uid;
+
+        if (isCreating === "true") {
+          console.log("✅ UserManagement mounted - checking admin context...");
+          console.log("📊 Stored admin UID:", storedAdminUid);
+          console.log("📊 Current user UID:", currentUid);
+
+          if (storedAdminUid && currentUid === storedAdminUid) {
+            console.log("✅ VERIFIED: Admin is still logged in - clearing flag safely");
+            await AsyncStorage.removeItem("accountCreationInProgress");
+            await AsyncStorage.removeItem("adminContextUid");
+            console.log("🎉 Account creation flag cleared - auth listener is now active");
+          } else if (!currentUid) {
+            // User auth context is missing - something went wrong
+            console.warn("⚠️ WARNING: User auth context missing!");
+            await AsyncStorage.removeItem("accountCreationInProgress");
+            await AsyncStorage.removeItem("adminContextUid");
+          } else if (currentUid !== storedAdminUid) {
+            // UID mismatch - user context has changed after account creation
+            console.warn("⚠️ AUTH CONTEXT CHANGED UNEXPECTEDLY");
+            console.warn("Expected admin UID:", storedAdminUid, "Got:", currentUid);
+            // Still clear the flag but log the anomaly
+            await AsyncStorage.removeItem("accountCreationInProgress");
+            await AsyncStorage.removeItem("adminContextUid");
+          }
+        }
+      } catch (error) {
+        console.error("❌ Error clearing account creation flag:", error);
+        // Try to clean up anyway
+        try {
+          await AsyncStorage.removeItem("accountCreationInProgress");
+          await AsyncStorage.removeItem("adminContextUid");
+        } catch (cleanupError) {
+          console.error("❌ Cleanup error:", cleanupError);
+        }
+      }
+    };
+
+    clearAccountCreationFlag();
+  }, []);
+
   // Apply filters: role + status + search
   const filteredUsers = users.filter((u) => {
     // role filter
@@ -316,15 +371,18 @@ export default function UserManagement({ navigation }) {
   };
 
   const validatePhone = (phone) => {
-    if (!phone) {
+    if (!phone || phone === "09") {
       return "Mobile number is required";
     }
-    if (phone.length > 13) {
-      console.log(`Mobile number too long: ${phone.length} characters`);
-      return "Mobile number must not exceed 13 characters";
+    if (phone.length !== 11) {
+      console.log(`Mobile number invalid length: ${phone.length} characters`);
+      return "Mobile number must be exactly 11 digits";
     }
-    if (!/^\+639\d{9}$/.test(phone)) {
-      return "Mobile number must be in format +639xxxxxxxxx";
+    if (!phone.startsWith("09")) {
+      return "Mobile number must start with 09";
+    }
+    if (!/^\d{11}$/.test(phone)) {
+      return "Mobile number must contain only digits";
     }
     return "";
   };
@@ -473,6 +531,55 @@ export default function UserManagement({ navigation }) {
   const handleDeleteUser = (user) => {
     setSelectedUser(user);
     setDeleteUserVisible(true);
+  };
+
+  const handleMarkAsActive = (user) => {
+    console.log("Mark As Active confirmation modal opened for:", user.firstName, user.lastName);
+    setSelectedUser(user);
+    setMarkAsActiveVisible(true);
+  };
+
+  const handleConfirmMarkAsActive = async () => {
+    try {
+      console.log("Confirming mark as active for:", selectedUser);
+
+      if (!selectedUser || !selectedUser.id) {
+        console.error("No user selected");
+        return;
+      }
+
+      const userRef = doc(db, "users", selectedUser.id);
+
+      // Update accountStatus to "active" in Firestore
+      await updateDoc(userRef, {
+        accountStatus: "active",
+      });
+
+      console.log(
+        `User ${selectedUser.firstName} ${selectedUser.lastName} marked as Active in Firestore`
+      );
+
+      setMarkAsActiveVisible(false);
+
+      // Show success modal
+      setMarkAsActiveSuccessVisible(true);
+
+      // Redirect after 2.5 seconds
+      setTimeout(() => {
+        setMarkAsActiveSuccessVisible(false);
+        setSelectedUser(null);
+      }, 2500);
+
+      // User list will auto-refresh via onSnapshot listener
+    } catch (error) {
+      console.error("Error marking user as active:", error);
+      setAlertType("error");
+      setAlertTitle("Update Failed");
+      setAlertMessage("Failed to mark user as active. Please try again.");
+      setAlertVisible(true);
+      setMarkAsActiveVisible(false);
+      setSelectedUser(null);
+    }
   };
 
   const handleConfirmDelete = async () => {
@@ -848,29 +955,53 @@ export default function UserManagement({ navigation }) {
                   </View>
                   {/* Actions */}
                   <View style={styles.actionsCol}>
-                    <TouchableOpacity onPress={() => handleEditUser(user)}>
+                    <TouchableOpacity 
+                      onPress={() => handleEditUser(user)}
+                      disabled={user.id === auth.currentUser?.uid}
+                      style={{ opacity: user.id === auth.currentUser?.uid ? 0.4 : 1 }}
+                    >
                       <MaterialCommunityIcons
                         name="pencil-outline"
                         size={20}
-                        color="#234187"
+                        color={user.id === auth.currentUser?.uid ? "#ccc" : "#234187"}
                       />
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handleForcePasswordChange(user)}
+                      disabled={user.id === auth.currentUser?.uid}
+                      style={{ opacity: user.id === auth.currentUser?.uid ? 0.4 : 1 }}
                     >
                       <MaterialCommunityIcons
                         name="lock-outline"
                         size={20}
-                        color="#234187"
+                        color={user.id === auth.currentUser?.uid ? "#ccc" : "#234187"}
                       />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => handleDeleteUser(user)}>
-                      <MaterialCommunityIcons
-                        name="trash-can-outline"
-                        size={20}
-                        color="#D9534F"
-                      />
-                    </TouchableOpacity>
+                    {user.accountStatus?.toLowerCase() === "inactive" ? (
+                      <TouchableOpacity 
+                        onPress={() => handleMarkAsActive(user)}
+                        disabled={user.id === auth.currentUser?.uid}
+                        style={{ opacity: user.id === auth.currentUser?.uid ? 0.4 : 1 }}
+                      >
+                        <MaterialCommunityIcons
+                          name="restart"
+                          size={20}
+                          color={user.id === auth.currentUser?.uid ? "#ccc" : "#22C55E"}
+                        />
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity 
+                        onPress={() => handleDeleteUser(user)}
+                        disabled={user.id === auth.currentUser?.uid}
+                        style={{ opacity: user.id === auth.currentUser?.uid ? 0.4 : 1 }}
+                      >
+                        <MaterialCommunityIcons
+                          name="trash-can-outline"
+                          size={20}
+                          color={user.id === auth.currentUser?.uid ? "#ccc" : "#D9534F"}
+                        />
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </TouchableOpacity>
               );
@@ -1001,7 +1132,7 @@ export default function UserManagement({ navigation }) {
                     phone: validatePhone(text),
                   });
                 }}
-                placeholder="+639xxxxxxxxx"
+                placeholder="09xxxxxxxxx"
                 keyboardType="phone-pad"
               />
               {validationErrors.phone ? (
@@ -1284,6 +1415,70 @@ export default function UserManagement({ navigation }) {
         </View>
       </Modal>
 
+      {/* Mark As Active Modal */}
+      <Modal
+        transparent
+        visible={markAsActiveVisible}
+        animationType="fade"
+        onRequestClose={() => setMarkAsActiveVisible(false)}
+      >
+        <View style={styles.overlay}>
+          <View style={styles.deleteUserModal}>
+            <Text style={styles.deleteUserTitle}>Reactivate User Account</Text>
+            <Text style={styles.deleteUserMessage}>
+              Are you sure you want to mark {selectedUser?.firstName}{" "}
+              {selectedUser?.lastName} as active?{"\n"}
+              This user will be able to log in and access the system.
+            </Text>
+
+            <TouchableOpacity
+              style={[
+                styles.deleteConfirmButton,
+                markAsActiveBtnPressed && styles.deleteConfirmButtonPressed,
+              ]}
+              activeOpacity={0.8}
+              onPressIn={() => setMarkAsActiveBtnPressed(true)}
+              onPressOut={() => setMarkAsActiveBtnPressed(false)}
+              onPress={handleConfirmMarkAsActive}
+            >
+              <Text
+                style={[
+                  styles.deleteConfirmButtonText,
+                  markAsActiveBtnPressed &&
+                    styles.deleteConfirmButtonTextPressed,
+                ]}
+              >
+                Confirm
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.deleteCancelButton,
+                cancelMarkAsActiveBtnPressed && styles.deleteCancelButtonPressed,
+              ]}
+              activeOpacity={0.8}
+              onPressIn={() => setCancelMarkAsActiveBtnPressed(true)}
+              onPressOut={() => setCancelMarkAsActiveBtnPressed(false)}
+              onPress={() => {
+                setMarkAsActiveVisible(false);
+                setSelectedUser(null);
+              }}
+            >
+              <Text
+                style={[
+                  styles.deleteCancelButtonText,
+                  cancelMarkAsActiveBtnPressed &&
+                    styles.deleteCancelButtonTextPressed,
+                ]}
+              >
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Delete Success Modal */}
       <Modal transparent visible={deleteSuccessVisible} animationType="fade">
         <View style={styles.overlay}>
@@ -1296,7 +1491,25 @@ export default function UserManagement({ navigation }) {
             </Text>
             <Text style={styles.deleteSuccessSubtitle}>Access disabled</Text>
             <Text style={styles.deleteSuccessLoading}>
-              Loading your dashboard...
+              Loading...
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Mark As Active Success Modal */}
+      <Modal transparent visible={markAsActiveSuccessVisible} animationType="fade">
+        <View style={styles.overlay}>
+          <View style={styles.deleteSuccessModal}>
+            <View style={styles.successIconContainer}>
+              <MaterialCommunityIcons name="check" size={48} color="#4CAF50" />
+            </View>
+            <Text style={styles.deleteSuccessTitle}>
+              Account marked as active
+            </Text>
+            <Text style={styles.deleteSuccessSubtitle}>Access enabled</Text>
+            <Text style={styles.deleteSuccessLoading}>
+              Loading...
             </Text>
           </View>
         </View>

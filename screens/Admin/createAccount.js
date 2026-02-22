@@ -106,6 +106,9 @@ export default function CreateAccount({ navigation }) {
   const [alertTitle, setAlertTitle] = useState("");
   const [alertMessage, setAlertMessage] = useState("");
 
+  // Loading state to prevent multiple taps
+  const [isCreating, setIsCreating] = useState(false);
+
   const roles = ["Admin", "User"];
 
   const showAlert = (type, title, message) => {
@@ -169,6 +172,11 @@ export default function CreateAccount({ navigation }) {
   };
 
   const handleSaveChanges = async () => {
+    // Prevent multiple taps
+    if (isCreating) {
+      return;
+    }
+
     const newErrors = {};
 
     // First Name validation
@@ -253,6 +261,9 @@ export default function CreateAccount({ navigation }) {
     if (Object.keys(newErrors).length === 0) {
       console.log("Save Changes - Form is valid");
 
+      // Set creating state to prevent multiple taps
+      setIsCreating(true);
+
       // Set flag to prevent App.js from interfering during account creation
       await AsyncStorage.setItem("accountCreationInProgress", "true");
 
@@ -265,6 +276,7 @@ export default function CreateAccount({ navigation }) {
 
         if (!emailSnapshot.empty) {
           console.log("❌ Email already exists in database:", email);
+          setIsCreating(false);
           await AsyncStorage.removeItem("accountCreationInProgress");
           showAlert(
             "error",
@@ -294,6 +306,7 @@ export default function CreateAccount({ navigation }) {
         });
 
         if (!result.data.success) {
+          setIsCreating(false);
           throw new Error("Failed to create account");
         }
 
@@ -321,6 +334,7 @@ export default function CreateAccount({ navigation }) {
 
         setTimeout(async () => {
           setSuccessVisible(false);
+          setIsCreating(false);
 
           // Clear the flag before navigation
           await AsyncStorage.removeItem("accountCreationInProgress");
@@ -332,6 +346,9 @@ export default function CreateAccount({ navigation }) {
         }, 2500);
       } catch (error) {
         console.error("❌ Error creating account:", error);
+
+        // Reset creating state
+        setIsCreating(false);
 
         // Clear the flag in case of error
         await AsyncStorage.removeItem("accountCreationInProgress");
@@ -375,6 +392,16 @@ export default function CreateAccount({ navigation }) {
   const handleCancel = () => {
     navigation.goBack();
   };
+
+  // Check if form fields are filled (for button disabled state)
+  const isFormEmpty =
+    !firstName.trim() ||
+    !lastName.trim() ||
+    !email.trim() ||
+    !mobileNumber.trim() ||
+    !password ||
+    !confirmPassword ||
+    !role;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -784,19 +811,22 @@ export default function CreateAccount({ navigation }) {
                 style={[
                   styles.saveButton,
                   pressedBtn === "save" && styles.saveButtonPressed,
+                  (isFormEmpty || isCreating) && styles.saveButtonDisabled,
                 ]}
                 activeOpacity={0.8}
-                onPressIn={() => setPressedBtn("save")}
+                onPressIn={() => !isFormEmpty && !isCreating && setPressedBtn("save")}
                 onPressOut={() => setPressedBtn(null)}
                 onPress={handleSaveChanges}
+                disabled={isFormEmpty || isCreating}
               >
                 <Text
                   style={[
                     styles.saveButtonText,
                     pressedBtn === "save" && styles.saveButtonTextPressed,
+                    (isFormEmpty || isCreating) && styles.saveButtonTextDisabled,
                   ]}
                 >
-                  Create Account
+                  {isCreating ? "Creating..." : "Create Account"}
                 </Text>
               </TouchableOpacity>
 
@@ -1022,6 +1052,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#163A73",
     borderColor: "#163A73",
   },
+  saveButtonDisabled: {
+    opacity: 0.6,
+    backgroundColor: "#999",
+    borderColor: "#999",
+  },
   saveButtonText: {
     fontSize: 15,
     fontWeight: "600",
@@ -1029,6 +1064,9 @@ const styles = StyleSheet.create({
   },
   saveButtonTextPressed: {
     color: "#fff",
+  },
+  saveButtonTextDisabled: {
+    opacity: 0.8,
   },
   cancelButton: {
     backgroundColor: "#fff",
