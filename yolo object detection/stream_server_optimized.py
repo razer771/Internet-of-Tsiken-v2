@@ -25,15 +25,17 @@ from datetime import datetime
 from typing import Optional, Dict, List
 import json
 
-# Import NCNN (fallback to ultralytics if not available)
+# Always import YOLO for fallback
+from ultralytics import YOLO
+
+# Import NCNN (fallback to PyTorch if not available)
 try:
     import ncnn
     NCNN_AVAILABLE = True
-    print("✅ NCNN module loaded - using optimized inference")
+    print("✅ NCNN module loaded - will attempt optimized inference")
 except ImportError:
-    from ultralytics import YOLO
     NCNN_AVAILABLE = False
-    print("⚠️ NCNN not available - falling back to PyTorch (slower)")
+    print("⚠️ NCNN not available - using PyTorch with multithreading")
 
 # Flask app setup
 app = Flask(__name__)
@@ -278,14 +280,15 @@ def generate_frames():
         detections = detection_buffer.read()
         annotated_frame = overlay_detections(frame, detections)
         
-        # Add FPS overlay
+        # Add camera status text
+        status_text = "Camera Status: Online" if camera is not None else "Camera Status: Offline"
         cv2.putText(
             annotated_frame,
-            f'Capture: {producer_fps:.1f} FPS | Stream: {streaming_fps:.1f} FPS | AI: {inference_fps:.1f} FPS',
+            status_text,
             (10, 30),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (0, 255, 0),
+            0.7,
+            (255, 255, 255),  # White color
             2
         )
         
@@ -408,15 +411,15 @@ def overlay_detections(frame: np.ndarray, detections: Dict) -> np.ndarray:
         bbox = obj['bbox']
         label = f"{obj['class']} {obj['confidence']:.0f}%"
         
-        # Draw bounding box
+        # Draw bounding box (white color)
         x1, y1, x2, y2 = map(int, bbox)
-        cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 255, 255), 2)
         
-        # Draw label background
+        # Draw label background (white)
         (text_w, text_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-        cv2.rectangle(annotated, (x1, y1 - 20), (x1 + text_w, y1), (0, 255, 0), -1)
+        cv2.rectangle(annotated, (x1, y1 - 20), (x1 + text_w, y1), (255, 255, 255), -1)
         
-        # Draw label text
+        # Draw label text (black text on white background)
         cv2.putText(annotated, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
     
     return annotated

@@ -262,21 +262,7 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
           }}
         />
         
-        {/* Show badges only when NOT in fullscreen */}
-        {!fullscreen && (
-          <>
-            {/* Live Badge */}
-            <View style={styles.liveBadge}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>LIVE</Text>
-            </View>
-
-            {/* FPS Counter */}
-            <View style={styles.fpsBadge}>
-              <Text style={styles.fpsText}>{detections.fps} FPS</Text>
-            </View>
-          </>
-        )}
+        {/* Badges removed - clean camera view */}
       </View>
 
       {/* Show detection info only when NOT in fullscreen */}
