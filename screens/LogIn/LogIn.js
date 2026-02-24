@@ -129,11 +129,29 @@ export default function Login() {
     }
   };
 
-  // Always clear email, password, and errors whenever Login regains focus
+  // Load remembered email and clear password whenever Login regains focus
   useFocusEffect(
     React.useCallback(() => {
-      setEmail("");
-      setPassword("");
+      // Load remembered email from AsyncStorage
+      const loadRememberedEmail = async () => {
+        try {
+          const rememberedEmail = await AsyncStorage.getItem("rememberedEmail");
+          if (rememberedEmail) {
+            setEmail(rememberedEmail);
+            setRemember(true); // Check the checkbox if remembered email exists
+          } else {
+            setEmail("");
+            setRemember(false);
+          }
+        } catch (error) {
+          console.error("Error loading remembered email:", error);
+          setEmail("");
+          setRemember(false);
+        }
+      };
+
+      loadRememberedEmail();
+      setPassword(""); // Always clear password for security
       setErrors({});
     }, []),
   );
@@ -271,6 +289,21 @@ export default function Login() {
       const user = userCredential.user;
       console.log("✅ Login successful! User ID:", user.uid);
 
+      // Handle "Remember me" feature
+      try {
+        if (remember) {
+          // Save email to AsyncStorage if "Remember me" is checked
+          await AsyncStorage.setItem("rememberedEmail", email.trim());
+          console.log("💾 Email saved for next login");
+        } else {
+          // Remove saved email if "Remember me" is unchecked
+          await AsyncStorage.removeItem("rememberedEmail");
+          console.log("🗑️ Saved email removed");
+        }
+      } catch (storageError) {
+        console.error("Error handling Remember me:", storageError);
+      }
+
       console.log("📝 Attempting to log session...");
       // Log login event to session_logs collection (non-blocking with timeout)
       try {
@@ -332,18 +365,18 @@ export default function Login() {
           // REQUIREMENT 2 & 3: Verified + Active (Admin or User)
           if (isVerified && accountStatus === "active") {
             if (userRole === "admin") {
-              console.log("✅ Verified + Active + Admin → AdminDashboard");
+              console.log("✅ Verified + Active + Admin → LoginSuccess → AdminDashboard");
 
               await resetLoginAttempts().catch((e) =>
                 console.log("⚠️ Reset error:", e.message),
               );
 
-              console.log("🔀 Navigating to AdminDashboard NOW");
+              console.log("🔀 Navigating to LoginSuccess NOW");
               setLoading(false);
 
               navigation.reset({
                 index: 0,
-                routes: [{ name: "AdminDashboard" }],
+                routes: [{ name: "LoginSuccess" }],
               });
 
               // Clear login flag after navigation so App.js can handle future auth changes
@@ -354,16 +387,16 @@ export default function Login() {
             }
 
             if (userRole === "user") {
-              console.log("✅ Verified + Active + User → Home");
+              console.log("✅ Verified + Active + User → LoginSuccess → Home");
 
               await resetLoginAttempts().catch((e) =>
                 console.log("⚠️ Reset error:", e.message),
               );
 
-              console.log("🔀 Navigating to Home NOW");
+              console.log("🔀 Navigating to LoginSuccess NOW");
               setLoading(false);
 
-              navigation.reset({ index: 0, routes: [{ name: "Home" }] });
+              navigation.reset({ index: 0, routes: [{ name: "LoginSuccess" }] });
 
               // Clear login flag after navigation so App.js can handle future auth changes
               setTimeout(async () => {
@@ -374,15 +407,15 @@ export default function Login() {
 
             // If role is not recognized but status is active and verified
             console.log(
-              `⚠️ Unknown role "${userRole}" but verified + active → defaulting to Home`,
+              `⚠️ Unknown role "${userRole}" but verified + active → defaulting to LoginSuccess → Home`,
             );
             await resetLoginAttempts().catch((e) =>
               console.log("⚠️ Reset error:", e.message),
             );
-            console.log("🔀 Navigating to Home (fallback) NOW");
+            console.log("🔀 Navigating to LoginSuccess (fallback) NOW");
             setLoading(false);
 
-            navigation.reset({ index: 0, routes: [{ name: "Home" }] });
+            navigation.reset({ index: 0, routes: [{ name: "LoginSuccess" }] });
 
             // Clear login flag after navigation so App.js can handle future auth changes
             setTimeout(async () => {
@@ -529,6 +562,9 @@ export default function Login() {
         // Clear login flag
         await AsyncStorage.removeItem("loginInProgress");
 
+        // Clear saved email on Firestore error to prevent issues
+        await AsyncStorage.removeItem("rememberedEmail").catch(() => {});
+
         setErrors({ auth: "Error loading user data. Please try again." });
         return;
       }
@@ -538,12 +574,17 @@ export default function Login() {
       // Clear login flag on error
       await AsyncStorage.removeItem("loginInProgress");
 
+      // Clear saved email on auth error to prevent caching invalid credentials
+      await AsyncStorage.removeItem("rememberedEmail").catch(() => {});
+
       try {
         const attempts = await incrementLoginAttempts();
         const remainingAttempts = 5 - attempts;
 
         let errorMessage = "Invalid email or password.";
         if (error.code === "auth/invalid-credential") {
+          errorMessage = "Invalid email or password.";
+        } else if (error.code === "auth/invalid-login-credentials") {
           errorMessage = "Invalid email or password.";
         } else if (error.code === "auth/invalid-email") {
           errorMessage = "Invalid email address format.";
@@ -678,7 +719,7 @@ export default function Login() {
                   color={remember ? "#3b4cca" : undefined}
                   style={styles.checkbox}
                 />
-                <Text style={styles.rememberText}>Remember password</Text>
+                <Text style={styles.rememberText}>Remember me</Text>
               </View>
 
               <View style={styles.forgotWrapper}>

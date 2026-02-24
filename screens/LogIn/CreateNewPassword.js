@@ -16,8 +16,9 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view
 import { Ionicons } from "@expo/vector-icons";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { updatePassword, signInWithEmailAndPassword } from "firebase/auth";
+import { updatePassword } from "firebase/auth";
 import { doc, updateDoc, getDoc } from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import { auth, db } from "../../config/firebaseconfig.js";
 
 const Logo = require("../../assets/logo.png");
@@ -174,38 +175,27 @@ export default function CreateNewPassword() {
       const userDoc = await getDoc(userRef);
       const userEmail = userDoc.data()?.email || user.email;
 
-      // Check if new password is the same as current password
+      // Validate password with Cloud Function to prevent reuse of current/historical passwords
+      console.log("✅ Validating new password with Cloud Function...");
+      const functions = getFunctions();
+      const validatePasswordReset = httpsCallable(functions, "validatePasswordReset");
+
       try {
-        await signInWithEmailAndPassword(auth, userEmail, newPassword);
-        // If sign-in succeeds, the new password is the same as current password
-        console.log(
-          "❌ New password matches current password, blocking update"
-        );
-        setLoading(false);
-        setErrors({
-          ...errors,
-          newPassword:
-            "New password must not be the same as the current password",
+        const validationResult = await validatePasswordReset({
+          email: userEmail,
+          newPassword: newPassword,
         });
+        console.log("✅ Password validation passed");
+      } catch (validationError) {
+        console.error("❌ Validation error:", validationError.message);
+        setLoading(false);
+        showAlert(
+          "error",
+          "Invalid Password",
+          validationError.message ||
+            "Your new password does not meet requirements."
+        );
         return;
-      } catch (authError) {
-        // If sign-in fails, the new password is different (which is what we want)
-        if (
-          authError.code === "auth/invalid-credential" ||
-          authError.code === "auth/wrong-password"
-        ) {
-          console.log(
-            "✅ New password is different from current password, proceeding with update"
-          );
-        } else {
-          // Other authentication errors
-          console.error(
-            "Re-authentication error:",
-            authError.code,
-            authError.message
-          );
-          throw authError;
-        }
       }
 
       // Update password in Firebase Auth
@@ -390,6 +380,7 @@ export default function CreateNewPassword() {
           <Text style={styles.requirementItem}>• One lowercase letter</Text>
           <Text style={styles.requirementItem}>• One number </Text>
           <Text style={styles.requirementItem}>• One special character</Text>
+          <Text style={styles.requirementItem}>• Different from current password</Text>
         </View>
       </KeyboardAwareScrollView>
 

@@ -249,6 +249,42 @@ export default function QuickSetupModal({
     }
   }, [visible, batches]);
 
+  // Re-validate days when harvest days changes
+  useEffect(() => {
+    if (daysCount && parseInt(daysCount) > 0 && harvestDays && parseInt(harvestDays) > 0) {
+      const daysValue = parseInt(daysCount);
+      const harvestValue = parseInt(harvestDays);
+      
+      // Re-check the validation
+      let errors = [];
+      if (daysValue > 45) {
+        errors.push("Number of days cannot exceed 45");
+      }
+      if (daysValue >= harvestValue) {
+        errors.push("Age must be less than expected harvest days");
+      }
+      setDaysError(errors.length > 0 ? errors[0] : "");
+    }
+  }, [harvestDays]);
+
+  // Re-validate harvest days when days changes
+  useEffect(() => {
+    if (harvestDays && parseInt(harvestDays) > 0 && daysCount && parseInt(daysCount) > 0) {
+      const harvestValue = parseInt(harvestDays);
+      const daysValue = parseInt(daysCount);
+      
+      // Re-check the validation
+      let errors = [];
+      if (harvestValue > 365) {
+        errors.push("Expected harvest days cannot exceed 365");
+      }
+      if (harvestValue <= daysValue) {
+        errors.push("Expected harvest days must be greater than current days");
+      }
+      setHarvestError(errors.length > 0 ? errors[0] : "");
+    }
+  }, [daysCount]);
+
   const handleChicksChange = (text) => {
     // Only allow numeric input, never show '0'
     const numericText = text.replace(/[^0-9]/g, "");
@@ -288,6 +324,9 @@ export default function QuickSetupModal({
         }
       }
       setDaysError(errors.length > 0 ? errors[0] : "");
+    } else {
+      // Handle invalid input
+      setDaysError("");
     }
   };
 
@@ -314,6 +353,9 @@ export default function QuickSetupModal({
         }
       }
       setHarvestError(errors.length > 0 ? errors[0] : "");
+    } else {
+      // Handle invalid input
+      setHarvestError("");
     }
   };
 
@@ -330,7 +372,6 @@ export default function QuickSetupModal({
         "Invalid Input",
         "Age must be less than expected harvest days.\n\nPlease check your entries and try again.",
       );
-      setDaysError("Age must be less than expected harvest days");
       return;
     }
 

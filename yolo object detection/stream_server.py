@@ -39,13 +39,14 @@ def initialize_camera():
     try:
         camera = Picamera2()
         # Configure for streaming - YOLO optimized resolution (416x416)
-        # Smaller resolution = faster processing
-        camera.preview_configuration.main.size = (416, 416)
-        camera.preview_configuration.main.format = "RGB888"
-        camera.preview_configuration.align()
-        camera.configure("preview")
+        # Use create_preview_configuration to ensure size is respected
+        config = camera.create_preview_configuration(
+            main={"size": (416, 416), "format": "RGB888"},
+            controls={"FrameRate": 30}
+        )
+        camera.configure(config)
         camera.start()
-        logger.info("Camera initialized successfully")
+        logger.info("Camera initialized successfully at 416x416")
         return True
     except Exception as e:
         logger.error(f"Failed to initialize camera: {e}")
@@ -55,11 +56,12 @@ def initialize_model():
     """Initialize YOLO model"""
     global model
     try:
-        # Use PyTorch .pt model with optimizations
-        model = YOLO("yolov8n.pt")
+        # Use custom-trained model for predator detection
+        model = YOLO("models/yolov8s-custom.pt")
         # Enable GPU if available (will use CPU on Pi 5)
         model.to('cpu')  # Explicitly use CPU for Pi
-        logger.info("YOLO model loaded successfully")
+        logger.info(f"YOLO custom model loaded successfully with {len(model.names)} classes")
+        logger.info(f"Classes: {model.names}")
         return True
     except Exception as e:
         logger.error(f"Failed to load YOLO model: {e}")

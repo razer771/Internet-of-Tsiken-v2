@@ -262,46 +262,10 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
           }}
         />
         
-        {/* Show badges only when NOT in fullscreen */}
-        {!fullscreen && (
-          <>
-            {/* Live Badge */}
-            <View style={styles.liveBadge}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>LIVE</Text>
-            </View>
-
-            {/* FPS Counter */}
-            <View style={styles.fpsBadge}>
-              <Text style={styles.fpsText}>{detections.fps} FPS</Text>
-            </View>
-          </>
-        )}
+        {/* Badges removed - clean camera view */}
       </View>
 
-      {/* Show detection info only when NOT in fullscreen */}
-      {!fullscreen && (
-        <View style={styles.infoContainer}>
-          <View style={styles.infoRow}>
-            <Ionicons name="eye-outline" size={20} color={PRIMARY} />
-            <Text style={styles.infoText}>
-              {detections.count} object{detections.count !== 1 ? 's' : ''} detected
-            </Text>
-          </View>
-
-          {/* List detected objects */}
-          {detections.objects && detections.objects.length > 0 && (
-            <View style={styles.objectsList}>
-              {detections.objects.slice(0, 5).map((obj, idx) => (
-                <View key={idx} style={styles.objectTag}>
-                  <Text style={styles.objectName}>{obj.class}</Text>
-                  <Text style={styles.objectConf}>{obj.confidence}%</Text>
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
-      )}
+      {/* Detection info removed for cleaner interface */}
     </View>
   );
 }
