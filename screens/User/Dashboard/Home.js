@@ -10,6 +10,8 @@ import {
   ScrollView,
   PanResponder,
   Modal,
+  Image,
+  Platform,
 } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import ChickIcon from "./ChickIcon";
@@ -33,6 +35,8 @@ import {
   orderBy,
   limit,
   getDocs,
+  addDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db as firestoreDb } from "../../../config/firebaseconfig";
 // Replace static import with a dynamic require + in-memory fallback.
@@ -103,7 +107,7 @@ const getLatestBatch = async () => {
     const batch = {
       id: doc.id,
       ...data,
-      daysCount: calculateAge(data.startDate, data.daysCount),
+      daysCount: data.daysCount || 0, // Use value from daily increment system
     };
 
     console.log("[GetLatestBatch] Latest batch found:", batch.id, batch);
@@ -147,7 +151,7 @@ const getBatchById = async (batchId) => {
     const batch = {
       id: docSnap.id,
       ...data,
-      daysCount: calculateAge(data.startDate, data.daysCount),
+      daysCount: data.daysCount || 0, // Use value from daily increment system
     };
 
     console.log("[GetBatchById] Batch found:", batch.id, batch);
@@ -277,6 +281,11 @@ export default function QuickOverviewSetup({ navigation }) {
   const [viewAllPreselectedBatchId, setViewAllPreselectedBatchId] =
     useState(null);
   const [showMortalityModal, setShowMortalityModal] = useState(false);
+  const [showHarvestedBatchModal, setShowHarvestedBatchModal] = useState(false);
+  const [harvestedBatchInfo, setHarvestedBatchInfo] = useState({
+    id: "",
+    number: "",
+  });
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [sensorData, setSensorData] = useState({
@@ -427,12 +436,12 @@ export default function QuickOverviewSetup({ navigation }) {
 
     initializeApp();
 
-    // Update days count every minute to keep it in sync with real-time
+    // Check and increment all eligible batches every minute
     const interval = setInterval(() => {
       if (auth.currentUser) {
-        checkAndIncrementDailyAge(parseInt(daysCount) || 0);
+        incrementAllBatchesIfEligible();
       }
-    }, 60000); // Update every 60 seconds
+    }, 60000); // Check every 60 seconds
     return () => {
       clearInterval(interval);
       // Unsubscribe from Firestore listener on unmount
@@ -925,6 +934,246 @@ export default function QuickOverviewSetup({ navigation }) {
     const day = String(gmt8Date.getDate()).padStart(2, "0");
 
     return `${year}-${month}-${day}`;
+  };
+
+  /**
+   * Get user information from Firestore
+   */
+  const getUserInfo = async (userId) => {
+    try {
+      const userDocRef = doc(firestoreDb, "users", userId);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (userDocSnap.exists()) {
+        const userData = userDocSnap.data();
+        return {
+          firstname: userData.firstName || "Unknown",
+          lastname: userData.lastName || "Unknown",
+        };
+      } else {
+        console.warn("[GetUserInfo] User document not found for:", userId);
+        return {
+          firstname: "Unknown",
+          lastname: "Unknown",
+        };
+      }
+    } catch (error) {
+      console.error("[GetUserInfo] Error fetching user info:", error);
+      return {
+        firstname: "Unknown",
+        lastname: "Unknown",
+      };
+    }
+  };
+
+  /**
+   * Log harvested event to activity_logs collection
+   * Records batch harvested actions for audit trail
+   * Stores in: activity_logs/batchHarvested
+   */
+  const logHarvestedEvent = async (
+    userId,
+    firstName,
+    lastName,
+    batchId,
+    batchNumber,
+  ) => {
+    try {
+      const eventData = {
+        userId: userId,
+        batchId: batchId,
+        action: `Harvested Batch ${batchNumber} `,
+        description: `Batch ${batchNumber} has been harvested.`,
+        timestamp: serverTimestamp(),
+        deviceInfo: Platform.OS,
+        firstName: firstName,
+        lastName: lastName,
+      };
+
+      // Add document to activity_logs/batchHarvested collection
+      const docRef = await addDoc(
+        collection(firestoreDb, "activity_logs", "batchHarvested", "records"),
+        eventData,
+      );
+
+      console.log("[LogHarvestedEvent] Event logged successfully:", docRef.id);
+      return { success: true, logId: docRef.id };
+    } catch (error) {
+      console.error("[LogHarvestedEvent] Error logging event:", error);
+      // Don't throw - logging failure shouldn't block batch harvested action
+      return { success: false, error: error.message };
+    }
+  };
+
+  /**
+   * Mark a batch as harvested and stop age counting
+   * Prevents further age increments and removes from selectable batches
+   * @param {string} batchId - The batch document ID to mark as harvested
+   * @param {object} batchData - The batch object containing batchNumber and chicksCount
+   */
+  const markBatchAsHarvested = async (batchId, batchData = null) => {
+    try {
+      if (!batchId) {
+        console.error("[MarkHarvested] No batchId provided");
+        return false;
+      }
+
+      await updateDoc(doc(firestoreDb, "brooderInfo", batchId), {
+        status: "harvest",
+        harvestedDate: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      console.log("[MarkHarvested] Batch marked as harvested:", batchId);
+
+      // Log the harvested event
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        const userInfo = await getUserInfo(currentUser.uid);
+        logHarvestedEvent(
+          currentUser.uid,
+          userInfo.firstname,
+          userInfo.lastname,
+          batchId,
+          batchData?.batchNumber || batchData?.batchNo || "Unknown",
+        );
+      }
+
+      // Refresh batches list
+      const allBatches = await fetchBatches();
+      setBatches(allBatches || []);
+
+      // If the harvested batch was selected, switch to the first active batch
+      const selectedBatchId = await getSelectedBatch();
+      if (selectedBatchId === batchId) {
+        const activeBatches = allBatches.filter((b) => b.status !== "harvest");
+        if (activeBatches.length > 0) {
+          await setSelectedBatch(activeBatches[0].id);
+          updateBrooderCardFromBatch(
+            activeBatches[0],
+            setChicksCount,
+            setDaysCount,
+            setHarvestDays,
+            setBrooderInfo,
+            setHasBatchData,
+          );
+          setSelectedBatchIndex(0);
+          console.log(
+            "[MarkHarvested] Switched to active batch:",
+            activeBatches[0].id,
+          );
+        } else {
+          // No active batches left
+          await resetBrooderUI();
+          setHasBatchData(false);
+          console.log("[MarkHarvested] No active batches remaining");
+        }
+      }
+
+      // Show success modal and auto-close after 1.5 seconds
+      setHarvestedBatchInfo({
+        id: batchId,
+        batchNumber: batchData?.batchNumber || batchData?.batchNo || "Unknown",
+        chicksCount: batchData?.chicksCount || 0,
+      });
+      setShowHarvestedBatchModal(true);
+
+      // Auto-close modal after 1.5 seconds
+      setTimeout(() => {
+        setShowHarvestedBatchModal(false);
+      }, 1500);
+
+      return true;
+    } catch (error) {
+      console.error("[MarkHarvested] Error marking batch as harvested:", error);
+      Alert.alert("Error", "Failed to mark batch as harvested");
+      return false;
+    }
+  };
+
+  /**
+   * Increment age for all active batches (not harvested) that haven't been incremented today
+   * Checks each batch's last update date and only increments eligible batches
+   */
+  const incrementAllBatchesIfEligible = async () => {
+    try {
+      const todayGMT8 = getTodayDateGMT8();
+      console.log(
+        `[IncrementAll] Starting daily age check for all batches. Today: ${todayGMT8}`,
+      );
+
+      // Fetch all batches from Firestore
+      const allBatches = await fetchBatches();
+
+      if (!allBatches || allBatches.length === 0) {
+        console.log("[IncrementAll] No batches found to increment");
+        return;
+      }
+
+      // Process each batch
+      for (const batch of allBatches) {
+        try {
+          const batchId = batch.id;
+          const currentDaysCount = batch.daysCount || 0;
+          const lastIncrementDate = batch.lastIncrementDate || null;
+          const status = batch.status || "active";
+
+          console.log(
+            `[IncrementAll] Processing Batch ${batchId}: daysCount=${currentDaysCount}, status=${status}, lastUpdate=${lastIncrementDate}`,
+          );
+
+          // Skip if batch is harvested
+          if (status === "harvest") {
+            console.log(
+              `[IncrementAll] ⛔ Batch ${batchId} is harvested, skipping`,
+            );
+            continue;
+          }
+
+          // Check if batch is eligible for increment (not incremented today)
+          if (lastIncrementDate !== todayGMT8) {
+            const newDaysCount = currentDaysCount + 1;
+
+            await updateDoc(doc(firestoreDb, "brooderInfo", batchId), {
+              daysCount: newDaysCount,
+              lastIncrementDate: todayGMT8,
+              updatedAt: new Date().toISOString(),
+            });
+
+            console.log(
+              `[IncrementAll] ✅ Batch ${batchId} incremented: ${currentDaysCount} → ${newDaysCount}`,
+            );
+
+            // If this is the currently selected batch, update local state
+            const selectedBatchId = await getSelectedBatch();
+            if (selectedBatchId === batchId) {
+              setDaysCount(String(newDaysCount));
+              setBrooderInfo((prev) => ({
+                ...prev,
+                daysCount: newDaysCount,
+              }));
+              console.log(
+                `[IncrementAll] Updated selected batch in local state`,
+              );
+            }
+          } else {
+            console.log(
+              `[IncrementAll] ⏸️  Batch ${batchId} skipped: already incremented today`,
+            );
+          }
+        } catch (error) {
+          console.error(
+            `[IncrementAll] Error processing batch ${batch.id}:`,
+            error,
+          );
+          continue; // Continue with next batch even if one fails
+        }
+      }
+
+      console.log("[IncrementAll] Daily age increment check completed");
+    } catch (error) {
+      console.error("[IncrementAll] Error incrementing all batches:", error);
+    }
   };
 
   const checkAndIncrementDailyAge = async (currentDaysCount) => {
@@ -1448,6 +1697,25 @@ export default function QuickOverviewSetup({ navigation }) {
     setShowEditBatchModal(true);
   };
 
+  const handleHarvestedBatch = async (batchId) => {
+    try {
+      console.log(
+        "[HandleHarvestedBatch] Marking batch as harvested:",
+        batchId,
+      );
+      // Find batch details to pass to markBatchAsHarvested
+      const batchToHarvest = batches.find((b) => b.id === batchId);
+      await markBatchAsHarvested(batchId, batchToHarvest);
+      setShowBatchesModal(false);
+    } catch (error) {
+      console.error(
+        "[HandleHarvestedBatch] Error marking batch as harvested:",
+        error,
+      );
+      Alert.alert("Error", "Failed to mark batch as harvested");
+    }
+  };
+
   const handleSaveEditBatch = async (updatedBatch) => {
     try {
       if (editingBatchIndex === null || editingBatchIndex >= batches.length) {
@@ -1747,7 +2015,14 @@ export default function QuickOverviewSetup({ navigation }) {
           <View style={styles.container}>
             {/* Welcome Section */}
             <View style={styles.welcomeSection}>
-              <Text style={styles.greeting}>Hello, {userName}! <MaterialCommunityIcons name="hand-wave-outline" size={24} color="#133E87" /></Text>
+              <Text style={styles.greeting}>
+                Hello, {userName}!{" "}
+                <MaterialCommunityIcons
+                  name="hand-wave-outline"
+                  size={24}
+                  color="#133E87"
+                />
+              </Text>
               <Text style={styles.date}>{todayDate}</Text>
             </View>
 
@@ -1789,7 +2064,11 @@ export default function QuickOverviewSetup({ navigation }) {
 
               <View style={styles.brooderRow}>
                 <View style={styles.brooderIconWrapper}>
-                  <MaterialCommunityIcons name="calendar-clock" size={24} color="#133E87" />
+                  <MaterialCommunityIcons
+                    name="calendar-clock"
+                    size={24}
+                    color="#133E87"
+                  />
                 </View>
                 <View style={styles.brooderTextContainer}>
                   <Text style={styles.brooderLabel}>Age</Text>
@@ -1805,7 +2084,11 @@ export default function QuickOverviewSetup({ navigation }) {
 
               <View style={styles.brooderRow}>
                 <View style={styles.brooderIconWrapper}>
-                  <MaterialCommunityIcons name="target" size={24} color="#133E87" />
+                  <MaterialCommunityIcons
+                    name="target"
+                    size={24}
+                    color="#133E87"
+                  />
                 </View>
                 <View style={styles.brooderTextContainer}>
                   <Text style={styles.brooderLabel}>Expected Harvest</Text>
@@ -1921,7 +2204,11 @@ export default function QuickOverviewSetup({ navigation }) {
             <View style={styles.sensorGrid}>
               {/* Water Level Card */}
               <View style={styles.sensorCard}>
-                <MaterialCommunityIcons name="water-outline" size={32} color="#133E87" />
+                <MaterialCommunityIcons
+                  name="water-outline"
+                  size={32}
+                  color="#133E87"
+                />
                 <Text style={styles.sensorLabel}>Water Level</Text>
                 <Text style={styles.sensorValue}>
                   {loadingSensorData ? "..." : `${sensorData.waterLevel}%`}
@@ -1930,7 +2217,11 @@ export default function QuickOverviewSetup({ navigation }) {
 
               {/* Feed Level Card */}
               <View style={styles.sensorCard}>
-                <MaterialCommunityIcons name="seed-outline" size={32} color="#133E87" />
+                <MaterialCommunityIcons
+                  name="seed-outline"
+                  size={32}
+                  color="#133E87"
+                />
                 <Text style={styles.sensorLabel}>Feed Level</Text>
                 <Text style={styles.sensorValue}>
                   {loadingSensorData ? "..." : `${sensorData.feedLevel}%`}
@@ -1940,7 +2231,11 @@ export default function QuickOverviewSetup({ navigation }) {
               {/* Solar Charge Card */}
               <View style={styles.sensorCard}>
                 <View style={{ marginTop: 8, marginBottom: 4 }}>
-                  <MaterialCommunityIcons name="white-balance-sunny" size={32} color="#133E87" />
+                  <MaterialCommunityIcons
+                    name="white-balance-sunny"
+                    size={32}
+                    color="#133E87"
+                  />
                 </View>
                 <Text style={styles.sensorLabel}>Solar Charge</Text>
                 <Text style={styles.sensorValue}>
@@ -1951,7 +2246,11 @@ export default function QuickOverviewSetup({ navigation }) {
               {/* Light Status Card */}
               <View style={styles.sensorCard}>
                 <View style={{ marginTop: 8, marginBottom: 4 }}>
-                  <MaterialCommunityIcons name="lightbulb-on-outline" size={32} color="#133E87" />
+                  <MaterialCommunityIcons
+                    name="lightbulb-on-outline"
+                    size={32}
+                    color="#133E87"
+                  />
                 </View>
                 <Text style={styles.sensorLabel}>Light Status</Text>
                 <Text style={styles.sensorValue}>
@@ -1982,6 +2281,7 @@ export default function QuickOverviewSetup({ navigation }) {
               onSelectBatch={handleSelectBatch}
               onDeleteBatch={handleDeleteBatch}
               onEditBatch={handleEditBatch}
+              onHarvestedBatch={handleHarvestedBatch}
               onClose={() => setShowBatchesModal(false)}
             />
 
@@ -2041,6 +2341,34 @@ export default function QuickOverviewSetup({ navigation }) {
               onClose={handleCloseMortalityModal}
               onSuccess={handleMortalitySuccess}
             />
+
+            {/* Harvested Batch Success Modal */}
+            <Modal
+              visible={showHarvestedBatchModal}
+              transparent
+              animationType="fade"
+            >
+              <View style={styles.successModalOverlay}>
+                <View style={styles.successModalCard}>
+                  <Image
+                    source={{
+                      uri: "https://img.icons8.com/color/96/checked--v1.png",
+                    }}
+                    style={styles.successIcon}
+                  />
+                  <Text style={styles.successTitle}>
+                    Successfully Harvested!
+                  </Text>
+                  <Text style={styles.harvestedDetailsText}>
+                    Batch {harvestedBatchInfo?.batchNumber} -{" "}
+                    {harvestedBatchInfo?.chicksCount}{" "}
+                    {harvestedBatchInfo?.chicksCount === 1
+                      ? "chicken"
+                      : "chickens"}
+                  </Text>
+                </View>
+              </View>
+            </Modal>
 
             {/* Toast Notification */}
             <Toast
@@ -2484,5 +2812,35 @@ const styles = StyleSheet.create({
   },
   mortalityBtnTextDisabled: {
     color: "#666666",
+  },
+  successModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  successModalCard: {
+    width: "90%",
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 30,
+    alignItems: "center",
+  },
+  successIcon: {
+    width: 80,
+    height: 80,
+    marginBottom: 20,
+  },
+  successTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#2E7D32",
+  },
+  harvestedDetailsText: {
+    fontSize: 16,
+    color: "#64748b",
+    marginTop: 12,
+    fontWeight: "500",
   },
 });

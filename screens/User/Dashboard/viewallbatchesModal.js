@@ -100,8 +100,8 @@ const logDeleteEvent = async (
     const eventData = {
       userId: userId,
       batchId: batchId,
-      action: "Batch deleted",
-      description: `Batch ${batchNumber} deleted`,
+      action: `Deleted Batch ${batchNumber}`,
+      description: `Batch ${batchNumber} has been deleted.`,
       timestamp: serverTimestamp(),
       deviceInfo: Platform.OS,
       firstName: firstName,
@@ -196,19 +196,16 @@ export const fetchBatches = async () => {
           return null;
         }
 
-        // Auto-calculate daysCount using dynamic age calculation
-        const calculatedDaysCount = calculateAge(
-          data.startDate,
-          data.daysCount,
-        );
+        // Use daysCount from daily increment system (don't recalculate)
+        // The increment system already keeps daysCount accurate in the database
+        const daysCountValue = data.daysCount || 0;
 
         return {
           id: doc.id,
           batchNumber: data.batchNo || data.batchNumber || "-",
           chicksCount: data.chicksCount || 0,
-          daysCount: calculatedDaysCount, // Dynamically calculated age
-          age: calculatedDaysCount, // Also provide as 'age' for compatibility
-          originalDaysCount: data.daysCount, // Store original value from Firestore
+          daysCount: daysCountValue, // From daily increment system
+          age: daysCountValue, // Also provide as 'age' for compatibility
           harvestDays: data.harvestDays || 0,
           startDate: data.startDate,
           // Keep original data for reference
@@ -236,6 +233,7 @@ export default function ViewAllBatchesModal({
   onSelectBatch,
   onDeleteBatch,
   onEditBatch,
+  onHarvestedBatch,
   onClose,
 }) {
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
@@ -248,31 +246,11 @@ export default function ViewAllBatchesModal({
     useState(preSelectedBatchId);
   const scrollViewRef = React.useRef(null);
 
-  // Recalculate ages only when modal becomes visible
-  // This ensures we get fresh calculation from original daysCount in Firestore data
+  // Use batches as-is from fetchBatches
+  // Daily increment system already keeps daysCount accurate in the database
   React.useEffect(() => {
     if (visible && batches.length > 0) {
-      // Only recalculate if batches contain originalDaysCount (not already calculated)
-      // Otherwise use batches as-is to avoid double calculation
-      const updatedBatches = batches.map((batch) => {
-        // If batch has originalDaysCount, it means it was freshly fetched from Firestore
-        // In that case, recalculate to account for time elapsed since fetch
-        if (batch.originalDaysCount !== undefined && batch.startDate) {
-          const calculatedDays = calculateAge(
-            batch.startDate,
-            batch.originalDaysCount,
-          );
-
-          return {
-            ...batch,
-            daysCount: calculatedDays,
-            age: calculatedDays,
-          };
-        }
-        // Otherwise, return batch as-is (already calculated correctly)
-        return batch;
-      });
-      setRecalculatedBatches(updatedBatches);
+      setRecalculatedBatches(batches);
     } else {
       setRecalculatedBatches(batches);
     }
@@ -367,6 +345,12 @@ export default function ViewAllBatchesModal({
     setBatchToDelete(null);
   };
 
+  const handleHarvestPress = (batchId) => {
+    if (onHarvestedBatch) {
+      onHarvestedBatch(batchId);
+    }
+  };
+
   return (
     <>
       <Modal visible={visible} transparent animationType="fade">
@@ -432,12 +416,16 @@ export default function ViewAllBatchesModal({
 
                   const isSelected = idx === selectedBatchIndex;
                   const isHighlighted = batch.id === highlightedBatchId;
+                  const isHarvestedBatch = batch.status === "harvest";
 
-                  // Calculate if batch is active (has chicks AND hasn't reached harvest)
+                  // Calculate if batch is active (has chicks AND hasn't reached harvest AND not harvested)
                   const chicksNum = parseInt(displayChicks, 10) || 0;
                   const daysNum = parseInt(displayDays, 10) || 0;
                   const harvestNum = parseInt(displayHarvest, 10) || 0;
-                  const isActiveBatch = chicksNum > 0 && daysNum < harvestNum;
+                  const isActiveBatch =
+                    chicksNum > 0 && daysNum < harvestNum && !isHarvestedBatch;
+                  // Can harvest batch if it has chicks (regardless of age vs harvest)
+                  const canHarvestBatch = chicksNum > 0;
 
                   return (
                     <View
@@ -446,12 +434,14 @@ export default function ViewAllBatchesModal({
                         styles.batchItem,
                         isSelected && styles.batchItemSelected,
                         isHighlighted && styles.batchItemHighlighted,
+                        isHarvestedBatch && styles.batchItemHarvested,
                       ]}
                     >
                       <TouchableOpacity
                         style={styles.batchContent}
-                        onPress={() => onSelectBatch(idx)}
-                        activeOpacity={0.7}
+                        onPress={() => !isHarvestedBatch && onSelectBatch(idx)}
+                        disabled={isHarvestedBatch}
+                        activeOpacity={isHarvestedBatch ? 1 : 0.7}
                       >
                         <Text style={styles.batchLabel}>
                           Batch No.:{" "}
@@ -477,37 +467,77 @@ export default function ViewAllBatchesModal({
                           Start:{" "}
                           <Text style={styles.batchValue}>{startDate}</Text>
                         </Text>
-                        {isSelected && (
+                        {isHarvestedBatch && (
+                          <Text style={styles.batchLabel}>
+                            Harvested:{" "}
+                            <Text style={styles.batchValue}>
+                              {batch.harvestedDate
+                                ? (() => {
+                                    const date = new Date(batch.harvestedDate);
+                                    const month = date.getMonth() + 1;
+                                    const day = date.getDate();
+                                    const year = date.getFullYear();
+                                    return `${month}/${day}/${year}`;
+                                  })()
+                                : "N/A"}{" "}
+                            </Text>
+                          </Text>
+                        )}
+                        {isSelected && !isHarvestedBatch && (
                           <Text style={styles.selectedBadge}>✓ Selected</Text>
                         )}
-                        {isHighlighted && !isSelected && (
+                        {isHighlighted && !isSelected && !isHarvestedBatch && (
                           <Text style={styles.activeBatchBadge}>
                             🐣 Currently Active
                           </Text>
                         )}
                       </TouchableOpacity>
-                      <View style={styles.actionButtons}>
-                        <TouchableOpacity
-                          style={[
-                            styles.deleteButton,
-                            !isActiveBatch && styles.deleteButtonDisabled,
-                          ]}
-                          onPress={() =>
-                            isActiveBatch && handleDeletePress(idx)
-                          }
-                          disabled={!isActiveBatch}
-                          activeOpacity={isActiveBatch ? 0.7 : 1}
-                        >
-                          <Text
+                      {!isHarvestedBatch && (
+                        <View style={styles.actionButtons}>
+                          <TouchableOpacity
                             style={[
-                              styles.deleteButtonText,
-                              !isActiveBatch && styles.deleteButtonTextDisabled,
+                              styles.deleteButton,
+                              !isActiveBatch && styles.deleteButtonDisabled,
                             ]}
+                            onPress={() =>
+                              isActiveBatch && handleDeletePress(idx)
+                            }
+                            disabled={!isActiveBatch}
+                            activeOpacity={isActiveBatch ? 0.7 : 1}
                           >
-                            Delete
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
+                            <Text
+                              style={[
+                                styles.deleteButtonText,
+                                !isActiveBatch &&
+                                  styles.deleteButtonTextDisabled,
+                              ]}
+                            >
+                              Delete
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[
+                              styles.harvestButton,
+                              !canHarvestBatch && styles.harvestButtonDisabled,
+                            ]}
+                            onPress={() =>
+                              canHarvestBatch && handleHarvestPress(batch.id)
+                            }
+                            disabled={!canHarvestBatch}
+                            activeOpacity={canHarvestBatch ? 0.7 : 1}
+                          >
+                            <Text
+                              style={[
+                                styles.harvestButtonText,
+                                !canHarvestBatch &&
+                                  styles.harvestButtonTextDisabled,
+                              ]}
+                            >
+                              Harvest
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
                     </View>
                   );
                 })
@@ -675,6 +705,18 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 13,
   },
+  batchItemHarvested: {
+    backgroundColor: "#f5f5f5",
+    borderLeftWidth: 4,
+    borderLeftColor: "#ef4444",
+    opacity: 0.7,
+  },
+  harvestedBadge: {
+    color: "#ef4444",
+    fontWeight: "bold",
+    marginTop: 6,
+    fontSize: 13,
+  },
   actionButtons: {
     flexDirection: "column",
     gap: 8,
@@ -698,6 +740,27 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   deleteButtonTextDisabled: {
+    color: "#6b7280",
+  },
+  harvestButton: {
+    backgroundColor: "#10b981",
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 0,
+  },
+  harvestButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  harvestButtonDisabled: {
+    backgroundColor: "#d1d5db",
+    opacity: 0.6,
+  },
+  harvestButtonTextDisabled: {
     color: "#6b7280",
   },
   closeButton: {

@@ -300,7 +300,7 @@ export default function EditBatchModal({
       const freshBatch = {
         id: docSnap.id,
         ...data,
-        daysCount: calculateAge(data.startDate, data.daysCount),
+        daysCount: data.daysCount || 0, // Use value from daily increment system
       };
 
       console.log("[ReloadBrooder] Fresh batch loaded:", freshBatch);

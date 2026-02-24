@@ -2,7 +2,7 @@
   "expo": {
     "name": "Internet Of Tsiken",
     "slug": "capstone",
-    "owner": "charlesfrancis",
+    "owner": "ailynmay",
     "plugins": [
       [
         "expo-media-library",
@@ -50,7 +50,7 @@
     "scheme": "internet-of-tsiken",
     "extra": {
       "eas": {
-        "projectId": "6480af49-ee77-4699-bfe0-2b34c403ea56"
+        "projectId": "84f969ee-7b4d-47d6-8494-5d9a87e161fb"
       }
     }
   }
