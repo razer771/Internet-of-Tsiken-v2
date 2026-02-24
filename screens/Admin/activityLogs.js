@@ -63,8 +63,6 @@ const LOG_COLLECTIONS = [
     parent: "activity_logs",
     subcollections: [
       { name: "addBatch_logs", documentPath: "events" },
-      { name: "batchHarvested", documentPath: "records" },
-
       { name: "deleteBatch_logs", documentPath: "events" },
       { name: "editBatch_logs", documentPath: "events" },
       { name: "nightTime_logs", documentPath: "events" },
@@ -72,12 +70,6 @@ const LOG_COLLECTIONS = [
       { name: "editProfile", documentPath: "passwordChange" },
       { name: "editProfile", documentPath: "userprofile" },
       { name: "mortalityReporting", documentPath: "events" },
-      { name: "fanControl_logs", documentPath: "logs" },
-      { name: "pumpTest_logs", documentPath: "logs" },
-      { name: "vitaminControl_logs", documentPath: "logs" },
-      { name: "vitaminPumpTest_logs", documentPath: "logs" },
-      { name: "wateringActivity_logs", documentPath: "logs" },
-
       {
         name: "feeding",
         documentPath: [
@@ -420,31 +412,15 @@ export default function ActivityLogs({ navigation }) {
 
   const generatePDF = async (exportPages, filters) => {
     try {
-      // Load logo as base64 with proper error handling
-      let logoBase64 = "";
-      try {
-        const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
-        if (!logoAsset.downloaded) {
-          await logoAsset.downloadAsync();
-        }
-
-        // Copy to cache directory first (workaround for APK asset access)
-        const fileName = "logo-report-temp.png";
-        const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
-
-        await FileSystem.copyAsync({
-          from: logoAsset.localUri,
-          to: fileUri,
-        });
-
-        // Now read the copied file
-        logoBase64 = await FileSystem.readAsStringAsync(fileUri, {
+      // Load logo as base64
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
           encoding: FileSystem.EncodingType.Base64,
-        });
-      } catch (logoError) {
-        console.warn("[ActivityLogs] Logo load warning:", logoError);
-        // Continue without logo if it fails
-      }
+        },
+      );
 
       // Generate HTML content for PDF
       let htmlContent = `
@@ -968,6 +944,7 @@ export default function ActivityLogs({ navigation }) {
                     {monthNames[currentMonth.getMonth()]}{" "}
                     {currentMonth.getFullYear()}
                   </Text>
+               
 
                   <TouchableOpacity
                     onPress={handleNextMonth}

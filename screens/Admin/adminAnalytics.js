@@ -41,39 +41,6 @@ import { auth } from "../../config/firebaseconfig";
 const { width: windowWidth } = Dimensions.get("window");
 
 /**
- * Helper function to load logo asset for reports
- * Copies asset to cacheDirectory first, which fixes APK build issues
- * where assets:// scheme is unsupported
- */
-const getLogoBase64 = async () => {
-  try {
-    const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
-    if (!logoAsset.downloaded) {
-      await logoAsset.downloadAsync();
-    }
-
-    // Copy to cache directory first (workaround for APK asset access)
-    const fileName = "logo-report-temp.png";
-    const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
-
-    await FileSystem.copyAsync({
-      from: logoAsset.localUri,
-      to: fileUri,
-    });
-
-    // Now read the copied file
-    const logoBase64 = await FileSystem.readAsStringAsync(fileUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-
-    return logoBase64;
-  } catch (error) {
-    console.warn("[getLogoBase64] Failed to load logo:", error);
-    return ""; // Return empty string if logo fails to load - report will continue without logo
-  }
-};
-
-/**
  * AdminAnalytics (single-file)
  * - Line chart (guarded dynamic require)
  * - Grouped bar chart (pure RN)
@@ -3327,14 +3294,15 @@ export default function AdminAnalytics({ navigation }) {
 
       // Load logo
       console.log("[GenerateMortalityReportPDF] Loading logo asset...");
-      const logoBase64 = await getLogoBase64();
-      if (logoBase64) {
-        console.log("[GenerateMortalityReportPDF] Logo loaded successfully");
-      } else {
-        console.log(
-          "[GenerateMortalityReportPDF] Logo not available, continuing without it",
-        );
-      }
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        },
+      );
+      console.log("[GenerateMortalityReportPDF] Logo loaded successfully");
 
       // Create table rows - sort records chronologically by dateOfDeath
       console.log("[GenerateMortalityReportPDF] Creating table rows...");
@@ -3679,7 +3647,14 @@ export default function AdminAnalytics({ navigation }) {
       }
 
       // Load logo
-      const logoBase64 = await getLogoBase64();
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        },
+      );
 
       // Group by age and count consumption, also collect dates
       const ageMap = {};
@@ -4326,7 +4301,14 @@ export default function AdminAnalytics({ navigation }) {
       }
 
       // Load logo
-      const logoBase64 = await getLogoBase64();
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        },
+      );
 
       // Group by age and count consumption, also collect dates
       const ageMap = {};
@@ -5007,7 +4989,14 @@ export default function AdminAnalytics({ navigation }) {
       });
 
       // Load logo
-      const logoBase64 = await getLogoBase64();
+      const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+      await logoAsset.downloadAsync();
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoAsset.localUri,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        },
+      );
 
       // Generate all dates in the range (including dates with 0 usage)
       const allDates = [];
@@ -5935,7 +5924,17 @@ export default function AdminAnalytics({ navigation }) {
           : "0.0";
 
       // Load logo
-      const logoBase64 = await getLogoBase64();
+      let logoBase64 = "";
+      try {
+        const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
+        await logoAsset.downloadAsync();
+        logoBase64 = await FileSystem.readAsStringAsync(logoAsset.localUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      } catch (logoError) {
+        console.warn("[GeneratePredatorReport] Logo load warning:", logoError);
+        // Continue without logo if it fails
+      }
 
       // Format dates for display
       const formatDateTime = (date) => {

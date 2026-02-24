@@ -17,14 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { updatePassword } from "firebase/auth";
-import {
-  doc,
-  updateDoc,
-  getDoc,
-  addDoc,
-  collection,
-  serverTimestamp,
-} from "firebase/firestore";
+import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { auth, db } from "../../config/firebaseconfig.js";
 
@@ -103,34 +96,6 @@ export default function CreateNewPassword() {
     setAlertVisible(false);
   };
 
-  const logPasswordChange = async (user, userEmail, userRole) => {
-    try {
-      const userFirstName = user.displayName?.split(" ")[0] || "User";
-      const userLastName =
-        user.displayName?.split(" ").slice(1).join(" ") || "";
-
-      await addDoc(
-        collection(db, "activity_logs", "userManagement", "changePassword"),
-        {
-          userId: user.uid,
-          userName: user.displayName || "User",
-          firstName: userFirstName,
-          lastName: userLastName,
-          email: userEmail,
-          action: "Password changed",
-          description: "User successfully changed their password",
-          timestamp: serverTimestamp(),
-          deviceInfo: Platform.OS,
-          role: userRole || "user",
-        },
-      );
-      console.log("✅ Password change logged successfully");
-    } catch (logError) {
-      console.error("⚠️ Failed to log password change:", logError.message);
-      // Don't throw error - logging failure should not block user password change
-    }
-  };
-
   const validatePassword = (password) => {
     const minLength = 8;
     const hasUpperCase = /[A-Z]/.test(password);
@@ -198,7 +163,7 @@ export default function CreateNewPassword() {
         showAlert(
           "error",
           "Authentication Error",
-          "No user is currently logged in. Please log in again.",
+          "No user is currently logged in. Please log in again."
         );
         return;
       }
@@ -213,10 +178,7 @@ export default function CreateNewPassword() {
       // Validate password with Cloud Function to prevent reuse of current/historical passwords
       console.log("✅ Validating new password with Cloud Function...");
       const functions = getFunctions();
-      const validatePasswordReset = httpsCallable(
-        functions,
-        "validatePasswordReset",
-      );
+      const validatePasswordReset = httpsCallable(functions, "validatePasswordReset");
 
       try {
         const validationResult = await validatePasswordReset({
@@ -231,7 +193,7 @@ export default function CreateNewPassword() {
           "error",
           "Invalid Password",
           validationError.message ||
-            "Your new password does not meet requirements.",
+            "Your new password does not meet requirements."
         );
         return;
       }
@@ -246,15 +208,11 @@ export default function CreateNewPassword() {
       });
       console.log("✅ requirePasswordChange flag set to false in Firestore");
 
-      // Log the password change activity
-      const userRole = userDoc.data()?.role || "user";
-      await logPasswordChange(user, userEmail, userRole);
-
       setLoading(false);
       showAlert(
         "success",
         "Password Updated",
-        "Your password has been successfully updated. You will be redirected to login.",
+        "Your password has been successfully updated. You will be redirected to login."
       );
 
       // Navigate to login after 2 seconds
@@ -422,9 +380,7 @@ export default function CreateNewPassword() {
           <Text style={styles.requirementItem}>• One lowercase letter</Text>
           <Text style={styles.requirementItem}>• One number </Text>
           <Text style={styles.requirementItem}>• One special character</Text>
-          <Text style={styles.requirementItem}>
-            • Different from current password
-          </Text>
+          <Text style={styles.requirementItem}>• Different from current password</Text>
         </View>
       </KeyboardAwareScrollView>
 

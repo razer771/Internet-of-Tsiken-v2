@@ -238,22 +238,8 @@ export const confirmPasswordResetWithCode = async (code, newPassword) => {
 
     // Log password reset to session_logs collection (non-blocking with timeout)
     try {
-      // Get userId from Firestore
-      let userId = null;
-      try {
-        const usersRef = collection(db, "users");
-        const q = query(usersRef, where("email", "==", email.trim()));
-        const querySnapshot = await getDocs(q);
-        if (!querySnapshot.empty) {
-          userId = querySnapshot.docs[0].id;
-        }
-      } catch (err) {
-        console.warn("Failed to get userId for logging:", err);
-      }
-
       const logPromise = addDoc(collection(db, "session_logs"), {
         email: email.trim(),
-        userId: userId,
         action: "Password Reset",
         description: "Requested password reset",
         timestamp: serverTimestamp(),

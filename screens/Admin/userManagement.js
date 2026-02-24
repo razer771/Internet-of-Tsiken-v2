@@ -22,8 +22,6 @@ import {
   orderBy,
   limit,
   updateDoc,
-  addDoc,
-  serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "../../config/firebaseconfig";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -139,8 +137,7 @@ export default function UserManagement({ navigation }) {
   const [markAsActiveBtnPressed, setMarkAsActiveBtnPressed] = useState(false);
   const [cancelMarkAsActiveBtnPressed, setCancelMarkAsActiveBtnPressed] =
     useState(false);
-  const [markAsActiveSuccessVisible, setMarkAsActiveSuccessVisible] =
-    useState(false);
+  const [markAsActiveSuccessVisible, setMarkAsActiveSuccessVisible] = useState(false);
 
   // Alert Modal
   const [alertVisible, setAlertVisible] = useState(false);
@@ -172,7 +169,7 @@ export default function UserManagement({ navigation }) {
             where("userId", "==", userId),
             where("action", "==", "login"),
             orderBy("timestamp", "desc"),
-            limit(1),
+            limit(1)
           );
 
           let status = "inactive";
@@ -180,7 +177,7 @@ export default function UserManagement({ navigation }) {
             const sessionSnapshot = await getDocs(loginQuery);
             console.log(
               `Fetched session logs for user ${userId} (${userData.firstName} ${userData.lastName}):`,
-              sessionSnapshot.size,
+              sessionSnapshot.size
             );
 
             if (!sessionSnapshot.empty) {
@@ -195,22 +192,22 @@ export default function UserManagement({ navigation }) {
                 // Active if logged in within past 3 days
                 status = diffInDays <= 3 ? "active" : "inactive";
                 console.log(
-                  `Last login for user ${userId} (${userData.firstName} ${userData.lastName}): ${diffInDays.toFixed(2)} days ago → ${status}`,
+                  `Last login for user ${userId} (${userData.firstName} ${userData.lastName}): ${diffInDays.toFixed(2)} days ago → ${status}`
                 );
               } else {
                 console.log(
-                  `No valid timestamp for user ${userId}, marking as inactive`,
+                  `No valid timestamp for user ${userId}, marking as inactive`
                 );
               }
             } else {
               console.log(
-                `No login logs found for user ${userId} (${userData.firstName} ${userData.lastName}), marking as inactive`,
+                `No login logs found for user ${userId} (${userData.firstName} ${userData.lastName}), marking as inactive`
               );
             }
           } catch (error) {
             console.error(
               `Error fetching session logs for user ${userId}:`,
-              error,
+              error
             );
             console.log(`Marking user ${userId} as inactive due to error`);
           }
@@ -224,7 +221,7 @@ export default function UserManagement({ navigation }) {
             const day = String(createdAt.getDate()).padStart(2, "0");
             created = `${year}-${month}-${day}`;
             console.log(
-              `User ${userId} (${userData.firstName} ${userData.lastName}) created on ${created}`,
+              `User ${userId} (${userData.firstName} ${userData.lastName}) created on ${created}`
             );
           }
 
@@ -239,7 +236,7 @@ export default function UserManagement({ navigation }) {
             status: status,
             created: created,
           };
-        }),
+        })
       );
 
       console.log("Users with computed status:", usersData);
@@ -256,9 +253,7 @@ export default function UserManagement({ navigation }) {
   useEffect(() => {
     const clearAccountCreationFlag = async () => {
       try {
-        const isCreating = await AsyncStorage.getItem(
-          "accountCreationInProgress",
-        );
+        const isCreating = await AsyncStorage.getItem("accountCreationInProgress");
         const storedAdminUid = await AsyncStorage.getItem("adminContextUid");
         const currentUid = auth.currentUser?.uid;
 
@@ -268,14 +263,10 @@ export default function UserManagement({ navigation }) {
           console.log("📊 Current user UID:", currentUid);
 
           if (storedAdminUid && currentUid === storedAdminUid) {
-            console.log(
-              "✅ VERIFIED: Admin is still logged in - clearing flag safely",
-            );
+            console.log("✅ VERIFIED: Admin is still logged in - clearing flag safely");
             await AsyncStorage.removeItem("accountCreationInProgress");
             await AsyncStorage.removeItem("adminContextUid");
-            console.log(
-              "🎉 Account creation flag cleared - auth listener is now active",
-            );
+            console.log("🎉 Account creation flag cleared - auth listener is now active");
           } else if (!currentUid) {
             // User auth context is missing - something went wrong
             console.warn("⚠️ WARNING: User auth context missing!");
@@ -284,12 +275,7 @@ export default function UserManagement({ navigation }) {
           } else if (currentUid !== storedAdminUid) {
             // UID mismatch - user context has changed after account creation
             console.warn("⚠️ AUTH CONTEXT CHANGED UNEXPECTEDLY");
-            console.warn(
-              "Expected admin UID:",
-              storedAdminUid,
-              "Got:",
-              currentUid,
-            );
+            console.warn("Expected admin UID:", storedAdminUid, "Got:", currentUid);
             // Still clear the flag but log the anomaly
             await AsyncStorage.removeItem("accountCreationInProgress");
             await AsyncStorage.removeItem("adminContextUid");
@@ -334,7 +320,7 @@ export default function UserManagement({ navigation }) {
 
   const handleEditUser = (user) => {
     console.log(
-      `Opening edit modal for user: ${user.firstName} ${user.lastName}`,
+      `Opening edit modal for user: ${user.firstName} ${user.lastName}`
     );
     setEditUser({
       id: user.id,
@@ -437,7 +423,7 @@ export default function UserManagement({ navigation }) {
         const usersRef = collection(db, "users");
         const emailQuery = query(
           usersRef,
-          where("email", "==", editUser.email),
+          where("email", "==", editUser.email)
         );
         const emailSnapshot = await getDocs(emailQuery);
 
@@ -472,35 +458,8 @@ export default function UserManagement({ navigation }) {
       });
 
       console.log(
-        `User ${editUser.id} updated successfully with displayName: "${displayName}" and fullname: "${fullname}"`,
+        `User ${editUser.id} updated successfully with displayName: "${displayName}" and fullname: "${fullname}"`
       );
-
-      // Log activity to activity_logs/userManagement/updateAccount
-      try {
-        const currentAdmin = auth.currentUser;
-        if (currentAdmin && currentAdmin.uid) {
-          await addDoc(
-            collection(db, "activity_logs", "userManagement", "updateAccount"),
-            {
-              adminId: currentAdmin.uid,
-              adminEmail: currentAdmin.email || "Unknown",
-              action: `Updated account: ${displayName}`,
-              description: `Updated account for ${displayName} (${editUser.email})`,
-              timestamp: serverTimestamp(),
-              deviceInfo: "web",
-              targetUserId: editUser.id,
-              targetUserName: fullname,
-              targetUserEmail: editUser.email,
-            },
-          );
-          console.log("✅ Account update activity logged successfully");
-        } else {
-          console.warn("⚠️ No admin user found, skipping activity log");
-        }
-      } catch (logError) {
-        console.error("⚠️ Failed to log account update activity:", logError);
-        // Don't block the flow if logging fails
-      }
 
       setEditModalVisible(false);
       setSavedVisible(true);
@@ -520,7 +479,7 @@ export default function UserManagement({ navigation }) {
     console.log(
       "Force Password Change modal opened for:",
       user.firstName,
-      user.lastName,
+      user.lastName
     );
     setSelectedUser(user);
     setForcePasswordVisible(true);
@@ -543,42 +502,8 @@ export default function UserManagement({ navigation }) {
       });
 
       console.log(
-        `User ${selectedUser.firstName} ${selectedUser.lastName} flagged for password change in Firestore`,
+        `User ${selectedUser.firstName} ${selectedUser.lastName} flagged for password change in Firestore`
       );
-
-      // Log activity to activity_logs/userManagement/forcePasswordChange
-      try {
-        const currentAdmin = auth.currentUser;
-        if (currentAdmin && currentAdmin.uid) {
-          await addDoc(
-            collection(
-              db,
-              "activity_logs",
-              "userManagement",
-              "forcePasswordChange",
-            ),
-            {
-              adminId: currentAdmin.uid,
-              adminEmail: currentAdmin.email || "Unknown",
-              action: `PW reset : ${selectedUser.firstName} ${selectedUser.lastName}`,
-              description: `Forced password change for ${selectedUser.firstName} ${selectedUser.lastName} (${selectedUser.email})`,
-              timestamp: serverTimestamp(),
-              targetUserId: selectedUser.id,
-              targetUserName: `${selectedUser.firstName} ${selectedUser.lastName}`,
-              targetUserEmail: selectedUser.email,
-            },
-          );
-          console.log("✅ Force password change activity logged successfully");
-        } else {
-          console.warn("⚠️ No admin user found, skipping activity log");
-        }
-      } catch (logError) {
-        console.error(
-          "⚠️ Failed to log force password change activity:",
-          logError,
-        );
-        // Don't block the flow if logging fails
-      }
 
       setForcePasswordVisible(false);
 
@@ -595,7 +520,7 @@ export default function UserManagement({ navigation }) {
       setAlertType("error");
       setAlertTitle("Update Failed");
       setAlertMessage(
-        "Failed to flag user for password change. Please try again.",
+        "Failed to flag user for password change. Please try again."
       );
       setAlertVisible(true);
       setForcePasswordVisible(false);
@@ -609,11 +534,7 @@ export default function UserManagement({ navigation }) {
   };
 
   const handleMarkAsActive = (user) => {
-    console.log(
-      "Mark As Active confirmation modal opened for:",
-      user.firstName,
-      user.lastName,
-    );
+    console.log("Mark As Active confirmation modal opened for:", user.firstName, user.lastName);
     setSelectedUser(user);
     setMarkAsActiveVisible(true);
   };
@@ -635,42 +556,8 @@ export default function UserManagement({ navigation }) {
       });
 
       console.log(
-        `User ${selectedUser.firstName} ${selectedUser.lastName} marked as Active in Firestore`,
+        `User ${selectedUser.firstName} ${selectedUser.lastName} marked as Active in Firestore`
       );
-
-      // Log activity to activity_logs/userManagement/reactivateAccount
-      try {
-        const currentAdmin = auth.currentUser;
-        if (currentAdmin && currentAdmin.uid) {
-          await addDoc(
-            collection(
-              db,
-              "activity_logs",
-              "userManagement",
-              "reactivateAccount",
-            ),
-            {
-              adminId: currentAdmin.uid,
-              adminEmail: currentAdmin.email || "Unknown",
-              action: `Reactivated : ${selectedUser.firstName} ${selectedUser.lastName}`,
-              description: `Reactivated account for ${selectedUser.firstName} ${selectedUser.lastName} (${selectedUser.email})`,
-              timestamp: serverTimestamp(),
-              targetUserId: selectedUser.id,
-              targetUserName: `${selectedUser.firstName} ${selectedUser.lastName}`,
-              targetUserEmail: selectedUser.email,
-            },
-          );
-          console.log("✅ Reactivate account activity logged successfully");
-        } else {
-          console.warn("⚠️ No admin user found, skipping activity log");
-        }
-      } catch (logError) {
-        console.error(
-          "⚠️ Failed to log reactivate account activity:",
-          logError,
-        );
-        // Don't block the flow if logging fails
-      }
 
       setMarkAsActiveVisible(false);
 
@@ -712,34 +599,8 @@ export default function UserManagement({ navigation }) {
       });
 
       console.log(
-        `User ${selectedUser.firstName} ${selectedUser.lastName} marked as Inactive in Firestore`,
+        `User ${selectedUser.firstName} ${selectedUser.lastName} marked as Inactive in Firestore`
       );
-
-      // Log activity to activity_logs/userManagement/disableAccess
-      try {
-        const currentAdmin = auth.currentUser;
-        if (currentAdmin && currentAdmin.uid) {
-          await addDoc(
-            collection(db, "activity_logs", "userManagement", "disableAccess"),
-            {
-              adminId: currentAdmin.uid,
-              adminEmail: currentAdmin.email || "Unknown",
-              action: `Disabled : ${selectedUser.firstName} ${selectedUser.lastName}`,
-              description: `Disabled access for ${selectedUser.firstName} ${selectedUser.lastName} (${selectedUser.email})`,
-              timestamp: serverTimestamp(),
-              targetUserId: selectedUser.id,
-              targetUserName: `${selectedUser.firstName} ${selectedUser.lastName}`,
-              targetUserEmail: selectedUser.email,
-            },
-          );
-          console.log("✅ Disable access activity logged successfully");
-        } else {
-          console.warn("⚠️ No admin user found, skipping activity log");
-        }
-      } catch (logError) {
-        console.error("⚠️ Failed to log disable access activity:", logError);
-        // Don't block the flow if logging fails
-      }
 
       setDeleteUserVisible(false);
 
@@ -1003,7 +864,7 @@ export default function UserManagement({ navigation }) {
             </View>
             {filteredUsers.map((user) => {
               console.log(
-                `Rendering user row: ${user.firstName} ${user.lastName}`,
+                `Rendering user row: ${user.firstName} ${user.lastName}`
               );
               return (
                 <TouchableOpacity
@@ -1086,7 +947,7 @@ export default function UserManagement({ navigation }) {
                         const formattedStatus =
                           status.charAt(0).toUpperCase() + status.slice(1);
                         console.log(
-                          `Fetched accountStatus for user ${user.firstName} ${user.lastName}: ${formattedStatus}`,
+                          `Fetched accountStatus for user ${user.firstName} ${user.lastName}: ${formattedStatus}`
                         );
                         return formattedStatus;
                       })()}
@@ -1094,70 +955,50 @@ export default function UserManagement({ navigation }) {
                   </View>
                   {/* Actions */}
                   <View style={styles.actionsCol}>
-                    <TouchableOpacity
+                    <TouchableOpacity 
                       onPress={() => handleEditUser(user)}
                       disabled={user.id === auth.currentUser?.uid}
-                      style={{
-                        opacity: user.id === auth.currentUser?.uid ? 0.4 : 1,
-                      }}
+                      style={{ opacity: user.id === auth.currentUser?.uid ? 0.4 : 1 }}
                     >
                       <MaterialCommunityIcons
                         name="pencil-outline"
                         size={20}
-                        color={
-                          user.id === auth.currentUser?.uid ? "#ccc" : "#234187"
-                        }
+                        color={user.id === auth.currentUser?.uid ? "#ccc" : "#234187"}
                       />
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handleForcePasswordChange(user)}
                       disabled={user.id === auth.currentUser?.uid}
-                      style={{
-                        opacity: user.id === auth.currentUser?.uid ? 0.4 : 1,
-                      }}
+                      style={{ opacity: user.id === auth.currentUser?.uid ? 0.4 : 1 }}
                     >
                       <MaterialCommunityIcons
                         name="lock-outline"
                         size={20}
-                        color={
-                          user.id === auth.currentUser?.uid ? "#ccc" : "#234187"
-                        }
+                        color={user.id === auth.currentUser?.uid ? "#ccc" : "#234187"}
                       />
                     </TouchableOpacity>
                     {user.accountStatus?.toLowerCase() === "inactive" ? (
-                      <TouchableOpacity
+                      <TouchableOpacity 
                         onPress={() => handleMarkAsActive(user)}
                         disabled={user.id === auth.currentUser?.uid}
-                        style={{
-                          opacity: user.id === auth.currentUser?.uid ? 0.4 : 1,
-                        }}
+                        style={{ opacity: user.id === auth.currentUser?.uid ? 0.4 : 1 }}
                       >
                         <MaterialCommunityIcons
                           name="restart"
                           size={20}
-                          color={
-                            user.id === auth.currentUser?.uid
-                              ? "#ccc"
-                              : "#22C55E"
-                          }
+                          color={user.id === auth.currentUser?.uid ? "#ccc" : "#22C55E"}
                         />
                       </TouchableOpacity>
                     ) : (
-                      <TouchableOpacity
+                      <TouchableOpacity 
                         onPress={() => handleDeleteUser(user)}
                         disabled={user.id === auth.currentUser?.uid}
-                        style={{
-                          opacity: user.id === auth.currentUser?.uid ? 0.4 : 1,
-                        }}
+                        style={{ opacity: user.id === auth.currentUser?.uid ? 0.4 : 1 }}
                       >
                         <MaterialCommunityIcons
                           name="trash-can-outline"
                           size={20}
-                          color={
-                            user.id === auth.currentUser?.uid
-                              ? "#ccc"
-                              : "#D9534F"
-                          }
+                          color={user.id === auth.currentUser?.uid ? "#ccc" : "#D9534F"}
                         />
                       </TouchableOpacity>
                     )}
@@ -1614,8 +1455,7 @@ export default function UserManagement({ navigation }) {
             <TouchableOpacity
               style={[
                 styles.deleteCancelButton,
-                cancelMarkAsActiveBtnPressed &&
-                  styles.deleteCancelButtonPressed,
+                cancelMarkAsActiveBtnPressed && styles.deleteCancelButtonPressed,
               ]}
               activeOpacity={0.8}
               onPressIn={() => setCancelMarkAsActiveBtnPressed(true)}
@@ -1650,17 +1490,15 @@ export default function UserManagement({ navigation }) {
               Account marked as inactive
             </Text>
             <Text style={styles.deleteSuccessSubtitle}>Access disabled</Text>
-            <Text style={styles.deleteSuccessLoading}>Loading...</Text>
+            <Text style={styles.deleteSuccessLoading}>
+              Loading...
+            </Text>
           </View>
         </View>
       </Modal>
 
       {/* Mark As Active Success Modal */}
-      <Modal
-        transparent
-        visible={markAsActiveSuccessVisible}
-        animationType="fade"
-      >
+      <Modal transparent visible={markAsActiveSuccessVisible} animationType="fade">
         <View style={styles.overlay}>
           <View style={styles.deleteSuccessModal}>
             <View style={styles.successIconContainer}>
@@ -1670,7 +1508,9 @@ export default function UserManagement({ navigation }) {
               Account marked as active
             </Text>
             <Text style={styles.deleteSuccessSubtitle}>Access enabled</Text>
-            <Text style={styles.deleteSuccessLoading}>Loading...</Text>
+            <Text style={styles.deleteSuccessLoading}>
+              Loading...
+            </Text>
           </View>
         </View>
       </Modal>
@@ -2394,7 +2234,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   createAccountButton: {
-    width: "115%",
+    width: "115%", 
     backgroundColor: "#fff",
     borderRadius: 16,
     paddingVertical: 12,

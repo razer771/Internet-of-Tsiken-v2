@@ -767,7 +767,6 @@ export default function ControlScreen({ navigation }) {
 
   // popups
   const [showSavedPopup, setShowSavedPopup] = useState(false);
-  const [popupMessage, setPopupMessage] = useState("Saved Successfully!");
 
   // camera placeholder modal
   const [cameraModal, setCameraModal] = useState(false);
@@ -1263,7 +1262,6 @@ export default function ControlScreen({ navigation }) {
     setShowFeedAddPicker(false);
     setPendingFeedTime(null);
     setIsSubmitting(false);
-    setPopupMessage("Saved Successfully!");
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
@@ -1346,7 +1344,6 @@ export default function ControlScreen({ navigation }) {
     setIsSubmitting(false);
 
     // Show success popup
-    setPopupMessage("Deleted Successfully!");
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1200);
   };
@@ -1442,7 +1439,6 @@ export default function ControlScreen({ navigation }) {
             setIsSubmitting(false);
 
             // Show success popup
-            setPopupMessage("Deleted Successfully!");
             setShowSavedPopup(true);
             setTimeout(() => setShowSavedPopup(false), 1200);
           },
@@ -1602,7 +1598,6 @@ export default function ControlScreen({ navigation }) {
     setConfirmEditVisible(false);
     setFeedEdit({ open: false, idx: null, timeDate: new Date() });
     setIsSubmitting(false);
-    setPopupMessage("Updated Successfully!");
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
@@ -1701,7 +1696,6 @@ export default function ControlScreen({ navigation }) {
     setConfirmDeleteFeedVisible(false);
     setPendingDeleteFeedId(null);
     setIsSubmitting(false);
-    setPopupMessage("Deleted Successfully!");
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1200);
   };
@@ -2086,7 +2080,6 @@ export default function ControlScreen({ navigation }) {
     setShowWaterAddPicker(false);
     setPendingWaterTime(null);
     setIsSubmitting(false);
-    setPopupMessage("Saved Successfully!");
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
@@ -2204,7 +2197,6 @@ export default function ControlScreen({ navigation }) {
 
     setConfirmEditVisible(false);
     setWaterEdit({ open: false, idx: null, timeDate: new Date() });
-    setPopupMessage("Updated Successfully!");
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
@@ -2304,9 +2296,6 @@ export default function ControlScreen({ navigation }) {
     setWaterings((s) => s.filter((w) => w.id !== pendingDeleteWaterId));
     setConfirmDeleteWaterVisible(false);
     setPendingDeleteWaterId(null);
-    setShowSavedPopup(true);
-    setTimeout(() => setShowSavedPopup(false), 1200);
-    setPopupMessage("Deleted Successfully!");
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1200);
     console.log("✅ Water schedule deleted successfully");
@@ -2496,7 +2485,6 @@ export default function ControlScreen({ navigation }) {
       // Logging to activity_logs/nightTime_logs/events
 
       setIsSubmitting(false);
-      setPopupMessage("Updated Successfully!");
       setShowSavedPopup(true);
       setTimeout(() => setShowSavedPopup(false), 1400);
     } catch (err) {
@@ -3945,7 +3933,7 @@ export default function ControlScreen({ navigation }) {
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
             <Ionicons name="checkmark-circle" size={56} color="#22c55e" />
-            <Text style={styles.popupText}>{popupMessage}</Text>
+            <Text style={styles.popupText}>Saved Successfully!</Text>
           </View>
         </View>
       </Modal>

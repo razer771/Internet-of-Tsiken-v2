@@ -293,14 +293,7 @@ export default function AdminDashboard() {
         "activity_logs/userManagement/disableAccess",
         "activity_logs/userManagement/forcePasswordChange",
         "activity_logs/userManagement/reactivateAccount",
-        "activity_logs/userManagement/changePassword",
         "activity_logs/mortalityReporting/events",
-        "activity_logs/batchHarvested/records",
-        "activity_logs/fanControl_logs/logs",
-        "activity_logs/pumpTest_logs/logs",
-        "activity_logs/vitaminControl_logs/logs",
-        "activity_logs/vitaminPumpTest_logs/logs",
-        "activity_logs/wateringActivity_logs/logs",
         "session_logs",
       ];
 

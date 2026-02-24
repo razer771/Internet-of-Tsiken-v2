@@ -107,24 +107,6 @@ const formatGMT8Timestamp = () => {
 };
 
 /**
- * Get today's date in GMT+8 timezone as YYYY-MM-DD format
- * Used for tracking last increment date
- */
-const getTodayDateGMT8 = () => {
-  const now = new Date();
-  // Convert local time to UTC, then to GMT+8
-  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
-  const gmt8Ms = utcMs + 8 * 60 * 60 * 1000;
-  const gmt8Date = new Date(gmt8Ms);
-
-  const year = gmt8Date.getFullYear();
-  const month = String(gmt8Date.getMonth() + 1).padStart(2, "0");
-  const day = String(gmt8Date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-};
-
-/**
  * Save new batch to Firestore
  * Auto-increments batch number and creates document
  */
@@ -153,7 +135,6 @@ const saveBatch = async ({
       harvestDays: parseInt(harvestDays),
       startDate: new Date(), // Store as Firestore Timestamp
       startDateFormatted: formatGMT8Timestamp(), // Store formatted version for reference
-      lastIncrementDate: getTodayDateGMT8(), // Set to today to prevent immediate increment
       userId: userId,
       firstname: firstname,
       lastname: lastname,
@@ -270,15 +251,10 @@ export default function QuickSetupModal({
 
   // Re-validate days when harvest days changes
   useEffect(() => {
-    if (
-      daysCount &&
-      parseInt(daysCount) > 0 &&
-      harvestDays &&
-      parseInt(harvestDays) > 0
-    ) {
+    if (daysCount && parseInt(daysCount) > 0 && harvestDays && parseInt(harvestDays) > 0) {
       const daysValue = parseInt(daysCount);
       const harvestValue = parseInt(harvestDays);
-
+      
       // Re-check the validation
       let errors = [];
       if (daysValue > 45) {
@@ -293,15 +269,10 @@ export default function QuickSetupModal({
 
   // Re-validate harvest days when days changes
   useEffect(() => {
-    if (
-      harvestDays &&
-      parseInt(harvestDays) > 0 &&
-      daysCount &&
-      parseInt(daysCount) > 0
-    ) {
+    if (harvestDays && parseInt(harvestDays) > 0 && daysCount && parseInt(daysCount) > 0) {
       const harvestValue = parseInt(harvestDays);
       const daysValue = parseInt(daysCount);
-
+      
       // Re-check the validation
       let errors = [];
       if (harvestValue > 365) {
