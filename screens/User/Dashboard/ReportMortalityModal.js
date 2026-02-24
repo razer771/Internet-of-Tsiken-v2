@@ -718,7 +718,8 @@ export default function ReportMortalityModal({
                     (b) =>
                       !b.deleted &&
                       b.chicksCount > 0 &&
-                      b.daysCount < b.harvestDays,
+                      b.daysCount < b.harvestDays &&
+                      b.status !== "harvest",
                   ).length === 0 ? (
                     <Text key="no-batches" style={styles.dropdownEmptyText}>
                       No batches available
@@ -729,7 +730,8 @@ export default function ReportMortalityModal({
                         (b) =>
                           !b.deleted &&
                           b.chicksCount > 0 &&
-                          b.daysCount < b.harvestDays,
+                          b.daysCount < b.harvestDays &&
+                          b.status !== "harvest",
                       )
                       .map((batch) => (
                         <TouchableOpacity
@@ -760,10 +762,10 @@ export default function ReportMortalityModal({
                 <Text style={styles.dateButtonText}>
                   {formatDate(dateOfDeath)}
                 </Text>
-                <MaterialCommunityIcons 
-                  name="calendar" 
-                  size={20} 
-                  color="#666" 
+                <MaterialCommunityIcons
+                  name="calendar"
+                  size={20}
+                  color="#666"
                 />
               </TouchableOpacity>
               {showDatePicker && (

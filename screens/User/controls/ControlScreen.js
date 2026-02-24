@@ -535,32 +535,32 @@ export default function ControlScreen({ navigation }) {
   const updateSensorValues = useCallback((readings) => {
     if (readings) {
       // Map new fields from ESP32 response
-      
+
       // Temperature from DHT22
       if (readings.temperature !== undefined) {
         setTemperature(readings.temperature || 0);
       }
-      
+
       // Humidity from DHT22
       if (readings.humidity !== undefined) {
         setHumidity(readings.humidity || 0);
       }
-      
+
       // Air Quality from MQ135
       if (readings.air_quality !== undefined) {
         setAirQuality(readings.air_quality || 0);
       }
-      
+
       // Bowl Weight from Load Cell (HX711) - Feeder Mass
       if (readings.feed_weight !== undefined) {
         setBowlWeight(readings.feed_weight || 0);
       }
-      
+
       // Water Level from Analog Sensor (Drinker)
       if (readings.water_level !== undefined) {
         setWaterNow(readings.water_level || 0);
       }
-      
+
       // Feeder Storage from Ultrasonic 1 (Tank level)
       if (readings.feeder_tank_level !== undefined) {
         const feedStorageVal = readings.feeder_tank_level;
@@ -569,31 +569,33 @@ export default function ControlScreen({ navigation }) {
         setFeedStorageLevel(feedStorageVal);
       } else if (readings.feeder && readings.feeder.level !== undefined) {
         const feedStorageVal = readings.feeder.level;
-        console.log(`[Storage] Feed storage level (legacy): ${feedStorageVal}%`);
+        console.log(
+          `[Storage] Feed storage level (legacy): ${feedStorageVal}%`,
+        );
         setFeederNow(feedStorageVal);
         setFeedStorageLevel(feedStorageVal);
       }
-      
+
       // Water Storage from Ultrasonic 2 (Tank level)
       if (readings.water_tank_level !== undefined) {
         const waterStorageVal = readings.water_tank_level;
         console.log(`[Storage] Water storage level: ${waterStorageVal}%`);
         setWaterStorageLevel(waterStorageVal);
       }
-      
+
       // Fan Status sync
       if (readings.fan_status !== undefined) {
-        setFanOn(readings.fan_status === 'on');
+        setFanOn(readings.fan_status === "on");
       }
 
       // Vitamin system sync
       if (readings.vitamin_system_enabled !== undefined) {
         setVitaminOn(readings.vitamin_system_enabled === true);
       }
-      
+
       // Light Status sync
       if (readings.light_status !== undefined) {
-        setLightOn(readings.light_status === 'on');
+        setLightOn(readings.light_status === "on");
       }
 
       // Legacy support for old structure
@@ -767,6 +769,7 @@ export default function ControlScreen({ navigation }) {
 
   // popups
   const [showSavedPopup, setShowSavedPopup] = useState(false);
+  const [popupMessage, setPopupMessage] = useState("Saved Successfully!");
 
   // camera placeholder modal
   const [cameraModal, setCameraModal] = useState(false);
@@ -831,42 +834,42 @@ export default function ControlScreen({ navigation }) {
 
   // Handle light toggle with ESP32 control
   const handleLightToggle = async (newValue) => {
-    console.log(`[Light] Toggle requested: ${newValue ? 'ON' : 'OFF'}`);
+    console.log(`[Light] Toggle requested: ${newValue ? "ON" : "OFF"}`);
     setLightOn(newValue); // Optimistic update
-    
+
     try {
       const { getWaterSystemUrl } = await import("../../../config/esp32config");
       const url = getWaterSystemUrl();
-      
+
       if (!url) {
         throw new Error("ESP32 not configured. Check esp32config.js");
       }
-      
-      const endpoint = newValue ? '/api/light/on' : '/api/light/off';
+
+      const endpoint = newValue ? "/api/light/on" : "/api/light/off";
       const fullUrl = `${url}${endpoint}`;
-      
+
       console.log(`[Light] Sending request to: ${fullUrl}`);
-      
-      const response = await fetch(fullUrl, { 
-        method: 'POST',
+
+      const response = await fetch(fullUrl, {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const data = await response.json();
       console.log(`[Light] Response:`, data);
-      console.log(`[Light] Successfully turned ${newValue ? 'ON' : 'OFF'}`);
-      
+      console.log(`[Light] Successfully turned ${newValue ? "ON" : "OFF"}`);
+
       // Update state from server response
       if (data.light_status !== undefined) {
-        setLightOn(data.light_status === 'on');
+        setLightOn(data.light_status === "on");
       } else if (data.status !== undefined) {
-        setLightOn(data.status === 'on');
+        setLightOn(data.status === "on");
       }
 
       // Log activity
@@ -875,7 +878,7 @@ export default function ControlScreen({ navigation }) {
         status: newValue ? "on" : "off",
         timestamp: new Date().toISOString(),
       });
-      
+
       // Sync with Firestore
       try {
         const sensorsRef = doc(db, "sensors", "current");
@@ -887,48 +890,48 @@ export default function ControlScreen({ navigation }) {
       console.error("[Light] Control failed:", error.message);
       setLightOn(!newValue); // Revert on fail
       Alert.alert(
-        "Light Control Error", 
-        `Could not reach light controller.\n\nError: ${error.message}\n\nPlease check:\n1. ESP32 is powered on\n2. WiFi connection\n3. IP address in esp32config.js`
+        "Light Control Error",
+        `Could not reach light controller.\n\nError: ${error.message}\n\nPlease check:\n1. ESP32 is powered on\n2. WiFi connection\n3. IP address in esp32config.js`,
       );
     }
   };
 
   // NEW: Handle Fan Toggle
   const handleFanToggle = async (value) => {
-    console.log(`[Fan] Toggle requested: ${value ? 'ON' : 'OFF'}`);
+    console.log(`[Fan] Toggle requested: ${value ? "ON" : "OFF"}`);
     setFanOn(value); // Optimistic update
-    
+
     try {
       const { getWaterSystemUrl } = await import("../../../config/esp32config");
       const url = getWaterSystemUrl();
-      
+
       if (!url) {
         throw new Error("ESP32 not configured. Check esp32config.js");
       }
-      
-      const endpoint = value ? '/api/fan/start' : '/api/fan/stop';
+
+      const endpoint = value ? "/api/fan/start" : "/api/fan/stop";
       const fullUrl = `${url}${endpoint}`;
-      
+
       console.log(`[Fan] Sending request to: ${fullUrl}`);
-      
-      const response = await fetch(fullUrl, { 
-        method: 'POST',
+
+      const response = await fetch(fullUrl, {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const data = await response.json();
       console.log(`[Fan] Response:`, data);
-      console.log(`[Fan] Successfully turned ${value ? 'ON' : 'OFF'}`);
-      
+      console.log(`[Fan] Successfully turned ${value ? "ON" : "OFF"}`);
+
       // Update state from server response
       if (data.fan_status !== undefined) {
-        setFanOn(data.fan_status === 'on');
+        setFanOn(data.fan_status === "on");
       }
 
       // Log activity
@@ -942,14 +945,14 @@ export default function ControlScreen({ navigation }) {
       setFanOn(!value); // Revert on fail
       Alert.alert(
         "Fan Control Error",
-        `Could not reach fan controller.\n\nError: ${error.message}\n\nPlease check:\n1. ESP32 is powered on\n2. WiFi connection\n3. IP address in esp32config.js`
+        `Could not reach fan controller.\n\nError: ${error.message}\n\nPlease check:\n1. ESP32 is powered on\n2. WiFi connection\n3. IP address in esp32config.js`,
       );
     }
   };
 
   // Handle Vitamin System Toggle (ON = peristaltic pump dispenses at schedule; OFF = water pump dispenses)
   const handleVitaminToggle = async (value) => {
-    console.log(`[Vitamin] Toggle requested: ${value ? 'ON' : 'OFF'}`);
+    console.log(`[Vitamin] Toggle requested: ${value ? "ON" : "OFF"}`);
     setVitaminOn(value); // Optimistic update
 
     try {
@@ -960,14 +963,14 @@ export default function ControlScreen({ navigation }) {
         throw new Error("ESP32 not configured. Check esp32config.js");
       }
 
-      const endpoint = value ? '/api/vitamin/enable' : '/api/vitamin/disable';
+      const endpoint = value ? "/api/vitamin/enable" : "/api/vitamin/disable";
       const fullUrl = `${url}${endpoint}`;
 
       console.log(`[Vitamin] Sending request to: ${fullUrl}`);
 
       const response = await fetch(fullUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
       });
 
       if (!response.ok) {
@@ -991,7 +994,7 @@ export default function ControlScreen({ navigation }) {
       setVitaminOn(!value); // Revert on fail
       Alert.alert(
         "Vitamin System Error",
-        `Could not reach vitamin pump controller.\n\nError: ${error.message}\n\nPlease check:\n1. ESP32 is powered on\n2. WiFi connection\n3. IP address in esp32config.js`
+        `Could not reach vitamin pump controller.\n\nError: ${error.message}\n\nPlease check:\n1. ESP32 is powered on\n2. WiFi connection\n3. IP address in esp32config.js`,
       );
     }
   };
@@ -1040,7 +1043,11 @@ export default function ControlScreen({ navigation }) {
         });
       } else {
         const errorText = await response.text();
-        console.error("❌ Vitamin pump test failed:", response.status, errorText);
+        console.error(
+          "❌ Vitamin pump test failed:",
+          response.status,
+          errorText,
+        );
         showMotorWarning(
           "Vitamin Pump Test Failed",
           `ESP32 returned error: ${response.status}\n${errorText}`,
@@ -1262,6 +1269,7 @@ export default function ControlScreen({ navigation }) {
     setShowFeedAddPicker(false);
     setPendingFeedTime(null);
     setIsSubmitting(false);
+    setPopupMessage("Saved Successfully!");
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
@@ -1344,6 +1352,7 @@ export default function ControlScreen({ navigation }) {
     setIsSubmitting(false);
 
     // Show success popup
+    setPopupMessage("Deleted Successfully!");
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1200);
   };
@@ -1439,6 +1448,7 @@ export default function ControlScreen({ navigation }) {
             setIsSubmitting(false);
 
             // Show success popup
+            setPopupMessage("Deleted Successfully!");
             setShowSavedPopup(true);
             setTimeout(() => setShowSavedPopup(false), 1200);
           },
@@ -1598,6 +1608,7 @@ export default function ControlScreen({ navigation }) {
     setConfirmEditVisible(false);
     setFeedEdit({ open: false, idx: null, timeDate: new Date() });
     setIsSubmitting(false);
+    setPopupMessage("Updated Successfully!");
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
@@ -1696,6 +1707,7 @@ export default function ControlScreen({ navigation }) {
     setConfirmDeleteFeedVisible(false);
     setPendingDeleteFeedId(null);
     setIsSubmitting(false);
+    setPopupMessage("Deleted Successfully!");
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1200);
   };
@@ -1910,20 +1922,20 @@ export default function ControlScreen({ navigation }) {
   };
 
   const handleTestLightToggle = async (newValue) => {
-    console.log(`[TestLight] Toggle requested: ${newValue ? 'ON' : 'OFF'}`);
+    console.log(`[TestLight] Toggle requested: ${newValue ? "ON" : "OFF"}`);
     setTestLightOn(newValue); // Optimistic update
 
     try {
       // Call ESP32 API
-      const endpoint = newValue ? '/api/light/on' : '/api/light/off';
+      const endpoint = newValue ? "/api/light/on" : "/api/light/off";
       const fullUrl = `http://${esp32IpAddress}${endpoint}`;
-      
+
       console.log(`[TestLight] Sending request to: ${fullUrl}`);
-      
+
       const response = await fetch(fullUrl, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
       });
 
@@ -1933,29 +1945,29 @@ export default function ControlScreen({ navigation }) {
 
       const data = await response.json();
       console.log(`[TestLight] Response:`, data);
-      
+
       // Sync state from ESP32 response
       if (data.light_status !== undefined) {
-        setTestLightOn(data.light_status === 'on');
+        setTestLightOn(data.light_status === "on");
       } else if (data.status !== undefined) {
-        setTestLightOn(data.status === 'on');
+        setTestLightOn(data.status === "on");
       }
 
       // Log test lighting activity
       await logActivity("lightingTest_logs", {
-        action: `Test lighting turned ${newValue ? 'ON' : 'OFF'}`,
+        action: `Test lighting turned ${newValue ? "ON" : "OFF"}`,
         description: `User tested lighting via modal`,
         status: "Completed",
         timestamp: new Date().toISOString(),
       });
-      
-      console.log(`[TestLight] Successfully turned ${newValue ? 'ON' : 'OFF'}`);
+
+      console.log(`[TestLight] Successfully turned ${newValue ? "ON" : "OFF"}`);
     } catch (error) {
-      console.error('[TestLight] Error:', error);
-      
+      console.error("[TestLight] Error:", error);
+
       // Revert optimistic update on error
       setTestLightOn(!newValue);
-      
+
       showMotorWarning(
         "Connection Error",
         `Could not connect to ESP32.\n\nError: ${error.message}\n\nPlease check if ESP32 is online at ${esp32IpAddress}`,
@@ -2080,6 +2092,7 @@ export default function ControlScreen({ navigation }) {
     setShowWaterAddPicker(false);
     setPendingWaterTime(null);
     setIsSubmitting(false);
+    setPopupMessage("Saved Successfully!");
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
@@ -2197,6 +2210,7 @@ export default function ControlScreen({ navigation }) {
 
     setConfirmEditVisible(false);
     setWaterEdit({ open: false, idx: null, timeDate: new Date() });
+    setPopupMessage("Updated Successfully!");
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1400);
   };
@@ -2296,6 +2310,9 @@ export default function ControlScreen({ navigation }) {
     setWaterings((s) => s.filter((w) => w.id !== pendingDeleteWaterId));
     setConfirmDeleteWaterVisible(false);
     setPendingDeleteWaterId(null);
+    setShowSavedPopup(true);
+    setTimeout(() => setShowSavedPopup(false), 1200);
+    setPopupMessage("Deleted Successfully!");
     setShowSavedPopup(true);
     setTimeout(() => setShowSavedPopup(false), 1200);
     console.log("✅ Water schedule deleted successfully");
@@ -2485,6 +2502,7 @@ export default function ControlScreen({ navigation }) {
       // Logging to activity_logs/nightTime_logs/events
 
       setIsSubmitting(false);
+      setPopupMessage("Updated Successfully!");
       setShowSavedPopup(true);
       setTimeout(() => setShowSavedPopup(false), 1400);
     } catch (err) {
@@ -2526,7 +2544,14 @@ export default function ControlScreen({ navigation }) {
         )}
 
         {/* 1. UPDATED REAL-TIME SENSORS GRID */}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: 8 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            justifyContent: "space-between",
+            marginTop: 8,
+          }}
+        >
           {/* Water Level */}
           <StatCard
             label="Water Level"
@@ -2618,11 +2643,20 @@ export default function ControlScreen({ navigation }) {
         {/* 2. VENTILATION CONTROL (New Section) */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader icon="hardware-chip-outline" title="Ventilation System" />
-          <View style={[styles.innerBox, { justifyContent: 'space-between', marginTop: 15 }]}>
+          <View
+            style={[
+              styles.innerBox,
+              { justifyContent: "space-between", marginTop: 15 },
+            ]}
+          >
             <View>
-              <Text style={{ fontSize: 16, fontWeight: '600', color: '#333' }}>Exhaust Fan</Text>
+              <Text style={{ fontSize: 16, fontWeight: "600", color: "#333" }}>
+                Exhaust Fan
+              </Text>
               <Text style={styles.smallNote}>
-                {fanOn ? "Active - Cooling system running" : "Inactive - System idle"}
+                {fanOn
+                  ? "Active - Cooling system running"
+                  : "Inactive - System idle"}
               </Text>
             </View>
             <Switch
@@ -2637,9 +2671,16 @@ export default function ControlScreen({ navigation }) {
         {/* 3. VITAMIN SYSTEM */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader icon="flask-outline" title="Vitamin System" />
-          <View style={[styles.innerBox, { justifyContent: 'space-between', marginTop: 15 }]}>
+          <View
+            style={[
+              styles.innerBox,
+              { justifyContent: "space-between", marginTop: 15 },
+            ]}
+          >
             <View>
-              <Text style={{ fontSize: 16, fontWeight: '600', color: '#333' }}>Peristaltic Pump</Text>
+              <Text style={{ fontSize: 16, fontWeight: "600", color: "#333" }}>
+                Peristaltic Pump
+              </Text>
               <Text style={styles.smallNote}>
                 {vitaminOn
                   ? "Active - Vitamin pump dispenses at watering schedule"
@@ -2653,7 +2694,12 @@ export default function ControlScreen({ navigation }) {
               thumbColor="#fff"
             />
           </View>
-          <Text style={[styles.smallNote, { marginTop: 6, fontSize: 11, fontStyle: 'italic' }]}>
+          <Text
+            style={[
+              styles.smallNote,
+              { marginTop: 6, fontSize: 11, fontStyle: "italic" },
+            ]}
+          >
             {vitaminOn
               ? "ON: Peristaltic pump runs at scheduled watering times"
               : "OFF: Regular water pump runs at scheduled watering times"}
@@ -3062,7 +3108,7 @@ export default function ControlScreen({ navigation }) {
                   thumbColor="#fff"
                 />
               </View>
-              
+
               {/* Status text */}
               <View style={styles.statusRow}>
                 <Text style={styles.statusLabel}>Status:</Text>
@@ -3074,7 +3120,14 @@ export default function ControlScreen({ navigation }) {
                 />
                 <Text style={styles.statusValue}>{lightOn ? "ON" : "OFF"}</Text>
               </View>
-              <Text style={{ fontSize: 11, color: "#999", marginTop: 2, fontStyle: 'italic' }}>
+              <Text
+                style={{
+                  fontSize: 11,
+                  color: "#999",
+                  marginTop: 2,
+                  fontStyle: "italic",
+                }}
+              >
                 Connected to ESP32 GPIO16 via MOSFET
               </Text>
             </View>
@@ -3409,7 +3462,10 @@ export default function ControlScreen({ navigation }) {
               <Text style={styles.primaryBtnText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.primaryBtn, { flex: 1, backgroundColor: "#22c55e" }]}
+              style={[
+                styles.primaryBtn,
+                { flex: 1, backgroundColor: "#22c55e" },
+              ]}
               onPress={() => {
                 // Check for duplicate before showing confirm modal
                 if (feedEdit.open && feedEdit.idx !== null) {
@@ -3504,7 +3560,9 @@ export default function ControlScreen({ navigation }) {
                 style={[styles.smallActionBtn, { backgroundColor: "#E5E7EB" }]}
                 onPress={() => setConfirmDeleteVisible(false)}
               >
-                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>Cancel</Text>
+                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
@@ -3682,7 +3740,9 @@ export default function ControlScreen({ navigation }) {
                   setPendingFeedTime(null);
                 }}
               >
-                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>Cancel</Text>
+                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
@@ -3754,7 +3814,9 @@ export default function ControlScreen({ navigation }) {
                   setFeedEdit({ open: false, idx: null, timeDate: new Date() });
                 }}
               >
-                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>Cancel</Text>
+                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
@@ -3800,7 +3862,9 @@ export default function ControlScreen({ navigation }) {
                   setPendingDeleteFeedId(null);
                 }}
               >
-                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>Cancel</Text>
+                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
@@ -3836,7 +3900,9 @@ export default function ControlScreen({ navigation }) {
                 style={[styles.smallActionBtn, { backgroundColor: "#E5E7EB" }]}
                 onPress={() => setConfirmDeleteWaterVisible(false)}
               >
-                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>Cancel</Text>
+                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
@@ -3907,7 +3973,9 @@ export default function ControlScreen({ navigation }) {
                   setPendingWaterTime(null);
                 }}
               >
-                <Text style={[styles.smallActionText, { color: "#334155" }]}>Cancel</Text>
+                <Text style={[styles.smallActionText, { color: "#334155" }]}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
@@ -3933,7 +4001,7 @@ export default function ControlScreen({ navigation }) {
         <View style={styles.popupBackground}>
           <View style={styles.popupBox}>
             <Ionicons name="checkmark-circle" size={56} color="#22c55e" />
-            <Text style={styles.popupText}>Saved Successfully!</Text>
+            <Text style={styles.popupText}>{popupMessage}</Text>
           </View>
         </View>
       </Modal>
@@ -4021,25 +4089,55 @@ export default function ControlScreen({ navigation }) {
 }
 
 /* ---------------- helpers ---------------- */
-function StatCard({ label, value, subValue, icon, color, dotColor, loading, isSimulated, fullWidth }) {
+function StatCard({
+  label,
+  value,
+  subValue,
+  icon,
+  color,
+  dotColor,
+  loading,
+  isSimulated,
+  fullWidth,
+}) {
   return (
-    <View style={[styles.statCard, fullWidth ? { width: '100%' } : { width: '48%' }]}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-        {icon && <Ionicons name={icon} size={18} color={color || dotColor} style={{ marginRight: 6 }} />}
+    <View
+      style={[
+        styles.statCard,
+        fullWidth ? { width: "100%" } : { width: "48%" },
+      ]}
+    >
+      <View
+        style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}
+      >
+        {icon && (
+          <Ionicons
+            name={icon}
+            size={18}
+            color={color || dotColor}
+            style={{ marginRight: 6 }}
+          />
+        )}
         {!icon && <View style={[styles.dot, { backgroundColor: dotColor }]} />}
-        <Text style={{ fontSize: 13, color: '#666', fontWeight: '600' }}>{label}</Text>
+        <Text style={{ fontSize: 13, color: "#666", fontWeight: "600" }}>
+          {label}
+        </Text>
       </View>
       {loading ? (
         <ActivityIndicator size="small" color={PRIMARY} />
       ) : (
         <>
-          <Text style={{ fontSize: 20, fontWeight: '700', color: '#333' }}>{value}</Text>
+          <Text style={{ fontSize: 20, fontWeight: "700", color: "#333" }}>
+            {value}
+          </Text>
           {subValue && (
-            <Text style={{
-              fontSize: 11,
-              color: subValue.includes("Full") ? RED : '#999',
-              marginTop: 2
-            }}>
+            <Text
+              style={{
+                fontSize: 11,
+                color: subValue.includes("Full") ? RED : "#999",
+                marginTop: 2,
+              }}
+            >
               {subValue}
             </Text>
           )}

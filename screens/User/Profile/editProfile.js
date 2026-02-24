@@ -483,12 +483,18 @@ export default function EditProfile({ navigation }) {
             collection(db, "activity_logs", "editProfile", "userprofile"),
             {
               userId: currentUser.uid,
-              action: "Profile updated",
-              description: `Updated profile: ${fieldsChanged.join(", ")}`,
-              timestamp: serverTimestamp(),
-              deviceInfo: Platform.OS,
+              email: currentUser.email || "Unknown",
               firstName: formattedFirstName,
               lastName: formattedLastName,
+              userName: `${formattedFirstName} ${formattedLastName}`,
+              action: "Profile updated",
+              description:
+                fieldsChanged.length > 0
+                  ? `Updated profile: ${fieldsChanged.join(", ")}`
+                  : "Updated profile",
+              timestamp: serverTimestamp(),
+              deviceInfo: Platform.OS,
+              changedFields: fieldsChanged,
             },
           );
           console.log("✅ Activity logged successfully");
@@ -722,7 +728,7 @@ export default function EditProfile({ navigation }) {
             {
               userId: currentUser.uid,
               action: "Password changed",
-              description: "User successfully changed their password",
+              description: "Changed password via profile settings ",
               timestamp: serverTimestamp(),
               deviceInfo: Platform.OS,
               firstName: firstName,
@@ -822,8 +828,7 @@ export default function EditProfile({ navigation }) {
     middleName !== originalMiddleName ||
     lastName !== originalLastName ||
     phone !== originalPhone;
-  const hasPasswordChanges =
-    currentPassword || newPassword || confirmPassword;
+  const hasPasswordChanges = currentPassword || newPassword || confirmPassword;
 
   return (
     <>
@@ -979,216 +984,242 @@ export default function EditProfile({ navigation }) {
         <View style={styles.centerContent}>
           {/* Profile Icon */}
           <View style={styles.profileContainer}>
-              <View style={styles.profileCircle}>
-                <Ionicons name="person" size={80} color="#1D3B71" />
-              </View>
-              <Text style={styles.name}>
-                {[originalFirstName, originalLastName]
-                  .filter((name) => name)
-                  .join(" ") || "User"}
-              </Text>
-              <Text style={styles.subtitle}>Edit Profile</Text>
+            <View style={styles.profileCircle}>
+              <Ionicons name="person" size={80} color="#1D3B71" />
             </View>
+            <Text style={styles.name}>
+              {[originalFirstName, originalLastName]
+                .filter((name) => name)
+                .join(" ") || "User"}
+            </Text>
+            <Text style={styles.subtitle}>Edit Profile</Text>
+          </View>
 
-            {/* First Name */}
-            <View style={styles.labelContainer}>
-              <Text style={styles.label}>First Name</Text>
-              <Text style={styles.requiredAsterisk}>*</Text>
-            </View>
+          {/* First Name */}
+          <View style={styles.labelContainer}>
+            <Text style={styles.label}>First Name</Text>
+            <Text style={styles.requiredAsterisk}>*</Text>
+          </View>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter first name"
+            value={firstName}
+            maxLength={20}
+            onChangeText={(text) => {
+              setFirstName(text);
+              validateFirstName(text);
+            }}
+          />
+          {firstNameError ? (
+            <Text style={styles.errorText}>{firstNameError}</Text>
+          ) : null}
+
+          {/* Middle Name */}
+          <Text style={styles.label}>Middle Name</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter middle name"
+            value={middleName}
+            maxLength={20}
+            onChangeText={(text) => {
+              setMiddleName(text);
+              validateMiddleName(text);
+            }}
+          />
+          {middleNameError ? (
+            <Text style={styles.errorText}>{middleNameError}</Text>
+          ) : null}
+
+          {/* Last Name */}
+          <View style={styles.labelContainer}>
+            <Text style={styles.label}>Last Name</Text>
+            <Text style={styles.requiredAsterisk}>*</Text>
+          </View>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter last name"
+            value={lastName}
+            maxLength={20}
+            onChangeText={(text) => {
+              setLastName(text);
+              validateLastName(text);
+            }}
+          />
+          {lastNameError ? (
+            <Text style={styles.errorText}>{lastNameError}</Text>
+          ) : null}
+
+          {/* Email */}
+          <Text style={styles.label}>Email</Text>
+          <TextInput
+            style={[styles.input, styles.disabledInput]}
+            placeholder="Email"
+            value={email}
+            editable={false}
+          />
+
+          {/* Phone Number */}
+          <View style={styles.labelContainer}>
+            <Text style={styles.label}>Phone Number</Text>
+            <Text style={styles.requiredAsterisk}>*</Text>
+          </View>
+          <TextInput
+            style={styles.input}
+            placeholder="09123456789"
+            keyboardType="phone-pad"
+            value={phone}
+            onChangeText={(text) => {
+              // Remove any non-numeric characters
+              let cleanText = text.replace(/[^0-9]/g, "");
+
+              // Limit to 11 digits (09XXXXXXXXX)
+              if (cleanText.length <= 11) {
+                setPhone(cleanText);
+              }
+            }}
+            maxLength={11}
+          />
+
+          {/* Save Changes Button */}
+          <TouchableOpacity
+            style={[
+              styles.saveButton,
+              (saving ||
+                !hasProfileChanges ||
+                !!firstNameError ||
+                !!middleNameError ||
+                !!lastNameError) &&
+                styles.saveButtonDisabled,
+            ]}
+            onPress={handleSaveProfile}
+            disabled={
+              !!(
+                saving ||
+                !hasProfileChanges ||
+                !!firstNameError ||
+                !!middleNameError ||
+                !!lastNameError
+              )
+            }
+          >
+            {saving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.saveButtonText}>Save Changes</Text>
+            )}
+          </TouchableOpacity>
+
+          {/* Divider for password section */}
+          <View style={styles.divider}>
+            <Text style={styles.dividerText}>Change Password (Optional)</Text>
+          </View>
+
+          {/* Current Password */}
+          <Text style={styles.label}>Current Password</Text>
+          <View style={styles.passwordContainer}>
             <TextInput
-              style={styles.input}
-              placeholder="Enter first name"
-              value={firstName}
-              maxLength={20}
-              onChangeText={(text) => {
-                setFirstName(text);
-                validateFirstName(text);
-              }}
+              style={styles.passwordInput}
+              placeholder="Enter current password"
+              secureTextEntry={!showCurrentPassword}
+              value={currentPassword}
+              onChangeText={setCurrentPassword}
             />
-            {firstNameError ? (
-              <Text style={styles.errorText}>{firstNameError}</Text>
-            ) : null}
-
-            {/* Middle Name */}
-            <Text style={styles.label}>Middle Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter middle name"
-              value={middleName}
-              maxLength={20}
-              onChangeText={(text) => {
-                setMiddleName(text);
-                validateMiddleName(text);
-              }}
-            />
-            {middleNameError ? (
-              <Text style={styles.errorText}>{middleNameError}</Text>
-            ) : null}
-
-            {/* Last Name */}
-            <View style={styles.labelContainer}>
-              <Text style={styles.label}>Last Name</Text>
-              <Text style={styles.requiredAsterisk}>*</Text>
-            </View>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter last name"
-              value={lastName}
-              maxLength={20}
-              onChangeText={(text) => {
-                setLastName(text);
-                validateLastName(text);
-              }}
-            />
-            {lastNameError ? (
-              <Text style={styles.errorText}>{lastNameError}</Text>
-            ) : null}
-
-            {/* Email */}
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              style={[styles.input, styles.disabledInput]}
-              placeholder="Email"
-              value={email}
-              editable={false}
-            />
-
-            {/* Phone Number */}
-            <View style={styles.labelContainer}>
-              <Text style={styles.label}>Phone Number</Text>
-              <Text style={styles.requiredAsterisk}>*</Text>
-            </View>
-            <TextInput
-              style={styles.input}
-              placeholder="09123456789"
-              keyboardType="phone-pad"
-              value={phone}
-              onChangeText={(text) => {
-                // Remove any non-numeric characters
-                let cleanText = text.replace(/[^0-9]/g, "");
-
-                // Limit to 11 digits (09XXXXXXXXX)
-                if (cleanText.length <= 11) {
-                  setPhone(cleanText);
-                }
-              }}
-              maxLength={11}
-            />
-
-            {/* Save Changes Button */}
             <TouchableOpacity
-              style={[
-                styles.saveButton,
-                (saving || !hasProfileChanges || !!firstNameError || !!middleNameError || !!lastNameError) && styles.saveButtonDisabled,
-              ]}
-              onPress={handleSaveProfile}
-              disabled={!!(saving || !hasProfileChanges || !!firstNameError || !!middleNameError || !!lastNameError)}
+              onPress={() => setShowCurrentPassword(!showCurrentPassword)}
+              style={styles.eyeIcon}
             >
-              {saving ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.saveButtonText}>Save Changes</Text>
-              )}
+              <Ionicons
+                name={showCurrentPassword ? "eye-off-outline" : "eye-outline"}
+                size={22}
+                color="#444"
+              />
             </TouchableOpacity>
+          </View>
 
-            {/* Divider for password section */}
-            <View style={styles.divider}>
-              <Text style={styles.dividerText}>Change Password (Optional)</Text>
-            </View>
-
-            {/* Current Password */}
-            <Text style={styles.label}>Current Password</Text>
-            <View style={styles.passwordContainer}>
-              <TextInput
-                style={styles.passwordInput}
-                placeholder="Enter current password"
-                secureTextEntry={!showCurrentPassword}
-                value={currentPassword}
-                onChangeText={setCurrentPassword}
-              />
-              <TouchableOpacity
-                onPress={() => setShowCurrentPassword(!showCurrentPassword)}
-                style={styles.eyeIcon}
-              >
-                <Ionicons
-                  name={showCurrentPassword ? "eye-off-outline" : "eye-outline"}
-                  size={22}
-                  color="#444"
-                />
-              </TouchableOpacity>
-            </View>
-
-            {/* New Password */}
-            <Text style={styles.label}>New Password</Text>
-            <View style={styles.passwordContainer}>
-              <TextInput
-                style={styles.passwordInput}
-                placeholder="Enter new password"
-                secureTextEntry={!showPassword}
-                value={newPassword}
-                onChangeText={(text) => {
-                  setNewPassword(text);
-                  validateNewPassword(text, currentPassword);
-                }}
-              />
-              <TouchableOpacity
-                onPress={() => setShowPassword(!showPassword)}
-                style={styles.eyeIcon}
-              >
-                <Ionicons
-                  name={showPassword ? "eye-off-outline" : "eye-outline"}
-                  size={22}
-                  color="#444"
-                />
-              </TouchableOpacity>
-            </View>
-            {newPasswordError ? (
-              <Text style={styles.errorText}>{newPasswordError}</Text>
-            ) : null}
-
-            {/* Confirm Password */}
-            <Text style={styles.label}>Confirm New Password</Text>
-            <View style={styles.passwordContainer}>
-              <TextInput
-                style={styles.passwordInput}
-                placeholder="Confirm new password"
-                secureTextEntry={!showConfirmPassword}
-                value={confirmPassword}
-                onChangeText={(text) => {
-                  setConfirmPassword(text);
-                  validateConfirmPassword(text);
-                }}
-              />
-              <TouchableOpacity
-                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                style={styles.eyeIcon}
-              >
-                <Ionicons
-                  name={showConfirmPassword ? "eye-off-outline" : "eye-outline"}
-                  size={22}
-                  color="#444"
-                />
-              </TouchableOpacity>
-            </View>
-            {confirmPasswordError ? (
-              <Text style={styles.errorText}>{confirmPasswordError}</Text>
-            ) : null}
-
-            {/* Save Password Button */}
+          {/* New Password */}
+          <Text style={styles.label}>New Password</Text>
+          <View style={styles.passwordContainer}>
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="Enter new password"
+              secureTextEntry={!showPassword}
+              value={newPassword}
+              onChangeText={(text) => {
+                setNewPassword(text);
+                validateNewPassword(text, currentPassword);
+              }}
+            />
             <TouchableOpacity
-              style={[
-                styles.saveButton,
-                (saving || !hasPasswordChanges || !!currentPasswordError || !!newPasswordError || !!confirmPasswordError) && styles.saveButtonDisabled,
-              ]}
-              onPress={handleSavePassword}
-              disabled={!!(saving || !hasPasswordChanges || !!currentPasswordError || !!newPasswordError || !!confirmPasswordError)}
+              onPress={() => setShowPassword(!showPassword)}
+              style={styles.eyeIcon}
             >
-              {saving ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.saveButtonText}>Save Password</Text>
-              )}
+              <Ionicons
+                name={showPassword ? "eye-off-outline" : "eye-outline"}
+                size={22}
+                color="#444"
+              />
             </TouchableOpacity>
+          </View>
+          {newPasswordError ? (
+            <Text style={styles.errorText}>{newPasswordError}</Text>
+          ) : null}
+
+          {/* Confirm Password */}
+          <Text style={styles.label}>Confirm New Password</Text>
+          <View style={styles.passwordContainer}>
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="Confirm new password"
+              secureTextEntry={!showConfirmPassword}
+              value={confirmPassword}
+              onChangeText={(text) => {
+                setConfirmPassword(text);
+                validateConfirmPassword(text);
+              }}
+            />
+            <TouchableOpacity
+              onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+              style={styles.eyeIcon}
+            >
+              <Ionicons
+                name={showConfirmPassword ? "eye-off-outline" : "eye-outline"}
+                size={22}
+                color="#444"
+              />
+            </TouchableOpacity>
+          </View>
+          {confirmPasswordError ? (
+            <Text style={styles.errorText}>{confirmPasswordError}</Text>
+          ) : null}
+
+          {/* Save Password Button */}
+          <TouchableOpacity
+            style={[
+              styles.saveButton,
+              (saving ||
+                !hasPasswordChanges ||
+                !!currentPasswordError ||
+                !!newPasswordError ||
+                !!confirmPasswordError) &&
+                styles.saveButtonDisabled,
+            ]}
+            onPress={handleSavePassword}
+            disabled={
+              !!(
+                saving ||
+                !hasPasswordChanges ||
+                !!currentPasswordError ||
+                !!newPasswordError ||
+                !!confirmPasswordError
+              )
+            }
+          >
+            {saving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.saveButtonText}>Save Password</Text>
+            )}
+          </TouchableOpacity>
         </View>
       </KeyboardAwareScrollView>
     </>
