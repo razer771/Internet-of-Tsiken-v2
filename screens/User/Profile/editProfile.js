@@ -10,6 +10,8 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Keyboard,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
@@ -36,6 +38,8 @@ export default function EditProfile({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const scrollViewRef = useRef(null);
 
   // Form fields
   const [firstName, setFirstName] = useState("");
@@ -51,6 +55,7 @@ export default function EditProfile({ navigation }) {
   const [firstNameError, setFirstNameError] = useState("");
   const [middleNameError, setMiddleNameError] = useState("");
   const [lastNameError, setLastNameError] = useState("");
+  const [phoneError, setPhoneError] = useState("");
 
   // Password error states
   const [currentPasswordError, setCurrentPasswordError] = useState("");
@@ -84,6 +89,26 @@ export default function EditProfile({ navigation }) {
 
   useEffect(() => {
     fetchUserData();
+  }, []);
+
+  // Keyboard height listener - measure actual keyboard height
+  useEffect(() => {
+    const keyboardDidShow = Keyboard.addListener(
+      Platform.OS === "android" ? "keyboardDidShow" : "keyboardWillShow",
+      (e) => {
+        const height = e.endCoordinates?.height || 260;
+        setKeyboardHeight(height + 80); // Add extra space to push bottom nav off-screen
+      },
+    );
+    const keyboardDidHide = Keyboard.addListener(
+      Platform.OS === "android" ? "keyboardDidHide" : "keyboardWillHide",
+      () => setKeyboardHeight(0),
+    );
+
+    return () => {
+      keyboardDidShow.remove();
+      keyboardDidHide.remove();
+    };
   }, []);
 
   // Reset canExit flag when screen comes into focus
@@ -286,15 +311,14 @@ export default function EditProfile({ navigation }) {
 
   // Validate first name in real-time
   const validateFirstName = (name) => {
-    if (!name) {
-      setFirstNameError("");
-      return;
-    }
-
     let error = "";
 
+    // Check if empty (required field)
+    if (!name || !name.trim()) {
+      error = "First name is required";
+    }
     // Check maximum length first
-    if (name.length >= 20) {
+    else if (name.length >= 20) {
       error = "First name cannot exceed 20 characters";
     }
     // Check minimum length
@@ -340,15 +364,14 @@ export default function EditProfile({ navigation }) {
 
   // Validate last name in real-time
   const validateLastName = (name) => {
-    if (!name) {
-      setLastNameError("");
-      return;
-    }
-
     let error = "";
 
+    // Check if empty (required field)
+    if (!name || !name.trim()) {
+      error = "Last name is required";
+    }
     // Check maximum length first
-    if (name.length >= 20) {
+    else if (name.length >= 20) {
       error = "Last name cannot exceed 20 characters";
     }
     // Check minimum length
@@ -365,6 +388,26 @@ export default function EditProfile({ navigation }) {
     }
 
     setLastNameError(error);
+  };
+
+  // Validate phone number in real-time
+  const validatePhone = (phoneNumber) => {
+    let error = "";
+
+    // Check if empty (required field)
+    if (!phoneNumber || !phoneNumber.trim()) {
+      error = "Phone number is required";
+    }
+    // Check length (should be 11 digits for 09XXXXXXXXX format)
+    else if (phoneNumber.length < 11) {
+      error = "Phone number must be 11 digits";
+    }
+    // Check if it starts with 09
+    else if (!phoneNumber.startsWith("09")) {
+      error = "Phone number must start with 09";
+    }
+
+    setPhoneError(error);
   };
 
   const handleSaveProfile = () => {
@@ -387,6 +430,14 @@ export default function EditProfile({ navigation }) {
 
     if (!phone.trim()) {
       Alert.alert("Error", "Please enter your phone number");
+      return;
+    }
+
+    if (phoneError) {
+      Alert.alert(
+        "Error",
+        "Please fix phone number validation errors before saving",
+      );
       return;
     }
 
@@ -685,9 +736,7 @@ export default function EditProfile({ navigation }) {
           "Too many failed attempts. Please try again later",
         );
       } else {
-        setPasswordErrorMessage(
-          "Failed to verify current password. Please try again",
-        );
+        setPasswordErrorMessage("Current password is incorrect.");
       }
       setShowPasswordErrorModal(true);
     }
@@ -831,398 +880,422 @@ export default function EditProfile({ navigation }) {
   const hasPasswordChanges = currentPassword || newPassword || confirmPassword;
 
   return (
-    <>
-      {/* SAVE CONFIRMATION MODAL */}
-      <Modal visible={showSaveConfirmModal} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Ionicons
-              name="checkmark-circle-outline"
-              size={60}
-              color="#22C55E"
-            />
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+    >
+      <>
+        {/* SAVE CONFIRMATION MODAL */}
+        <Modal visible={showSaveConfirmModal} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Ionicons
+                name="checkmark-circle-outline"
+                size={60}
+                color="#22C55E"
+              />
 
-            <Text style={styles.modalTitle}>Save Changes</Text>
-            <Text style={styles.modalMessage}>
-              Are you sure you want to save the changes?
-            </Text>
+              <Text style={styles.modalTitle}>Save Changes</Text>
+              <Text style={styles.modalMessage}>
+                Are you sure you want to save the changes?
+              </Text>
 
-            <View style={styles.modalButtons}>
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={cancelSaveProfile}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.confirmButton]}
+                  onPress={confirmSaveProfile}
+                >
+                  <Text style={styles.confirmButtonText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* PASSWORD ERROR MODAL */}
+        <Modal
+          visible={showPasswordErrorModal}
+          transparent
+          animationType="fade"
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Ionicons name="alert-circle-outline" size={60} color="#D32F2F" />
+
+              <Text style={styles.modalTitle}>Validation Error</Text>
+              <Text style={styles.modalMessage}>{passwordErrorMessage}</Text>
+
               <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={cancelSaveProfile}
+                style={styles.singleModalButton}
+                onPress={closePasswordErrorModal}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.modalButton, styles.confirmButton]}
-                onPress={confirmSaveProfile}
-              >
-                <Text style={styles.confirmButtonText}>Save</Text>
+                <Text style={styles.confirmButtonText}>OK</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
 
-      {/* PASSWORD ERROR MODAL */}
-      <Modal visible={showPasswordErrorModal} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Ionicons name="alert-circle-outline" size={60} color="#D32F2F" />
+        {/* PASSWORD SAVE CONFIRMATION MODAL */}
+        <Modal
+          visible={showPasswordConfirmModal}
+          transparent
+          animationType="fade"
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Ionicons name="lock-closed-outline" size={60} color="#1D3B71" />
 
-            <Text style={styles.modalTitle}>Validation Error</Text>
-            <Text style={styles.modalMessage}>{passwordErrorMessage}</Text>
+              <Text style={styles.modalTitle}>Save Password</Text>
+              <Text style={styles.modalMessage}>
+                Are you sure you want to change your password?
+              </Text>
 
-            <TouchableOpacity
-              style={styles.singleModalButton}
-              onPress={closePasswordErrorModal}
-            >
-              <Text style={styles.confirmButtonText}>OK</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={cancelSavePassword}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
 
-      {/* PASSWORD SAVE CONFIRMATION MODAL */}
-      <Modal
-        visible={showPasswordConfirmModal}
-        transparent
-        animationType="fade"
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Ionicons name="lock-closed-outline" size={60} color="#1D3B71" />
-
-            <Text style={styles.modalTitle}>Save Password</Text>
-            <Text style={styles.modalMessage}>
-              Are you sure you want to change your password?
-            </Text>
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={cancelSavePassword}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.modalButton, styles.confirmButton]}
-                onPress={confirmSavePassword}
-              >
-                <Text style={styles.confirmButtonText}>Save</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.confirmButton]}
+                  onPress={confirmSavePassword}
+                >
+                  <Text style={styles.confirmButtonText}>Save</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
 
-      {/* UNSAVED CHANGES MODAL */}
-      <Modal visible={showUnsavedModal} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Ionicons name="warning-outline" size={60} color="#FF9800" />
+        {/* UNSAVED CHANGES MODAL */}
+        <Modal visible={showUnsavedModal} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Ionicons name="warning-outline" size={60} color="#FF9800" />
 
-            <Text style={styles.modalTitle}>Unsaved Changes</Text>
-            <Text style={styles.modalMessage}>
-              There are unsaved changes. Are you sure you want to close this
-              page?
-            </Text>
+              <Text style={styles.modalTitle}>Unsaved Changes</Text>
+              <Text style={styles.modalMessage}>
+                There are unsaved changes. Are you sure you want to close this
+                page?
+              </Text>
 
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={handleCancelDiscard}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={handleCancelDiscard}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.modalButton, styles.discardButton]}
-                onPress={handleDiscardChanges}
-              >
-                <Text style={styles.discardButtonText}>Discard</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.discardButton]}
+                  onPress={handleDiscardChanges}
+                >
+                  <Text style={styles.discardButtonText}>Discard</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
 
-      {/* SUCCESS POPUP MODAL */}
-      <Modal visible={showSuccess} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Image
-              source={{
-                uri: "https://img.icons8.com/color/96/checked--v1.png",
+        {/* SUCCESS POPUP MODAL */}
+        <Modal visible={showSuccess} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Image
+                source={{
+                  uri: "https://img.icons8.com/color/96/checked--v1.png",
+                }}
+                style={styles.icon}
+              />
+
+              <Text style={styles.successTitle}>
+                Changes Saved Successfully!
+              </Text>
+              <Text style={styles.successSubtitle}>{successMessage}</Text>
+            </View>
+          </View>
+        </Modal>
+
+        {/* MAIN SCREEN */}
+        <KeyboardAwareScrollView
+          ref={scrollViewRef}
+          style={{ flex: 1, backgroundColor: "#fff" }}
+          contentContainerStyle={[
+            styles.scrollContainer,
+            keyboardHeight > 0 && { paddingBottom: keyboardHeight },
+          ]}
+          enableOnAndroid={true}
+          extraScrollHeight={50}
+          scrollToOverflowEnabled={true}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Back Button */}
+          <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
+            <Ionicons name="arrow-back" size={28} color="#1D3B71" />
+            <Text style={styles.backText}>Back</Text>
+          </TouchableOpacity>
+
+          <View style={styles.centerContent}>
+            {/* Profile Icon */}
+            <View style={styles.profileContainer}>
+              <View style={styles.profileCircle}>
+                <Ionicons name="person" size={80} color="#1D3B71" />
+              </View>
+              <Text style={styles.name}>
+                {[originalFirstName, originalLastName]
+                  .filter((name) => name)
+                  .join(" ") || "User"}
+              </Text>
+              <Text style={styles.subtitle}>Edit Profile</Text>
+            </View>
+
+            {/* First Name */}
+            <View style={styles.labelContainer}>
+              <Text style={styles.label}>First Name</Text>
+              <Text style={styles.requiredAsterisk}>*</Text>
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter first name"
+              value={firstName}
+              maxLength={20}
+              onChangeText={(text) => {
+                setFirstName(text);
+                validateFirstName(text);
               }}
-              style={styles.icon}
+            />
+            {firstNameError ? (
+              <Text style={styles.errorText}>{firstNameError}</Text>
+            ) : null}
+
+            {/* Middle Name */}
+            <Text style={styles.label}>Middle Name</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter middle name"
+              value={middleName}
+              maxLength={20}
+              onChangeText={(text) => {
+                setMiddleName(text);
+                validateMiddleName(text);
+              }}
+            />
+            {middleNameError ? (
+              <Text style={styles.errorText}>{middleNameError}</Text>
+            ) : null}
+
+            {/* Last Name */}
+            <View style={styles.labelContainer}>
+              <Text style={styles.label}>Last Name</Text>
+              <Text style={styles.requiredAsterisk}>*</Text>
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter last name"
+              value={lastName}
+              maxLength={20}
+              onChangeText={(text) => {
+                setLastName(text);
+                validateLastName(text);
+              }}
+            />
+            {lastNameError ? (
+              <Text style={styles.errorText}>{lastNameError}</Text>
+            ) : null}
+
+            {/* Email */}
+            <Text style={styles.label}>Email</Text>
+            <TextInput
+              style={[styles.input, styles.disabledInput]}
+              placeholder="Email"
+              value={email}
+              editable={false}
             />
 
-            <Text style={styles.successTitle}>Changes Saved Successfully!</Text>
-            <Text style={styles.successSubtitle}>{successMessage}</Text>
-          </View>
-        </View>
-      </Modal>
-
-      {/* MAIN SCREEN */}
-      <KeyboardAwareScrollView
-        style={{ flex: 1, backgroundColor: "#fff" }}
-        contentContainerStyle={styles.scrollContainer}
-        enableOnAndroid={true}
-        extraScrollHeight={100}
-        scrollToOverflowEnabled={true}
-      >
-        {/* Back Button */}
-        <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
-          <Ionicons name="arrow-back" size={28} color="#1D3B71" />
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
-
-        <View style={styles.centerContent}>
-          {/* Profile Icon */}
-          <View style={styles.profileContainer}>
-            <View style={styles.profileCircle}>
-              <Ionicons name="person" size={80} color="#1D3B71" />
+            {/* Phone Number */}
+            <View style={styles.labelContainer}>
+              <Text style={styles.label}>Phone Number</Text>
+              <Text style={styles.requiredAsterisk}>*</Text>
             </View>
-            <Text style={styles.name}>
-              {[originalFirstName, originalLastName]
-                .filter((name) => name)
-                .join(" ") || "User"}
-            </Text>
-            <Text style={styles.subtitle}>Edit Profile</Text>
-          </View>
+            <TextInput
+              style={styles.input}
+              placeholder="09123456789"
+              keyboardType="phone-pad"
+              value={phone}
+              onChangeText={(text) => {
+                // Remove any non-numeric characters
+                let cleanText = text.replace(/[^0-9]/g, "");
 
-          {/* First Name */}
-          <View style={styles.labelContainer}>
-            <Text style={styles.label}>First Name</Text>
-            <Text style={styles.requiredAsterisk}>*</Text>
-          </View>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter first name"
-            value={firstName}
-            maxLength={20}
-            onChangeText={(text) => {
-              setFirstName(text);
-              validateFirstName(text);
-            }}
-          />
-          {firstNameError ? (
-            <Text style={styles.errorText}>{firstNameError}</Text>
-          ) : null}
+                // Limit to 11 digits (09XXXXXXXXX)
+                if (cleanText.length <= 11) {
+                  setPhone(cleanText);
+                  validatePhone(cleanText);
+                }
+              }}
+              maxLength={11}
+            />
+            {phoneError ? (
+              <Text style={styles.errorText}>{phoneError}</Text>
+            ) : null}
 
-          {/* Middle Name */}
-          <Text style={styles.label}>Middle Name</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter middle name"
-            value={middleName}
-            maxLength={20}
-            onChangeText={(text) => {
-              setMiddleName(text);
-              validateMiddleName(text);
-            }}
-          />
-          {middleNameError ? (
-            <Text style={styles.errorText}>{middleNameError}</Text>
-          ) : null}
-
-          {/* Last Name */}
-          <View style={styles.labelContainer}>
-            <Text style={styles.label}>Last Name</Text>
-            <Text style={styles.requiredAsterisk}>*</Text>
-          </View>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter last name"
-            value={lastName}
-            maxLength={20}
-            onChangeText={(text) => {
-              setLastName(text);
-              validateLastName(text);
-            }}
-          />
-          {lastNameError ? (
-            <Text style={styles.errorText}>{lastNameError}</Text>
-          ) : null}
-
-          {/* Email */}
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={[styles.input, styles.disabledInput]}
-            placeholder="Email"
-            value={email}
-            editable={false}
-          />
-
-          {/* Phone Number */}
-          <View style={styles.labelContainer}>
-            <Text style={styles.label}>Phone Number</Text>
-            <Text style={styles.requiredAsterisk}>*</Text>
-          </View>
-          <TextInput
-            style={styles.input}
-            placeholder="09123456789"
-            keyboardType="phone-pad"
-            value={phone}
-            onChangeText={(text) => {
-              // Remove any non-numeric characters
-              let cleanText = text.replace(/[^0-9]/g, "");
-
-              // Limit to 11 digits (09XXXXXXXXX)
-              if (cleanText.length <= 11) {
-                setPhone(cleanText);
+            {/* Save Changes Button */}
+            <TouchableOpacity
+              style={[
+                styles.saveButton,
+                (saving ||
+                  !hasProfileChanges ||
+                  !!firstNameError ||
+                  !!middleNameError ||
+                  !!lastNameError ||
+                  !!phoneError) &&
+                  styles.saveButtonDisabled,
+              ]}
+              onPress={handleSaveProfile}
+              disabled={
+                !!(
+                  saving ||
+                  !hasProfileChanges ||
+                  !!firstNameError ||
+                  !!middleNameError ||
+                  !!lastNameError ||
+                  !!phoneError
+                )
               }
-            }}
-            maxLength={11}
-          />
-
-          {/* Save Changes Button */}
-          <TouchableOpacity
-            style={[
-              styles.saveButton,
-              (saving ||
-                !hasProfileChanges ||
-                !!firstNameError ||
-                !!middleNameError ||
-                !!lastNameError) &&
-                styles.saveButtonDisabled,
-            ]}
-            onPress={handleSaveProfile}
-            disabled={
-              !!(
-                saving ||
-                !hasProfileChanges ||
-                !!firstNameError ||
-                !!middleNameError ||
-                !!lastNameError
-              )
-            }
-          >
-            {saving ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.saveButtonText}>Save Changes</Text>
-            )}
-          </TouchableOpacity>
-
-          {/* Divider for password section */}
-          <View style={styles.divider}>
-            <Text style={styles.dividerText}>Change Password (Optional)</Text>
-          </View>
-
-          {/* Current Password */}
-          <Text style={styles.label}>Current Password</Text>
-          <View style={styles.passwordContainer}>
-            <TextInput
-              style={styles.passwordInput}
-              placeholder="Enter current password"
-              secureTextEntry={!showCurrentPassword}
-              value={currentPassword}
-              onChangeText={setCurrentPassword}
-            />
-            <TouchableOpacity
-              onPress={() => setShowCurrentPassword(!showCurrentPassword)}
-              style={styles.eyeIcon}
             >
-              <Ionicons
-                name={showCurrentPassword ? "eye-off-outline" : "eye-outline"}
-                size={22}
-                color="#444"
+              {saving ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.saveButtonText}>Save Changes</Text>
+              )}
+            </TouchableOpacity>
+
+            {/* Divider for password section */}
+            <View style={styles.divider}>
+              <Text style={styles.dividerText}>Change Password (Optional)</Text>
+            </View>
+
+            {/* Current Password */}
+            <Text style={styles.label}>Current Password</Text>
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Enter current password"
+                secureTextEntry={!showCurrentPassword}
+                value={currentPassword}
+                onChangeText={setCurrentPassword}
               />
+              <TouchableOpacity
+                onPress={() => setShowCurrentPassword(!showCurrentPassword)}
+                style={styles.eyeIcon}
+              >
+                <Ionicons
+                  name={showCurrentPassword ? "eye-off-outline" : "eye-outline"}
+                  size={22}
+                  color="#444"
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* New Password */}
+            <Text style={styles.label}>New Password</Text>
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Enter new password"
+                secureTextEntry={!showPassword}
+                value={newPassword}
+                onChangeText={(text) => {
+                  setNewPassword(text);
+                  validateNewPassword(text, currentPassword);
+                }}
+              />
+              <TouchableOpacity
+                onPress={() => setShowPassword(!showPassword)}
+                style={styles.eyeIcon}
+              >
+                <Ionicons
+                  name={showPassword ? "eye-off-outline" : "eye-outline"}
+                  size={22}
+                  color="#444"
+                />
+              </TouchableOpacity>
+            </View>
+            {newPasswordError ? (
+              <Text style={styles.errorText}>{newPasswordError}</Text>
+            ) : null}
+
+            {/* Confirm Password */}
+            <Text style={styles.label}>Confirm New Password</Text>
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Confirm new password"
+                secureTextEntry={!showConfirmPassword}
+                value={confirmPassword}
+                onChangeText={(text) => {
+                  setConfirmPassword(text);
+                  validateConfirmPassword(text);
+                }}
+              />
+              <TouchableOpacity
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                style={styles.eyeIcon}
+              >
+                <Ionicons
+                  name={showConfirmPassword ? "eye-off-outline" : "eye-outline"}
+                  size={22}
+                  color="#444"
+                />
+              </TouchableOpacity>
+            </View>
+            {confirmPasswordError ? (
+              <Text style={styles.errorText}>{confirmPasswordError}</Text>
+            ) : null}
+
+            {/* Save Password Button */}
+            <TouchableOpacity
+              style={[
+                styles.saveButton,
+                (saving ||
+                  !hasPasswordChanges ||
+                  !!currentPasswordError ||
+                  !!newPasswordError ||
+                  !!confirmPasswordError) &&
+                  styles.saveButtonDisabled,
+              ]}
+              onPress={handleSavePassword}
+              disabled={
+                !!(
+                  saving ||
+                  !hasPasswordChanges ||
+                  !!currentPasswordError ||
+                  !!newPasswordError ||
+                  !!confirmPasswordError
+                )
+              }
+            >
+              {saving ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.saveButtonText}>Save Password</Text>
+              )}
             </TouchableOpacity>
           </View>
-
-          {/* New Password */}
-          <Text style={styles.label}>New Password</Text>
-          <View style={styles.passwordContainer}>
-            <TextInput
-              style={styles.passwordInput}
-              placeholder="Enter new password"
-              secureTextEntry={!showPassword}
-              value={newPassword}
-              onChangeText={(text) => {
-                setNewPassword(text);
-                validateNewPassword(text, currentPassword);
-              }}
-            />
-            <TouchableOpacity
-              onPress={() => setShowPassword(!showPassword)}
-              style={styles.eyeIcon}
-            >
-              <Ionicons
-                name={showPassword ? "eye-off-outline" : "eye-outline"}
-                size={22}
-                color="#444"
-              />
-            </TouchableOpacity>
-          </View>
-          {newPasswordError ? (
-            <Text style={styles.errorText}>{newPasswordError}</Text>
-          ) : null}
-
-          {/* Confirm Password */}
-          <Text style={styles.label}>Confirm New Password</Text>
-          <View style={styles.passwordContainer}>
-            <TextInput
-              style={styles.passwordInput}
-              placeholder="Confirm new password"
-              secureTextEntry={!showConfirmPassword}
-              value={confirmPassword}
-              onChangeText={(text) => {
-                setConfirmPassword(text);
-                validateConfirmPassword(text);
-              }}
-            />
-            <TouchableOpacity
-              onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-              style={styles.eyeIcon}
-            >
-              <Ionicons
-                name={showConfirmPassword ? "eye-off-outline" : "eye-outline"}
-                size={22}
-                color="#444"
-              />
-            </TouchableOpacity>
-          </View>
-          {confirmPasswordError ? (
-            <Text style={styles.errorText}>{confirmPasswordError}</Text>
-          ) : null}
-
-          {/* Save Password Button */}
-          <TouchableOpacity
-            style={[
-              styles.saveButton,
-              (saving ||
-                !hasPasswordChanges ||
-                !!currentPasswordError ||
-                !!newPasswordError ||
-                !!confirmPasswordError) &&
-                styles.saveButtonDisabled,
-            ]}
-            onPress={handleSavePassword}
-            disabled={
-              !!(
-                saving ||
-                !hasPasswordChanges ||
-                !!currentPasswordError ||
-                !!newPasswordError ||
-                !!confirmPasswordError
-              )
-            }
-          >
-            {saving ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.saveButtonText}>Save Password</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </KeyboardAwareScrollView>
-    </>
+        </KeyboardAwareScrollView>
+      </>
+    </KeyboardAvoidingView>
   );
 }
 

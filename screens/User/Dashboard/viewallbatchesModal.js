@@ -436,8 +436,37 @@ export default function ViewAllBatchesModal({
                   const chicksNum = parseInt(displayChicks, 10) || 0;
                   const daysNum = parseInt(displayDays, 10) || 0;
                   const harvestNum = parseInt(displayHarvest, 10) || 0;
+
+                  // Calculate days elapsed since batch creation
+                  let daysElapsed = 0;
+                  let canDeleteAfter2Days = false;
+                  if (batch.createdAt) {
+                    try {
+                      const now = new Date();
+                      const createdDate = batch.createdAt.toDate
+                        ? batch.createdAt.toDate()
+                        : new Date(batch.createdAt);
+                      daysElapsed =
+                        (now - createdDate) / (1000 * 60 * 60 * 24);
+                      canDeleteAfter2Days = daysElapsed >= 2;
+                    } catch (e) {
+                      console.warn(
+                        "[ViewAllBatches] Error calculating batch age:",
+                        e,
+                      );
+                    }
+                  }
+
+                  // Check if mortality has been reported
+                  const mortalityReported = (batch.mortalityCount || 0) > 0;
+
+                  // Allow deletion only if: batch is active AND no mortality reported AND less than 2 days old
                   const isActiveBatch =
-                    chicksNum > 0 && daysNum < harvestNum && !isHarvestedBatch;
+                    chicksNum > 0 &&
+                    daysNum < harvestNum &&
+                    !isHarvestedBatch &&
+                    !mortalityReported &&
+                    !canDeleteAfter2Days;
                   // Can harvest batch if it has chicks (regardless of age vs harvest)
                   const canHarvestBatch = chicksNum > 0;
 
@@ -955,4 +984,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
+
 });

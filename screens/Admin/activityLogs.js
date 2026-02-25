@@ -12,6 +12,7 @@ import {
   Alert,
 } from "react-native";
 import Header2 from "../navigation/adminHeader";
+import BrandedAlertModal from "../navigation/BrandedAlertModal";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import {
   collection,
@@ -129,6 +130,9 @@ export default function ActivityLogs({ navigation }) {
   const [endDate, setEndDate] = useState(null);
   const [selectingStartDate, setSelectingStartDate] = useState(true); // Track which date we're selecting
   const [currentMonth, setCurrentMonth] = useState(new Date());
+
+  // Success modal state
+  const [showReportSuccessModal, setShowReportSuccessModal] = useState(false);
 
   // Apply sorting - always by Date (newest first)
   useEffect(() => {
@@ -381,12 +385,17 @@ export default function ActivityLogs({ navigation }) {
   const handleGenerateReport = async () => {
     try {
       // Use filteredLogs which is already filtered by date (if selected)
-      const logsToExport = filteredLogs;
+      let logsToExport = filteredLogs;
 
       if (logsToExport.length === 0) {
         Alert.alert("No Data", "No logs to export.");
         return;
       }
+
+      // Sort by ascending dates (oldest first)
+      logsToExport = [...logsToExport].sort((a, b) => {
+        return a.timestamp.getTime() - b.timestamp.getTime();
+      });
 
       // Prepare all entries in a single export page
       const formattedEntries = logsToExport.map((log, idx) => ({
@@ -409,7 +418,7 @@ export default function ActivityLogs({ navigation }) {
 
       // Generate PDF directly with all data
       await generatePDF(exportPages, {
-        sortBy: "Date (newest first)",
+        sortBy: "Date (oldest first)",
         dateFilter: formatRecordDate(),
       });
     } catch (error) {
@@ -645,8 +654,10 @@ export default function ActivityLogs({ navigation }) {
           mimeType: "application/pdf",
           dialogTitle: "Share Activity Logs Report",
         });
+        setShowReportSuccessModal(true);
       } else {
         Alert.alert("Success", `PDF saved to: ${fileUri}`, [{ text: "OK" }]);
+        setShowReportSuccessModal(true);
       }
     } catch (error) {
       console.error("❌ Error generating PDF:", error);
@@ -706,7 +717,27 @@ export default function ActivityLogs({ navigation }) {
   // Format record date for PDF - avoid redundancy like "18-Jan-2026 - 18-Jan-2026"
   const formatRecordDate = () => {
     if (!startDate && !endDate) {
-      return "All dates";
+      // No filter selected - show earliest and latest from all fetched logs
+      if (allLogs.length === 0) {
+        return "No data available";
+      }
+
+      const timestamps = allLogs.map((log) => log.timestamp);
+      const earliest = new Date(
+        Math.min(...timestamps.map((t) => t.getTime())),
+      );
+      const latest = new Date(Math.max(...timestamps.map((t) => t.getTime())));
+
+      const earliestStr = formatDateGMT8(earliest);
+      const latestStr = formatDateGMT8(latest);
+
+      // If dates are the same, show only one
+      if (earliestStr === latestStr) {
+        return earliestStr;
+      }
+
+      // If dates are different, show range
+      return `${earliestStr} - ${latestStr}`;
     }
 
     if (startDate && endDate) {
@@ -724,10 +755,10 @@ export default function ActivityLogs({ navigation }) {
 
     // If only start date is selected
     if (startDate) {
-      return `From ${formatDateGMT8(startDate)}`;
+      return `${formatDateGMT8(startDate)}`;
     }
 
-    return "All dates";
+    return "No data available";
   };
 
   // Format PDF filename based on date range
@@ -1231,6 +1262,14 @@ export default function ActivityLogs({ navigation }) {
           <View style={styles.bottomSpacing} />
         </ScrollView>
       )}
+
+      <BrandedAlertModal
+        visible={showReportSuccessModal}
+        type="success"
+        title="Success"
+        message="Activity Logs report downloaded successfully"
+        onClose={() => setShowReportSuccessModal(false)}
+      />
     </SafeAreaView>
   );
 }
