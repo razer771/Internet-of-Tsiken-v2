@@ -333,11 +333,11 @@ ingress:
   # WebRTC endpoint
   - hostname: iot-camera.yourdomain.com
     service: http://localhost:8889
-    
+
   # API & WebSocket endpoint
   - hostname: iot-api.yourdomain.com
     service: http://localhost:8000
-    
+
   # Catch-all
   - service: http_status:404
 ```
@@ -421,14 +421,12 @@ Edit `screens/User/RemoteIoTMonitorScreen.js`:
 ```javascript
 const CONFIG = {
   // Replace with your Cloudflare Tunnel URL
-  MEDIAMTX_WHEP_URL: 'https://iot-camera.yourdomain.com/cam/whep',
-  
+  MEDIAMTX_WHEP_URL: "https://iot-camera.yourdomain.com/cam/whep",
+
   // Replace with your Cloudflare Tunnel WebSocket URL
-  WEBSOCKET_URL: 'wss://iot-api.yourdomain.com/ws/alerts',
-  
-  ICE_SERVERS: [
-    { urls: 'stun:stun.l.google.com:19302' },
-  ],
+  WEBSOCKET_URL: "wss://iot-api.yourdomain.com/ws/alerts",
+
+  ICE_SERVERS: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 ```
 
@@ -450,14 +448,14 @@ eas build --profile development --platform android
 Edit your navigation file (e.g., `screens/navigation/UserStack.js`):
 
 ```javascript
-import RemoteIoTMonitorScreen from '../User/RemoteIoTMonitorScreen';
+import RemoteIoTMonitorScreen from "../User/RemoteIoTMonitorScreen";
 
 // Add to stack navigator
-<Stack.Screen 
-  name="RemoteMonitor" 
+<Stack.Screen
+  name="RemoteMonitor"
   component={RemoteIoTMonitorScreen}
-  options={{ title: 'Camera Monitor' }}
-/>
+  options={{ title: "Camera Monitor" }}
+/>;
 ```
 
 ---
@@ -465,6 +463,7 @@ import RemoteIoTMonitorScreen from '../User/RemoteIoTMonitorScreen';
 ## Testing & Validation
 
 ### Test MediaMTX
+
 ```bash
 # Local RTSP
 ffplay rtsp://localhost:8554/cam
@@ -474,6 +473,7 @@ ffplay rtsp://localhost:8554/cam
 ```
 
 ### Test AI Backend
+
 ```bash
 # Health check
 curl http://localhost:8000/api/health
@@ -503,6 +503,7 @@ wscat -c ws://localhost:8000/ws/alerts
 ### MediaMTX Issues
 
 **Camera not detected:**
+
 ```bash
 # Check camera
 libcamera-hello --list-cameras
@@ -515,6 +516,7 @@ journalctl -u mediamtx -n 100
 ```
 
 **WebRTC not connecting:**
+
 - Verify firewall ports are open
 - Check STUN server accessibility
 - Ensure ICE candidates are generated
@@ -522,6 +524,7 @@ journalctl -u mediamtx -n 100
 ### AI Backend Issues
 
 **RTSP stream fails:**
+
 ```bash
 # Verify MediaMTX is running
 systemctl status mediamtx
@@ -531,6 +534,7 @@ ffplay rtsp://localhost:8554/cam
 ```
 
 **NCNN inference errors:**
+
 ```bash
 # Verify model files exist
 ls -lh yolov8n_ncnn_model/
@@ -542,11 +546,13 @@ python3 -c "import ncnn; print('NCNN OK')"
 ### React Native Issues
 
 **WebRTC not connecting:**
+
 - Verify MEDIAMTX_WHEP_URL is correct
 - Check network connectivity
 - Enable debug logs in RTCPeerConnection
 
 **Bounding boxes misaligned:**
+
 - Ensure `onLayout` handler is firing
 - Check video dimensions match scaling calculations
 
@@ -557,16 +563,19 @@ python3 -c "import ncnn; print('NCNN OK')"
 ### Reduce Latency
 
 **MediaMTX:**
+
 - Lower GOP size: `rpiCameraIDRPeriod: 30`
 - Reduce bitrate: `rpiCameraBitrate: 1500000`
 
 **AI Backend:**
+
 - Reduce inference FPS: `target_fps: 5`
 - Lower confidence threshold: `conf_threshold: 0.6`
 
 ### Reduce Bandwidth
 
 **MediaMTX:**
+
 - Use lower resolution: `cam_low` path
 - Reduce framerate: `rpiCameraFPS: 15`
 
@@ -589,6 +598,7 @@ python3 -c "import ncnn; print('NCNN OK')"
 ## Required Package Versions
 
 ### Python (Raspberry Pi)
+
 - Python 3.11+
 - fastapi 0.109.0+
 - uvicorn 0.27.0+
@@ -596,11 +606,13 @@ python3 -c "import ncnn; print('NCNN OK')"
 - ncnn 1.0.20231027+
 
 ### React Native (Mobile)
+
 - react-native-webrtc 124.0.1
 - @react-native-community/netinfo 11.2.1
 - expo SDK 50+
 
 ### System (Raspberry Pi)
+
 - Debian 13 (Bookworm) 64-bit
 - MediaMTX v1.7.0+
 - libcamera 0.2.0+
