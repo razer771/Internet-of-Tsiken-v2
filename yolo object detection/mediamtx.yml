@@ -1,0 +1,190 @@
+# MediaMTX Configuration for Raspberry Pi 5 + Camera Module 3
+# Hardware-accelerated H.264 encoding with WebRTC and local RTSP
+
+###############################################################################
+# GENERAL SERVER SETTINGS
+###############################################################################
+
+# Log level: debug, info, warn, error
+logLevel: info
+logDestinations: [stdout]
+
+# API server for metrics and control
+api: yes
+apiAddress: 127.0.0.1:9997
+
+# Metrics
+metrics: yes
+metricsAddress: 127.0.0.1:9998
+
+# Performance
+readTimeout: 10s
+writeTimeout: 10s
+readBufferCount: 512
+
+###############################################################################
+# WEBRTC SERVER CONFIGURATION
+###############################################################################
+
+# Enable WebRTC for remote mobile viewing
+webrtc: yes
+webrtcAddress: :8889
+webrtcServerKey: server.key
+webrtcServerCert: server.crt
+webrtcAllowOrigin: '*'
+
+# Enable WebRTC ICE candidates for NAT traversal
+webrtcICEServers2:
+  - urls: [stun:stun.l.google.com:19302]
+  - urls: [stun:stun1.l.google.com:19302]
+  - urls: [stun:stun2.l.google.com:19302]
+
+# Local candidates for direct connection when on same network
+webrtcICEHostNAT1To1IPs: []
+webrtcICEUDPMuxAddress: :8189
+webrtcICETCPMuxAddress: :8189
+
+###############################################################################
+# RTSP SERVER CONFIGURATION
+###############################################################################
+
+# Enable RTSP for local Python AI consumption
+rtsp: yes
+rtspAddress: :8554
+protocols: [tcp, udp]
+encryption: "no"
+rtspAddress: :8554
+
+###############################################################################
+# HLS SERVER (Optional - for browser fallback)
+###############################################################################
+
+hls: yes
+hlsAddress: :8888
+hlsServerKey: server.key
+hlsServerCert: server.crt
+hlsAllowOrigin: '*'
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50M
+
+###############################################################################
+# PATH CONFIGURATION (Camera Source)
+###############################################################################
+
+paths:
+  # Main camera feed path
+  cam:
+    # Source: Raspberry Pi Camera Module 3 via libcamera
+    source: rpiCamera
+    
+    # Direct hardware interface - no CPU overhead
+    rpiCameraWidth: 1920
+    rpiCameraHeight: 1080
+    rpiCameraFPS: 30
+    
+    # Hardware H.264 encoding (V4L2 encoder)
+    rpiCameraCodec: h264
+    rpiCameraBitrate: 2500000  # 2.5 Mbps for high quality
+    rpiCameraProfile: main
+    rpiCameraLevel: '4.1'
+    
+    # Camera tuning for optimal latency
+    rpiCameraAfMode: continuous
+    rpiCameraAfSpeed: fast
+    rpiCameraLensPosition: 0.0
+    rpiCameraExposure: normal
+    rpiCameraAWB: auto
+    rpiCameraDenoise: off  # Disable for lower latency
+    rpiCameraSharpness: 1.0
+    rpiCameraContrast: 1.0
+    rpiCameraBrightness: 0.0
+    rpiCameraSaturation: 1.0
+    rpiCameraFlicker: off
+    rpiCameraHFlip: false
+    rpiCameraVFlip: false
+    rpiCameraIDRPeriod: 60  # Keyframe every 2 seconds (60 frames at 30fps)
+    
+    # Enable multi-protocol output
+    # This single source feeds:
+    # 1. WebRTC for remote mobile clients (NAT traversal via STUN)
+    # 2. RTSP for local AI inference (localhost:8554/cam)
+    # 3. HLS for browser fallback
+    
+    # Recording disabled for live streaming
+    record: no
+    
+    # Override specific protocol settings for this path
+    overridePublisher: no
+    
+    # Optional: Authentication (uncomment to enable)
+    # readUser: viewer
+    # readPass: yourpassword
+    # publishUser: publisher
+    # publishPass: yourpassword
+
+  # Optional: Lower resolution stream for bandwidth-constrained scenarios
+  cam_low:
+    source: rpiCamera
+    rpiCameraWidth: 640
+    rpiCameraHeight: 480
+    rpiCameraFPS: 15
+    rpiCameraCodec: h264
+    rpiCameraBitrate: 500000  # 500 Kbps
+    rpiCameraProfile: baseline
+    rpiCameraLevel: '3.0'
+    rpiCameraAfMode: continuous
+    rpiCameraAfSpeed: fast
+    rpiCameraExposure: normal
+    rpiCameraAWB: auto
+    rpiCameraDenoise: off
+    rpiCameraIDRPeriod: 30
+    record: no
+
+###############################################################################
+# USAGE INSTRUCTIONS
+###############################################################################
+
+# Installation:
+# 1. Download MediaMTX for ARM64:
+#    wget https://github.com/bluenviron/mediamtx/releases/latest/download/mediamtx_vX.X.X_linux_arm64v8.tar.gz
+#    tar -xzf mediamtx_vX.X.X_linux_arm64v8.tar.gz
+#    sudo mv mediamtx /usr/local/bin/
+#    sudo mv mediamtx.yml /usr/local/etc/
+#
+# 2. Create systemd service:
+#    sudo nano /etc/systemd/system/mediamtx.service
+#
+#    [Unit]
+#    Description=MediaMTX RTSP/WebRTC Server
+#    After=network.target
+#    
+#    [Service]
+#    Type=simple
+#    User=pi
+#    ExecStart=/usr/local/bin/mediamtx /usr/local/etc/mediamtx.yml
+#    Restart=always
+#    RestartSec=5
+#    
+#    [Install]
+#    WantedBy=multi-user.target
+#
+# 3. Start service:
+#    sudo systemctl daemon-reload
+#    sudo systemctl enable mediamtx
+#    sudo systemctl start mediamtx
+#    sudo systemctl status mediamtx
+#
+# Connection URLs:
+# - WebRTC (Remote Mobile): http://<raspberry-pi-ip>:8889/cam/whep
+# - RTSP (Local AI):        rtsp://localhost:8554/cam
+# - HLS (Browser):          http://<raspberry-pi-ip>:8888/cam
+# - API:                    http://127.0.0.1:9997
+# - Metrics:                http://127.0.0.1:9998/metrics
+#
+# Test Commands:
+# - View RTSP locally:      ffplay rtsp://localhost:8554/cam
+# - Check stream info:      ffprobe rtsp://localhost:8554/cam
+# - Monitor logs:           journalctl -u mediamtx -f

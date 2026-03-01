@@ -1,0 +1,32 @@
+# AI Backend Server Requirements
+# Python 3.11+
+# For Raspberry Pi 5 (Debian 13, 64-bit ARM)
+
+# Core Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.6.0
+python-multipart>=0.0.9
+
+# WebSocket Support
+websockets>=12.0
+
+# Computer Vision
+opencv-python>=4.9.0
+numpy>=1.26.0
+
+# NCNN Inference (ARM64 optimized)
+# Install from source or use pre-built wheels:
+# pip install ncnn
+# OR build from source: https://github.com/Tencent/ncnn/wiki/how-to-build#build-for-linux
+ncnn>=1.0.20231027
+
+# Networking
+requests>=2.31.0
+aiohttp>=3.9.0
+
+# Logging & Monitoring
+python-json-logger>=2.0.7
+
+# Optional: Performance Monitoring
+# psutil>=5.9.8

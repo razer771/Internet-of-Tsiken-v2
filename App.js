@@ -60,6 +60,8 @@ import AdminActivityLogs from "./screens/Admin/activityLogs";
 import Reports from "./screens/User/Reports/Reports";
 import ViewReport from "./screens/User/Reports/ViewReport";
 import Analytics from "./screens/User/Analytics/analytics";
+import RemoteIoTMonitorScreen from "./screens/User/RemoteIoTMonitorScreen";
+import RemoteIoTMonitorExpoGo from "./screens/User/RemoteIoTMonitorExpoGo";
 import AdminDashboard from "./screens/Admin/adminDashboard";
 import UserManagement from "./screens/Admin/userManagement";
 import CreateAccount from "./screens/Admin/createAccount";
@@ -618,6 +620,22 @@ export default function App() {
                     component={createTrackedScreen(
                       Analytics,
                       "Analytics",
+                      setCurrentRoute,
+                    )}
+                  />
+                  <Stack.Screen
+                    name="RemoteMonitor"
+                    component={createTrackedScreen(
+                      RemoteIoTMonitorScreen,
+                      "RemoteMonitor",
+                      setCurrentRoute,
+                    )}
+                  />
+                  <Stack.Screen
+                    name="RemoteMonitorExpoGo"
+                    component={createTrackedScreen(
+                      RemoteIoTMonitorExpoGo,
+                      "RemoteMonitorExpoGo",
                       setCurrentRoute,
                     )}
                   />

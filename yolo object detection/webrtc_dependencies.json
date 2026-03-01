@@ -1,0 +1,45 @@
+{
+  "name": "webrtc-iot-monitor-dependencies",
+  "description": "Required dependencies for WebRTC IoT Monitoring System",
+  "version": "1.0.0",
+  "dependencies": {
+    "react-native-webrtc": "124.0.1",
+    "@react-native-community/netinfo": "11.2.1"
+  },
+  "devDependencies": {},
+  "installation": {
+    "instructions": [
+      "Add these dependencies to your existing package.json",
+      "Run: npm install",
+      "For Expo managed workflow, also run: npx expo install expo-av",
+      "Update app.json/app.config.js with required permissions (see WEBRTC_IOT_DEPLOYMENT_GUIDE.md)",
+      "For bare React Native, follow react-native-webrtc linking instructions: https://github.com/react-native-webrtc/react-native-webrtc/blob/master/Documentation/BasicInstallation.md"
+    ]
+  },
+  "expo": {
+    "plugins": [
+      [
+        "react-native-webrtc",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera for video streaming",
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone"
+        }
+      ]
+    ]
+  },
+  "android": {
+    "permissions": [
+      "CAMERA",
+      "RECORD_AUDIO",
+      "MODIFY_AUDIO_SETTINGS",
+      "INTERNET",
+      "ACCESS_NETWORK_STATE"
+    ]
+  },
+  "ios": {
+    "infoPlist": {
+      "NSCameraUsageDescription": "Camera access for video streaming",
+      "NSMicrophoneUsageDescription": "Microphone access (not used but required by WebRTC)"
+    }
+  }
+}
