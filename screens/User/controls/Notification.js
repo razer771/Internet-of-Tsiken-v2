@@ -10,7 +10,24 @@ const NOTIF_BORDER = "rgba(0,0,0,0.1)";
 
 const TimePeriod = ["Daily", "Weekly", "Monthly"];
 
-function SmallCalendar({ onClose }) {
+// Manual date parser — Hermes JS engine does NOT support new Date("Month D, YYYY")
+const MONTHS = {
+  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+};
+
+function parseNotifDate(timeStr) {
+  if (!timeStr) return null;
+  const match = timeStr.match(/^(\w+)\s+(\d+),\s+(\d{4})/);
+  if (!match) return null;
+  const month = MONTHS[match[1].toLowerCase()];
+  const day = parseInt(match[2], 10);
+  const year = parseInt(match[3], 10);
+  if (month === undefined || isNaN(day) || isNaN(year)) return null;
+  return new Date(year, month, day);
+}
+
+function SmallCalendar({ onClose, selectedDate }) {
   const today = new Date();
   const [monthOffset, setMonthOffset] = useState(0);
 
@@ -37,45 +54,66 @@ function SmallCalendar({ onClose }) {
     return base.year === now.getFullYear() && base.month === now.getMonth() && d === now.getDate();
   };
 
+  const isSelected = (d) => {
+    if (!d || !selectedDate) return false;
+    return (
+      base.year === selectedDate.getFullYear() &&
+      base.month === selectedDate.getMonth() &&
+      d === selectedDate.getDate()
+    );
+  };
+
   return (
     <View style={styles.calendarBox}>
       <View style={styles.calendarHeader}>
         <TouchableOpacity onPress={() => setMonthOffset(m => m - 1)} style={styles.calendarNavBtn}>
           <Ionicons name="chevron-back" size={20} color="#222" />
         </TouchableOpacity>
-        
         <Text style={{ fontWeight: '600' }}>{monthName} {base.year}</Text>
-        
         <TouchableOpacity onPress={() => setMonthOffset(m => m + 1)} style={styles.calendarNavBtn}>
           <Ionicons name="chevron-forward" size={20} color="#222" />
         </TouchableOpacity>
       </View>
 
-      <View style={styles.calendarDaysRow}>  
-        {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d => (  
-          <View key={d} style={styles.calendarDayName}><Text>{d}</Text></View>  
-        ))}  
-      </View>  
+      <View style={styles.calendarDaysRow}>
+        {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d => (
+          <View key={d} style={styles.calendarDayName}><Text>{d}</Text></View>
+        ))}
+      </View>
 
-      <View style={styles.calendarGrid}>  
-        {grid.map((item, idx) => (  
-          <TouchableOpacity 
-            key={idx} 
-            style={[styles.calendarDay, isToday(item) && { backgroundColor: PRIMARY }]}  
-            onPress={() => item && onClose()} 
-            disabled={!item}
-          >  
-            <Text style={{ color: isToday(item) ? '#fff' : '#222' }}>{item || ""}</Text>  
-          </TouchableOpacity>  
-        ))}  
-      </View>  
+      <View style={styles.calendarGrid}>
+        {grid.map((item, idx) => {
+          const selected = isSelected(item);
+          const todayDay = isToday(item);
+          return (
+            <TouchableOpacity
+              key={idx}
+              style={[
+                styles.calendarDay,
+                todayDay && { backgroundColor: "#e0e7ff" },
+                selected && { backgroundColor: PRIMARY },
+              ]}
+              onPress={() => {
+                if (!item) return;
+                const picked = new Date(base.year, base.month, item);
+                onClose(picked);
+              }}
+              disabled={!item}
+            >
+              <Text style={{ color: selected ? '#fff' : todayDay ? PRIMARY : '#222', fontWeight: selected || todayDay ? '700' : '400' }}>
+                {item || ""}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
   );
 }
 
-function NotificationItem({ item, onPress, markAllClicked }) {
+function NotificationItem({ item, onPress }) {
   return (
-    <TouchableOpacity 
+    <TouchableOpacity
       style={[styles.notificationItem, { backgroundColor: item.read ? "#e5e7eb" : "#fff" }]}
       onPress={onPress}
       activeOpacity={0.7}
@@ -89,54 +127,52 @@ function NotificationItem({ item, onPress, markAllClicked }) {
   );
 }
 
-function NotificationModal({ visible, item, onClose, onMarkRead }) {
-  if (!item) return null;
-
-  return (
-    <Modal visible={visible} transparent animationType="fade">
-      <Pressable style={styles.modalOverlay} onPress={() => {
-        onMarkRead(item.id);
-        onClose();
-      }}>
-        <Pressable style={styles.notificationModalContent} onPress={(e) => e.stopPropagation()}>
-          <TouchableOpacity 
-            onPress={() => {
-              onMarkRead(item.id);
-              onClose();
-            }} 
-            style={styles.modalCloseBtn}
-          >
-            <Ionicons name="close" size={24} color="#222" />
-          </TouchableOpacity>
-
-          <Text style={styles.modalTitle}>{item.category}</Text>
-          <Text style={styles.modalHeading}>{item.title}</Text>
-
-          <Text style={styles.modalBody}>
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
-          </Text>
-
-          <Text style={styles.modalTime}>{item.time}</Text>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
-
 export default function Notification() {
   const [activeTab, setActiveTab] = useState("Daily");
   const [calendarVisible, setCalendarVisible] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(null);
   const [selectedNotification, setSelectedNotification] = useState(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const navigation = useNavigation();
-
   const { notifications, toggleAllRead, markAsRead } = useNotifications();
 
   const allRead = useMemo(() => notifications.every(n => n.read), [notifications]);
 
-  const handleToggleMarkAll = () => {
-    toggleAllRead();
-  };
+  const filteredNotifications = useMemo(() => {
+    return notifications.filter(n => {
+      const notifDate = parseNotifDate(n.time);
+      if (!notifDate) return true;
+
+      // If a specific date is picked, only show that exact date (ignore tab)
+      if (selectedDate) {
+        return (
+          notifDate.getFullYear() === selectedDate.getFullYear() &&
+          notifDate.getMonth() === selectedDate.getMonth() &&
+          notifDate.getDate() === selectedDate.getDate()
+        );
+      }
+
+      // Otherwise filter by tab period relative to today
+      const now = new Date();
+      if (activeTab === "Daily") {
+        return (
+          notifDate.getFullYear() === now.getFullYear() &&
+          notifDate.getMonth() === now.getMonth() &&
+          notifDate.getDate() === now.getDate()
+        );
+      } else if (activeTab === "Weekly") {
+        const msPerDay = 86400000;
+        const diffDays = Math.floor((now - notifDate) / msPerDay);
+        return diffDays >= 0 && diffDays < 7;
+      } else if (activeTab === "Monthly") {
+        return (
+          notifDate.getFullYear() === now.getFullYear() &&
+          notifDate.getMonth() === now.getMonth()
+        );
+      }
+      return true;
+    });
+  }, [notifications, activeTab, selectedDate]);
 
   const handleNotificationPress = (notification) => {
     markAsRead(notification.id);
@@ -149,6 +185,13 @@ export default function Notification() {
     setSelectedNotification(null);
   };
 
+  const handleCalendarClose = (date) => {
+    setCalendarVisible(false);
+    if (date) setSelectedDate(date);
+  };
+
+  const clearDateFilter = () => setSelectedDate(null);
+
   return (
     <SafeAreaView style={{ flex: 1 }}>
       <ScrollView style={styles.wrapper} contentContainerStyle={{ paddingBottom: 20 }}>
@@ -158,48 +201,72 @@ export default function Notification() {
           </TouchableOpacity>
 
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <TouchableOpacity 
-              onPress={handleToggleMarkAll}
+            <TouchableOpacity
+              onPress={toggleAllRead}
               style={[styles.markAllBtn, allRead && { backgroundColor: PRIMARY }]}
             >
               <Ionicons name="mail-unread-outline" size={16} color={allRead ? '#fff' : '#222'} />
-              <Text style={{ marginLeft: 8, color: allRead ? '#fff' : '#222' }}>
-                Mark all as read
-              </Text>
+              <Text style={{ marginLeft: 8, color: allRead ? '#fff' : '#222' }}>Mark all as read</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => setCalendarVisible(true)} style={[styles.iconBtn, { marginLeft: 8 }]}>  
-              <Ionicons name="calendar-outline" size={18} />  
+            <TouchableOpacity
+              onPress={() => setCalendarVisible(true)}
+              style={[styles.iconBtn, { marginLeft: 8, backgroundColor: selectedDate ? PRIMARY : '#fff' }]}
+            >
+              <Ionicons name="calendar-outline" size={18} color={selectedDate ? '#fff' : '#222'} />
             </TouchableOpacity>
           </View>
         </View>
 
-        <View style={styles.tabs}>  
-          {TimePeriod.map(p => (  
-            <TouchableOpacity 
-              key={p} 
-              onPress={() => setActiveTab(p)} 
-              style={[styles.tabBtn, activeTab === p && { backgroundColor: PRIMARY }]}
-            >  
-              <Text style={{ color: activeTab === p ? '#fff' : PRIMARY }}>{p}</Text>  
-            </TouchableOpacity>  
-          ))}  
-        </View>  
+        {/* Active date filter badge */}
+        {selectedDate && (
+          <View style={styles.dateFilterBadge}>
+            <Ionicons name="calendar" size={14} color={PRIMARY} />
+            <Text style={styles.dateFilterText}>
+              {selectedDate.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}
+            </Text>
+            <TouchableOpacity onPress={clearDateFilter} style={{ marginLeft: 6 }}>
+              <Ionicons name="close-circle" size={16} color={PRIMARY} />
+            </TouchableOpacity>
+          </View>
+        )}
 
-        <View>  
-          {notifications.map(n => (
-            <NotificationItem 
-              key={n.id} 
-              item={n} 
-              onPress={() => handleNotificationPress(n)}
-            />
-          ))}  
-        </View>  
+        <View style={styles.tabs}>
+          {TimePeriod.map(p => (
+            <TouchableOpacity
+              key={p}
+              onPress={() => { setActiveTab(p); setSelectedDate(null); }}
+              style={[styles.tabBtn, activeTab === p && !selectedDate && { backgroundColor: PRIMARY }]}
+            >
+              <Text style={{ color: activeTab === p && !selectedDate ? '#fff' : PRIMARY }}>{p}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-        <Modal visible={calendarVisible} transparent animationType="slide">  
-          <Pressable style={styles.modalOverlay} onPress={() => setCalendarVisible(false)}>  
-            <SmallCalendar onClose={() => setCalendarVisible(false)} />  
-          </Pressable>  
+        <View>
+          {filteredNotifications.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="notifications-off-outline" size={40} color="#9ca3af" />
+              <Text style={styles.emptyStateText}>No notifications for this period</Text>
+            </View>
+          ) : (
+            filteredNotifications.map(n => (
+              <NotificationItem
+                key={n.id}
+                item={n}
+                onPress={() => handleNotificationPress(n)}
+              />
+            ))
+          )}
+        </View>
+
+        {/* Calendar Modal */}
+        <Modal visible={calendarVisible} transparent animationType="slide">
+          <Pressable style={styles.modalOverlay} onPress={() => setCalendarVisible(false)}>
+            <Pressable onPress={e => e.stopPropagation()}>
+              <SmallCalendar onClose={handleCalendarClose} selectedDate={selectedDate} />
+            </Pressable>
+          </Pressable>
         </Modal>
 
         {/* Notification Detail Modal */}
@@ -212,33 +279,30 @@ export default function Notification() {
                   <Ionicons name="close" size={24} color="#666" />
                 </TouchableOpacity>
               </View>
-              
+
               {selectedNotification && (
                 <View style={styles.detailModalBody}>
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Category</Text>
                     <Text style={styles.detailValue}>{selectedNotification.category}</Text>
                   </View>
-                  
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Title</Text>
                     <Text style={styles.detailValue}>{selectedNotification.title}</Text>
                   </View>
-                  
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Description</Text>
                     <Text style={styles.detailDescription}>
                       {selectedNotification.description || "Lorem ipsum dolor sit amet, consectetur adipiscing elit."}
                     </Text>
                   </View>
-                  
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Time</Text>
                     <Text style={styles.detailValue}>{selectedNotification.time}</Text>
                   </View>
                 </View>
               )}
-              
+
               <TouchableOpacity onPress={closeDetailModal} style={styles.okButton}>
                 <Text style={styles.okButtonText}>OK</Text>
               </TouchableOpacity>
@@ -268,6 +332,21 @@ const styles = StyleSheet.create({
   calendarGrid: { flexDirection: "row", flexWrap: "wrap" },
   calendarDay: { width: "14.28%", height: 35, justifyContent: "center", alignItems: "center" },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center" },
+  dateFilterBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#eff6ff",
+    borderWidth: 1,
+    borderColor: PRIMARY,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 10,
+    alignSelf: "flex-start",
+  },
+  dateFilterText: { color: PRIMARY, fontWeight: "600", fontSize: 13, marginLeft: 6 },
+  emptyState: { alignItems: "center", paddingVertical: 40 },
+  emptyStateText: { marginTop: 12, color: "#9ca3af", fontSize: 15 },
   detailModalContent: {
     backgroundColor: "#fff",
     borderRadius: 16,
@@ -284,46 +363,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#e5e7eb",
   },
-  detailModalTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#1f2937",
-  },
-  closeButton: {
-    padding: 4,
-  },
-  detailModalBody: {
-    marginBottom: 20,
-  },
-  detailRow: {
-    marginBottom: 16,
-  },
-  detailLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#6b7280",
-    textTransform: "uppercase",
-    marginBottom: 4,
-  },
-  detailValue: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#1f2937",
-  },
-  detailDescription: {
-    fontSize: 15,
-    color: "#4b5563",
-    lineHeight: 22,
-  },
-  okButton: {
-    backgroundColor: PRIMARY,
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  okButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
+  detailModalTitle: { fontSize: 20, fontWeight: "700", color: "#1f2937" },
+  closeButton: { padding: 4 },
+  detailModalBody: { marginBottom: 20 },
+  detailRow: { marginBottom: 16 },
+  detailLabel: { fontSize: 12, fontWeight: "600", color: "#6b7280", textTransform: "uppercase", marginBottom: 4 },
+  detailValue: { fontSize: 16, fontWeight: "600", color: "#1f2937" },
+  detailDescription: { fontSize: 15, color: "#4b5563", lineHeight: 22 },
+  okButton: { backgroundColor: PRIMARY, borderRadius: 8, paddingVertical: 12, alignItems: "center" },
+  okButtonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 });
