@@ -64,6 +64,7 @@ import AdminDashboard from "./screens/Admin/adminDashboard";
 import UserManagement from "./screens/Admin/userManagement";
 import CreateAccount from "./screens/Admin/createAccount";
 import AdminAnalytics from "./screens/Admin/adminAnalytics";
+import AdminControls from "./screens/Admin/adminControls";
 import AdminNotification from "./screens/Admin/AdminNotification";
 import { AdminNotificationProvider } from "./screens/Admin/AdminNotificationContext";
 import Header from "./screens/navigation/Header";
@@ -133,6 +134,7 @@ const AUTH_SCREENS = [
   "AdminAnalytics",
   "AdminActivityLogs",
   "AdminNotification",
+  "AdminControls",
 ];
 
 // Screen wrapper that reports its route name to parent
@@ -650,6 +652,14 @@ export default function App() {
                     component={createTrackedScreen(
                       AdminAnalytics,
                       "AdminAnalytics",
+                      setCurrentRoute,
+                    )}
+                  />
+                  <Stack.Screen
+                    name="AdminControls"
+                    component={createTrackedScreen(
+                      AdminControls,
+                      "AdminControls",
                       setCurrentRoute,
                     )}
                   />

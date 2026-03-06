@@ -7,13 +7,32 @@ const AdminNotificationContext = createContext();
 
 const STORAGE_KEY = "@admin_notifications";
 
+// Helper to format a Date as "Month D, YYYY (HH:MM AM/PM)"
+function formatNotifTime(date) {
+  const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const month = months[date.getMonth()];
+  const day = date.getDate();
+  const year = date.getFullYear();
+  let hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12 || 12;
+  return `${month} ${day}, ${year} (${hours}:${minutes} ${ampm})`;
+}
+
+const now = new Date();
+const today      = (h, m) => { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m); return formatNotifTime(d); };
+const daysAgo    = (n, h, m) => { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - n, h, m); return formatNotifTime(d); };
+const weeksAgo   = (n, h, m) => { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (n * 7), h, m); return formatNotifTime(d); };
+
 const defaultNotifications = [
+  // --- TODAY (shows in Daily, Weekly, Monthly) ---
   { 
     id: 1, 
     category: "User Management", 
     title: "New user registration", 
     description: "John Doe has registered a new account",
-    time: "December 4, 2025 (10:30 AM)", 
+    time: today(10, 30), 
     read: false,
     type: "user_registration"
   },
@@ -22,7 +41,7 @@ const defaultNotifications = [
     category: "System Alert", 
     title: "High activity detected", 
     description: "Unusual number of login attempts detected",
-    time: "December 4, 2025 (09:45 AM)", 
+    time: today(9, 45), 
     read: false,
     type: "security"
   },
@@ -31,16 +50,17 @@ const defaultNotifications = [
     category: "IoT Device", 
     title: "Device offline", 
     description: "Brooder #5 has gone offline",
-    time: "December 4, 2025 (08:20 AM)", 
+    time: today(8, 20), 
     read: true,
     type: "device"
   },
+  // --- 3 DAYS AGO (shows in Weekly and Monthly, NOT Daily) ---
   { 
     id: 4, 
     category: "User Activity", 
     title: "Batch completed", 
     description: "User Maria Santos completed batch harvest",
-    time: "December 3, 2025 (05:15 PM)", 
+    time: daysAgo(3, 17, 15), 
     read: true,
     type: "batch"
   },
@@ -49,16 +69,17 @@ const defaultNotifications = [
     category: "System Alert", 
     title: "Database backup completed", 
     description: "Automated backup completed successfully",
-    time: "December 3, 2025 (02:00 AM)", 
+    time: daysAgo(3, 2, 0), 
     read: false,
     type: "system"
   },
+  // --- 5 DAYS AGO (shows in Weekly and Monthly, NOT Daily) ---
   { 
     id: 6, 
     category: "User Management", 
     title: "Account deletion request", 
     description: "User requested account deletion",
-    time: "December 2, 2025 (11:30 AM)", 
+    time: daysAgo(5, 11, 30), 
     read: false,
     type: "user_management"
   },
@@ -67,16 +88,17 @@ const defaultNotifications = [
     category: "IoT Device", 
     title: "Sensor calibration needed", 
     description: "Temperature sensor in Brooder #3 needs calibration",
-    time: "December 2, 2025 (09:00 AM)", 
+    time: daysAgo(5, 9, 0), 
     read: true,
     type: "device"
   },
+  // --- 2 WEEKS AGO (shows ONLY in Monthly, NOT Daily or Weekly) ---
   { 
     id: 8, 
     category: "Analytics", 
     title: "Weekly report ready", 
-    description: "System performance report for Nov 25 - Dec 1 is ready",
-    time: "December 1, 2025 (08:00 AM)", 
+    description: "System performance report is ready",
+    time: weeksAgo(2, 8, 0), 
     read: false,
     type: "report"
   },
@@ -134,10 +156,7 @@ export function AdminNotificationProvider({ children }) {
 
   const loadNotifications = async () => {
     try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        setNotifications(JSON.parse(stored));
-      }
+      await AsyncStorage.removeItem(STORAGE_KEY); // clear stale cache so dynamic dates always apply
     } catch (error) {
       console.error("Error loading admin notifications:", error);
     } finally {

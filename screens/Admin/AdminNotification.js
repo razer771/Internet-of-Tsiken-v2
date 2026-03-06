@@ -11,7 +11,7 @@ const NOTIF_BORDER = "rgba(0,0,0,0.1)";
 
 const TimePeriod = ["Daily", "Weekly", "Monthly"];
 
-function SmallCalendar({ onClose }) {
+function SmallCalendar({ onClose, selectedDate }) {
   const today = new Date();
   const [monthOffset, setMonthOffset] = useState(0);
 
@@ -38,6 +38,15 @@ function SmallCalendar({ onClose }) {
     return base.year === now.getFullYear() && base.month === now.getMonth() && d === now.getDate();
   };
 
+  const isSelected = (d) => {
+    if (!d || !selectedDate) return false;
+    return (
+      base.year === selectedDate.getFullYear() &&
+      base.month === selectedDate.getMonth() &&
+      d === selectedDate.getDate()
+    );
+  };
+
   return (
     <View style={styles.calendarBox}>
       <View style={styles.calendarHeader}>
@@ -59,16 +68,30 @@ function SmallCalendar({ onClose }) {
       </View>  
 
       <View style={styles.calendarGrid}>  
-        {grid.map((item, idx) => (  
-          <TouchableOpacity 
-            key={idx} 
-            style={[styles.calendarDay, isToday(item) && { backgroundColor: PRIMARY }]}  
-            onPress={() => item && onClose()} 
-            disabled={!item}
-          >  
-            <Text style={{ color: isToday(item) ? '#fff' : '#222' }}>{item || ""}</Text>  
-          </TouchableOpacity>  
-        ))}  
+        {grid.map((item, idx) => {
+          const selected = isSelected(item);
+          const todayDay = isToday(item);
+          return (
+            <TouchableOpacity 
+              key={idx} 
+              style={[
+                styles.calendarDay,
+                todayDay && { backgroundColor: "#e0e7ff" },
+                selected && { backgroundColor: PRIMARY },
+              ]}  
+              onPress={() => {
+                if (!item) return;
+                const picked = new Date(base.year, base.month, item);
+                onClose(picked);
+              }} 
+              disabled={!item}
+            >  
+              <Text style={{ color: selected ? '#fff' : todayDay ? PRIMARY : '#222', fontWeight: selected || todayDay ? '700' : '400' }}>
+                {item || ""}
+              </Text>  
+            </TouchableOpacity>
+          );
+        })}  
       </View>  
     </View>
   );
@@ -90,15 +113,74 @@ function NotificationItem({ item, onPress }) {
   );
 }
 
+// Parse notification time string into a Date object
+// Handles format: "December 4, 2025 (10:30 AM)"
+// Uses manual parsing because Hermes JS engine does NOT support new Date("Month D, YYYY")
+const MONTHS = {
+  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+};
+
+function parseNotifDate(timeStr) {
+  if (!timeStr) return null;
+  // Match "December 4, 2025" at the start, ignoring the "(10:30 AM)" part
+  const match = timeStr.match(/^(\w+)\s+(\d+),\s+(\d{4})/);
+  if (!match) return null;
+  const month = MONTHS[match[1].toLowerCase()];
+  const day = parseInt(match[2], 10);
+  const year = parseInt(match[3], 10);
+  if (month === undefined || isNaN(day) || isNaN(year)) return null;
+  // "December 4, 2025 (10:30 AM)" → month=11, day=4, year=2025
+  return new Date(year, month, day); // ✅ This form always works in Hermes
+}
+
 export default function AdminNotification() {
   const [activeTab, setActiveTab] = useState("Daily");
   const [calendarVisible, setCalendarVisible] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(null);
   const [selectedNotification, setSelectedNotification] = useState(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const navigation = useNavigation();
   const { notifications, toggleAllRead, markAsRead } = useAdminNotifications();
 
   const allRead = useMemo(() => notifications.every(n => n.read), [notifications]);
+
+  const filteredNotifications = useMemo(() => {
+    return notifications.filter(n => {
+      const notifDate = parseNotifDate(n.time);
+      if (!notifDate) return true;
+
+      // If a specific date is picked from calendar, only match that exact date
+      // and ignore the tab filter entirely
+      if (selectedDate) {
+        return (
+          notifDate.getFullYear() === selectedDate.getFullYear() &&
+          notifDate.getMonth() === selectedDate.getMonth() &&
+          notifDate.getDate() === selectedDate.getDate()
+        );
+      }
+
+      // Otherwise apply the tab period filter relative to today
+      const now = new Date();
+      if (activeTab === "Daily") {
+        return (
+          notifDate.getFullYear() === now.getFullYear() &&
+          notifDate.getMonth() === now.getMonth() &&
+          notifDate.getDate() === now.getDate()
+        );
+      } else if (activeTab === "Weekly") {
+        const msPerDay = 86400000;
+        const diffDays = Math.floor((now - notifDate) / msPerDay);
+        return diffDays >= 0 && diffDays < 7;
+      } else if (activeTab === "Monthly") {
+        return (
+          notifDate.getFullYear() === now.getFullYear() &&
+          notifDate.getMonth() === now.getMonth()
+        );
+      }
+      return true;
+    });
+  }, [notifications, activeTab, selectedDate]);
 
   const toggleMarkAll = () => {
     toggleAllRead();
@@ -113,6 +195,15 @@ export default function AdminNotification() {
   const closeDetailModal = () => {
     setDetailModalVisible(false);
     setSelectedNotification(null);
+  };
+
+  const handleCalendarClose = (date) => {
+    setCalendarVisible(false);
+    if (date) setSelectedDate(date);
+  };
+
+  const clearDateFilter = () => {
+    setSelectedDate(null);
   };
 
   return (
@@ -135,37 +226,59 @@ export default function AdminNotification() {
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => setCalendarVisible(true)} style={[styles.iconBtn, { marginLeft: 8 }]}>  
-              <Ionicons name="calendar-outline" size={18} />  
+            <TouchableOpacity onPress={() => setCalendarVisible(true)} style={[styles.iconBtn, { marginLeft: 8, backgroundColor: selectedDate ? PRIMARY : '#fff' }]}>  
+              <Ionicons name="calendar-outline" size={18} color={selectedDate ? '#fff' : '#222'} />  
             </TouchableOpacity>
           </View>
-        </View>  
+        </View>
+
+        {/* Active date filter badge */}
+        {selectedDate && (
+          <View style={styles.dateFilterBadge}>
+            <Ionicons name="calendar" size={14} color={PRIMARY} />
+            <Text style={styles.dateFilterText}>
+              {selectedDate.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}
+            </Text>
+            <TouchableOpacity onPress={clearDateFilter} style={{ marginLeft: 6 }}>
+              <Ionicons name="close-circle" size={16} color={PRIMARY} />
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View style={styles.tabs}>  
           {TimePeriod.map(p => (  
             <TouchableOpacity 
               key={p} 
-              onPress={() => setActiveTab(p)} 
-              style={[styles.tabBtn, activeTab === p && { backgroundColor: PRIMARY }]}
+              onPress={() => { setActiveTab(p); setSelectedDate(null); }} 
+              style={[styles.tabBtn, activeTab === p && !selectedDate && { backgroundColor: PRIMARY }]}
             >  
-              <Text style={{ color: activeTab === p ? '#fff' : PRIMARY }}>{p}</Text>  
+              <Text style={{ color: activeTab === p && !selectedDate ? '#fff' : PRIMARY }}>{p}</Text>  
             </TouchableOpacity>  
           ))}  
         </View>  
 
         <View>  
-          {notifications.map(n => (
-            <NotificationItem 
-              key={n.id} 
-              item={n} 
-              onPress={() => handleNotificationPress(n)}
-            />
-          ))}  
+          {filteredNotifications.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="notifications-off-outline" size={40} color="#9ca3af" />
+              <Text style={styles.emptyStateText}>No notifications for this period</Text>
+            </View>
+          ) : (
+            filteredNotifications.map(n => (
+              <NotificationItem 
+                key={n.id} 
+                item={n} 
+                onPress={() => handleNotificationPress(n)}
+              />
+            ))
+          )}
         </View>  
 
         <Modal visible={calendarVisible} transparent animationType="slide">  
           <Pressable style={styles.modalOverlay} onPress={() => setCalendarVisible(false)}>  
-            <SmallCalendar onClose={() => setCalendarVisible(false)} />  
+            <Pressable onPress={e => e.stopPropagation()}>
+              <SmallCalendar onClose={handleCalendarClose} selectedDate={selectedDate} />  
+            </Pressable>
           </Pressable>  
         </Modal>
 
@@ -235,6 +348,33 @@ const styles = StyleSheet.create({
   calendarGrid: { flexDirection: "row", flexWrap: "wrap" },
   calendarDay: { width: "14.28%", height: 35, justifyContent: "center", alignItems: "center" },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center" },
+  dateFilterBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#eff6ff",
+    borderWidth: 1,
+    borderColor: PRIMARY,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 10,
+    alignSelf: "flex-start",
+  },
+  dateFilterText: {
+    color: PRIMARY,
+    fontWeight: "600",
+    fontSize: 13,
+    marginLeft: 6,
+  },
+  emptyState: {
+    alignItems: "center",
+    paddingVertical: 40,
+  },
+  emptyStateText: {
+    marginTop: 12,
+    color: "#9ca3af",
+    fontSize: 15,
+  },
   detailModalContent: {
     backgroundColor: "#fff",
     borderRadius: 16,

@@ -293,14 +293,7 @@ export default function AdminDashboard() {
         "activity_logs/userManagement/disableAccess",
         "activity_logs/userManagement/forcePasswordChange",
         "activity_logs/userManagement/reactivateAccount",
-        "activity_logs/userManagement/changePassword",
         "activity_logs/mortalityReporting/events",
-        "activity_logs/batchHarvested/records",
-        "activity_logs/fanControl_logs/logs",
-        "activity_logs/pumpTest_logs/logs",
-        "activity_logs/vitaminControl_logs/logs",
-        "activity_logs/vitaminPumpTest_logs/logs",
-        "activity_logs/wateringActivity_logs/logs",
         "session_logs",
       ];
 
@@ -665,6 +658,43 @@ export default function AdminDashboard() {
           </View>
         </View>
 
+        <View style={styles.actionCard}>
+          <View style={styles.actionRow}>
+            <MaterialCommunityIcons
+              name="tune"
+              size={28}
+              color="#133E87"
+              style={styles.actionIcon}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.actionTitle}>Admin Controls</Text>
+              <Text style={styles.actionDesc}>
+                Access system controls and configuration settings.
+              </Text>
+              <TouchableOpacity
+                style={[
+                  styles.fullWidthButton,
+                  { borderColor: "#234187" },
+                  pressedBtn === "controls" && { backgroundColor: "#133E87" },
+                ]}
+                activeOpacity={0.85}
+                onPressIn={() => setPressedBtn("controls")}
+                onPressOut={() => setPressedBtn(null)}
+                onPress={() => navigation.navigate("AdminControls")}
+              >
+                <Text
+                  style={[
+                    styles.fullWidthButtonText,
+                    pressedBtn === "controls" && { color: "#fff" },
+                  ]}
+                >
+                  Open Controls
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
         {/* Recent System Activity */}
         <View style={styles.activityCard}>
           <Text style={styles.activityTitle}>Recent System Activity</Text>
@@ -838,7 +868,7 @@ const styles = StyleSheet.create({
     elevation: 3, // for Android shadow
   },
   actionCard: {
-    backgroundColor: "#Ff",
+    backgroundColor: "#fff",
     borderRadius: 12,
     padding: 16,
     marginBottom: 24, // increased space between action cards
