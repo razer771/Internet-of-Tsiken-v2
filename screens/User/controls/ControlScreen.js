@@ -889,10 +889,6 @@ export default function ControlScreen({ navigation }) {
     } catch (error) {
       console.error("[Light] Control failed:", error.message);
       setLightOn(!newValue); // Revert on fail
-      Alert.alert(
-        "Light Control Error",
-        `Could not reach light controller.\n\nError: ${error.message}\n\nPlease check:\n1. ESP32 is powered on\n2. WiFi connection\n3. IP address in esp32config.js`,
-      );
     }
   };
 
