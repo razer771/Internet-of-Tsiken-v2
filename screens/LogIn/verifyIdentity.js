@@ -8,6 +8,7 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   Modal,
+  ImageBackground,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
@@ -483,7 +484,11 @@ export default function VerifyIdentityScreen() {
 
   return (
     <TouchableWithoutFeedback onPress={handleOutsideTap}>
-      <View style={styles.container}>
+      <ImageBackground
+        source={require("../../assets/login-bg.png")}
+        style={styles.container}
+        resizeMode="cover"
+      >
         <View style={styles.formContainer}>
           {/* Back Arrow Button */}
           <TouchableOpacity
@@ -540,11 +545,16 @@ export default function VerifyIdentityScreen() {
               </View>
 
               <TouchableOpacity
-                style={[styles.verifyButton, isVerifying && styles.verifyButtonDisabled]}
+                style={[
+                  styles.verifyButton,
+                  isVerifying && styles.verifyButtonDisabled,
+                ]}
                 onPress={handleVerifyLogin}
                 disabled={isVerifying}
               >
-                <Text style={styles.verifyText}>{isVerifying ? "Verifying..." : "Verify"}</Text>
+                <Text style={styles.verifyText}>
+                  {isVerifying ? "Verifying..." : "Verify"}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.backButton} onPress={handleBack}>
@@ -639,7 +649,7 @@ export default function VerifyIdentityScreen() {
           message={alertMessage}
           onClose={closeAlert}
         />
-      </View>
+      </ImageBackground>
     </TouchableWithoutFeedback>
   );
 }
@@ -692,7 +702,7 @@ const BrandedAlertModal = ({ visible, type, title, message, onClose }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F7F8FA",
+    backgroundColor: "transparent",
     justifyContent: "center",
     alignItems: "center",
   },

@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Image,
   TouchableOpacity,
+  ImageBackground,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { auth, db } from "../../config/firebaseconfig";
@@ -25,14 +26,16 @@ export default function LoginSuccess() {
           if (userDoc.exists()) {
             const userData = userDoc.data();
             console.log("✅ User dashboard data loaded:", userData);
-            
+
             // Determine destination based on user role
             const userRole = (userData.role || "").toLowerCase();
             let destination = "Home"; // default for regular users
-            
+
             if (userRole === "admin") {
               destination = "AdminDashboard";
-              console.log("🔀 Admin user detected, will navigate to AdminDashboard");
+              console.log(
+                "🔀 Admin user detected, will navigate to AdminDashboard",
+              );
             } else if (userRole === "user") {
               destination = "Home";
               console.log("🔀 Regular user detected, will navigate to Home");
@@ -40,13 +43,13 @@ export default function LoginSuccess() {
               console.log(`⚠️ Unknown role "${userRole}", defaulting to Home`);
               destination = "Home";
             }
-            
+
             // Set timer to navigate after 3 seconds
             const timer = setTimeout(() => {
               console.log(`Dashboard loaded! Navigating to ${destination}...`);
               navigation.replace(destination);
             }, 3000);
-            
+
             return () => clearTimeout(timer);
           }
         }
@@ -57,7 +60,7 @@ export default function LoginSuccess() {
           console.log("Error loading user data. Navigating to Home...");
           navigation.replace("Home");
         }, 3000);
-        
+
         return () => clearTimeout(timer);
       }
     };
@@ -88,7 +91,11 @@ export default function LoginSuccess() {
   };
 
   return (
-    <View style={styles.container}>
+    <ImageBackground
+      source={require("../../assets/login-bg.png")}
+      style={styles.container}
+      resizeMode="cover"
+    >
       <View style={styles.card}>
         <Image
           source={{ uri: "https://img.icons8.com/color/96/checked--v1.png" }}
@@ -103,14 +110,14 @@ export default function LoginSuccess() {
           style={styles.spinner}
         />
       </View>
-    </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "transparent",
     justifyContent: "center",
     alignItems: "center",
     padding: 20,

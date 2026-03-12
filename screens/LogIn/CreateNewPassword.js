@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Modal,
   SafeAreaView,
+  ImageBackground,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
@@ -282,168 +283,177 @@ export default function CreateNewPassword() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAwareScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        enableOnAndroid={true}
-        extraScrollHeight={20}
-      >
-        {/* Logo */}
-        <View style={styles.logoContainer}>
-          <Image source={Logo} style={styles.logo} resizeMode="contain" />
-        </View>
-
-        {/* Title */}
-        <Text style={styles.title}>Create New Password</Text>
-        <Text style={styles.subtitle}>
-          Your administrator has requested that you change your password. Please
-          create a strong password below.
-        </Text>
-
-        {/* New Password Input */}
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>
-            New Password<Text style={styles.requiredAsterisk}> *</Text>
-          </Text>
-          <View
-            style={[
-              styles.inputWrapper,
-              errors.newPassword && styles.inputError,
-            ]}
-          >
-            <Ionicons
-              name="lock-closed-outline"
-              size={18}
-              color="#8A99A8"
-              style={styles.inputIcon}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Enter new password"
-              placeholderTextColor="#8A99A8"
-              value={newPassword}
-              onChangeText={(text) => {
-                setNewPassword(text);
-                // Validate password in real-time
-                if (text.length > 0) {
-                  const passwordError = validatePassword(text);
-                  setErrors({ ...errors, newPassword: passwordError });
-                } else {
-                  // Clear error if field is empty
-                  setErrors({ ...errors, newPassword: "" });
-                }
-              }}
-              secureTextEntry={!showNewPassword}
-              autoCapitalize="none"
-            />
-            <TouchableOpacity
-              onPress={() => setShowNewPassword(!showNewPassword)}
-              style={styles.eyeIcon}
-            >
-              <Ionicons
-                name={showNewPassword ? "eye-outline" : "eye-off-outline"}
-                size={18}
-                color="#8A99A8"
-              />
-            </TouchableOpacity>
-          </View>
-          {errors.newPassword ? (
-            <Text style={styles.errorText}>{errors.newPassword}</Text>
-          ) : null}
-        </View>
-
-        {/* Confirm Password Input */}
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>
-            Confirm Password<Text style={styles.requiredAsterisk}> *</Text>
-          </Text>
-          <View
-            style={[
-              styles.inputWrapper,
-              errors.confirmPassword && styles.inputError,
-            ]}
-          >
-            <Ionicons
-              name="lock-closed-outline"
-              size={16}
-              color="#8A99A8"
-              style={styles.inputIcon}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Confirm new password"
-              placeholderTextColor="#8A99A8"
-              value={confirmPassword}
-              onChangeText={(text) => {
-                setConfirmPassword(text);
-                if (errors.confirmPassword) {
-                  setErrors({ ...errors, confirmPassword: "" });
-                }
-              }}
-              secureTextEntry={!showConfirmPassword}
-              autoCapitalize="none"
-            />
-            <TouchableOpacity
-              onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-              style={styles.eyeIcon}
-            >
-              <Ionicons
-                name={showConfirmPassword ? "eye-outline" : "eye-off-outline"}
-                size={18}
-                color="#8A99A8"
-              />
-            </TouchableOpacity>
-          </View>
-          {errors.confirmPassword ? (
-            <Text style={styles.errorText}>{errors.confirmPassword}</Text>
-          ) : null}
-        </View>
-
-        {/* Update Password Button */}
-        <TouchableOpacity
-          style={[styles.updateButton, loading && styles.updateButtonDisabled]}
-          onPress={handleUpdatePassword}
-          disabled={loading}
-          activeOpacity={0.8}
+    <ImageBackground
+      source={require("../../assets/login-bg.png")}
+      style={{ flex: 1 }}
+      resizeMode="cover"
+    >
+      <SafeAreaView style={styles.container}>
+        <KeyboardAwareScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          enableOnAndroid={true}
+          extraScrollHeight={20}
         >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.updateButtonText}>Update Password</Text>
-          )}
-        </TouchableOpacity>
+          {/* Logo */}
+          <View style={styles.logoContainer}>
+            <Image source={Logo} style={styles.logo} resizeMode="contain" />
+          </View>
 
-        {/* Password Requirements */}
-        <View style={styles.requirementsContainer}>
-          <Text style={styles.requirementsTitle}>Password must contain:</Text>
-          <Text style={styles.requirementItem}>• At least 8 characters</Text>
-          <Text style={styles.requirementItem}>• One uppercase letter</Text>
-          <Text style={styles.requirementItem}>• One lowercase letter</Text>
-          <Text style={styles.requirementItem}>• One number </Text>
-          <Text style={styles.requirementItem}>• One special character</Text>
-          <Text style={styles.requirementItem}>
-            • Different from current password
+          {/* Title */}
+          <Text style={styles.title}>Create New Password</Text>
+          <Text style={styles.subtitle}>
+            Your administrator has requested that you change your password.
+            Please create a strong password below.
           </Text>
-        </View>
-      </KeyboardAwareScrollView>
 
-      {/* Branded Alert Modal */}
-      <BrandedAlertModal
-        visible={alertVisible}
-        type={alertType}
-        title={alertTitle}
-        message={alertMessage}
-        onClose={closeAlert}
-      />
-    </SafeAreaView>
+          {/* New Password Input */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>
+              New Password<Text style={styles.requiredAsterisk}> *</Text>
+            </Text>
+            <View
+              style={[
+                styles.inputWrapper,
+                errors.newPassword && styles.inputError,
+              ]}
+            >
+              <Ionicons
+                name="lock-closed-outline"
+                size={18}
+                color="#8A99A8"
+                style={styles.inputIcon}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Enter new password"
+                placeholderTextColor="#8A99A8"
+                value={newPassword}
+                onChangeText={(text) => {
+                  setNewPassword(text);
+                  // Validate password in real-time
+                  if (text.length > 0) {
+                    const passwordError = validatePassword(text);
+                    setErrors({ ...errors, newPassword: passwordError });
+                  } else {
+                    // Clear error if field is empty
+                    setErrors({ ...errors, newPassword: "" });
+                  }
+                }}
+                secureTextEntry={!showNewPassword}
+                autoCapitalize="none"
+              />
+              <TouchableOpacity
+                onPress={() => setShowNewPassword(!showNewPassword)}
+                style={styles.eyeIcon}
+              >
+                <Ionicons
+                  name={showNewPassword ? "eye-outline" : "eye-off-outline"}
+                  size={18}
+                  color="#8A99A8"
+                />
+              </TouchableOpacity>
+            </View>
+            {errors.newPassword ? (
+              <Text style={styles.errorText}>{errors.newPassword}</Text>
+            ) : null}
+          </View>
+
+          {/* Confirm Password Input */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>
+              Confirm Password<Text style={styles.requiredAsterisk}> *</Text>
+            </Text>
+            <View
+              style={[
+                styles.inputWrapper,
+                errors.confirmPassword && styles.inputError,
+              ]}
+            >
+              <Ionicons
+                name="lock-closed-outline"
+                size={16}
+                color="#8A99A8"
+                style={styles.inputIcon}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Confirm new password"
+                placeholderTextColor="#8A99A8"
+                value={confirmPassword}
+                onChangeText={(text) => {
+                  setConfirmPassword(text);
+                  if (errors.confirmPassword) {
+                    setErrors({ ...errors, confirmPassword: "" });
+                  }
+                }}
+                secureTextEntry={!showConfirmPassword}
+                autoCapitalize="none"
+              />
+              <TouchableOpacity
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                style={styles.eyeIcon}
+              >
+                <Ionicons
+                  name={showConfirmPassword ? "eye-outline" : "eye-off-outline"}
+                  size={18}
+                  color="#8A99A8"
+                />
+              </TouchableOpacity>
+            </View>
+            {errors.confirmPassword ? (
+              <Text style={styles.errorText}>{errors.confirmPassword}</Text>
+            ) : null}
+          </View>
+
+          {/* Update Password Button */}
+          <TouchableOpacity
+            style={[
+              styles.updateButton,
+              loading && styles.updateButtonDisabled,
+            ]}
+            onPress={handleUpdatePassword}
+            disabled={loading}
+            activeOpacity={0.8}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.updateButtonText}>Update Password</Text>
+            )}
+          </TouchableOpacity>
+
+          {/* Password Requirements */}
+          <View style={styles.requirementsContainer}>
+            <Text style={styles.requirementsTitle}>Password must contain:</Text>
+            <Text style={styles.requirementItem}>• At least 8 characters</Text>
+            <Text style={styles.requirementItem}>• One uppercase letter</Text>
+            <Text style={styles.requirementItem}>• One lowercase letter</Text>
+            <Text style={styles.requirementItem}>• One number </Text>
+            <Text style={styles.requirementItem}>• One special character</Text>
+            <Text style={styles.requirementItem}>
+              • Different from current password
+            </Text>
+          </View>
+        </KeyboardAwareScrollView>
+
+        {/* Branded Alert Modal */}
+        <BrandedAlertModal
+          visible={alertVisible}
+          type={alertType}
+          title={alertTitle}
+          message={alertMessage}
+          onClose={closeAlert}
+        />
+      </SafeAreaView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "transparent",
   },
   scrollContent: {
     flexGrow: 1,

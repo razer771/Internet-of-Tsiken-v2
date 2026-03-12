@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Pressable,
   Modal,
+  ImageBackground,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
@@ -365,7 +366,9 @@ export default function Login() {
           // REQUIREMENT 2 & 3: Verified + Active (Admin or User)
           if (isVerified && accountStatus === "active") {
             if (userRole === "admin") {
-              console.log("✅ Verified + Active + Admin → LoginSuccess → AdminDashboard");
+              console.log(
+                "✅ Verified + Active + Admin → LoginSuccess → AdminDashboard",
+              );
 
               await resetLoginAttempts().catch((e) =>
                 console.log("⚠️ Reset error:", e.message),
@@ -396,7 +399,10 @@ export default function Login() {
               console.log("🔀 Navigating to LoginSuccess NOW");
               setLoading(false);
 
-              navigation.reset({ index: 0, routes: [{ name: "LoginSuccess" }] });
+              navigation.reset({
+                index: 0,
+                routes: [{ name: "LoginSuccess" }],
+              });
 
               // Clear login flag after navigation so App.js can handle future auth changes
               setTimeout(async () => {
@@ -638,133 +644,141 @@ export default function Login() {
   }
 
   return (
-    <KeyboardAvoidingView
+    <ImageBackground
+      source={require("../../assets/login-bg.png")}
       style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      resizeMode="cover"
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <KeyboardAwareScrollView
-          style={styles.container}
-          contentContainerStyle={styles.scrollContent}
-          enableOnAndroid={true}
-          extraScrollHeight={20}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.card}>
-            <Image source={Logo} style={styles.logo} />
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <KeyboardAwareScrollView
+            style={styles.container}
+            contentContainerStyle={styles.scrollContent}
+            enableOnAndroid={true}
+            extraScrollHeight={20}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.card}>
+              <Image source={Logo} style={styles.logo} />
 
-            <Text style={styles.title}>WELCOME</Text>
-            <Text style={styles.subtitle}>Login to your Account</Text>
+              <Text style={styles.title}>WELCOME</Text>
+              <Text style={styles.subtitle}>Login to your Account</Text>
 
-            {errors.auth && (
-              <View style={styles.errorAlert}>
-                <Text style={styles.errorAlertText}>{errors.auth}</Text>
-              </View>
-            )}
+              {errors.auth && (
+                <View style={styles.errorAlert}>
+                  <Text style={styles.errorAlertText}>{errors.auth}</Text>
+                </View>
+              )}
 
-            {/* Email Input */}
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter email"
-              value={email}
-              onChangeText={setEmail}
-              editable={!loading}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            {errors.email && (
-              <Text style={styles.errorText}>{errors.email}</Text>
-            )}
-
-            {/* Password Input */}
-            <Text style={styles.label}>Password</Text>
-            <View style={styles.passwordContainer}>
+              {/* Email Input */}
+              <Text style={styles.label}>Email</Text>
               <TextInput
-                style={styles.passwordInput}
-                placeholder="Enter password"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
+                style={styles.input}
+                placeholder="Enter email"
+                value={email}
+                onChangeText={setEmail}
                 editable={!loading}
+                keyboardType="email-address"
+                autoCapitalize="none"
               />
-              <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                <Ionicons
-                  name={showPassword ? "eye-off-outline" : "eye-outline"}
-                  size={20}
-                  color="#555"
-                />
-              </TouchableOpacity>
-            </View>
-            {errors.password && (
-              <View style={{ alignItems: "flex-start", width: "100%" }}>
-                {Array.isArray(errors.password) ? (
-                  errors.password.map((err, idx) => (
-                    <Text key={idx} style={styles.errorText}>
-                      • {err}
-                    </Text>
-                  ))
-                ) : (
-                  <Text style={styles.errorText}>{errors.password}</Text>
-                )}
-              </View>
-            )}
+              {errors.email && (
+                <Text style={styles.errorText}>{errors.email}</Text>
+              )}
 
-            {/* Options Row */}
-            <View style={styles.optionsRow}>
-              <View style={styles.checkboxContainer}>
-                <Checkbox
-                  value={remember}
-                  onValueChange={setRemember}
-                  color={remember ? "#3b4cca" : undefined}
-                  style={styles.checkbox}
+              {/* Password Input */}
+              <Text style={styles.label}>Password</Text>
+              <View style={styles.passwordContainer}>
+                <TextInput
+                  style={styles.passwordInput}
+                  placeholder="Enter password"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  editable={!loading}
                 />
-                <Text style={styles.rememberText}>Remember me</Text>
-              </View>
-
-              <View style={styles.forgotWrapper}>
-                <TouchableOpacity onPress={handleForgotPassword}>
-                  <Text style={styles.forgotText}>Forgot password?</Text>
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                >
+                  <Ionicons
+                    name={showPassword ? "eye-off-outline" : "eye-outline"}
+                    size={20}
+                    color="#555"
+                  />
                 </TouchableOpacity>
               </View>
-            </View>
-
-            {/* Login Button */}
-            <Pressable
-              style={({ pressed }) => [
-                styles.loginBtn,
-                loading && styles.buttonDisabled,
-                pressed && { opacity: 0.8 },
-              ]}
-              onPress={handleLogin}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.loginText}>Login</Text>
+              {errors.password && (
+                <View style={{ alignItems: "flex-start", width: "100%" }}>
+                  {Array.isArray(errors.password) ? (
+                    errors.password.map((err, idx) => (
+                      <Text key={idx} style={styles.errorText}>
+                        • {err}
+                      </Text>
+                    ))
+                  ) : (
+                    <Text style={styles.errorText}>{errors.password}</Text>
+                  )}
+                </View>
               )}
-            </Pressable>
-          </View>
-        </KeyboardAwareScrollView>
-      </TouchableWithoutFeedback>
 
-      {/* Branded Alert Modal */}
-      <BrandedAlertModal
-        visible={alertVisible}
-        type={alertType}
-        title={alertTitle}
-        message={alertMessage}
-        onClose={closeAlert}
-      />
-    </KeyboardAvoidingView>
+              {/* Options Row */}
+              <View style={styles.optionsRow}>
+                <View style={styles.checkboxContainer}>
+                  <Checkbox
+                    value={remember}
+                    onValueChange={setRemember}
+                    color={remember ? "#3b4cca" : undefined}
+                    style={styles.checkbox}
+                  />
+                  <Text style={styles.rememberText}>Remember me</Text>
+                </View>
+
+                <View style={styles.forgotWrapper}>
+                  <TouchableOpacity onPress={handleForgotPassword}>
+                    <Text style={styles.forgotText}>Forgot password?</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Login Button */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.loginBtn,
+                  loading && styles.buttonDisabled,
+                  pressed && { opacity: 0.8 },
+                ]}
+                onPress={handleLogin}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.loginText}>Login</Text>
+                )}
+              </Pressable>
+            </View>
+          </KeyboardAwareScrollView>
+        </TouchableWithoutFeedback>
+
+        {/* Branded Alert Modal */}
+        <BrandedAlertModal
+          visible={alertVisible}
+          type={alertType}
+          title={alertTitle}
+          message={alertMessage}
+          onClose={closeAlert}
+        />
+      </KeyboardAvoidingView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "transparent",
   },
   scrollContent: {
     alignItems: "center",

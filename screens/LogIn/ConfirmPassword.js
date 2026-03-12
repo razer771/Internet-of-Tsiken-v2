@@ -1,5 +1,11 @@
 import React, { useEffect } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ImageBackground,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 
@@ -15,7 +21,11 @@ export default function PasswordUpdatedScreen() {
   }, [navigation]);
 
   return (
-    <View style={styles.container}>
+    <ImageBackground
+      source={require("../../assets/login-bg.png")}
+      style={styles.container}
+      resizeMode="cover"
+    >
       <View style={styles.card}>
         <Ionicons name="checkmark-circle" size={80} color="#2e7d32" />
 
@@ -31,14 +41,14 @@ export default function PasswordUpdatedScreen() {
           <Text style={styles.loginText}>Back to Login</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "transparent",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 20,
