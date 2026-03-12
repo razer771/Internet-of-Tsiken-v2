@@ -214,10 +214,14 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
     );
   }
 
-  // Discovering state - show placeholder with loading
+  // Discovering state - show placeholder with loading (non-interactive)
   if (discoveryState === 'discovering') {
     return (
-      <View style={styles.container}>
+      <View
+        style={styles.container}
+        onStartShouldSetResponder={() => true}
+        onTouchEnd={(e) => e.stopPropagation()}
+      >
         <View style={styles.streamContainer}>
           <View style={styles.placeholderBox}>
             <ActivityIndicator size="large" color={PRIMARY} />
