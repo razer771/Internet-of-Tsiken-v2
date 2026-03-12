@@ -11,6 +11,7 @@ import {
   PanResponder,
   Modal,
   Image,
+  ImageBackground,
   Platform,
 } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
@@ -2012,20 +2013,27 @@ export default function QuickOverviewSetup({ navigation }) {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.container}>
-            {/* Welcome Section */}
+          {/* Welcome Section with header background */}
+          <ImageBackground
+            source={require("../../../assets/LANDING-HEADER.png")}
+            style={styles.welcomeBackground}
+            resizeMode="cover"
+          >
+            <View style={styles.welcomeOverlay} pointerEvents="none" />
             <View style={styles.welcomeSection}>
               <Text style={styles.greeting}>
                 Hello, {userName}!{" "}
                 <MaterialCommunityIcons
                   name="hand-wave-outline"
                   size={24}
-                  color="#133E87"
+                  color="#ffffff"
                 />
               </Text>
               <Text style={styles.date}>{todayDate}</Text>
             </View>
+          </ImageBackground>
 
+          <View style={styles.container}>
             {/* System Status Card */}
             <View style={styles.statusCard}>
               <View style={styles.statusHeader}>
@@ -2432,24 +2440,42 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 40,
   },
+  welcomeBackground: {
+    paddingTop: 24,
+    paddingBottom: 70,
+    paddingHorizontal: 16,
+  },
+  welcomeOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.38)",
+  },
   container: {
-    backgroundColor: "#f8fafc",
+    backgroundColor: "transparent",
     padding: 16,
+    marginTop: -55,
   },
-  welcomeSection: {
-    marginBottom: 20,
-  },
+  welcomeSection: {},
   greeting: {
     fontSize: 28,
     fontWeight: "800",
-    color: "#1e293b",
+    color: "#ffffff",
     marginBottom: 4,
     letterSpacing: -0.5,
+    textShadowColor: "rgba(0,0,0,0.3)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   date: {
     fontSize: 15,
-    color: "#3b82f6",
+    color: "rgba(255,255,255,0.9)",
     fontWeight: "600",
+    textShadowColor: "rgba(0,0,0,0.2)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   sectionTitle: {
     fontSize: 18,

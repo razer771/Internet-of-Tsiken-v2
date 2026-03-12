@@ -662,10 +662,16 @@ export default function Login() {
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.card}>
-              <Image source={Logo} style={styles.logo} />
-
-              <Text style={styles.title}>WELCOME</Text>
-              <Text style={styles.subtitle}>Login to your Account</Text>
+              <ImageBackground
+                source={require("../../assets/LANDING-HEADER.png")}
+                style={styles.cardHeader}
+                resizeMode="cover"
+                imageStyle={{ borderTopLeftRadius: 10, borderTopRightRadius: 10 }}
+              >
+                <Image source={Logo} style={styles.logo} />
+                <Text style={styles.title}>WELCOME</Text>
+                <Text style={styles.subtitle}>Login to your Account</Text>
+              </ImageBackground>
 
               {errors.auth && (
                 <View style={styles.errorAlert}>
@@ -789,7 +795,8 @@ const styles = StyleSheet.create({
     width: "85%",
     backgroundColor: "#fff",
     borderRadius: 10,
-    padding: 25,
+    paddingHorizontal: 25,
+    paddingBottom: 25,
     shadowColor: "#000",
     shadowOpacity: 0.1,
     shadowOffset: { width: 0, height: 4 },
@@ -797,6 +804,14 @@ const styles = StyleSheet.create({
     elevation: 4,
     alignItems: "center",
     marginVertical: 20,
+    overflow: "hidden",
+  },
+  cardHeader: {
+    width: "100%",
+    alignItems: "center",
+    paddingTop: 24,
+    paddingBottom: 16,
+    marginBottom: 8,
   },
   logo: {
     width: 120,

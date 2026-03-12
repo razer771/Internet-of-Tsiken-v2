@@ -77,11 +77,15 @@ export default function Header2() {
 
   return (
     <>
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <View style={styles.safeArea}>
+        <StatusBar
+          barStyle="dark-content"
+          backgroundColor="#ffffff"
+          translucent={false}
+        />
         <View style={styles.header}>
           <View style={styles.leftSection}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.logoContainer}
               activeOpacity={0.7}
               onPress={handleLogoPress}
@@ -104,7 +108,9 @@ export default function Header2() {
               <Icon name="bell" size={22} color="#1a1a1a" />
               {unreadCount > 0 && (
                 <View style={styles.notificationBadge}>
-                  <Text style={styles.notificationBadgeText}>{unreadCount > 99 ? "99+" : String(unreadCount)}</Text>
+                  <Text style={styles.notificationBadgeText}>
+                    {unreadCount > 99 ? "99+" : String(unreadCount)}
+                  </Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -118,7 +124,7 @@ export default function Header2() {
             </TouchableOpacity>
           </View>
         </View>
-      </SafeAreaView>
+      </View>
 
       <SideNavigation
         visible={menuVisible}
@@ -133,6 +139,12 @@ const styles = StyleSheet.create({
   safeArea: {
     backgroundColor: "#ffffff",
     paddingTop: Platform.OS === "android" ? StatusBar.currentHeight || 24 : 0,
+    elevation: 4,
+    zIndex: 100,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
   },
   header: {
     flexDirection: "row",
@@ -141,8 +153,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     backgroundColor: "#ffffff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+    borderBottomWidth: 0,
   },
   leftSection: {
     flex: 1,
@@ -162,7 +173,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 60,
-
   },
   centerSection: {
     flex: 2,
