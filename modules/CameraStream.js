@@ -24,6 +24,7 @@ export default function CameraStream({
   onServerDiscovered,
   autoConnect = false,
   fullscreen = false,
+  onOpenFullscreen,
 }) {
   const [isConnected, setIsConnected] = useState(false);
   const [detections, setDetections] = useState({
@@ -178,6 +179,11 @@ export default function CameraStream({
     }
   };
 
+  const stopDiscovery = () => {
+    if (discoveryTimeoutRef.current) clearTimeout(discoveryTimeoutRef.current);
+    setDiscoveryState("idle");
+  };
+
   const handleRetry = () => {
     setDiscoveryState("idle");
   };
@@ -212,39 +218,36 @@ export default function CameraStream({
     </html>
   `;
 
-  // Idle state - show placeholder with "Detect Camera" button
-  if (discoveryState === "idle") {
+  // Idle / Discovering state - button always visible
+  if (discoveryState === "idle" || discoveryState === "discovering") {
+    const isDetecting = discoveryState === "discovering";
     return (
       <View style={styles.container}>
         <View style={styles.streamContainer}>
           <View style={styles.placeholderBox}>
-            <TouchableOpacity
-              style={styles.detectButton}
-              onPress={startDiscovery}
-            >
-              <Ionicons name="camera-outline" size={24} color="#fff" />
-              <Text style={styles.detectButtonText}>Detect Camera</Text>
-            </TouchableOpacity>
+            {isDetecting ? (
+              <ActivityIndicator size="large" color={PRIMARY} />
+            ) : (
+              <Ionicons name="camera-off-outline" size={44} color="#444" />
+            )}
+            <Text style={styles.searchingText}>
+              {isDetecting ? "Searching for camera..." : "Camera not connected"}
+            </Text>
           </View>
         </View>
-      </View>
-    );
-  }
-
-  // Discovering state - show placeholder with loading (non-interactive)
-  if (discoveryState === "discovering") {
-    return (
-      <View
-        style={styles.container}
-        onStartShouldSetResponder={() => true}
-        onTouchEnd={(e) => e.stopPropagation()}
-      >
-        <View style={styles.streamContainer}>
-          <View style={styles.placeholderBox}>
-            <ActivityIndicator size="large" color={PRIMARY} />
-            <Text style={styles.searchingText}>Searching for camera...</Text>
-          </View>
-        </View>
+        <TouchableOpacity
+          style={[styles.detectButton, isDetecting && styles.detectButtonStop]}
+          onPress={isDetecting ? stopDiscovery : startDiscovery}
+        >
+          <Ionicons
+            name={isDetecting ? "stop-circle-outline" : "camera-outline"}
+            size={18}
+            color="#fff"
+          />
+          <Text style={styles.detectButtonText}>
+            {isDetecting ? "Stop Detecting" : "Detect Camera"}
+          </Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -257,16 +260,17 @@ export default function CameraStream({
           <View style={styles.placeholderBox}>
             <Ionicons
               name="warning-outline"
-              size={48}
+              size={44}
               color="#666"
-              style={{ marginBottom: 12 }}
+              style={{ marginBottom: 8 }}
             />
             <Text style={styles.errorText}>No camera detected</Text>
-            <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
-              <Text style={styles.retryText}>Try Again</Text>
-            </TouchableOpacity>
           </View>
         </View>
+        <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+          <Ionicons name="refresh-outline" size={18} color="#fff" />
+          <Text style={styles.retryText}>Try Again</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -275,7 +279,10 @@ export default function CameraStream({
   return (
     <View style={styles.container}>
       {/* Live Stream using WebView */}
-      <View
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={onOpenFullscreen}
+        disabled={!onOpenFullscreen}
         style={
           fullscreen ? styles.streamContainerFullscreen : styles.streamContainer
         }
@@ -291,11 +298,7 @@ export default function CameraStream({
             console.warn("WebView error:", nativeEvent);
           }}
         />
-
-        {/* Badges removed - clean camera view */}
-      </View>
-
-      {/* Detection info removed for cleaner interface */}
+      </TouchableOpacity>
     </View>
   );
 }
@@ -321,31 +324,39 @@ const styles = StyleSheet.create({
   detectButton: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     backgroundColor: PRIMARY,
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 12,
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginTop: 10,
     gap: 8,
+  },
+  detectButtonStop: {
+    backgroundColor: "#64748b",
   },
   detectButtonText: {
     color: "#fff",
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: "600",
   },
   errorText: {
-    fontSize: 16,
+    fontSize: 14,
     color: "#999",
-    marginBottom: 20,
+    marginTop: 4,
   },
   retryButton: {
-    backgroundColor: PRIMARY,
-    paddingHorizontal: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ef4444",
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 10,
+    marginTop: 10,
+    gap: 8,
   },
   retryText: {
     color: "#fff",
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "600",
   },
   streamContainer: {
