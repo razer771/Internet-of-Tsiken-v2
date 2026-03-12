@@ -1,25 +1,38 @@
 // CameraStream.js - Live YOLO Camera Component for React Native
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ActivityIndicator,
   TouchableOpacity,
-} from 'react-native';
-import { WebView } from 'react-native-webview';
-import { Ionicons } from '@expo/vector-icons';
-import { discoverCameraServer, saveLastWorkingUrl, getLastWorkingUrl } from './CameraServerDiscovery';
-import { useAdminNotifications } from '../screens/Admin/AdminNotificationContext';
-import { useNotifications } from '../screens/User/controls/NotificationContext';
+} from "react-native";
+import { WebView } from "react-native-webview";
+import { Ionicons } from "@expo/vector-icons";
+import {
+  discoverCameraServer,
+  saveLastWorkingUrl,
+  getLastWorkingUrl,
+} from "./CameraServerDiscovery";
+import { useAdminNotifications } from "../screens/Admin/AdminNotificationContext";
+import { useNotifications } from "../screens/User/controls/NotificationContext";
 
-const PRIMARY = '#133E87';
+const PRIMARY = "#133E87";
 
-export default function CameraStream({ serverUrl, onServerDiscovered, autoConnect = false, fullscreen = false }) {
+export default function CameraStream({
+  serverUrl,
+  onServerDiscovered,
+  autoConnect = false,
+  fullscreen = false,
+}) {
   const [isConnected, setIsConnected] = useState(false);
-  const [detections, setDetections] = useState({ objects: [], fps: 0, count: 0 });
+  const [detections, setDetections] = useState({
+    objects: [],
+    fps: 0,
+    count: 0,
+  });
   const [actualServerUrl, setActualServerUrl] = useState(serverUrl);
-  const [discoveryState, setDiscoveryState] = useState('idle'); // idle, discovering, success, failed
+  const [discoveryState, setDiscoveryState] = useState("idle"); // idle, discovering, success, failed
   const [lastPersonDetection, setLastPersonDetection] = useState(null);
   const webViewRef = useRef(null);
   const discoveryTimeoutRef = useRef(null);
@@ -32,7 +45,7 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
 
   useEffect(() => {
     // Auto-connect on mount if enabled (for fullscreen modal)
-    if (autoConnect && discoveryState === 'idle') {
+    if (autoConnect && discoveryState === "idle") {
       startDiscovery();
     }
   }, [autoConnect]);
@@ -46,17 +59,18 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
 
     return () => {
       if (interval) clearInterval(interval);
-      if (discoveryTimeoutRef.current) clearTimeout(discoveryTimeoutRef.current);
+      if (discoveryTimeoutRef.current)
+        clearTimeout(discoveryTimeoutRef.current);
     };
   }, [isConnected]);
 
   const startDiscovery = async () => {
-    setDiscoveryState('discovering');
-    
+    setDiscoveryState("discovering");
+
     // Set 30 second timeout
     discoveryTimeoutRef.current = setTimeout(() => {
-      if (discoveryState === 'discovering') {
-        setDiscoveryState('failed');
+      if (discoveryState === "discovering") {
+        setDiscoveryState("failed");
       }
     }, 30000);
 
@@ -68,7 +82,7 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
         clearTimeout(discoveryTimeoutRef.current);
         setActualServerUrl(lastUrl);
         if (onServerDiscovered) onServerDiscovered(lastUrl);
-        setDiscoveryState('success');
+        setDiscoveryState("success");
         setIsConnected(true);
         return;
       }
@@ -76,7 +90,7 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
 
     // Auto-discover
     const discoveredUrl = await discoverCameraServer(3000);
-    
+
     if (discoveredUrl) {
       const connected = await checkServerStatus(discoveredUrl);
       if (connected) {
@@ -84,37 +98,37 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
         setActualServerUrl(discoveredUrl);
         await saveLastWorkingUrl(discoveredUrl);
         if (onServerDiscovered) onServerDiscovered(discoveredUrl);
-        setDiscoveryState('success');
+        setDiscoveryState("success");
         setIsConnected(true);
       } else {
         clearTimeout(discoveryTimeoutRef.current);
-        setDiscoveryState('failed');
+        setDiscoveryState("failed");
       }
     } else {
       clearTimeout(discoveryTimeoutRef.current);
-      setDiscoveryState('failed');
+      setDiscoveryState("failed");
     }
   };
 
   const checkServerStatus = async (urlToCheck) => {
     try {
       const testUrl = `${urlToCheck}/status`;
-      
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
+
       const response = await fetch(testUrl, {
-        method: 'GET',
+        method: "GET",
         signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
+        headers: { Accept: "application/json" },
       });
-      
+
       clearTimeout(timeoutId);
       const data = await response.json();
-      
-      return data.status === 'online';
+
+      return data.status === "online";
     } catch (err) {
-      console.log('Status check failed:', err.message);
+      console.log("Status check failed:", err.message);
       return false;
     }
   };
@@ -123,25 +137,25 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
-      
+
       const response = await fetch(detectionsUrl, {
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
       const data = await response.json();
       setDetections(data);
-      
+
       // Check for person detection
       if (data.objects && data.objects.length > 0) {
-        const personDetected = data.objects.some(obj => 
-          obj.class && obj.class.toLowerCase() === 'person'
+        const personDetected = data.objects.some(
+          (obj) => obj.class && obj.class.toLowerCase() === "person",
         );
-        
+
         if (personDetected) {
           const now = Date.now();
           // Only send notification if no person was detected in the last 5 minutes (300000ms)
-          if (!lastPersonDetection || (now - lastPersonDetection) > 300000) {
+          if (!lastPersonDetection || now - lastPersonDetection > 300000) {
             setLastPersonDetection(now);
             const notificationData = {
               category: "IoT: Internet of Tsiken",
@@ -160,12 +174,12 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
         }
       }
     } catch (err) {
-      console.log('Detection fetch failed:', err.message);
+      console.log("Detection fetch failed:", err.message);
     }
   };
 
   const handleRetry = () => {
-    setDiscoveryState('idle');
+    setDiscoveryState("idle");
   };
 
   // HTML to display MJPEG stream in WebView
@@ -199,12 +213,15 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
   `;
 
   // Idle state - show placeholder with "Detect Camera" button
-  if (discoveryState === 'idle') {
+  if (discoveryState === "idle") {
     return (
       <View style={styles.container}>
         <View style={styles.streamContainer}>
           <View style={styles.placeholderBox}>
-            <TouchableOpacity style={styles.detectButton} onPress={startDiscovery}>
+            <TouchableOpacity
+              style={styles.detectButton}
+              onPress={startDiscovery}
+            >
               <Ionicons name="camera-outline" size={24} color="#fff" />
               <Text style={styles.detectButtonText}>Detect Camera</Text>
             </TouchableOpacity>
@@ -215,7 +232,7 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
   }
 
   // Discovering state - show placeholder with loading (non-interactive)
-  if (discoveryState === 'discovering') {
+  if (discoveryState === "discovering") {
     return (
       <View
         style={styles.container}
@@ -233,12 +250,17 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
   }
 
   // Failed state - show placeholder with error and retry
-  if (discoveryState === 'failed') {
+  if (discoveryState === "failed") {
     return (
       <View style={styles.container}>
         <View style={styles.streamContainer}>
           <View style={styles.placeholderBox}>
-            <Ionicons name="warning-outline" size={48} color="#666" style={{marginBottom: 12}} />
+            <Ionicons
+              name="warning-outline"
+              size={48}
+              color="#666"
+              style={{ marginBottom: 12 }}
+            />
             <Text style={styles.errorText}>No camera detected</Text>
             <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
               <Text style={styles.retryText}>Try Again</Text>
@@ -253,7 +275,11 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
   return (
     <View style={styles.container}>
       {/* Live Stream using WebView */}
-      <View style={fullscreen ? styles.streamContainerFullscreen : styles.streamContainer}>
+      <View
+        style={
+          fullscreen ? styles.streamContainerFullscreen : styles.streamContainer
+        }
+      >
         <WebView
           ref={webViewRef}
           source={{ html: streamHTML }}
@@ -262,10 +288,10 @@ export default function CameraStream({ serverUrl, onServerDiscovered, autoConnec
           scalesPageToFit={true}
           onError={(syntheticEvent) => {
             const { nativeEvent } = syntheticEvent;
-            console.warn('WebView error:', nativeEvent);
+            console.warn("WebView error:", nativeEvent);
           }}
         />
-        
+
         {/* Badges removed - clean camera view */}
       </View>
 
@@ -280,21 +306,21 @@ const styles = StyleSheet.create({
   },
   placeholderBox: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#1a1a1a",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 2,
-    borderColor: '#333',
-    borderStyle: 'dashed',
+    borderColor: "#333",
+    borderStyle: "dashed",
   },
   searchingText: {
-    color: '#999',
+    color: "#999",
     fontSize: 14,
     marginTop: 12,
   },
   detectButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: PRIMARY,
     paddingHorizontal: 32,
     paddingVertical: 16,
@@ -302,13 +328,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   detectButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   errorText: {
     fontSize: 16,
-    color: '#999',
+    color: "#999",
     marginBottom: 20,
   },
   retryButton: {
@@ -318,87 +344,87 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   retryText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   streamContainer: {
-    width: '100%',
+    width: "100%",
     aspectRatio: 4 / 3,
-    backgroundColor: '#000',
+    backgroundColor: "#000",
     borderRadius: 8,
-    overflow: 'hidden',
-    position: 'relative',
+    overflow: "hidden",
+    position: "relative",
   },
   streamContainerFullscreen: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#000',
-    position: 'relative',
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#000",
+    position: "relative",
+    justifyContent: "center",
+    alignItems: "center",
   },
   webView: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: "#000",
   },
   liveBadge: {
-    position: 'absolute',
+    position: "absolute",
     top: 10,
     right: 10,
-    backgroundColor: '#D70E11',
+    backgroundColor: "#D70E11",
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   liveDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     marginRight: 6,
   },
   liveText: {
-    color: '#fff',
-    fontWeight: '700',
+    color: "#fff",
+    fontWeight: "700",
     fontSize: 12,
   },
   fpsBadge: {
-    position: 'absolute',
+    position: "absolute",
     top: 10,
     left: 10,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: "rgba(0,0,0,0.7)",
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 4,
   },
   fpsText: {
-    color: '#0f0',
-    fontWeight: '600',
+    color: "#0f0",
+    fontWeight: "600",
     fontSize: 12,
   },
   infoContainer: {
     marginTop: 12,
     padding: 12,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: "#f5f5f5",
     borderRadius: 8,
   },
   infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   infoText: {
     marginLeft: 8,
     fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: "600",
+    color: "#333",
   },
   objectsList: {
     marginTop: 8,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
   },
   objectTag: {
     backgroundColor: PRIMARY,
@@ -407,17 +433,17 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginRight: 6,
     marginBottom: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   objectName: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
     marginRight: 4,
   },
   objectConf: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 10,
     opacity: 0.8,
   },
