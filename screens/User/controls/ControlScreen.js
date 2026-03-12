@@ -2672,12 +2672,17 @@ export default function ControlScreen({ navigation }) {
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader icon="flask-outline" title="Vitamin System" />
           <View
-            style={[
-              styles.innerBox,
-              { justifyContent: "space-between", marginTop: 15 },
-            ]}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginTop: 12,
+              paddingTop: 12,
+              borderTopWidth: 1,
+              borderTopColor: "#e2e8f0",
+            }}
           >
-            <View>
+            <View style={{ flex: 1, paddingRight: 16 }}>
               <Text style={{ fontSize: 16, fontWeight: "600", color: "#333" }}>
                 Peristaltic Pump
               </Text>
@@ -2687,12 +2692,14 @@ export default function ControlScreen({ navigation }) {
                   : "Inactive - Water pump dispenses at watering schedule"}
               </Text>
             </View>
-            <Switch
-              value={vitaminOn}
-              onValueChange={handleVitaminToggle}
-              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
-              thumbColor="#fff"
-            />
+            <View style={{ marginRight: 24 }}>
+              <Switch
+                value={vitaminOn}
+                onValueChange={handleVitaminToggle}
+                trackColor={{ false: "#B0B0B0", true: PRIMARY }}
+                thumbColor="#fff"
+              />
+            </View>
           </View>
           <Text
             style={[
