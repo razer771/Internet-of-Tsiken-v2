@@ -13,7 +13,9 @@ import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityI
 import { useNavigation } from "@react-navigation/native";
 import {
   collection,
+  collectionGroup,
   getDocs,
+  getDocsFromServer,
   query,
   where,
   doc,
@@ -159,68 +161,47 @@ export default function AdminDashboard() {
 
       // Fetch from /predatorAttacks/{batchId}/attacks/ structure
       try {
-        const predatorAttacksRef = collection(db, "predatorAttacks");
-        const batchesSnapshot = await getDocs(predatorAttacksRef);
+        // Query all attacks subcollections directly across all batches
+        const attacksRef = collectionGroup(db, "attacks");
+        const attacksSnapshot = await getDocsFromServer(attacksRef);
 
         console.log(
-          `Found ${batchesSnapshot.docs.length} batches in predatorAttacks`,
+          `Found ${attacksSnapshot.docs.length} total attacks in predatorAttacks`,
         );
 
-        // Iterate through each batch and fetch its attacks subcollection
-        for (const batchDoc of batchesSnapshot.docs) {
-          const batchId = batchDoc.id;
+        // Process all attacks (no date filter)
+        attacksSnapshot.docs.forEach((doc) => {
+          const data = doc.data();
+          const attackDatetime = data.attack_datetime;
 
-          try {
-            // Fetch attacks subcollection for this batch
-            const attacksRef = collection(
-              db,
-              "predatorAttacks",
-              batchId,
-              "attacks",
-            );
-            const attacksSnapshot = await getDocs(attacksRef);
+          detectionCount++;
 
-            console.log(
-              `Found ${attacksSnapshot.docs.length} attacks in batch ${batchId}`,
-            );
-
-            // Process all attacks (no date filter)
-            attacksSnapshot.docs.forEach((doc) => {
-              const data = doc.data();
-              const attackDatetime = data.attack_datetime;
-
-              detectionCount++;
-
-              // Track the most recent detection
-              if (attackDatetime) {
-                let attackDate;
-                try {
-                  if (
-                    attackDatetime.toDate &&
-                    typeof attackDatetime.toDate === "function"
-                  ) {
-                    attackDate = attackDatetime.toDate();
-                  } else if (attackDatetime.seconds) {
-                    attackDate = new Date(attackDatetime.seconds * 1000);
-                  } else if (attackDatetime instanceof Date) {
-                    attackDate = attackDatetime;
-                  } else {
-                    attackDate = new Date(attackDatetime);
-                  }
-                  if (!latestDetection || attackDate > latestDetection) {
-                    latestDetection = attackDate;
-                  }
-                } catch (error) {
-                  console.warn("Error processing attack timestamp:", error);
-                }
+          // Track the most recent detection
+          if (attackDatetime) {
+            let attackDate;
+            try {
+              if (
+                attackDatetime.toDate &&
+                typeof attackDatetime.toDate === "function"
+              ) {
+                attackDate = attackDatetime.toDate();
+              } else if (attackDatetime.seconds) {
+                attackDate = new Date(attackDatetime.seconds * 1000);
+              } else if (attackDatetime instanceof Date) {
+                attackDate = attackDatetime;
+              } else {
+                attackDate = new Date(attackDatetime);
               }
-            });
-          } catch (error) {
-            console.warn(`Error fetching attacks for batch ${batchId}:`, error);
+              if (!latestDetection || attackDate > latestDetection) {
+                latestDetection = attackDate;
+              }
+            } catch (error) {
+              console.warn("Error processing attack timestamp:", error);
+            }
           }
-        }
+        });
       } catch (e) {
-        console.warn("Error fetching predatorAttacks collection:", e);
+        console.warn("Error fetching attacks:", e);
       }
 
       setPredatorDetections(detectionCount);
@@ -482,8 +463,8 @@ export default function AdminDashboard() {
                   color={mortalityRate > 10 ? "#ef4444" : "#234187"}
                 />
               </View>
-              <Text style={[styles.metricTitle, { marginLeft: -8 }]}>
-                Mortality Rate
+              <Text style={[styles.reportTitle, { marginLeft: -8 }]}>
+                Chicken Loss Rate
               </Text>
             </View>
             <Text

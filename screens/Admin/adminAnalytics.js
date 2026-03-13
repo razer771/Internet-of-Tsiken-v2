@@ -24,6 +24,7 @@ import { db as firestoreDb } from "../../config/firebaseconfig";
 import {
   collection,
   getDocs,
+  getDocsFromServer,
   collectionGroup,
   addDoc,
   serverTimestamp,
@@ -1873,124 +1874,98 @@ export default function AdminAnalytics({ navigation }) {
         Object.keys(attacksByDate),
       );
 
-      // First, fetch all batch IDs from brooderInfo collection
-      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
-      const brooderSnapshot = await getDocs(brooderInfoRef);
+      // Query all attacks subcollections directly across all batches
+      const attacksRef = collectionGroup(firestoreDb, "attacks");
+      const attacksSnapshot = await getDocsFromServer(attacksRef);
 
       console.log(
-        `[FetchPredatorAttacks] Found ${brooderSnapshot.docs.length} batches in brooderInfo`,
+        `[FetchPredatorAttacks] Found ${attacksSnapshot.docs.length} total attacks`,
       );
 
       let totalAttacksProcessed = 0;
 
-      // Iterate through each batch and fetch its attacks subcollection
-      for (const batchDoc of brooderSnapshot.docs) {
-        const batchId = batchDoc.id;
-        console.log(`[FetchPredatorAttacks] Processing batch: ${batchId}`);
+      // Process all attacks (no batch iteration needed)
+      attacksSnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        const attackDatetime = data.attack_datetime;
 
-        try {
-          // Fetch attacks subcollection for this batch
-          const attacksRef = collection(
-            firestoreDb,
-            "predatorAttacks",
-            batchId,
-            "attacks",
+        if (!attackDatetime) {
+          console.warn(
+            `[FetchPredatorAttacks] Document ${doc.id} missing attack_datetime`,
           );
-          const attacksSnapshot = await getDocs(attacksRef);
+          return;
+        }
+
+        // Convert Firestore Timestamp to Date
+        let attackDate;
+        try {
+          if (
+            attackDatetime.toDate &&
+            typeof attackDatetime.toDate === "function"
+          ) {
+            attackDate = attackDatetime.toDate();
+          } else if (attackDatetime.seconds) {
+            attackDate = new Date(attackDatetime.seconds * 1000);
+          } else if (attackDatetime instanceof Date) {
+            attackDate = attackDatetime;
+          } else {
+            attackDate = new Date(attackDatetime);
+          }
+
+          // Validate that we got a valid date
+          if (isNaN(attackDate.getTime())) {
+            console.warn(
+              `[FetchPredatorAttacks] Document ${doc.id} has invalid date:`,
+              attackDatetime,
+            );
+            return;
+          }
 
           console.log(
-            `[FetchPredatorAttacks] Found ${attacksSnapshot.docs.length} attack documents in batch ${batchId}`,
+            `[FetchPredatorAttacks] Converted attack date: ${attackDate.toISOString()}, Range: ${startDate.toISOString()} to ${endDate.toISOString()}`,
           );
 
-          // Process attacks and increment counts for dates in range
-          attacksSnapshot.docs.forEach((doc) => {
-            const data = doc.data();
-            const attackDatetime = data.attack_datetime;
+          // Check if attack date is within filter range
+          if (attackDate < startDate || attackDate > endDate) {
+            console.log(
+              `[FetchPredatorAttacks] Skipping attack outside date range: ${attackDate}`,
+            );
+            return;
+          }
 
-            if (!attackDatetime) {
-              console.warn(
-                `[FetchPredatorAttacks] Document ${doc.id} in batch ${batchId} missing attack_datetime`,
-              );
-              return;
-            }
+          // Use UTC methods for consistent date extraction
+          const month = monthNames[attackDate.getUTCMonth()];
+          const day = attackDate.getUTCDate();
 
-            // Convert Firestore Timestamp to Date
-            let attackDate;
-            try {
-              if (
-                attackDatetime.toDate &&
-                typeof attackDatetime.toDate === "function"
-              ) {
-                attackDate = attackDatetime.toDate();
-              } else if (attackDatetime.seconds) {
-                attackDate = new Date(attackDatetime.seconds * 1000);
-              } else if (attackDatetime instanceof Date) {
-                attackDate = attackDatetime;
-              } else {
-                attackDate = new Date(attackDatetime);
-              }
+          // Additional validation
+          if (!month || isNaN(day)) {
+            console.warn(
+              `[FetchPredatorAttacks] Document ${doc.id} produced invalid month/day:`,
+              { month, day, attackDate },
+            );
+            return;
+          }
 
-              // Validate that we got a valid date
-              if (isNaN(attackDate.getTime())) {
-                console.warn(
-                  `[FetchPredatorAttacks] Document ${doc.id} in batch ${batchId} has invalid date:`,
-                  attackDatetime,
-                );
-                return;
-              }
+          const dateKey = `${month} ${day.toString().padStart(2, "0")}`;
 
-              console.log(
-                `[FetchPredatorAttacks] Batch ${batchId} - Converted attack date: ${attackDate.toISOString()}, Range: ${startDate.toISOString()} to ${endDate.toISOString()}`,
-              );
-
-              // Check if attack date is within filter range
-              if (attackDate < startDate || attackDate > endDate) {
-                console.log(
-                  `[FetchPredatorAttacks] Skipping attack in batch ${batchId} outside date range: ${attackDate}`,
-                );
-                return;
-              }
-
-              // Use UTC methods for consistent date extraction
-              const month = monthNames[attackDate.getUTCMonth()];
-              const day = attackDate.getUTCDate();
-
-              // Additional validation
-              if (!month || isNaN(day)) {
-                console.warn(
-                  `[FetchPredatorAttacks] Document ${doc.id} in batch ${batchId} produced invalid month/day:`,
-                  { month, day, attackDate },
-                );
-                return;
-              }
-
-              const dateKey = `${month} ${day.toString().padStart(2, "0")}`;
-
-              // Increment count for this date (it already exists from initialization)
-              if (attacksByDate[dateKey]) {
-                attacksByDate[dateKey].count++;
-                totalAttacksProcessed++;
-                console.log(
-                  `[FetchPredatorAttacks] Processed attack in batch ${batchId} on ${dateKey}, total count now: ${attacksByDate[dateKey].count}`,
-                );
-              }
-            } catch (error) {
-              console.warn(
-                `[FetchPredatorAttacks] Error processing attack_datetime for document ${doc.id} in batch ${batchId}:`,
-                error,
-              );
-            }
-          });
+          // Increment count for this date (it already exists from initialization)
+          if (attacksByDate[dateKey]) {
+            attacksByDate[dateKey].count++;
+            totalAttacksProcessed++;
+            console.log(
+              `[FetchPredatorAttacks] Processed attack on ${dateKey}, total count now: ${attacksByDate[dateKey].count}`,
+            );
+          }
         } catch (error) {
           console.warn(
-            `[FetchPredatorAttacks] Error fetching attacks for batch ${batchId}:`,
+            `[FetchPredatorAttacks] Error processing attack_datetime for document ${doc.id}:`,
             error,
           );
         }
-      }
+      });
 
       console.log(
-        `[FetchPredatorAttacks] Total attacks processed across all batches: ${totalAttacksProcessed}`,
+        `[FetchPredatorAttacks] Total attacks processed: ${totalAttacksProcessed}`,
       );
 
       // Convert to array and sort by date
@@ -2021,42 +1996,11 @@ export default function AdminAnalytics({ navigation }) {
     try {
       console.log("[FetchTotalPredatorAttacks] Starting count fetch...");
 
-      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
-      const batchesSnapshot = await getDocs(predatorAttacksRef);
+      // Query all attacks subcollections directly across all batches
+      const attacksRef = collectionGroup(firestoreDb, "attacks");
+      const attacksSnapshot = await getDocsFromServer(attacksRef);
 
-      let totalAttacks = 0;
-
-      console.log(
-        `[FetchTotalPredatorAttacks] Found ${batchesSnapshot.docs.length} batches`,
-      );
-
-      // Iterate through each batch and fetch its attacks subcollection
-      for (const batchDoc of batchesSnapshot.docs) {
-        const batchId = batchDoc.id;
-
-        try {
-          // Fetch attacks subcollection for this batch
-          const attacksRef = collection(
-            firestoreDb,
-            "predatorAttacks",
-            batchId,
-            "attacks",
-          );
-          const attacksSnapshot = await getDocs(attacksRef);
-
-          const batchAttackCount = attacksSnapshot.docs.length;
-          totalAttacks += batchAttackCount;
-
-          console.log(
-            `[FetchTotalPredatorAttacks] Batch ${batchId}: ${batchAttackCount} attacks`,
-          );
-        } catch (error) {
-          console.warn(
-            `[FetchTotalPredatorAttacks] Error fetching attacks for batch ${batchId}:`,
-            error,
-          );
-        }
-      }
+      const totalAttacks = attacksSnapshot.docs.length;
 
       console.log(
         `[FetchTotalPredatorAttacks] Total attacks across all batches: ${totalAttacks}`,
@@ -2085,23 +2029,15 @@ export default function AdminAnalytics({ navigation }) {
           : "no filter",
       );
 
-      // First, fetch all batches from brooderInfo and initialize map with 0 attacks
-      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
-      const brooderSnapshot = await getDocs(brooderInfoRef);
-
-      const batchAttackMap = {};
-
-      // Initialize all batches with 0 attacks
-      brooderSnapshot.docs.forEach((brooderDoc) => {
-        const batchId = brooderDoc.id;
-        batchAttackMap[batchId] = 0;
-      });
+      // Query all attacks subcollections directly across all batches
+      const attacksRef = collectionGroup(firestoreDb, "attacks");
+      const attacksSnapshot = await getDocsFromServer(attacksRef);
 
       console.log(
-        "[FetchAttacksPerBatch] Initialized",
-        brooderSnapshot.docs.length,
-        "batches from brooderInfo",
+        `[FetchAttacksPerBatch] Found ${attacksSnapshot.docs.length} total attacks across all batches`,
       );
+
+      const batchAttackMap = {};
 
       // Parse date range if provided
       let startDateObj = null;
@@ -2122,63 +2058,63 @@ export default function AdminAnalytics({ navigation }) {
         );
       }
 
-      // Iterate through each batch and fetch its attacks subcollection
-      for (const batchDoc of brooderSnapshot.docs) {
-        const batchId = batchDoc.id;
+      // Process all attacks and group by batch
+      attacksSnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        const attackDatetime = data.attack_datetime;
+        // Extract batch ID from document path (e.g., "predatorAttacks/Batch 1/attacks/docId" -> "Batch 1")
+        const batchId = doc.ref.parent.parent.id;
 
-        try {
-          // Fetch attacks subcollection for this batch
-          const attacksRef = collection(
-            firestoreDb,
-            "predatorAttacks",
-            batchId,
-            "attacks",
-          );
-          const attacksSnapshot = await getDocs(attacksRef);
-
-          // Filter attacks by date range if provided
-          let attackCount = 0;
-          attacksSnapshot.docs.forEach((doc) => {
-            if (startDateObj && endDateObj) {
-              const data = doc.data();
-              let attackDate = null;
-
-              // Convert attack_datetime to Date
-              if (data.attack_datetime?.toDate) {
-                attackDate = data.attack_datetime.toDate();
-              } else if (data.attack_datetime?.seconds) {
-                attackDate = new Date(data.attack_datetime.seconds * 1000);
-              } else if (data.attack_datetime) {
-                attackDate = new Date(data.attack_datetime);
-              }
-
-              // Count only if within date range
-              if (
-                attackDate &&
-                attackDate >= startDateObj &&
-                attackDate <= endDateObj
-              ) {
-                attackCount++;
-              }
-            } else {
-              // No filter, count all attacks
-              attackCount++;
-            }
-          });
-
-          batchAttackMap[batchId] = attackCount;
-
-          console.log(
-            `[FetchAttacksPerBatch] Batch ${batchId}: ${attackCount} attacks`,
-          );
-        } catch (error) {
+        if (!batchId) {
           console.warn(
-            `[FetchAttacksPerBatch] Error fetching attacks for batch ${batchId}:`,
-            error,
+            `[FetchAttacksPerBatch] Could not extract batch ID from document ${doc.id}`,
           );
+          return;
+        }
+
+        // Initialize batch if not seen before
+        if (!batchAttackMap[batchId]) {
           batchAttackMap[batchId] = 0;
         }
-      }
+
+        // Filter attacks by date range if provided
+        if (startDateObj && endDateObj) {
+          let attackDate = null;
+
+          // Convert attack_datetime to Date
+          if (attackDatetime?.toDate) {
+            attackDate = attackDatetime.toDate();
+          } else if (attackDatetime?.seconds) {
+            attackDate = new Date(attackDatetime.seconds * 1000);
+          } else if (attackDatetime) {
+            attackDate = new Date(attackDatetime);
+          }
+
+          // Count only if within date range
+          if (
+            attackDate &&
+            attackDate >= startDateObj &&
+            attackDate <= endDateObj
+          ) {
+            batchAttackMap[batchId]++;
+          }
+        } else {
+          // No filter, count all attacks
+          batchAttackMap[batchId]++;
+        }
+      });
+
+      // Fetch all batch IDs from brooderInfo to include batches with 0 attacks
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const brooderSnapshot = await getDocs(brooderInfoRef);
+
+      // Initialize any batches that don't have attacks counted
+      brooderSnapshot.docs.forEach((brooderDoc) => {
+        const batchId = brooderDoc.id;
+        if (!batchAttackMap[batchId]) {
+          batchAttackMap[batchId] = 0;
+        }
+      });
 
       // Convert map to sorted array
       const batchArray = Object.entries(batchAttackMap)
@@ -2661,13 +2597,9 @@ export default function AdminAnalytics({ navigation }) {
         endDate.toISOString(),
       );
 
-      // Use collectionGroup to query all records across all batches
-      const recordsRef = collectionGroup(firestoreDb, "records");
-      const recordsSnapshot = await getDocs(recordsRef);
-      console.log(
-        "[FetchCauseOfDeath] Found total records:",
-        recordsSnapshot.docs.length,
-      );
+      // Get all batches first
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const brooderSnapshot = await getDocs(brooderInfoRef);
 
       let predatoryAttackCount = 0;
       let overfeedingCount = 0;
@@ -2675,88 +2607,117 @@ export default function AdminAnalytics({ navigation }) {
       let otherCount = 0;
       let totalRecordsProcessed = 0;
 
-      // Process all records from all batches
-      for (const recordDoc of recordsSnapshot.docs) {
-        const data = recordDoc.data();
-        console.log("[FetchCauseOfDeath] Record data:", data);
+      // Iterate through each batch and fetch mortality records
+      for (const batchDoc of brooderSnapshot.docs) {
+        const batchId = batchDoc.id;
+        console.log(
+          "[FetchCauseOfDeath] Fetching mortality records for batch:",
+          batchId,
+        );
 
-        const causeOfDeath = data.causeOfDeath || "Other";
-        const count = data.count || 1; // Default to 1 if count not specified
-        totalRecordsProcessed++;
-
-        // Parse timestamp (date reported) to Date object
-        let reportedDate = null;
-        if (data.timestamp) {
-          try {
-            if (data.timestamp.toDate) {
-              // Firestore Timestamp object
-              reportedDate = data.timestamp.toDate();
-            } else if (data.timestamp.seconds) {
-              // Firestore Timestamp with seconds property
-              reportedDate = new Date(data.timestamp.seconds * 1000);
-            } else if (typeof data.timestamp === "string") {
-              // ISO string or date string
-              const [year, month, day] = data.timestamp.split("-").map(Number);
-              reportedDate = new Date(year, month - 1, day);
-            } else if (data.timestamp instanceof Date) {
-              reportedDate = data.timestamp;
-            }
-          } catch (dateParseErr) {
-            console.warn(
-              "[FetchCauseOfDeath] Failed to parse timestamp:",
-              data.timestamp,
-              dateParseErr,
-            );
-          }
-        }
-
-        // Skip if timestamp is invalid
-        if (!reportedDate) {
-          console.warn(
-            "[FetchCauseOfDeath] Skipping record - invalid timestamp:",
-            data.timestamp,
+        try {
+          // Query specifically the mortality records for this batch
+          const mortalityRecordsRef = collection(
+            firestoreDb,
+            "mortality",
+            batchId,
+            "records",
           );
-          continue;
-        }
-
-        // Convert UTC timestamp to GMT+8 (Philippine time)
-        const reportedDateGMT8 = new Date(
-          reportedDate.getTime() + 8 * 60 * 60 * 1000,
-        );
-
-        // Reset time to midnight for comparison (in GMT+8)
-        const recordDate = new Date(
-          reportedDateGMT8.getFullYear(),
-          reportedDateGMT8.getMonth(),
-          reportedDateGMT8.getDate(),
-        );
-
-        console.log("[FetchCauseOfDeath] Comparing dates (GMT+8):", {
-          recordDate: recordDate.toISOString(),
-          startDate: startDate.toISOString(),
-          endDate: endDate.toISOString(),
-          isInRange: recordDate >= startDate && recordDate <= endDate,
-          causeOfDeath,
-          count,
-        });
-
-        if (recordDate < startDate || recordDate > endDate) {
+          const recordsSnapshot = await getDocsFromServer(mortalityRecordsRef);
           console.log(
-            "[FetchCauseOfDeath] Record outside date range:",
-            recordDate.toISOString(),
+            `[FetchCauseOfDeath] Found ${recordsSnapshot.docs.length} mortality records for batch ${batchId}`,
           );
-          continue;
-        }
 
-        // Categorize the cause and add count
-        if (causeOfDeath.toLowerCase().includes("predator")) {
-          predatoryAttackCount += count;
-        } else if (causeOfDeath.toLowerCase().includes("overfeeding")) {
-          overfeedingCount += count;
-        } else if (causeOfDeath.toLowerCase().includes("dehydration")) {
-          dehydrationCount += count;
-        } else {
-          otherCount += count;
+          // Process mortality records for this batch
+          for (const recordDoc of recordsSnapshot.docs) {
+            const data = recordDoc.data();
+            console.log("[FetchCauseOfDeath] Record data:", data);
+
+            const causeOfDeath = data.causeOfDeath || "Other";
+            const count = data.count || 1; // Default to 1 if count not specified
+            totalRecordsProcessed++;
+
+            // Parse timestamp (date reported) to Date object
+            let reportedDate = null;
+            if (data.timestamp) {
+              try {
+                if (data.timestamp.toDate) {
+                  // Firestore Timestamp object
+                  reportedDate = data.timestamp.toDate();
+                } else if (data.timestamp.seconds) {
+                  // Firestore Timestamp with seconds property
+                  reportedDate = new Date(data.timestamp.seconds * 1000);
+                } else if (typeof data.timestamp === "string") {
+                  // ISO string or date string
+                  const [year, month, day] = data.timestamp
+                    .split("-")
+                    .map(Number);
+                  reportedDate = new Date(year, month - 1, day);
+                } else if (data.timestamp instanceof Date) {
+                  reportedDate = data.timestamp;
+                }
+              } catch (dateParseErr) {
+                console.warn(
+                  "[FetchCauseOfDeath] Failed to parse timestamp:",
+                  data.timestamp,
+                  dateParseErr,
+                );
+              }
+            }
+
+            // Skip if timestamp is invalid
+            if (!reportedDate) {
+              console.warn(
+                "[FetchCauseOfDeath] Skipping record - invalid timestamp:",
+                data.timestamp,
+              );
+              continue;
+            }
+            // Convert UTC timestamp to GMT+8 (Philippine time)
+            const reportedDateGMT8 = new Date(
+              reportedDate.getTime() + 8 * 60 * 60 * 1000,
+            );
+
+            // Reset time to midnight for comparison (in GMT+8)
+            const recordDate = new Date(
+              reportedDateGMT8.getFullYear(),
+              reportedDateGMT8.getMonth(),
+              reportedDateGMT8.getDate(),
+            );
+
+            console.log("[FetchCauseOfDeath] Comparing dates (GMT+8):", {
+              recordDate: recordDate.toISOString(),
+              startDate: startDate.toISOString(),
+              endDate: endDate.toISOString(),
+              isInRange: recordDate >= startDate && recordDate <= endDate,
+              causeOfDeath,
+              count,
+            });
+
+            if (recordDate < startDate || recordDate > endDate) {
+              console.log(
+                "[FetchCauseOfDeath] Record outside date range:",
+                recordDate.toISOString(),
+              );
+              continue;
+            }
+
+            // Categorize the cause and add count
+            if (causeOfDeath.toLowerCase().includes("predator")) {
+              predatoryAttackCount += count;
+            } else if (causeOfDeath.toLowerCase().includes("overfeeding")) {
+              overfeedingCount += count;
+            } else if (causeOfDeath.toLowerCase().includes("dehydration")) {
+              dehydrationCount += count;
+            } else {
+              otherCount += count;
+            }
+          }
+        } catch (batchError) {
+          console.warn(
+            `[FetchCauseOfDeath] Error fetching mortality records for batch ${batchId}:`,
+            batchError,
+          );
         }
       }
 
@@ -2942,8 +2903,8 @@ export default function AdminAnalytics({ navigation }) {
       const now = new Date();
 
       const auditLog = {
-        action: action || "Generated mortality report",
-        description: description || "Generated mortality trend report",
+        action: action || "Generated loss report",
+        description: description || "Generated chicken loss trend report",
         fileName: filename,
         reportName: reportName,
         role: "admin",
@@ -3079,7 +3040,7 @@ export default function AdminAnalytics({ navigation }) {
         showAlert(
           "info",
           "No Data",
-          "No mortality records found for the selected date range",
+          "No chicken loss recorded within the selected date range.",
         );
         setIsGeneratingReport(false);
         return;
@@ -3400,17 +3361,17 @@ export default function AdminAnalytics({ navigation }) {
       // --- SUMMARY HTML BLOCK ---
       let summaryHtml = `
         <div class="mortality-summary" style="margin-bottom: 18px; font-size: 12px;">
-          <div style="font-weight:bold; font-size: 14px; margin-bottom: 8px;">Mortality Report Summary</div>
+          <div style="font-weight:bold; font-size: 14px; margin-bottom: 8px;">Chicken Loss Report Summary</div>
           <ul style="margin-top:0; margin-bottom:10px; padding-left:18px;">
-            <li><b>Mortality rate:</b> ${mortalityRate}%</li>
-            <li><b>Most common cause of death:</b> ${maxCause} (${maxCauseCount} ${maxCauseDeathWord})</li>
-            <li><b>Date with most deaths:</b> ${maxDate} (${maxDateCount} ${maxDateDeathWord})</li>
-            <li><b>Day of week with most deaths:</b> ${maxWeekday} (${maxWeekdayCount} ${maxWeekdayDeathWord})</li>
+            <li><b>Chicken loss rate:</b> ${mortalityRate}%</li>
+            <li><b>Most common reasons of loss:</b> ${maxCause} (${maxCauseCount} ${maxCauseDeathWord})</li>
+            <li><b>Date with most loss:</b> ${maxDate} (${maxDateCount} ${maxDateDeathWord})</li>
+            <li><b>Day of week with most loss:</b> ${maxWeekday} (${maxWeekdayCount} ${maxWeekdayDeathWord})</li>
            
           </ul>
           <div style="display: flex; gap: 20px; margin-top: 10px;">
             <div style="width: auto;">
-              <div style="margin-bottom: 6px;"><b>Deaths per day </b></div>
+              <div style="margin-bottom: 6px;"><b>Loss per day </b></div>
               <table style="width: auto; font-size: 8px; border-collapse: collapse; margin-top: 6px;">
                 <tr><th style="border: 1px solid #ddd; padding: 3px; background-color: #133E87; color: white; width: 130px">Date</th><th style="border: 1px solid #ddd; padding: 3px; background-color: #133E87; color: white; text-align: center; width: 50px">Deaths</th><th style="border: 1px solid #ddd; padding: 3px; background-color: #133E87; color: white; text-align: center; width: 50px">Trend</th></tr>
                 ${dailyTrend
@@ -3535,7 +3496,7 @@ export default function AdminAnalytics({ navigation }) {
               <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
               <div class="company-name">Internet of Tsiken</div>
             </div>
-            <div class="report-title">Mortality Report</div>
+            <div class="report-title">Chicken Losses Report</div>
             <div class="filter-info">
               Date Range: ${formatDateRange(startDateStr)} to ${formatDateRange(endDateStr)}<br>
               Report Generated: ${formatReportDateTime()}<br>
@@ -3543,16 +3504,16 @@ export default function AdminAnalytics({ navigation }) {
             </div>
           </div>
           ${summaryHtml}
-          <div style="font-weight:bold; font-size: 14px; margin-bottom: 8px;">Mortality Records</div>
+          <div style="font-weight:bold; font-size: 14px; margin-bottom: 8px;">Chicke Losses Records</div>
           <table>
             <thead>
               <tr>
                 <th>No</th>
-                <th>Date of Death</th>
+                <th>Loss Date</th>
                 <th>Date Reported</th>
                 <th>Batch ID</th>
-                <th>Deaths</th>
-                <th>Cause</th>
+                <th>Count</th>
+                <th>Reason</th>
                 <th>Predator</th>
                 <th>Custom Predator</th>
                 <th>Age</th>
@@ -3610,7 +3571,7 @@ export default function AdminAnalytics({ navigation }) {
         return `${dayStr}-${monthStr}-${year}`;
       };
 
-      const customFilename = `MortalityReport_${formatDate(startDateStr)}_to_${formatDate(endDateStr)}.pdf`;
+      const customFilename = `ChickenLossTrendReport_${formatDate(startDateStr)}_to_${formatDate(endDateStr)}.pdf`;
       const newPath = `${FileSystem.documentDirectory}${customFilename}`;
       console.log("[GenerateMortalityReportPDF] Copying PDF to:", newPath);
 
@@ -3639,7 +3600,7 @@ export default function AdminAnalytics({ navigation }) {
       showAlert(
         "success",
         "Success",
-        "Mortality report exported successfully!",
+        "Chicken loss trend report exported successfully!",
       );
     } catch (error) {
       console.error("Error generating report:", error);
@@ -5465,7 +5426,7 @@ export default function AdminAnalytics({ navigation }) {
         showAlert(
           "info",
           "No Data",
-          "No mortality records found for the selected date range",
+          "No chicken loss recorded within the selected date range.",
         );
         setIsGeneratingBatchReport(false);
         return;
@@ -5644,11 +5605,11 @@ export default function AdminAnalytics({ navigation }) {
               <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
               <div class="company-name">Internet of Tsiken</div>
             </div>
-            <div class="report-title">Mortality Per Batch Report</div>
+            <div class="report-title">Chicken Loss Per Batch Report</div>
             <div class="filter-info">
               Date Range: ${formatDateRange(startDateStr)} to ${formatDateRange(endDateStr)}<br>
               Report Generated: ${formatReportDateTime()}<br>
-              Total Deaths: ${totalDeaths}
+              Total Losses: ${totalDeaths}
             </div>
           </div>
           
@@ -5658,9 +5619,9 @@ export default function AdminAnalytics({ navigation }) {
                 <tr>
                   <th style="width: 100px;">Batch ID</th>
                   <th style="text-align: center; width: 100px;">Starting Population</th>
-                  <th style="text-align: center; width: 100px;">Deaths</th>
+                  <th style="text-align: center; width: 100px;">No. of Loss</th>
                   <th style="text-align: center; width: 100px;">Remaining Population</th>
-                  <th style="text-align: center; width: 100px;">Mortality Rate</th>
+                  <th style="text-align: center; width: 100px;">Loss Rate</th>
                   <th style="text-align: center; width: 100px;">Trend</th>
                 </tr>
               </thead>
@@ -5702,7 +5663,7 @@ export default function AdminAnalytics({ navigation }) {
         return `${day}-${month}-${year}`;
       };
 
-      const customFilename = `MortalityPerBatchReport_${formatDate(startDateStr)}_to_${formatDate(endDateStr)}.pdf`;
+      const customFilename = `LossPerBatchReport_${formatDate(startDateStr)}_to_${formatDate(endDateStr)}.pdf`;
       const newPath = `${FileSystem.documentDirectory}${customFilename}`;
 
       // Copy the PDF to a new location with custom name
@@ -5714,9 +5675,9 @@ export default function AdminAnalytics({ navigation }) {
       // Log report generation to audit trail
       await logReportGeneration(
         customFilename,
-        "Mortality Per Batch Report",
-        "Generate mortality per batch report",
-        `Generated and exported mortality per batch report for ${formatDateRange(startDateStr)} to ${formatDateRange(endDateStr)}`,
+        "Loss Per Batch Report",
+        "Generate loss per batch report",
+        `Generated and exported loss per batch report for ${formatDateRange(startDateStr)} to ${formatDateRange(endDateStr)}`,
       );
 
       // Share PDF with custom filename
@@ -5725,7 +5686,7 @@ export default function AdminAnalytics({ navigation }) {
       showAlert(
         "success",
         "Success",
-        "Mortality Per Batch report exported successfully!",
+        "Loss Per Batch report exported successfully!",
       );
 
       // Modal closed automatically - no need to set state
@@ -7158,12 +7119,12 @@ export default function AdminAnalytics({ navigation }) {
           <table>
             <thead>
               <tr>
-                <th style="width: 15%;">Batch</th>
+                <th style="width: 12%;">Batch</th>
                 <th style="text-align: center; width: 12%;">Attacks</th>
-                <th style="text-align: center; width: 12%;">Mortality</th>
-                <th style="text-align: center; width: 22%;">Deaths per Attack %</th>
-                <th style="text-align: center; width: 16%;">Trend</th>
-                <th style="text-align: center; width: 18%;">Peak Time</th>
+                <th style="text-align: center; width: 12%;">Chicken Loss Count</th>
+                <th style="text-align: center; width: 12%;">Loss per Attack %</th>
+                <th style="text-align: center; width: 12%;">Trend</th>
+                <th style="text-align: center; width: 12%;">Peak Time</th>
               </tr>
             </thead>
             <tbody>
@@ -8095,8 +8056,55 @@ export default function AdminAnalytics({ navigation }) {
         endDateStr,
       );
 
-      const recordsRef = collectionGroup(firestoreDb, "records");
-      const recordsSnapshot = await getDocs(recordsRef);
+      // ===== FIX: Fetch mortality records from mortality/{batchId}/records =====
+      // Instead of using collectionGroup which fetches from ANY "records" collection,
+      // we iterate through batches in brooderInfo and fetch from each batch's mortality subcollection
+
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const batchesSnapshot = await getDocs(brooderInfoRef);
+
+      console.log(
+        `[GenerateCauseReport] Found ${batchesSnapshot.docs.length} batches in brooderInfo`,
+      );
+
+      // Collect all mortality records from each batch's mortality subcollection
+      const allMortalityDocs = [];
+
+      for (const batchDoc of batchesSnapshot.docs) {
+        const batchId = batchDoc.id;
+        try {
+          const mortalityRef = collection(
+            firestoreDb,
+            "mortality",
+            batchId,
+            "records",
+          );
+          const mortalitySnapshot = await getDocs(mortalityRef);
+
+          console.log(
+            `[GenerateCauseReport] Found ${mortalitySnapshot.docs.length} mortality records in batch ${batchId}`,
+          );
+
+          // Add all documents from this batch's mortality records
+          allMortalityDocs.push(...mortalitySnapshot.docs);
+        } catch (error) {
+          console.warn(
+            `[GenerateCauseReport] Error fetching mortality records for batch ${batchId}:`,
+            error,
+          );
+          // Continue with next batch if one fails
+        }
+      }
+
+      // Create a mock snapshot object with the docs array for compatibility with existing code
+      const recordsSnapshot = {
+        docs: allMortalityDocs,
+        empty: allMortalityDocs.length === 0,
+      };
+
+      console.log(
+        `[GenerateCauseReport] Total mortality records fetched: ${allMortalityDocs.length}`,
+      );
 
       // Convert to string if needed
       if (typeof startDateStr !== "string") {
@@ -8312,7 +8320,7 @@ export default function AdminAnalytics({ navigation }) {
         showAlert(
           "info",
           "No Data",
-          "No mortality records found for the selected date range.",
+          "No chicken loss recorded within the selected date range.",
         );
         setExportCauseModalVisible(false);
         setIsGeneratingCauseReport(false);
@@ -8329,12 +8337,8 @@ export default function AdminAnalytics({ navigation }) {
         },
       );
 
-      // Fetch all batches from brooderInfo collection and initialize with 0 values
-      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
-      const brooderSnapshot = await getDocs(brooderInfoRef);
-
-      // Initialize all batches with 0 values
-      brooderSnapshot.docs.forEach((doc) => {
+      // Initialize all batches with 0 values (using batchesSnapshot already fetched above)
+      batchesSnapshot.docs.forEach((doc) => {
         const batchId = doc.id;
         if (!batchSummary[batchId]) {
           batchSummary[batchId] = {
@@ -8604,16 +8608,16 @@ export default function AdminAnalytics({ navigation }) {
               <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
               <div class="company-name">Internet of Tsiken</div>
             </div>
-            <div class="report-title">Cause of Death Report</div>
+            <div class="report-title">Reason for Loss Report</div>
             <div class="filter-info">
               Date Range: ${dateRangeDisplay}<br>
               Report Generated: ${formatReportDateTime()}<br>
-              Total Deaths: ${totalDeaths}
+              Total Losses: ${totalDeaths}
             </div>
           </div>
 
           <div class="summary-section">
-            <div class="summary-title">Causes of Death Summary</div>
+            <div class="summary-title">Reason for Loss Summary</div>
             <div class="summary-grid">
               <div class="summary-item">
                 <div class="summary-label">Predatory Attacks</div>
@@ -8653,7 +8657,7 @@ export default function AdminAnalytics({ navigation }) {
           </div>
          
           <div class="summary-section">
-            <div class="summary-title">Causes of Death Per Batch</div>
+            <div class="summary-title">Reasons for Loss Per Batch</div>
            
           <table>
             <thead>
@@ -8689,7 +8693,7 @@ export default function AdminAnalytics({ navigation }) {
         base64: false,
       });
 
-      const customFilename = `CauseOfDeathReport_${formatDate(startDateStr)}_to_${formatDate(endDateStr)}.pdf`;
+      const customFilename = `ReasonForLossReport_${formatDate(startDateStr)}_to_${formatDate(endDateStr)}.pdf`;
       const newPath = `${FileSystem.documentDirectory}${customFilename}`;
 
       // Copy the PDF to a new location with custom name
@@ -8701,9 +8705,9 @@ export default function AdminAnalytics({ navigation }) {
       // Log report generation to audit trail
       await logReportGeneration(
         customFilename,
-        "Cause of Death Report",
-        "Generate cause of death report",
-        `Generated cause of death report for ${formatDateRange(causeExportStartDate)} to ${formatDateRange(causeExportEndDate)}`,
+        "Reasons for Loss Report",
+        "Generate reason for loss report",
+        `Generated reason for loss report for ${formatDateRange(causeExportStartDate)} to ${formatDateRange(causeExportEndDate)}`,
       );
 
       // Share PDF with custom filename
@@ -8712,11 +8716,11 @@ export default function AdminAnalytics({ navigation }) {
       showAlert(
         "success",
         "Success",
-        "Cause of Death report exported successfully!",
+        "Reason for Loss report exported successfully!",
       );
       setExportCauseModalVisible(false);
     } catch (error) {
-      console.error("Error generating cause of death report:", error);
+      console.error("Error generating reasons for loss report:", error);
       try {
         // Load logo for branded error message
         const logoAsset = Asset.fromModule(require("../../assets/logo.png"));
@@ -8802,7 +8806,7 @@ export default function AdminAnalytics({ navigation }) {
               <div class="error-icon">⚠️</div>
               <div class="error-title">Report Generation Error</div>
               <div class="error-message">
-                An error occurred while generating the Cause of Death report. Please try again or contact support.
+                An error occurred while generating the Reasons for Loss report. Please try again or contact support.
               </div>
               <div class="error-details">
                 <strong>Error Details:</strong><br>
@@ -9973,7 +9977,7 @@ export default function AdminAnalytics({ navigation }) {
   const metrics = [
     {
       id: 1,
-      title: "Mortality Rate",
+      title: "Chicken Loss Rate",
       value: `${mortalityRate}%`,
       subtitle: `${totalChicksCount} chicks active`,
       icon: "account-group",
@@ -10526,11 +10530,11 @@ export default function AdminAnalytics({ navigation }) {
         {/* Mortality Rate Chart */}
         <View style={{ width: "100%", marginTop: 8 }}>
           {/* Section Header */}
-          <Text style={styles.mortalitySectionTitle}>MORTALITY RATE</Text>
+          <Text style={styles.mortalitySectionTitle}>CHICKEN LOSS</Text>
 
           {/* Title and buttons row */}
           <View style={styles.chartHeaderRow}>
-            <Text style={styles.chartTitleOutside}>Mortality Trend</Text>
+            <Text style={styles.chartTitleOutside}>Chicken Loss Trend</Text>
             <View style={styles.chartButtonsRow}>
               <TouchableOpacity
                 style={[
@@ -10713,7 +10717,7 @@ export default function AdminAnalytics({ navigation }) {
         {/* Cause of Death Pie Chart */}
         <View style={{ width: "100%", marginTop: 12 }}>
           <View style={styles.chartHeaderRow}>
-            <Text style={styles.chartTitleOutside}>Cause of Death</Text>
+            <Text style={styles.chartTitleOutside}>Reasons for Loss</Text>
             <View style={styles.chartButtonsRow}>
               <TouchableOpacity
                 style={[
@@ -11174,7 +11178,7 @@ export default function AdminAnalytics({ navigation }) {
         {/* Mortality per Batch Chart */}
         <View style={{ width: "100%", marginTop: 12 }}>
           <View style={styles.chartHeaderRow}>
-            <Text style={styles.chartTitleOutside}>Mortality per Batch</Text>
+            <Text style={styles.chartTitleOutside}>Loss per Batch</Text>
             <View style={styles.chartButtonsRow}>
               <TouchableOpacity
                 style={[
