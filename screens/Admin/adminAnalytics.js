@@ -3586,9 +3586,9 @@ export default function AdminAnalytics({ navigation }) {
       console.log("[GenerateMortalityReportPDF] Logging report generation...");
       await logReportGeneration(
         customFilename,
-        "Mortality Report",
-        "Generate mortality report",
-        `Generated and exported mortality report for ${formatDate(startDateStr)} to ${formatDate(endDateStr)}`,
+        "Chicken Loss Report",
+        "Generate chicken loss report",
+        `Generated and exported chicken loss report for ${formatDate(startDateStr)} to ${formatDate(endDateStr)}`,
       );
       console.log("[GenerateMortalityReportPDF] Report logged successfully");
 
@@ -3894,7 +3894,7 @@ export default function AdminAnalytics({ navigation }) {
 
           overFeedingMortalityHtml = `
             <div style="margin-top: 20px; width: 75%; margin-left: auto; margin-right: auto;">
-              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;"><br>Overfeeding-Related Mortality</h3>
+              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;"><br>Overfeeding-Related Chicken Loss</h3>
               <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
                 <thead>
                   <tr>
@@ -3912,8 +3912,8 @@ export default function AdminAnalytics({ navigation }) {
         } else {
           overFeedingMortalityHtml = `
             <div style="margin-top: 20px;">
-              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Overfeeding-Related Mortality Summary</h3>
-              <p style="font-size: 11px; color: #666;">No overfeeding-related deaths recorded for this batch.</p>
+              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Overfeeding-Related Chicken Loss Summary</h3>
+              <p style="font-size: 11px; color: #666;">No overfeeding-related chicken loss recorded for this batch.</p>
             </div>
           `;
         }
@@ -3921,8 +3921,8 @@ export default function AdminAnalytics({ navigation }) {
         console.error("Error fetching mortality data:", error);
         overFeedingMortalityHtml = `
           <div style="margin-top: 20px;">
-            <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Overfeeding-Related Mortality Summary</h3>
-            <p style="font-size: 11px; color: #666;">Unable to fetch mortality data.</p>
+            <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Overfeeding-Related Chicken Loss Summary</h3>
+            <p style="font-size: 11px; color: #666;">Unable to fetch chicken loss data.</p>
           </div>
         `;
       }
@@ -4179,7 +4179,7 @@ export default function AdminAnalytics({ navigation }) {
               <div style="font-size: 9px; color: #666; margin-top: 5px;"></div>
             </div>
             <div class="metric-card">
-              <div class="metric-label">Total Overfeeding Deaths</div>
+              <div class="metric-label">Total Overfeeding Loss</div>
               <div class="metric-value">${totalOverFeedingDeaths}</div>
             </div>
             <div class="metric-card">
@@ -7541,8 +7541,8 @@ export default function AdminAnalytics({ navigation }) {
                   <th style="width: 110px;">Total Activations</th>
                   <th style="width: 80px;">Trend</th>
                   <th style="width: 120px;">Avg Daily Feedings</th>
-                  <th style="width: 110px;">Overfeeding Deaths</th>
-                  <th style="width: 110px;">Deaths Trend</th>
+                  <th style="width: 110px;">Overfeeding Loss</th>
+                  <th style="width: 110px;">Loss Trend</th>
                 </tr>
               </thead>
               <tbody>
@@ -11363,7 +11363,14 @@ export default function AdminAnalytics({ navigation }) {
               </Text>
             )}
             {LineChartComp && (
-              <View style={{ position: "relative", width: chartWidth }}>
+              <View
+                style={{
+                  position: "relative",
+                  width: chartWidth,
+                  marginLeft: -20,
+                  overflow: "visible",
+                }}
+              >
                 <LineChartComp
                   data={predatorChartData}
                   width={chartWidth}
@@ -11905,7 +11912,7 @@ export default function AdminAnalytics({ navigation }) {
                             style={{
                               flexDirection: "row",
                               alignItems: "center",
-                              width: 110,
+                              width: 100,
                             }}
                           >
                             <View
@@ -11940,7 +11947,7 @@ export default function AdminAnalytics({ navigation }) {
                             style={{
                               flexDirection: "row",
                               alignItems: "center",
-                              width: 90,
+                              width: 100,
                             }}
                           >
                             <View
@@ -12017,7 +12024,7 @@ export default function AdminAnalytics({ navigation }) {
                             style={{
                               flexDirection: "row",
                               alignItems: "center",
-                              width: 110,
+                              width: 100,
                             }}
                           >
                             <View
@@ -12264,85 +12271,120 @@ export default function AdminAnalytics({ navigation }) {
             {!isLoadingFeedConsumption &&
               !feedConsumptionError &&
               feedConsumptionData.length > 0 &&
-              LineChartComp && (
-                <View style={{ position: "relative", width: chartWidth }}>
-                  <LineChartComp
-                    data={feedChartData}
-                    width={chartWidth}
-                    height={chartHeight}
-                    chartConfig={{
-                      backgroundGradientFrom: "#ffffff",
-                      backgroundGradientTo: "#ffffff",
-                      decimalPlaces: 0,
-                      color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
-                      labelColor: (opacity = 1) =>
-                        `rgba(44, 62, 80, ${opacity})`,
-                      propsForDots: {
-                        r: "4",
-                        strokeWidth: "2",
-                        stroke: "#154985",
-                      },
-                    }}
-                    bezier
-                    style={{ marginTop: 8 }}
-                    withVerticalLines={false}
-                    withInnerLines={false}
-                    withHorizontalLines={false}
-                    fromZero
-                    onDataPointClick={(data) => {
-                      const point = {
-                        index: data.index,
-                        value: data.value,
-                        label: feedChartData.labels[data.index],
-                        x: data.x,
-                        y: data.y,
-                      };
-                      showPointTooltipFeed(point);
-                    }}
-                  />
+              LineChartComp &&
+              (() => {
+                // Check if there are more than 10 data points
+                const dataPointCount =
+                  feedChartData.datasets &&
+                  feedChartData.datasets[0] &&
+                  feedChartData.datasets[0].data
+                    ? feedChartData.datasets[0].data.length
+                    : 0;
 
-                  {activePointFeed !== null && (
-                    <View
-                      pointerEvents="none"
-                      style={[
-                        styles.tooltipWrapper,
-                        {
-                          left: Math.max(6, activePointFeed.x - 1),
-                          top: 0,
-                          height: chartHeight,
+                const hasMoreThan10Dots = dataPointCount > 10;
+
+                const scrollableChartWidth = hasMoreThan10Dots
+                  ? Math.max(chartWidth * 3.0, 900)
+                  : chartWidth;
+
+                const ChartWrapper = (
+                  <View
+                    style={{
+                      position: "relative",
+                      width: scrollableChartWidth,
+                    }}
+                  >
+                    <LineChartComp
+                      data={feedChartData}
+                      width={scrollableChartWidth}
+                      height={chartHeight}
+                      chartConfig={{
+                        backgroundGradientFrom: "#ffffff",
+                        backgroundGradientTo: "#ffffff",
+                        decimalPlaces: 0,
+                        color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                        labelColor: (opacity = 1) =>
+                          `rgba(44, 62, 80, ${opacity})`,
+                        propsForDots: {
+                          r: "4",
+                          strokeWidth: "2",
+                          stroke: "#154985",
                         },
-                      ]}
-                    >
+                      }}
+                      bezier
+                      style={{ marginTop: 8 }}
+                      withVerticalLines={false}
+                      withInnerLines={false}
+                      withHorizontalLines={false}
+                      fromZero
+                      onDataPointClick={(data) => {
+                        const point = {
+                          index: data.index,
+                          value: data.value,
+                          label: feedChartData.labels[data.index],
+                          x: data.x,
+                          y: data.y,
+                        };
+                        showPointTooltipFeed(point);
+                      }}
+                    />
+
+                    {activePointFeed !== null && (
                       <View
+                        pointerEvents="none"
                         style={[
-                          styles.tooltipVerticalLine,
+                          styles.tooltipWrapper,
                           {
-                            top: activePointFeed.y + 4,
-                            height: chartHeight - activePointFeed.y - 18,
-                          },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.tooltipBox,
-                          {
-                            position: "absolute",
-                            bottom: chartHeight - activePointFeed.y + 10,
-                            left: -40,
+                            left: Math.max(6, activePointFeed.x - 1),
+                            top: 0,
+                            height: chartHeight,
                           },
                         ]}
                       >
-                        <Text style={styles.tooltipLabel}>
-                          {activePointFeed.label}
-                        </Text>
-                        <Text style={styles.tooltipValue}>
-                          Count: {activePointFeed.value}
-                        </Text>
+                        <View
+                          style={[
+                            styles.tooltipVerticalLine,
+                            {
+                              top: activePointFeed.y + 4,
+                              height: chartHeight - activePointFeed.y - 18,
+                            },
+                          ]}
+                        />
+                        <View
+                          style={[
+                            styles.tooltipBox,
+                            {
+                              position: "absolute",
+                              bottom: chartHeight - activePointFeed.y + 10,
+                              left: -40,
+                            },
+                          ]}
+                        >
+                          <Text style={styles.tooltipLabel}>
+                            {activePointFeed.label}
+                          </Text>
+                          <Text style={styles.tooltipValue}>
+                            Count: {activePointFeed.value}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
-                  )}
-                </View>
-              )}
+                    )}
+                  </View>
+                );
+
+                return hasMoreThan10Dots ? (
+                  <ScrollView
+                    horizontal
+                    scrollEnabled={true}
+                    showsHorizontalScrollIndicator={true}
+                    contentContainerStyle={{ alignItems: "center" }}
+                  >
+                    {ChartWrapper}
+                  </ScrollView>
+                ) : (
+                  ChartWrapper
+                );
+              })()}
           </View>
         </View>
 
@@ -12539,85 +12581,111 @@ export default function AdminAnalytics({ navigation }) {
             {!isLoadingWaterConsumption &&
               !waterConsumptionError &&
               waterConsumptionData.length > 0 &&
-              LineChartComp && (
-                <View style={{ position: "relative", width: chartWidth }}>
-                  <LineChartComp
-                    data={waterChartData}
-                    width={chartWidth}
-                    height={chartHeight}
-                    chartConfig={{
-                      backgroundGradientFrom: "#ffffff",
-                      backgroundGradientTo: "#ffffff",
-                      decimalPlaces: 0,
-                      color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
-                      labelColor: (opacity = 1) =>
-                        `rgba(44, 62, 80, ${opacity})`,
-                      propsForDots: {
-                        r: "4",
-                        strokeWidth: "2",
-                        stroke: "#154985",
-                      },
-                    }}
-                    bezier
-                    style={{ marginTop: 8 }}
-                    withVerticalLines={false}
-                    withInnerLines={false}
-                    withHorizontalLines={false}
-                    fromZero
-                    onDataPointClick={(data) => {
-                      const point = {
-                        index: data.index,
-                        value: data.value,
-                        label: waterChartData.labels[data.index],
-                        x: data.x,
-                        y: data.y,
-                      };
-                      showPointTooltipWater(point);
-                    }}
-                  />
+              LineChartComp &&
+              (() => {
+                const isScrollable = waterConsumptionData.length > 10;
+                const scrollableWidth = isScrollable
+                  ? Math.max(chartWidth * 3.0, 900)
+                  : chartWidth;
 
-                  {activePointWater !== null && (
-                    <View
-                      pointerEvents="none"
-                      style={[
-                        styles.tooltipWrapper,
-                        {
-                          left: Math.max(6, activePointWater.x - 1),
-                          top: 0,
-                          height: chartHeight,
+                const ChartWrapper = (
+                  <View
+                    style={{
+                      position: "relative",
+                      width: scrollableWidth,
+                    }}
+                  >
+                    <LineChartComp
+                      data={waterChartData}
+                      width={scrollableWidth}
+                      height={chartHeight}
+                      chartConfig={{
+                        backgroundGradientFrom: "#ffffff",
+                        backgroundGradientTo: "#ffffff",
+                        decimalPlaces: 0,
+                        color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+                        labelColor: (opacity = 1) =>
+                          `rgba(44, 62, 80, ${opacity})`,
+                        propsForDots: {
+                          r: "4",
+                          strokeWidth: "2",
+                          stroke: "#154985",
                         },
-                      ]}
-                    >
+                      }}
+                      bezier
+                      style={{ marginTop: 8 }}
+                      withVerticalLines={false}
+                      withInnerLines={false}
+                      withHorizontalLines={false}
+                      fromZero
+                      onDataPointClick={(data) => {
+                        const point = {
+                          index: data.index,
+                          value: data.value,
+                          label: waterChartData.labels[data.index],
+                          x: data.x,
+                          y: data.y,
+                        };
+                        showPointTooltipWater(point);
+                      }}
+                    />
+
+                    {activePointWater !== null && (
                       <View
+                        pointerEvents="none"
                         style={[
-                          styles.tooltipVerticalLine,
+                          styles.tooltipWrapper,
                           {
-                            top: activePointWater.y + 4,
-                            height: chartHeight - activePointWater.y - 18,
-                          },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.tooltipBox,
-                          {
-                            position: "absolute",
-                            bottom: chartHeight - activePointWater.y + 10,
-                            left: -40,
+                            left: Math.max(6, activePointWater.x - 1),
+                            top: 0,
+                            height: chartHeight,
                           },
                         ]}
                       >
-                        <Text style={styles.tooltipLabel}>
-                          {activePointWater.label}
-                        </Text>
-                        <Text style={styles.tooltipValue}>
-                          Activations: {activePointWater.value}
-                        </Text>
+                        <View
+                          style={[
+                            styles.tooltipVerticalLine,
+                            {
+                              top: activePointWater.y + 4,
+                              height: chartHeight - activePointWater.y - 18,
+                            },
+                          ]}
+                        />
+                        <View
+                          style={[
+                            styles.tooltipBox,
+                            {
+                              position: "absolute",
+                              bottom: chartHeight - activePointWater.y + 10,
+                              left: -40,
+                            },
+                          ]}
+                        >
+                          <Text style={styles.tooltipLabel}>
+                            {activePointWater.label}
+                          </Text>
+                          <Text style={styles.tooltipValue}>
+                            Activations: {activePointWater.value}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
-                  )}
-                </View>
-              )}
+                    )}
+                  </View>
+                );
+
+                return isScrollable ? (
+                  <ScrollView
+                    horizontal
+                    scrollEnabled={true}
+                    showsHorizontalScrollIndicator={true}
+                    contentContainerStyle={{ alignItems: "center" }}
+                  >
+                    {ChartWrapper}
+                  </ScrollView>
+                ) : (
+                  ChartWrapper
+                );
+              })()}
 
             {!isLoadingWaterConsumption &&
               !waterConsumptionError &&
