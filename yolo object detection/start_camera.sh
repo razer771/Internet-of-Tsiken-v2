@@ -6,11 +6,12 @@
 echo "🎥 Starting Camera Server (Local Network Only)..."
 
 # Kill any existing camera server
-pkill -f stream_server.py
+pkill -f stream_server
+pkill -f stream_server_optimized.py
 
 # Start camera server
 cd "$(dirname "$0")"
-python stream_server.py &
+python stream_server_optimized.py &
 
 sleep 3
 
