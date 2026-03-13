@@ -1804,6 +1804,7 @@ export default function AdminAnalytics({ navigation }) {
 
       if (filterData && filterData.startDate && filterData.endDate) {
         // Parse filter date strings (format: YYYY-MM-DD)
+        // Create UTC dates to compare properly with Firestore timestamps
         const [startYear, startMonth, startDay] = filterData.startDate
           .split("-")
           .map(Number);
@@ -1811,9 +1812,12 @@ export default function AdminAnalytics({ navigation }) {
           .split("-")
           .map(Number);
 
-        startDate = new Date(startYear, startMonth - 1, startDay);
-        endDate = new Date(endYear, endMonth - 1, endDay);
-        endDate.setHours(23, 59, 59, 999); // Include entire end day
+        startDate = new Date(
+          Date.UTC(startYear, startMonth - 1, startDay, 0, 0, 0, 0),
+        );
+        endDate = new Date(
+          Date.UTC(endYear, endMonth - 1, endDay, 23, 59, 59, 999),
+        );
       } else {
         // Default: No filter - show last 7 days
         endDate = new Date();
@@ -1850,8 +1854,9 @@ export default function AdminAnalytics({ navigation }) {
       const currentDate = new Date(startDate);
 
       while (currentDate <= endDate) {
-        const month = monthNames[currentDate.getMonth()];
-        const day = currentDate.getDate();
+        // Use UTC methods for consistent date extraction
+        const month = monthNames[currentDate.getUTCMonth()];
+        const day = currentDate.getUTCDate();
         const dateKey = `${month} ${day.toString().padStart(2, "0")}`;
 
         attacksByDate[dateKey] = {
@@ -1860,7 +1865,7 @@ export default function AdminAnalytics({ navigation }) {
           rawDate: new Date(currentDate),
         };
 
-        currentDate.setDate(currentDate.getDate() + 1);
+        currentDate.setUTCDate(currentDate.getUTCDate() + 1);
       }
 
       console.log(
@@ -1868,18 +1873,18 @@ export default function AdminAnalytics({ navigation }) {
         Object.keys(attacksByDate),
       );
 
-      // Fetch all batch documents from /predatorAttacks/
-      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
-      const batchesSnapshot = await getDocs(predatorAttacksRef);
+      // First, fetch all batch IDs from brooderInfo collection
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const brooderSnapshot = await getDocs(brooderInfoRef);
 
       console.log(
-        `[FetchPredatorAttacks] Found ${batchesSnapshot.docs.length} batches in predatorAttacks`,
+        `[FetchPredatorAttacks] Found ${brooderSnapshot.docs.length} batches in brooderInfo`,
       );
 
       let totalAttacksProcessed = 0;
 
       // Iterate through each batch and fetch its attacks subcollection
-      for (const batchDoc of batchesSnapshot.docs) {
+      for (const batchDoc of brooderSnapshot.docs) {
         const batchId = batchDoc.id;
         console.log(`[FetchPredatorAttacks] Processing batch: ${batchId}`);
 
@@ -1934,6 +1939,10 @@ export default function AdminAnalytics({ navigation }) {
                 return;
               }
 
+              console.log(
+                `[FetchPredatorAttacks] Batch ${batchId} - Converted attack date: ${attackDate.toISOString()}, Range: ${startDate.toISOString()} to ${endDate.toISOString()}`,
+              );
+
               // Check if attack date is within filter range
               if (attackDate < startDate || attackDate > endDate) {
                 console.log(
@@ -1942,8 +1951,9 @@ export default function AdminAnalytics({ navigation }) {
                 return;
               }
 
-              const month = monthNames[attackDate.getMonth()];
-              const day = attackDate.getDate();
+              // Use UTC methods for consistent date extraction
+              const month = monthNames[attackDate.getUTCMonth()];
+              const day = attackDate.getUTCDate();
 
               // Additional validation
               if (!month || isNaN(day)) {
@@ -2093,13 +2103,6 @@ export default function AdminAnalytics({ navigation }) {
         "batches from brooderInfo",
       );
 
-      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
-      const batchesSnapshot = await getDocs(predatorAttacksRef);
-
-      console.log(
-        `[FetchAttacksPerBatch] Found ${batchesSnapshot.docs.length} batches with attacks`,
-      );
-
       // Parse date range if provided
       let startDateObj = null;
       let endDateObj = null;
@@ -2120,7 +2123,7 @@ export default function AdminAnalytics({ navigation }) {
       }
 
       // Iterate through each batch and fetch its attacks subcollection
-      for (const batchDoc of batchesSnapshot.docs) {
+      for (const batchDoc of brooderSnapshot.docs) {
         const batchId = batchDoc.id;
 
         try {
@@ -2257,12 +2260,12 @@ export default function AdminAnalytics({ navigation }) {
         other: 0,
       };
 
-      // Fetch all batch documents from /predatorAttacks/
-      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
-      const batchesSnapshot = await getDocs(predatorAttacksRef);
+      // Fetch all batches from brooderInfo (where batch IDs actually exist)
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const batchesSnapshot = await getDocs(brooderInfoRef);
 
       console.log(
-        `[FetchPredatorTypes] Found ${batchesSnapshot.docs.length} batches in predatorAttacks`,
+        `[FetchPredatorTypes] Found ${batchesSnapshot.docs.length} batches in brooderInfo`,
       );
 
       let totalAttacksProcessed = 0;
@@ -4016,7 +4019,6 @@ export default function AdminAnalytics({ navigation }) {
               ? timestamp.toLocaleTimeString("en-US", {
                   hour: "2-digit",
                   minute: "2-digit",
-                  second: "2-digit",
                   hour12: true,
                 })
               : "N/A";
@@ -5782,11 +5784,15 @@ export default function AdminAnalytics({ navigation }) {
         );
       }
 
-      // Fetch all batches from predatorAttacks
-      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
-      const batchesSnapshot = await getDocs(predatorAttacksRef);
+      // Fetch all batches from brooderInfo (where batch IDs actually exist)
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const batchesSnapshot = await getDocs(brooderInfoRef);
 
       let allAttacks = [];
+
+      console.log(
+        `[GeneratePredatorReport] Found ${batchesSnapshot.docs.length} batches in brooderInfo`,
+      );
 
       // Fetch attacks from each batch
       for (const batchDoc of batchesSnapshot.docs) {
@@ -5798,6 +5804,10 @@ export default function AdminAnalytics({ navigation }) {
           "attacks",
         );
         const attacksSnapshot = await getDocs(attacksRef);
+
+        console.log(
+          `[GeneratePredatorReport] Found ${attacksSnapshot.docs.length} attacks for batch ${batchId}`,
+        );
 
         attacksSnapshot.docs.forEach((doc) => {
           const data = doc.data();
@@ -6322,7 +6332,7 @@ export default function AdminAnalytics({ navigation }) {
                   <th style="width: 20%;">Date & Time</th>
                   <th style="width: 15%;">Batch ID</th>
                   <th style="width: 20%;">Predator Type</th>
-                  <th style="width: 35%;">Action Taken</th>
+                  <th style="width: 35%;">Description</th>
                 </tr>
               </thead>
               <tbody>
@@ -6484,12 +6494,8 @@ export default function AdminAnalytics({ navigation }) {
         "batches from brooderInfo",
       );
 
-      // Fetch all batches from predatorAttacks
-      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
-      const batchesSnapshot = await getDocs(predatorAttacksRef);
-
-      // Fetch attacks from each batch
-      for (const batchDoc of batchesSnapshot.docs) {
+      // Fetch attacks from each batch (use brooderSnapshot which has all batch IDs)
+      for (const batchDoc of brooderSnapshot.docs) {
         const batchId = batchDoc.id;
         const attacksRef = collection(
           firestoreDb,
@@ -8895,8 +8901,9 @@ export default function AdminAnalytics({ navigation }) {
       endDate.setHours(23, 59, 59, 999);
 
       // Fetch predator attacks data for date range
-      const predatorAttacksRef = collection(firestoreDb, "predatorAttacks");
-      const batchesSnapshot = await getDocs(predatorAttacksRef);
+      // First get batch IDs from brooderInfo
+      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
+      const batchesSnapshot = await getDocs(brooderInfoRef);
 
       let predatorCounts = {
         dog: 0,
@@ -9218,10 +9225,8 @@ export default function AdminAnalytics({ navigation }) {
         </tr>
       `;
 
-      // Fetch all batches from brooderInfo to ensure every batch is included
-      const brooderInfoRef = collection(firestoreDb, "brooderInfo");
-      const brooderSnapshot = await getDocs(brooderInfoRef);
-      const allBatchIds = brooderSnapshot.docs.map((doc) => doc.id).sort();
+      // Use existing batchesSnapshot to get all batch IDs
+      const allBatchIds = batchesSnapshot.docs.map((doc) => doc.id).sort();
 
       // Initialize missing batches in batchSummary
       allBatchIds.forEach((batchId) => {
@@ -9749,27 +9754,27 @@ export default function AdminAnalytics({ navigation }) {
       "[adminAnalytics] useEffect: Mounting component, setting default filters",
     );
 
-    // Set default filter to last 7 days
-    const today = new Date();
-    const sevenDaysAgo = new Date(today);
-    sevenDaysAgo.setDate(today.getDate() - 6); // -6 to include today as day 7
+    // Set default filter to last 7 days (using UTC)
+    const todayUTC = new Date();
+    const sevenDaysAgoUTC = new Date(todayUTC);
+    sevenDaysAgoUTC.setUTCDate(todayUTC.getUTCDate() - 6); // -6 to include today as day 7
 
-    // Format dates as YYYY-MM-DD for consistency
+    // Format dates as YYYY-MM-DD for consistency (using UTC methods)
     const formatDateToISO = (date) => {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, "0");
-      const day = String(date.getDate()).padStart(2, "0");
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(date.getUTCDate()).padStart(2, "0");
       return `${year}-${month}-${day}`;
     };
 
     const defaultFilter = {
-      startDate: formatDateToISO(sevenDaysAgo),
-      endDate: formatDateToISO(today),
+      startDate: formatDateToISO(sevenDaysAgoUTC),
+      endDate: formatDateToISO(todayUTC),
     };
 
     const defaultWaterBatchFilter = {
-      startDate: formatDateToISO(sevenDaysAgo),
-      endDate: formatDateToISO(today),
+      startDate: formatDateToISO(sevenDaysAgoUTC),
+      endDate: formatDateToISO(todayUTC),
     };
 
     console.log("[adminAnalytics] Default 7-day filter set:", defaultFilter);
