@@ -32,6 +32,7 @@ export default function CameraStream({
     fps: 0,
     count: 0,
   });
+  const [recentDetections, setRecentDetections] = useState([]);
   const [actualServerUrl, setActualServerUrl] = useState(serverUrl);
   const [discoveryState, setDiscoveryState] = useState("idle"); // idle, discovering, success, failed
   const [lastPersonDetection, setLastPersonDetection] = useState(null);
@@ -146,6 +147,40 @@ export default function CameraStream({
       clearTimeout(timeoutId);
       const data = await response.json();
       setDetections(data);
+
+      if (data.objects && data.objects.length > 0) {
+        setRecentDetections((prev) => {
+          let updated = [...prev];
+          const now = new Date();
+
+          data.objects.forEach((obj) => {
+            if (!obj.class) return;
+            const objClass = obj.class.toLowerCase();
+
+            // Only add if we haven't seen this class in the last 10 seconds to avoid spam
+            const lastOfClass = updated.find((d) => d.class === objClass);
+            if (!lastOfClass || now.getTime() - lastOfClass.timestamp > 10000) {
+              updated.unshift({
+                id: now.getTime() + Math.random(),
+                class: objClass,
+                confidence: obj.confidence || 0,
+                timestamp: now.getTime(),
+                timeStr: now.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                }),
+                dateStr: now.toLocaleDateString(),
+              });
+            }
+          });
+
+          // Sort by newest first
+          updated.sort((a, b) => b.timestamp - a.timestamp);
+          // Keep only the most recent 5
+          return updated.slice(0, 5);
+        });
+      }
 
       // Check for person detection
       if (data.objects && data.objects.length > 0) {
@@ -299,6 +334,39 @@ export default function CameraStream({
           }}
         />
       </TouchableOpacity>
+
+      {/* Recent Detections List */}
+      {!fullscreen && recentDetections.length > 0 && (
+        <View style={styles.recentDetectionsContainer}>
+          <View style={styles.recentHeader}>
+            <Ionicons name="list-outline" size={16} color="#444" />
+            <Text style={styles.recentTitle}>Recent Detections</Text>
+          </View>
+          {recentDetections.map((item) => (
+            <View key={item.id} style={styles.recentItem}>
+              <View style={styles.recentItemLeft}>
+                <Ionicons
+                  name={
+                    item.class === "person" 
+                      ? "person-outline" 
+                      : ["cat", "dog", "rat", "snake"].includes(item.class)
+                      ? "warning-outline"
+                      : "scan-outline"
+                  }
+                  size={16}
+                  color={item.class === "person" ? "#ef4444" : "#f59e0b"}
+                />
+                <Text style={styles.recentItemClass}>
+                  {item.class.charAt(0).toUpperCase() + item.class.slice(1)}
+                </Text>
+              </View>
+              <Text style={styles.recentItemTime}>
+                {item.dateStr} {item.timeStr}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -457,5 +525,47 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 10,
     opacity: 0.8,
+  },
+  recentDetectionsContainer: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: "#f8fafc",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  recentHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8f0",
+    paddingBottom: 6,
+  },
+  recentTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#334155",
+    marginLeft: 6,
+  },
+  recentItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 6,
+  },
+  recentItemLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  recentItemClass: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1e293b",
+    marginLeft: 8,
+  },
+  recentItemTime: {
+    fontSize: 12,
+    color: "#64748b",
   },
 });
