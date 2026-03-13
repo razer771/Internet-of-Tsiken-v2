@@ -14,6 +14,7 @@ import {
   ScrollView,
   Pressable,
   Modal,
+  ImageBackground,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
@@ -169,8 +170,8 @@ export default function MobileNumberInput() {
           "error",
           "Account Locked",
           `Too many failed attempts. Please try again in ${formatLockoutTime(
-            lockoutStatus.remainingTime
-          )}.`
+            lockoutStatus.remainingTime,
+          )}.`,
         );
         return;
       }
@@ -187,7 +188,7 @@ export default function MobileNumberInput() {
         showAlert(
           "error",
           "Error",
-          "User not authenticated. Please login again."
+          "User not authenticated. Please login again.",
         );
         setTimeout(() => {
           navigation.navigate("LogIn");
@@ -204,7 +205,7 @@ export default function MobileNumberInput() {
         showAlert(
           "error",
           "Error",
-          "User data not found. Please contact support."
+          "User data not found. Please contact support.",
         );
         setLoading(false);
         return;
@@ -221,7 +222,7 @@ export default function MobileNumberInput() {
         showAlert(
           "info",
           "Mobile Number Not Set",
-          "No mobile number found for your account. Please contact the owner to add your mobile number."
+          "No mobile number found for your account. Please contact the owner to add your mobile number.",
         );
         setLoading(false);
         return;
@@ -238,13 +239,13 @@ export default function MobileNumberInput() {
           showAlert(
             "error",
             "Account Locked",
-            "Too many failed mobile verification attempts. Your account is locked temporarily."
+            "Too many failed mobile verification attempts. Your account is locked temporarily.",
           );
         } else {
           showAlert(
             "error",
             "Mobile Number Mismatch",
-            `The mobile number you have entered does not match your account.`
+            `The mobile number you have entered does not match your account.`,
           );
         }
         setErrors({ mobile: "Mobile number does not match your account" });
@@ -276,7 +277,7 @@ export default function MobileNumberInput() {
       showAlert(
         "error",
         "Error",
-        "Failed to verify mobile number. Please try again."
+        "Failed to verify mobile number. Please try again.",
       );
     }
   };
@@ -306,101 +307,107 @@ export default function MobileNumberInput() {
   }
 
   return (
-    <KeyboardAvoidingView
+    <ImageBackground
+      source={require("../../assets/login-bg.png")}
       style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      resizeMode="cover"
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <ScrollView
-          style={styles.container}
-          contentContainerStyle={styles.scrollContent}
-        >
-          <View style={styles.card}>
-            <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-              <Ionicons name="arrow-back" size={20} color="#3b4cca" />
-              <Text style={styles.backText}>Back</Text>
-            </TouchableOpacity>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <ScrollView
+            style={styles.container}
+            contentContainerStyle={styles.scrollContent}
+          >
+            <View style={styles.card}>
+              <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+                <Ionicons name="arrow-back" size={20} color="#3b4cca" />
+                <Text style={styles.backText}>Back</Text>
+              </TouchableOpacity>
 
-            <Image source={Logo} style={styles.logo} />
+              <Image source={Logo} style={styles.logo} />
 
-            <Text style={styles.title}>VERIFY MOBILE NUMBER</Text>
-            <Text style={styles.subtitle}></Text>
+              <Text style={styles.title}>VERIFY MOBILE NUMBER</Text>
+              <Text style={styles.subtitle}></Text>
 
-            {errors.mobile && (
-              <View style={styles.errorAlert}>
-                <Text style={styles.errorAlertText}>{errors.mobile}</Text>
-              </View>
-            )}
-
-            {/* Mobile Number Input */}
-            <Text style={styles.label}>Mobile Number</Text>
-            <View style={styles.phoneContainer}>
-              <Text style={styles.countryCode}>+63</Text>
-              <TextInput
-                style={styles.phoneInput}
-                placeholder="Enter mobile number"
-                value={mobileNumber}
-                onChangeText={setMobileNumber}
-                editable={!loading}
-                keyboardType="phone-pad"
-                maxLength={10}
-                autoCapitalize="none"
-              />
-            </View>
-
-            <Text style={styles.helpText}>
-              Enter the 10-digit mobile number associated with your account to
-              proceed with verification.
-            </Text>
-
-            {/* Verify Button */}
-            <Pressable
-              style={({ pressed }) => [
-                styles.verifyBtn,
-                loading && styles.buttonDisabled,
-                pressed && { opacity: 0.8 },
-              ]}
-              onPress={handleVerifyMobile}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.verifyText}>Send OTP</Text>
+              {errors.mobile && (
+                <View style={styles.errorAlert}>
+                  <Text style={styles.errorAlertText}>{errors.mobile}</Text>
+                </View>
               )}
-            </Pressable>
 
-            <View style={styles.infoContainer}>
-              <Ionicons
-                name="information-circle-outline"
-                size={16}
-                color="#666"
-              />
-              <Text style={styles.infoText}>
-                We need to verify your mobile number matches the one registered
-                with your account for security purposes.
+              {/* Mobile Number Input */}
+              <Text style={styles.label}>Mobile Number</Text>
+              <View style={styles.phoneContainer}>
+                <Text style={styles.countryCode}>+63</Text>
+                <TextInput
+                  style={styles.phoneInput}
+                  placeholder="Enter mobile number"
+                  value={mobileNumber}
+                  onChangeText={setMobileNumber}
+                  editable={!loading}
+                  keyboardType="phone-pad"
+                  maxLength={10}
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <Text style={styles.helpText}>
+                Enter the 10-digit mobile number associated with your account to
+                proceed with verification.
               </Text>
-            </View>
-          </View>
-        </ScrollView>
-      </TouchableWithoutFeedback>
 
-      {/* Branded Alert Modal */}
-      <BrandedAlertModal
-        visible={alertVisible}
-        type={alertType}
-        title={alertTitle}
-        message={alertMessage}
-        onClose={closeAlert}
-      />
-    </KeyboardAvoidingView>
+              {/* Verify Button */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.verifyBtn,
+                  loading && styles.buttonDisabled,
+                  pressed && { opacity: 0.8 },
+                ]}
+                onPress={handleVerifyMobile}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.verifyText}>Send OTP</Text>
+                )}
+              </Pressable>
+
+              <View style={styles.infoContainer}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={16}
+                  color="#666"
+                />
+                <Text style={styles.infoText}>
+                  We need to verify your mobile number matches the one
+                  registered with your account for security purposes.
+                </Text>
+              </View>
+            </View>
+          </ScrollView>
+        </TouchableWithoutFeedback>
+
+        {/* Branded Alert Modal */}
+        <BrandedAlertModal
+          visible={alertVisible}
+          type={alertType}
+          title={alertTitle}
+          message={alertMessage}
+          onClose={closeAlert}
+        />
+      </KeyboardAvoidingView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "transparent",
   },
   scrollContent: {
     alignItems: "center",

@@ -14,6 +14,7 @@ import {
   ScrollView,
   Pressable,
   Modal,
+  ImageBackground,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
@@ -575,161 +576,167 @@ export default function OTPVerification() {
   }
 
   return (
-    <KeyboardAvoidingView
+    <ImageBackground
+      source={require("../../assets/login-bg.png")}
       style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      resizeMode="cover"
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <ScrollView
-          style={styles.container}
-          contentContainerStyle={styles.scrollContent}
-        >
-          <View style={styles.card}>
-            <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-              <Ionicons name="arrow-back" size={20} color="#3b4cca" />
-              <Text style={styles.backText}>Back</Text>
-            </TouchableOpacity>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <ScrollView
+            style={styles.container}
+            contentContainerStyle={styles.scrollContent}
+          >
+            <View style={styles.card}>
+              <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+                <Ionicons name="arrow-back" size={20} color="#3b4cca" />
+                <Text style={styles.backText}>Back</Text>
+              </TouchableOpacity>
 
-            <Image source={Logo} style={styles.logo} />
+              <Image source={Logo} style={styles.logo} />
 
-            <Text style={styles.title}>ENTER OTP CODE</Text>
-            <Text style={styles.subtitle}>
-              We sent a 6-digit code to {mobileNumber}
-            </Text>
-
-            {/* Timer Display */}
-            <View style={styles.timerContainer}>
-              <Ionicons
-                name={timeLeft > 60 ? "time-outline" : "warning-outline"}
-                size={16}
-                color={timeLeft > 60 ? "#3b4cca" : "#c41e3a"}
-              />
-              <Text
-                style={[
-                  styles.timerText,
-                  timeLeft <= 60 && styles.timerTextUrgent,
-                ]}
-              >
-                {timeLeft > 0
-                  ? `Code expires in ${formatTime(timeLeft)}`
-                  : "Code expired"}
+              <Text style={styles.title}>ENTER OTP CODE</Text>
+              <Text style={styles.subtitle}>
+                We sent a 6-digit code to {mobileNumber}
               </Text>
-            </View>
 
-            {errors.otp && (
-              <View style={styles.errorAlert}>
-                <Text style={styles.errorAlertText}>{errors.otp}</Text>
-              </View>
-            )}
-
-            {/* OTP Input */}
-            <View style={styles.otpContainer}>
-              {otp.map((digit, index) => (
-                <TextInput
-                  key={index}
-                  ref={(ref) => (inputs.current[index] = ref)}
-                  style={[
-                    styles.otpBox,
-                    digit && styles.otpBoxFilled,
-                    errors.otp && styles.otpBoxError,
-                  ]}
-                  keyboardType="number-pad"
-                  maxLength={1}
-                  value={digit}
-                  onChangeText={(text) => handleOtpChange(text, index)}
-                  onKeyPress={({ nativeEvent }) => {
-                    if (nativeEvent.key === "Backspace") {
-                      handleBackspace(digit, index);
-                    }
-                  }}
-                  editable={!loading && !deviceLocked}
+              {/* Timer Display */}
+              <View style={styles.timerContainer}>
+                <Ionicons
+                  name={timeLeft > 60 ? "time-outline" : "warning-outline"}
+                  size={16}
+                  color={timeLeft > 60 ? "#3b4cca" : "#c41e3a"}
                 />
-              ))}
-            </View>
+                <Text
+                  style={[
+                    styles.timerText,
+                    timeLeft <= 60 && styles.timerTextUrgent,
+                  ]}
+                >
+                  {timeLeft > 0
+                    ? `Code expires in ${formatTime(timeLeft)}`
+                    : "Code expired"}
+                </Text>
+              </View>
 
-            {/* Resend OTP Section */}
-            <View style={styles.resendContainer}>
-              <Text style={styles.resendText}>Didn't receive the code? </Text>
-              <TouchableOpacity
-                onPress={handleResendOTP}
-                disabled={resendCooldown > 0 || resendLoading}
-                style={styles.resendButton}
-              >
-                {resendLoading ? (
-                  <ActivityIndicator size="small" color="#3b4cca" />
-                ) : (
-                  <Text
+              {errors.otp && (
+                <View style={styles.errorAlert}>
+                  <Text style={styles.errorAlertText}>{errors.otp}</Text>
+                </View>
+              )}
+
+              {/* OTP Input */}
+              <View style={styles.otpContainer}>
+                {otp.map((digit, index) => (
+                  <TextInput
+                    key={index}
+                    ref={(ref) => (inputs.current[index] = ref)}
                     style={[
-                      styles.resendLink,
-                      resendCooldown > 0 && styles.resendLinkDisabled,
+                      styles.otpBox,
+                      digit && styles.otpBoxFilled,
+                      errors.otp && styles.otpBoxError,
                     ]}
-                  >
-                    {resendCooldown > 0
-                      ? `Resend (${formatResendCooldown(resendCooldown)})`
-                      : "Resend OTP"}
+                    keyboardType="number-pad"
+                    maxLength={1}
+                    value={digit}
+                    onChangeText={(text) => handleOtpChange(text, index)}
+                    onKeyPress={({ nativeEvent }) => {
+                      if (nativeEvent.key === "Backspace") {
+                        handleBackspace(digit, index);
+                      }
+                    }}
+                    editable={!loading && !deviceLocked}
+                  />
+                ))}
+              </View>
+
+              {/* Resend OTP Section */}
+              <View style={styles.resendContainer}>
+                <Text style={styles.resendText}>Didn't receive the code? </Text>
+                <TouchableOpacity
+                  onPress={handleResendOTP}
+                  disabled={resendCooldown > 0 || resendLoading}
+                  style={styles.resendButton}
+                >
+                  {resendLoading ? (
+                    <ActivityIndicator size="small" color="#3b4cca" />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.resendLink,
+                        resendCooldown > 0 && styles.resendLinkDisabled,
+                      ]}
+                    >
+                      {resendCooldown > 0
+                        ? `Resend (${formatResendCooldown(resendCooldown)})`
+                        : "Resend OTP"}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {/* Attempt Counter hidden per requirement; tracking remains internal */}
+
+              {/* Verify Button */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.verifyBtn,
+                  (loading || timeLeft <= 0) && styles.buttonDisabled,
+                  pressed && { opacity: 0.8 },
+                ]}
+                onPress={handleVerifyOTP}
+                disabled={loading || timeLeft <= 0}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.verifyText}>
+                    {timeLeft <= 0 ? "OTP Expired" : "Verify OTP & Continue"}
                   </Text>
                 )}
-              </TouchableOpacity>
-            </View>
+              </Pressable>
 
-            {/* Attempt Counter hidden per requirement; tracking remains internal */}
-
-            {/* Verify Button */}
-            <Pressable
-              style={({ pressed }) => [
-                styles.verifyBtn,
-                (loading || timeLeft <= 0) && styles.buttonDisabled,
-                pressed && { opacity: 0.8 },
-              ]}
-              onPress={handleVerifyOTP}
-              disabled={loading || timeLeft <= 0}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.verifyText}>
-                  {timeLeft <= 0 ? "OTP Expired" : "Verify OTP & Continue"}
+              {/* Help Text */}
+              <View style={styles.helpContainer}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={16}
+                  color="#666"
+                />
+                <Text style={styles.helpText}>
+                  Enter the 6-digit code sent to your mobile number. The code is
+                  valid for 5 minutes.
                 </Text>
-              )}
-            </Pressable>
+              </View>
 
-            {/* Help Text */}
-            <View style={styles.helpContainer}>
-              <Ionicons
-                name="information-circle-outline"
-                size={16}
-                color="#666"
-              />
-              <Text style={styles.helpText}>
-                Enter the 6-digit code sent to your mobile number. The code is
-                valid for 5 minutes.
-              </Text>
+              {/* Recaptcha container for web */}
+              {Platform.OS === "web" && <div id="recaptcha-container"></div>}
             </View>
+          </ScrollView>
+        </TouchableWithoutFeedback>
 
-            {/* Recaptcha container for web */}
-            {Platform.OS === "web" && <div id="recaptcha-container"></div>}
-          </View>
-        </ScrollView>
-      </TouchableWithoutFeedback>
-
-      {/* Branded Modal */}
-      <BrandedModal
-        visible={modalVisible}
-        type={modalType}
-        title={modalTitle}
-        message={modalMessage}
-        onClose={closeModal}
-        onConfirm={modalOnConfirm}
-        showCancel={modalShowCancel}
-      />
-    </KeyboardAvoidingView>
+        {/* Branded Modal */}
+        <BrandedModal
+          visible={modalVisible}
+          type={modalType}
+          title={modalTitle}
+          message={modalMessage}
+          onClose={closeModal}
+          onConfirm={modalOnConfirm}
+          showCancel={modalShowCancel}
+        />
+      </KeyboardAvoidingView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "transparent",
   },
   scrollContent: {
     alignItems: "center",

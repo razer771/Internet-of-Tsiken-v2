@@ -9,6 +9,7 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   Platform,
+  ImageBackground,
 } from "react-native";
 import { useRouter } from "expo-router";
 
@@ -45,60 +46,72 @@ export default function OtpVerificationScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
+    <ImageBackground
+      source={require("../../assets/login-bg.png")}
       style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      resizeMode="cover"
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.container}>
-          <View style={styles.card}>
-            <Text style={styles.title}>Enter OTP CODE</Text>
-            <Text style={styles.subtitle}>
-              We sent a 6-digit code to your email
-            </Text>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.container}>
+            <View style={styles.card}>
+              <Text style={styles.title}>Enter OTP CODE</Text>
+              <Text style={styles.subtitle}>
+                We sent a 6-digit code to your email
+              </Text>
 
-            <View style={styles.otpContainer}>
-              {otp.map((digit, index) => (
-                <TextInput
-                  key={index}
-                  ref={(ref) => (inputs.current[index] = ref)}
-                  style={styles.otpBox}
-                  keyboardType="number-pad"
-                  maxLength={1}
-                  value={digit}
-                  onChangeText={(text) => handleChange(text, index)}
-                  onKeyPress={({ nativeEvent }) => {
-                    if (nativeEvent.key === "Backspace") {
-                      handleBackspace(digit, index);
-                    }
-                  }}
-                />
-              ))}
+              <View style={styles.otpContainer}>
+                {otp.map((digit, index) => (
+                  <TextInput
+                    key={index}
+                    ref={(ref) => (inputs.current[index] = ref)}
+                    style={styles.otpBox}
+                    keyboardType="number-pad"
+                    maxLength={1}
+                    value={digit}
+                    onChangeText={(text) => handleChange(text, index)}
+                    onKeyPress={({ nativeEvent }) => {
+                      if (nativeEvent.key === "Backspace") {
+                        handleBackspace(digit, index);
+                      }
+                    }}
+                  />
+                ))}
+              </View>
+
+              <Text style={styles.resendText}>
+                Didn’t receive the code?
+                <Text style={styles.resendLink}> Resend</Text>
+              </Text>
+
+              <TouchableOpacity
+                style={styles.verifyButton}
+                onPress={handleVerifyLogin}
+              >
+                <Text style={styles.verifyText}>Verify & Login</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={handleBackNavigation}
+              >
+                <Text style={styles.backText}>Back</Text>
+              </TouchableOpacity>
             </View>
-
-            <Text style={styles.resendText}>
-              Didn’t receive the code?
-              <Text style={styles.resendLink}> Resend</Text>
-            </Text>
-
-            <TouchableOpacity style={styles.verifyButton} onPress={handleVerifyLogin}>
-              <Text style={styles.verifyText}>Verify & Login</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.backButton} onPress={handleBackNavigation}>
-              <Text style={styles.backText}>Back</Text>
-            </TouchableOpacity>
           </View>
-        </View>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F7F8FA",
+    backgroundColor: "transparent",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 20,

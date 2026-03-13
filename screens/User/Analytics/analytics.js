@@ -796,7 +796,7 @@ export default function Analytics() {
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
       {/* Select Section */}
       <View style={[styles.card, { width: cardWidth }]}>
         <View style={styles.sectionHeader}>
@@ -1281,7 +1281,8 @@ export default function Analytics() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#ffffff", padding: 16 },
+  container: { flex: 1, backgroundColor: "#ffffff" },
+  scrollContent: { padding: 16, paddingBottom: 120 },
 
   card: {
     backgroundColor: "#fff",
@@ -1431,7 +1432,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "#0D609C",
-    marginBottom: 16,
+    marginBottom: 32,
     alignSelf: "center",
   },
 

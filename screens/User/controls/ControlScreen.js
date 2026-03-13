@@ -889,10 +889,6 @@ export default function ControlScreen({ navigation }) {
     } catch (error) {
       console.error("[Light] Control failed:", error.message);
       setLightOn(!newValue); // Revert on fail
-      Alert.alert(
-        "Light Control Error",
-        `Could not reach light controller.\n\nError: ${error.message}\n\nPlease check:\n1. ESP32 is powered on\n2. WiFi connection\n3. IP address in esp32config.js`,
-      );
     }
   };
 
@@ -2628,16 +2624,13 @@ export default function ControlScreen({ navigation }) {
             icon="videocam-outline"
             title="Live Camera Surveillance"
           />
-          <TouchableOpacity
-            style={styles.cameraBox}
-            onPress={() => setCameraModal(true)}
-            activeOpacity={0.8}
-          >
+          <View style={styles.cameraBox}>
             <CameraStream
               serverUrl={cameraServerUrl}
               onServerDiscovered={handleServerDiscovered}
+              onOpenFullscreen={() => setCameraModal(true)}
             />
-          </TouchableOpacity>
+          </View>
         </View>
 
         {/* 2. VENTILATION CONTROL (New Section) */}
@@ -2672,12 +2665,17 @@ export default function ControlScreen({ navigation }) {
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
           <CardHeader icon="flask-outline" title="Vitamin System" />
           <View
-            style={[
-              styles.innerBox,
-              { justifyContent: "space-between", marginTop: 15 },
-            ]}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginTop: 12,
+              paddingTop: 12,
+              borderTopWidth: 1,
+              borderTopColor: "#e2e8f0",
+            }}
           >
-            <View>
+            <View style={{ flex: 1, paddingRight: 16 }}>
               <Text style={{ fontSize: 16, fontWeight: "600", color: "#333" }}>
                 Peristaltic Pump
               </Text>
@@ -2687,12 +2685,14 @@ export default function ControlScreen({ navigation }) {
                   : "Inactive - Water pump dispenses at watering schedule"}
               </Text>
             </View>
-            <Switch
-              value={vitaminOn}
-              onValueChange={handleVitaminToggle}
-              trackColor={{ false: "#B0B0B0", true: PRIMARY }}
-              thumbColor="#fff"
-            />
+            <View style={{ marginRight: 24 }}>
+              <Switch
+                value={vitaminOn}
+                onValueChange={handleVitaminToggle}
+                trackColor={{ false: "#B0B0B0", true: PRIMARY }}
+                thumbColor="#fff"
+              />
+            </View>
           </View>
           <Text
             style={[
@@ -3517,7 +3517,7 @@ export default function ControlScreen({ navigation }) {
         <View style={styles.editModal}>
           <Text style={styles.modalTitle}>Live Camera</Text>
           <Image
-            source={require("../../../assets/proposal meeting.png")}
+            source={require("../../../assets/istockphoto-172476350-612x612.jpg")}
             style={{ width: "100%", height: 220, borderRadius: 8 }}
           />
           <TouchableOpacity
@@ -4254,9 +4254,8 @@ const styles = StyleSheet.create({
 
   cameraBox: {
     marginTop: 10,
-    height: 200,
     borderRadius: 8,
-    overflow: "hidden",
+    overflow: "visible",
   },
 
   smallNote: { color: "#666", marginTop: 6 },

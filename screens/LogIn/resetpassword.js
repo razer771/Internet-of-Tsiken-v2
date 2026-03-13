@@ -12,6 +12,7 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  ImageBackground,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
@@ -382,105 +383,115 @@ export default function ResetPassword() {
   };
 
   return (
-    <KeyboardAvoidingView
+    <ImageBackground
+      source={require("../../assets/login-bg.png")}
       style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      resizeMode="cover"
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <KeyboardAwareScrollView
-          style={styles.container}
-          contentContainerStyle={styles.scrollContent}
-          enableOnAndroid={true}
-          extraScrollHeight={20}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.card}>
-            <TouchableOpacity
-              onPress={() => {
-                setEmail("");
-                setError("");
-                navigation.goBack();
-              }}
-              style={styles.backButton}
-            >
-              <Ionicons name="arrow-back" size={24} color="#3b4cca" />
-              <Text style={styles.backText}>Back</Text>
-            </TouchableOpacity>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <KeyboardAwareScrollView
+            style={styles.container}
+            contentContainerStyle={styles.scrollContent}
+            enableOnAndroid={true}
+            extraScrollHeight={20}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.card}>
+              <TouchableOpacity
+                onPress={() => {
+                  setEmail("");
+                  setError("");
+                  navigation.goBack();
+                }}
+                style={styles.backButton}
+              >
+                <Ionicons name="arrow-back" size={24} color="#3b4cca" />
+                <Text style={styles.backText}>Back</Text>
+              </TouchableOpacity>
 
-            {!submitted ? (
-              <>
-                <Text style={styles.title}>Reset Password</Text>
-                <Text style={styles.subtitle}>
-                  Enter your email address and we'll send you a link to reset
-                  your password.
-                </Text>
+              {!submitted ? (
+                <>
+                  <Text style={styles.title}>Reset Password</Text>
+                  <Text style={styles.subtitle}>
+                    Enter your email address and we'll send you a link to reset
+                    your password.
+                  </Text>
 
-                <Text style={styles.label}>Email Address</Text>
-                <TextInput
-                  style={[styles.input, error && styles.inputError]}
-                  placeholder="Enter email"
-                  value={email}
-                  onChangeText={setEmail}
-                  editable={!loading}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
-                {error && <Text style={styles.errorText}>{error}</Text>}
+                  <Text style={styles.label}>Email Address</Text>
+                  <TextInput
+                    style={[styles.input, error && styles.inputError]}
+                    placeholder="Enter email"
+                    value={email}
+                    onChangeText={setEmail}
+                    editable={!loading}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                  {error && <Text style={styles.errorText}>{error}</Text>}
 
-                <TouchableOpacity
-                  style={[styles.loginBtn, loading && styles.buttonDisabled]}
-                  onPress={handleResetRequest}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.loginText}>Send Reset Email</Text>
-                  )}
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.loginBtn, loading && styles.buttonDisabled]}
+                    onPress={handleResetRequest}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.loginText}>Send Reset Email</Text>
+                    )}
+                  </TouchableOpacity>
 
-                <TouchableOpacity
-                  onPress={() => {
-                    setEmail("");
-                    setError("");
-                    navigation.goBack();
-                  }}
-                ></TouchableOpacity>
-              </>
-            ) : (
-              <View style={styles.successContainer}>
-                <View style={styles.successIcon}>
-                  <Ionicons name="checkmark-circle" size={64} color="#2e7d32" />
+                  <TouchableOpacity
+                    onPress={() => {
+                      setEmail("");
+                      setError("");
+                      navigation.goBack();
+                    }}
+                  ></TouchableOpacity>
+                </>
+              ) : (
+                <View style={styles.successContainer}>
+                  <View style={styles.successIcon}>
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={64}
+                      color="#2e7d32"
+                    />
+                  </View>
+                  <Text style={styles.successTitle}>Check Your Email</Text>
+                  <Text style={styles.successSubtitle}>
+                    We've sent password reset instructions to:
+                  </Text>
+                  <Text style={styles.emailDisplay}>{email}</Text>
+
+                  <TouchableOpacity
+                    style={styles.loginBtn}
+                    onPress={() => {
+                      setEmail("");
+                      setSubmitted(false);
+                      navigation.goBack();
+                    }}
+                  >
+                    <Text style={styles.loginText}>Back to Login</Text>
+                  </TouchableOpacity>
                 </View>
-                <Text style={styles.successTitle}>Check Your Email</Text>
-                <Text style={styles.successSubtitle}>
-                  We've sent password reset instructions to:
-                </Text>
-                <Text style={styles.emailDisplay}>{email}</Text>
-
-                <TouchableOpacity
-                  style={styles.loginBtn}
-                  onPress={() => {
-                    setEmail("");
-                    setSubmitted(false);
-                    navigation.goBack();
-                  }}
-                >
-                  <Text style={styles.loginText}>Back to Login</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        </KeyboardAwareScrollView>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+              )}
+            </View>
+          </KeyboardAwareScrollView>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "transparent",
   },
   scrollContent: {
     alignItems: "center",
