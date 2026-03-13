@@ -3279,7 +3279,7 @@ export default function AdminControls({ navigation }) {
         <View style={styles.editModal}>
           <Text style={styles.modalTitle}>Live Camera</Text>
           <Image
-            source={require("../../assets/proposal meeting.png")}
+            source={require("../../assets/istockphoto-172476350-612x612.jpg")}
             style={{ width: "100%", height: 220, borderRadius: 8 }}
           />
           <TouchableOpacity

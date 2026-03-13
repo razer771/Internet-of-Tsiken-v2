@@ -2015,7 +2015,7 @@ export default function QuickOverviewSetup({ navigation }) {
         >
           {/* Welcome Section with header background */}
           <ImageBackground
-            source={require("../../../assets/LANDING-HEADER.png")}
+            source={require("../../../assets/istockphoto-172476350-612x612.jpg")}
             style={styles.welcomeBackground}
             resizeMode="cover"
           >

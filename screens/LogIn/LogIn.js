@@ -662,16 +662,11 @@ export default function Login() {
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.card}>
-              <ImageBackground
-                source={require("../../assets/LANDING-HEADER.png")}
-                style={styles.cardHeader}
-                resizeMode="cover"
-                imageStyle={{ borderTopLeftRadius: 10, borderTopRightRadius: 10 }}
-              >
+              <View style={styles.cardHeader}>
                 <Image source={Logo} style={styles.logo} />
                 <Text style={styles.title}>WELCOME</Text>
                 <Text style={styles.subtitle}>Login to your Account</Text>
-              </ImageBackground>
+              </View>
 
               {errors.auth && (
                 <View style={styles.errorAlert}>
