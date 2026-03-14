@@ -217,6 +217,7 @@ export default function CameraStream({
   const stopDiscovery = () => {
     if (discoveryTimeoutRef.current) clearTimeout(discoveryTimeoutRef.current);
     setDiscoveryState("idle");
+    setIsConnected(false);
   };
 
   const handleRetry = () => {
@@ -239,16 +240,22 @@ export default function CameraStream({
             align-items: center;
             height: 100vh;
             overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
           }
           img {
             max-width: 100%;
             max-height: 100%;
             object-fit: contain;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            pointer-events: none;
           }
         </style>
       </head>
       <body>
-        <img src="${streamUrl}" alt="Camera Stream" />
+        <img src="${streamUrl}" alt="Camera Stream" draggable="false" />
       </body>
     </html>
   `;
@@ -314,10 +321,8 @@ export default function CameraStream({
   return (
     <View style={styles.container}>
       {/* Live Stream using WebView */}
-      <TouchableOpacity
-        activeOpacity={0.9}
-        onPress={onOpenFullscreen}
-        disabled={!onOpenFullscreen}
+      <View
+        pointerEvents="none"
         style={
           fullscreen ? styles.streamContainerFullscreen : styles.streamContainer
         }
@@ -333,7 +338,17 @@ export default function CameraStream({
             console.warn("WebView error:", nativeEvent);
           }}
         />
-      </TouchableOpacity>
+      </View>
+
+      {!fullscreen && (
+        <TouchableOpacity
+          style={[styles.detectButton, styles.detectButtonStop]}
+          onPress={stopDiscovery}
+        >
+          <Ionicons name="stop-circle-outline" size={18} color="#fff" />
+          <Text style={styles.detectButtonText}>Stop Camera</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Recent Detections List */}
       {!fullscreen && recentDetections.length > 0 && (
@@ -400,7 +415,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   detectButtonStop: {
-    backgroundColor: "#64748b",
+    backgroundColor: "#ef4444", // Changed to red for stopping 
   },
   detectButtonText: {
     color: "#fff",
