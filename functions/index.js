@@ -1368,17 +1368,35 @@ exports.notifyPredator = require("firebase-functions/v2/https").onRequest(
       let expo = new Expo();
       let messages = [];
       usersSnapshot.forEach((doc) => {
-        const pushToken = doc.data().pushToken;
+        const userData = doc.data();
+        const pushToken = userData.pushToken;
+        // Strict check: if explicitly false, they are logged out.
+        // If true or undefined (legacy users), assume they might be receiving the alert.
+        const isLoggedIn = userData.isLoggedIn !== false;
+
         if (Expo.isExpoPushToken(pushToken)) {
-          messages.push({
-            to: pushToken,
-            priority: "high",
-            channelId: "predator-alerts",
-            sound: "default",
-            title: "🚨 PREDATOR ALERT!",
-            body: `A ${predator_type} has been detected near your chicken coop!`,
-            data: { type: "predator_alert", predator: predator_type },
-          });
+          if (isLoggedIn) {
+            // Detailed Notification for logged-in users
+            messages.push({
+              to: pushToken,
+              priority: "high",
+              channelId: "predator-alerts",
+              sound: "default",
+              title: "🚨 PREDATOR ALERT!",
+              body: `A ${predator_type} has been detected near your chicken coop!`,
+              data: { type: "predator_alert", predator: predator_type },
+            });
+          } else {
+            // Generic/Vague Notification for logged-out users
+            messages.push({
+              to: pushToken,
+              priority: "default",
+              sound: "default",
+              title: "Internet of Tsiken",
+              body: "You have a new notification. Log in to view details.",
+              data: { type: "generic_alert" },
+            });
+          }
         }
       });
       let chunks = expo.chunkPushNotifications(messages);

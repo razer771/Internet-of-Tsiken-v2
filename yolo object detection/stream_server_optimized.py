@@ -60,7 +60,7 @@ CONFIDENCE_THRESHOLD = 0.5                # Detection confidence
 IOU_THRESHOLD = 0.45                      # Non-max suppression
 
 # Configuration for Alerts
-ALERT_WEBHOOK_URL = "https://YOUR_REGION-YOUR_PROJECT_ID.cloudfunctions.net/notifyPredator" # <--- REPLACE WITH YOUR DEPLOYED FIREBASE FUNCTION URL
+ALERT_WEBHOOK_URL = "https://us-central1-internet-of-tsiken-f0ad4.cloudfunctions.net/notifyPredator"
 ALERT_COOLDOWN_SECONDS = 300  # 5 minutes
 last_alert_times = {}
 

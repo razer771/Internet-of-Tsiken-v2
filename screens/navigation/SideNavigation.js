@@ -16,7 +16,7 @@ import { CommonActions } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { auth, db } from "../../config/firebaseconfig";
 import { signOut } from "firebase/auth";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { doc, updateDoc, collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 const Icon = Feather;
 
@@ -109,6 +109,14 @@ export default function SideNavigation({ visible, onClose, navigation }) {
             "⚠️ Failed to log logout event (non-critical):",
             logError.message,
           );
+        }
+
+        try {
+          await updateDoc(doc(db, "users", currentUser.uid), {
+            isLoggedIn: false
+          });
+        } catch (e) {
+          console.log("Failed to update isLoggedIn status:", e);
         }
       }
 

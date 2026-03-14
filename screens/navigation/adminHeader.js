@@ -16,7 +16,7 @@ import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityI
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { auth, db } from "../../config/firebaseconfig";
 import { signOut } from "firebase/auth";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { doc, updateDoc, collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { useAdminNotifications } from "../Admin/AdminNotificationContext";
 
 const MenuIcon = ({ size = 22, color = "#1a1a1a", style, ...props }) => (
@@ -97,6 +97,14 @@ export default function Header2() {
             "⚠️ Failed to log admin logout event (non-critical):",
             logError.message,
           );
+        }
+
+        try {
+          await updateDoc(doc(db, "users", currentUser.uid), {
+            isLoggedIn: false
+          });
+        } catch (e) {
+          console.log("Failed to update isLoggedIn status:", e);
         }
       }
 
