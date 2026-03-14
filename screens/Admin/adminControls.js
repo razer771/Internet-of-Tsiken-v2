@@ -2470,16 +2470,13 @@ export default function AdminControls({ navigation }) {
             icon="videocam-outline"
             title="Live Camera Surveillance"
           />
-          <TouchableOpacity
-            style={styles.cameraBox}
-            onPress={() => setCameraModal(true)}
-            activeOpacity={0.8}
-          >
+          <View style={styles.cameraBox}>
             <CameraStream
               serverUrl={cameraServerUrl}
               onServerDiscovered={handleServerDiscovered}
+              onOpenFullscreen={() => setCameraModal(true)}
             />
-          </TouchableOpacity>
+          </View>
         </View>
 
         {/* 2. VENTILATION CONTROL (New Section) */}

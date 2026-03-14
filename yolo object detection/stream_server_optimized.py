@@ -50,13 +50,13 @@ logger = logging.getLogger(__name__)
 
 # ==================== CONFIGURATION ====================
 
-MODEL_PATH = "models/yolov8s-custom_ncnn_model"  # NCNN model directory
-MODEL_PATH_PT = "models/yolov8s-custom.pt"       # Fallback PyTorch model
-CAPTURE_SIZE = (416, 416)                         # Hardware ISP output size
-TARGET_FPS = 30                                   # Camera capture target
-JPEG_QUALITY = 70                                 # Stream compression quality
-CONFIDENCE_THRESHOLD = 0.5                        # Detection confidence
-IOU_THRESHOLD = 0.45                              # Non-max suppression
+MODEL_PATH = "models/yolov8s-custom_ncnn_model"   # Restored: Small custom model for Snake and Rat detection
+MODEL_PATH_PT = "models/yolov8s-custom.pt"        # Restored: Fallback PyTorch model
+CAPTURE_SIZE = (416, 416)                 # Hardware ISP output size
+TARGET_FPS = 30                           # Camera capture target
+JPEG_QUALITY = 70                         # Stream compression quality
+CONFIDENCE_THRESHOLD = 0.5                # Detection confidence
+IOU_THRESHOLD = 0.45                      # Non-max suppression
 
 # ==================== SHARED MEMORY BUFFERS ====================
 
@@ -337,13 +337,17 @@ def ai_inference_thread():
         
         while running:
             try:
-                # Read frame from shared buffer
+                # Read latest frame from shared buffer
                 frame = frame_buffer.read()
                 
                 if frame is None:
                     time.sleep(0.01)
                     continue
                 
+                # We removed artificial skipping: Since this thread runs independently, 
+                # it will naturally drop unused frames while it's processing the current one.
+                # Running it as fast as it can process removes the "laggy bounding box" feel.
+                    
                 # Run inference
                 start_time = time.time()
                 
