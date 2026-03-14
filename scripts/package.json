@@ -7,6 +7,8 @@
     "add-realtime-data": "node addRealtimeTestData.js"
   },
   "dependencies": {
+    "expo-background-fetch": "~14.0.9",
+    "expo-task-manager": "~14.0.9",
     "firebase": "^10.14.1",
     "firebase-admin": "^13.6.0"
   }

@@ -24,6 +24,7 @@ from picamera2 import Picamera2
 from datetime import datetime
 from typing import Optional, Dict, List
 import json
+import urllib.request
 
 # Always import YOLO for fallback
 from ultralytics import YOLO
@@ -57,6 +58,11 @@ TARGET_FPS = 30                           # Camera capture target
 JPEG_QUALITY = 70                         # Stream compression quality
 CONFIDENCE_THRESHOLD = 0.5                # Detection confidence
 IOU_THRESHOLD = 0.45                      # Non-max suppression
+
+# Configuration for Alerts
+ALERT_WEBHOOK_URL = "https://YOUR_REGION-YOUR_PROJECT_ID.cloudfunctions.net/notifyPredator" # <--- REPLACE WITH YOUR DEPLOYED FIREBASE FUNCTION URL
+ALERT_COOLDOWN_SECONDS = 300  # 5 minutes
+last_alert_times = {}
 
 # ==================== SHARED MEMORY BUFFERS ====================
 
@@ -360,16 +366,22 @@ def ai_inference_thread():
                     
                     # Extract detections
                     detections_list = []
-                    for box in results[0].boxes:
-                        cls = int(box.cls[0])
-                        conf = float(box.conf[0])
-                        name = ai_model.names[cls]
-                        bbox = box.xyxy[0].tolist()
+                    for det in results[0].boxes:
+                        cls_name = det['class'].lower()
+                        if cls_name in ["cat", "dog", "rat", "mouse", "snake"]:
+                            current_time = time.time()
+                            last_time = last_alert_times.get(cls_name, 0)
+                            
+                            # If 5 minutes have passed since the last alert for this specific predator
+                            if current_time - last_time > ALERT_COOLDOWN_SECONDS:
+                                logger.warning(f"⚠️ PREDATOR DETECTED: {cls_name.upper()}! Triggering Alert...")
+                                last_alert_times[cls_name] = current_time
+                                send_alert_async(cls_name, det['confidence'])
                         
                         detections_list.append({
-                            'class': name,
-                            'confidence': round(conf * 100, 2),
-                            'bbox': bbox
+                            'class': det['class'],
+                            'confidence': round(det['confidence'] * 100, 2),
+                            'bbox': det['bbox']
                         })
                 
                 inference_time = (time.time() - start_time) * 1000  # ms
@@ -521,6 +533,36 @@ def metrics():
         'model_path': MODEL_PATH if NCNN_AVAILABLE else MODEL_PATH_PT,
         'timestamp': datetime.now().isoformat()
     })
+
+@app.route('/send_alert')
+def send_alert():
+    """Send an alert based on detection"""
+    predator_type = request.args.get('predator_type')
+    confidence = request.args.get('confidence')
+    
+    if predator_type and confidence:
+        try:
+            confidence = float(confidence)
+            send_alert_async(predator_type, confidence)
+        except Exception as e:
+            logger.error(f"❌ Invalid alert data: {e}")
+    return jsonify({'status': 'alert sent'})
+
+def send_alert_async(predator_type, confidence):
+    def fire_request():
+        try:
+            data = json.dumps({
+                "predator_type": predator_type, 
+                "confidence": confidence,
+                "camera_id": "Main Node"
+            }).encode('utf-8')
+            req = urllib.request.Request(ALERT_WEBHOOK_URL, data=data, headers={'Content-Type': 'application/json'})
+            urllib.request.urlopen(req, timeout=5)
+            logger.info(f"🚨 SENT PUSH NOTIFICATION FOR: {predator_type}")
+        except Exception as e:
+            logger.error(f"❌ Failed to send alert: {e}")
+            
+    threading.Thread(target=fire_request, daemon=True).start()
 
 # ==================== STARTUP & CLEANUP ====================
 
