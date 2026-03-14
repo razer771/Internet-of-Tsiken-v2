@@ -16,6 +16,8 @@ import {
 } from "./CameraServerDiscovery";
 import { useAdminNotifications } from "../screens/Admin/AdminNotificationContext";
 import { useNotifications } from "../screens/User/controls/NotificationContext";
+import { db } from "../config/firebaseconfig";
+import { collection, query, orderBy, limit, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
 
 const PRIMARY = "#133E87";
 
@@ -38,12 +40,58 @@ export default function CameraStream({
   const [lastPersonDetection, setLastPersonDetection] = useState(null);
   const webViewRef = useRef(null);
   const discoveryTimeoutRef = useRef(null);
+  const lastDetectionTimesRef = useRef({}); // Track last time sent to Firebase per class
   const { addNotification: addAdminNotification } = useAdminNotifications();
   const { addNotification: addUserNotification } = useNotifications();
 
   // Construct stream URL
   const streamUrl = `${actualServerUrl}/video_feed`;
   const detectionsUrl = `${actualServerUrl}/detections`;
+
+  useEffect(() => {
+    // Listen to Firebase for recent detections even if camera is offline
+    const q = query(
+      collection(db, "camera_detections"),
+      orderBy("timestamp", "desc"),
+      limit(5)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const dbDetections = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        let dateStr = "";
+        let timeStr = "";
+        let timestampNum = 0;
+        
+        if (data.timestamp && data.timestamp.seconds) {
+           const d = new Date(data.timestamp.seconds * 1000);
+           dateStr = d.toLocaleDateString();
+           timeStr = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+           timestampNum = d.getTime();
+        } else if (data.timestamp) {
+           const d = new Date(data.timestamp);
+           dateStr = d.toLocaleDateString();
+           timeStr = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+           timestampNum = d.getTime();
+        }
+
+        dbDetections.push({
+          id: doc.id,
+          class: data.class,
+          confidence: data.confidence,
+          timestamp: timestampNum,
+          dateStr,
+          timeStr,
+        });
+      });
+      setRecentDetections(dbDetections);
+    }, (error) => {
+      console.log("Firebase listener error:", error);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     // Auto-connect on mount if enabled (for fullscreen modal)
@@ -149,36 +197,28 @@ export default function CameraStream({
       setDetections(data);
 
       if (data.objects && data.objects.length > 0) {
-        setRecentDetections((prev) => {
-          let updated = [...prev];
-          const now = new Date();
+        const now = Date.now();
+        
+        data.objects.forEach(async (obj) => {
+          if (!obj.class) return;
+          const objClass = obj.class.toLowerCase();
 
-          data.objects.forEach((obj) => {
-            if (!obj.class) return;
-            const objClass = obj.class.toLowerCase();
-
-            // Only add if we haven't seen this class in the last 10 seconds to avoid spam
-            const lastOfClass = updated.find((d) => d.class === objClass);
-            if (!lastOfClass || now.getTime() - lastOfClass.timestamp > 10000) {
-              updated.unshift({
-                id: now.getTime() + Math.random(),
+          // Only add to Firebase if we haven't seen this class in the last 10 seconds
+          const lastTime = lastDetectionTimesRef.current[objClass] || 0;
+          
+          if (now - lastTime > 10000) {
+            lastDetectionTimesRef.current[objClass] = now;
+            
+            try {
+              await addDoc(collection(db, "camera_detections"), {
                 class: objClass,
                 confidence: obj.confidence || 0,
-                timestamp: now.getTime(),
-                timeStr: now.toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                }),
-                dateStr: now.toLocaleDateString(),
+                timestamp: serverTimestamp(),
               });
+            } catch (fbErr) {
+              console.log("Failed to save detection to Firebase:", fbErr);
             }
-          });
-
-          // Sort by newest first
-          updated.sort((a, b) => b.timestamp - a.timestamp);
-          // Keep only the most recent 5
-          return updated.slice(0, 5);
+          }
         });
       }
 
@@ -260,6 +300,42 @@ export default function CameraStream({
     </html>
   `;
 
+  const renderRecentDetections = () => {
+    if (fullscreen || recentDetections.length === 0) return null;
+    
+    return (
+      <View style={styles.recentDetectionsContainer}>
+        <View style={styles.recentHeader}>
+          <Ionicons name="list-outline" size={16} color="#444" />
+          <Text style={styles.recentTitle}>Recent Detections</Text>
+        </View>
+        {recentDetections.map((item) => (
+          <View key={item.id} style={styles.recentItem}>
+            <View style={styles.recentItemLeft}>
+              <Ionicons
+                name={
+                  item.class === "person" 
+                    ? "person-outline" 
+                    : ["cat", "dog", "rat", "snake"].includes(item.class)
+                    ? "warning-outline"
+                    : "scan-outline"
+                }
+                size={16}
+                color={item.class === "person" ? "#ef4444" : "#f59e0b"}
+              />
+              <Text style={styles.recentItemClass}>
+                {item.class.charAt(0).toUpperCase() + item.class.slice(1)}
+              </Text>
+            </View>
+            <Text style={styles.recentItemTime}>
+              {item.dateStr} {item.timeStr}
+            </Text>
+          </View>
+        ))}
+      </View>
+    );
+  };
+
   // Idle / Discovering state - button always visible
   if (discoveryState === "idle" || discoveryState === "discovering") {
     const isDetecting = discoveryState === "discovering";
@@ -290,6 +366,7 @@ export default function CameraStream({
             {isDetecting ? "Stop Detecting" : "Detect Camera"}
           </Text>
         </TouchableOpacity>
+        {renderRecentDetections()}
       </View>
     );
   }
@@ -313,6 +390,7 @@ export default function CameraStream({
           <Ionicons name="refresh-outline" size={18} color="#fff" />
           <Text style={styles.retryText}>Try Again</Text>
         </TouchableOpacity>
+        {renderRecentDetections()}
       </View>
     );
   }
@@ -350,38 +428,7 @@ export default function CameraStream({
         </TouchableOpacity>
       )}
 
-      {/* Recent Detections List */}
-      {!fullscreen && recentDetections.length > 0 && (
-        <View style={styles.recentDetectionsContainer}>
-          <View style={styles.recentHeader}>
-            <Ionicons name="list-outline" size={16} color="#444" />
-            <Text style={styles.recentTitle}>Recent Detections</Text>
-          </View>
-          {recentDetections.map((item) => (
-            <View key={item.id} style={styles.recentItem}>
-              <View style={styles.recentItemLeft}>
-                <Ionicons
-                  name={
-                    item.class === "person" 
-                      ? "person-outline" 
-                      : ["cat", "dog", "rat", "snake"].includes(item.class)
-                      ? "warning-outline"
-                      : "scan-outline"
-                  }
-                  size={16}
-                  color={item.class === "person" ? "#ef4444" : "#f59e0b"}
-                />
-                <Text style={styles.recentItemClass}>
-                  {item.class.charAt(0).toUpperCase() + item.class.slice(1)}
-                </Text>
-              </View>
-              <Text style={styles.recentItemTime}>
-                {item.dateStr} {item.timeStr}
-              </Text>
-            </View>
-          ))}
-        </View>
-      )}
+      {renderRecentDetections()}
     </View>
   );
 }
