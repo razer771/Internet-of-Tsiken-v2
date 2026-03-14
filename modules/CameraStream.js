@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ActivityIndicator,
   TouchableOpacity,
-  TextInput,
 } from "react-native";
 import { WebView } from "react-native-webview";
 import { Ionicons } from "@expo/vector-icons";
@@ -41,55 +40,6 @@ export default function CameraStream({
   const discoveryTimeoutRef = useRef(null);
   const { addNotification: addAdminNotification } = useAdminNotifications();
   const { addNotification: addUserNotification } = useNotifications();
-
-  const [manualUrl, setManualUrl] = useState("");
-
-  const handleManualConnect = async () => {
-    if (!manualUrl) return;
-    
-    let formattedUrl = manualUrl.trim();
-    if (!formattedUrl.startsWith("http")) {
-      formattedUrl = `http://${formattedUrl}`;
-    }
-    if (formattedUrl.endsWith("/")) {
-      formattedUrl = formattedUrl.slice(0, -1);
-    }
-    
-    setDiscoveryState("discovering");
-    const connected = await checkServerStatus(formattedUrl);
-    if (connected) {
-      setActualServerUrl(formattedUrl);
-      await saveLastWorkingUrl(formattedUrl);
-      if (onServerDiscovered) onServerDiscovered(formattedUrl);
-      setDiscoveryState("success");
-      setIsConnected(true);
-    } else {
-      setDiscoveryState("failed");
-      alert("Could not connect to " + formattedUrl);
-    }
-  };
-
-  const renderManualUrlForm = () => (
-    !fullscreen && (
-      <View style={styles.manualUrlContainer}>
-        <Text style={styles.manualUrlLabel}>Test Temporary URL (Tailscale/Cloudflare):</Text>
-        <View style={styles.manualUrlInputRow}>
-          <TextInput
-            style={styles.manualUrlInput}
-            placeholder="http://100.x.x.x:5000"
-            placeholderTextColor="#888"
-            value={manualUrl}
-            onChangeText={setManualUrl}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <TouchableOpacity style={styles.manualUrlButton} onPress={handleManualConnect}>
-            <Text style={styles.manualUrlButtonText}>Connect</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    )
-  );
 
   // Construct stream URL
   const streamUrl = `${actualServerUrl}/video_feed`;
@@ -333,7 +283,6 @@ export default function CameraStream({
             {isDetecting ? "Stop Detecting" : "Detect Camera"}
           </Text>
         </TouchableOpacity>
-        {renderManualUrlForm()}
       </View>
     );
   }
@@ -357,7 +306,6 @@ export default function CameraStream({
           <Ionicons name="refresh-outline" size={18} color="#fff" />
           <Text style={styles.retryText}>Try Again</Text>
         </TouchableOpacity>
-        {renderManualUrlForm()}
       </View>
     );
   }
@@ -419,7 +367,6 @@ export default function CameraStream({
           ))}
         </View>
       )}
-      {renderManualUrlForm()}
     </View>
   );
 }
@@ -620,47 +567,5 @@ const styles = StyleSheet.create({
   recentItemTime: {
     fontSize: 12,
     color: "#64748b",
-  },
-  manualUrlContainer: {
-    marginTop: 12,
-    padding: 12,
-    backgroundColor: "#e0f2fe",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#bae6fd",
-  },
-  manualUrlLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#0369a1",
-    marginBottom: 8,
-  },
-  manualUrlInputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  manualUrlInput: {
-    flex: 1,
-    height: 40,
-    backgroundColor: "#fff",
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    marginRight: 8,
-    fontSize: 14,
-  },
-  manualUrlButton: {
-    backgroundColor: PRIMARY,
-    paddingHorizontal: 16,
-    height: 40,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 6,
-  },
-  manualUrlButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 14,
   },
 });
