@@ -173,6 +173,7 @@ function createTrackedScreen(Component, routeName, onRouteChange) {
 
 export default function App() {
   const lastNotificationResponse = Notifications.useLastNotificationResponse();
+  const [initialRoute, setInitialRoute] = useState("JsonSplash");
   const [currentRoute, setCurrentRoute] = useState("JsonSplash");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
@@ -297,6 +298,7 @@ export default function App() {
           if (isAdmin === "true") {
             console.log("👤 Admin bypass detected → AdminDashboard");
             setIsAuthenticated(true);
+            setInitialRoute("AdminDashboard");
             setAuthLoading(false);
             setHasInitialized(true);
             hasInitializedRef.current = true;
@@ -378,6 +380,7 @@ export default function App() {
               }
 
               // Navigate to the appropriate screen
+              setInitialRoute(targetScreen);
               if (navigationRef.isReady()) {
                 navigationRef.reset({
                   index: 0,
@@ -420,8 +423,9 @@ export default function App() {
           setIsAuthenticated(true);
           if (!hasInitializedRef.current) {
             console.log(
-              "❌ [App.js] Error fetching user data → Navigating to Home",
+              "⚠ [App.js] Error fetching user data → Navigating to Home",
             );
+            setInitialRoute("Home");
             if (navigationRef.isReady()) {
               navigationRef.reset({
                 index: 0,
@@ -519,7 +523,7 @@ export default function App() {
                 style={[styles.content, !isAuthScreen && styles.contentWithNav]}
               >
                 <Stack.Navigator
-                  initialRouteName="JsonSplash"
+                  initialRouteName={initialRoute}
                   screenOptions={{
                     headerShown: false,
                     animation: "slide_from_right",
