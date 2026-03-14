@@ -1,4 +1,28 @@
+import { db } from '../config/firebaseconfig';
+import { doc, getDoc } from 'firebase/firestore';
+
 // CameraServerDiscovery.js - Auto-discover camera server using network scanning
+
+/**
+ * Try to fetch the Tailscale / Remote IP from Firebase First
+ */
+async function fetchFirebaseCameraUrl() {
+  try {
+    const docRef = doc(db, 'camera_settings', 'latest');
+    const docSnap = await getDoc(docRef);
+
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      if (data.url && data.status === 'online') {
+        console.log('📡 Found Camera URL in Firebase:', data.url);
+        return data.url;
+      }
+    }
+  } catch (error) {
+    console.log('⚠️ Failed to fetch camera URL from Firebase:', error.message);
+  }
+  return null;
+}
 
 /**
  * Try to get public URL from local server (if on same network)
@@ -82,6 +106,22 @@ function generateIPsToScan() {
 export async function discoverCameraServer(timeout = 2000) {
   console.log('🔍 Auto-discovering camera server...');
   
+  // Step 0: Check Firebase for the active Tailscale/Remote IP immediately
+  const firebaseUrls = [];
+  const firebaseRemoteUrl = await fetchFirebaseCameraUrl();
+  if (firebaseRemoteUrl) {
+    firebaseUrls.push(firebaseRemoteUrl);
+    
+    // Test the Firebase URL immediately
+    const foundFirebase = await tryUrl(firebaseRemoteUrl, timeout * 2); // Give it a bit more time if remote
+    if (foundFirebase) {
+      console.log('✅ Connected using Firebase IP:', foundFirebase);
+      return foundFirebase;
+    } else {
+      console.log('⚠️ Firebase IP did not respond, falling back to local scan.');
+    }
+  }
+
   // Step 1: Try to get public URL from local server (if on same network)
   const publicUrl = await tryGetPublicUrl();
   if (publicUrl) {
