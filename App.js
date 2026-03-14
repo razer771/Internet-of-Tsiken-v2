@@ -235,8 +235,8 @@ export default function App() {
       });
 
     return () => {
-      Notifications.removeNotificationSubscription(foregroundListener);
-      Notifications.removeNotificationSubscription(responseListener);
+      foregroundListener?.remove();
+      responseListener?.remove();
     };
   }, []);
 
