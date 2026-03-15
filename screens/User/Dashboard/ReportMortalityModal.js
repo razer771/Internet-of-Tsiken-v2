@@ -516,12 +516,12 @@ export default function ReportMortalityModal({
     }
 
     if (!causeOfDeath) {
-      setCauseError("Please select a cause of death");
+      setCauseError("Please select a reason for loss");
       return;
     }
 
     if (causeOfDeath === "Other" && !customCause.trim()) {
-      setCauseError("Please specify the cause of death");
+      setCauseError("Please specify the reason for loss");
       return;
     }
 
@@ -689,7 +689,7 @@ export default function ReportMortalityModal({
             </TouchableOpacity>
 
             <Text key="title" style={styles.sectionTitle}>
-              Report Mortality
+              Report Chicken Loss
             </Text>
 
             {/* Batch Selection Dropdown */}
@@ -754,7 +754,7 @@ export default function ReportMortalityModal({
 
             {/* Date of Death */}
             <View key="date-section" style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Date of Death *</Text>
+              <Text style={styles.inputLabel}>Loss Date *</Text>
               <TouchableOpacity
                 style={styles.dateButton}
                 onPress={() => setShowDatePicker(true)}
@@ -785,7 +785,7 @@ export default function ReportMortalityModal({
 
             {/* Cause of Death Dropdown */}
             <View key="cause-section" style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Cause of Death *</Text>
+              <Text style={styles.inputLabel}>Reason for Loss *</Text>
               <TouchableOpacity
                 style={styles.dropdownButton}
                 onPress={() => setShowCauseDropdown(!showCauseDropdown)}
@@ -796,7 +796,7 @@ export default function ReportMortalityModal({
                     !causeOfDeath && styles.dropdownPlaceholder,
                   ]}
                 >
-                  {causeOfDeath || "Select cause of death"}
+                  {causeOfDeath || "Select a reason for loss"}
                 </Text>
                 <Text style={styles.dropdownIcon}>▼</Text>
               </TouchableOpacity>
@@ -899,7 +899,7 @@ export default function ReportMortalityModal({
 
             {/* Count */}
             <View key="count-section" style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Number of Chicks Died *</Text>
+              <Text style={styles.inputLabel}>Number of Chicks Lost *</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Enter number of chicks"

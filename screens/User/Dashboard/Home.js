@@ -2202,7 +2202,7 @@ export default function QuickOverviewSetup({ navigation }) {
                     chicksCount === "0" && styles.mortalityBtnTextDisabled,
                   ]}
                 >
-                  Report Mortality
+                  Report Loss
                 </Text>
               </TouchableOpacity>
             </View>

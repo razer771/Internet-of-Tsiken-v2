@@ -11,7 +11,52 @@ import {
 
 const NotificationContext = createContext();
 
-const STORAGE_KEY = "@notifications_read_state";
+const STORAGE_KEY = "@notifications";
+
+const defaultNotifications = [
+  {
+    id: 1,
+    category: "IoT: Internet of Tsiken",
+    title: "Temperature too high/low",
+    description:
+      "The temperature in the chicken coop is outside the normal range.",
+    time: "3/14/2026, 11:45:00 AM",
+    read: true,
+  },
+  {
+    id: 2,
+    category: "IoT: Internet of Tsiken",
+    title: "Feeder empty",
+    description:
+      "The feed container is running low or empty. Please refill soon.",
+    time: "3/14/2026, 2:20:00 PM",
+    read: true,
+  },
+  {
+    id: 3,
+    category: "IoT: Internet of Tsiken",
+    title: "Water low",
+    description: "The water level is low. Please check the water supply.",
+    time: "3/14/2026, 10:15:00 AM",
+    read: false,
+  },
+  {
+    id: 4,
+    category: "IoT: Internet of Tsiken",
+    title: "Switched to Solar Mode",
+    description: "The system has automatically switched to solar power mode.",
+    time: "3/11/2026, 6:07:00 PM",
+    read: true,
+  },
+  {
+    id: 5,
+    category: "IoT: Internet of Tsiken",
+    title: "Power outage",
+    description: "Power outage detected. System running on backup power.",
+    time: "3/4/2026, 2:20:00 PM",
+    read: true,
+  },
+];
 
 export function NotificationProvider({ children }) {
   const [notifications, setNotifications] = useState([]);
@@ -123,34 +168,28 @@ export function NotificationProvider({ children }) {
   };
 
   // Get unread count
-  const unreadCount = finalNotifications.filter((n) => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   // Mark a single notification as read
   const markAsRead = (id) => {
-    const newState = { ...readState, [id]: true };
-    setReadState(newState);
-    saveReadState(newState);
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
+    );
   };
 
   // Mark all as read
   const markAllAsRead = () => {
-    const newState = { ...readState };
-    notifications.forEach((n) => (newState[n.id] = true));
-    setReadState(newState);
-    saveReadState(newState);
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
   // Mark all as unread
   const markAllAsUnread = () => {
-    const newState = { ...readState };
-    notifications.forEach((n) => (newState[n.id] = false));
-    setReadState(newState);
-    saveReadState(newState);
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: false })));
   };
 
   // Toggle all read/unread
   const toggleAllRead = () => {
-    const allRead = finalNotifications.every((n) => n.read);
+    const allRead = notifications.every((n) => n.read);
     if (allRead) {
       markAllAsUnread();
     } else {
@@ -160,23 +199,19 @@ export function NotificationProvider({ children }) {
 
   // Add a new notification (For local temporary ones)
   const addNotification = (notification) => {
-    // Note: Since we are syncing from Firebase, manual local addition
-    // will be overridden unless we merge local and firebase arrays.
-    // For now, we rely solely on Firestore.
-    console.log(
-      "Adding local notification is mocked when using Firebase sync",
-      notification,
-    );
+    const newNotification = {
+      id: Date.now(),
+      read: false,
+      time: new Date().toLocaleString(),
+      description: "",
+      ...notification,
+    };
+    setNotifications((prev) => [newNotification, ...prev]);
   };
 
   // Delete a notification
   const deleteNotification = (id) => {
-    // If you want to delete from firebase, do it here.
-    // Otherwise just hide locally. Let's hide locally.
-    console.log(
-      "Delete notification not fully implemented with Firebase sync",
-      id,
-    );
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
   };
 
   // Clear all notifications
