@@ -22,33 +22,34 @@ const AppInfo = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      {/* Back + Title */}
-      <View style={styles.topBar}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Icon name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-
-        <Text style={styles.headerTitle}>App Info</Text>
-      </View>
+      {/* Back Button */}
+      <TouchableOpacity
+        style={styles.backButton}
+        onPress={() => navigation.goBack()}
+      >
+        <Icon name="arrow-back" size={28} color="#1D3B71" />
+        <Text style={styles.backText}>Back</Text>
+      </TouchableOpacity>
 
       {/* CONTENT */}
       <ScrollView contentContainerStyle={styles.content}>
+        <Text style={styles.headerTitle}>App Info</Text>
+
         {/* ---- LOGO ---- */}
         <View style={styles.logoContainer}>
-          <Image 
-            source={require('../../../assets/logo.png')} 
-            style={styles.logo} 
-            resizeMode="contain" 
+          <Image
+            source={require("../../../assets/logo.png")}
+            style={styles.logo}
+            resizeMode="contain"
           />
         </View>
 
         {/* ---- ABOUT APP ---- */}
         <Text style={styles.sectionTitle}>About App</Text>
 
-        <TouchableOpacity onPress={() => navigation.navigate("InternetOfTsiken")}>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("InternetOfTsiken")}
+        >
           <Text style={styles.linkText}>Internet Of Tsiken</Text>
         </TouchableOpacity>
 
@@ -74,11 +75,11 @@ const AppInfo = ({ navigation }) => {
         </Text>
 
         <TouchableOpacity
-          onPress={() =>
-            openLink("mailto:internetoftsiken.support@gmail.com")
-          }
+          onPress={() => openLink("mailto:internetoftsiken.support@gmail.com")}
         >
-          <Text style={[styles.linkText, styles.linkTextUnderlined]}>internetoftsiken.support@gmail.com</Text>
+          <Text style={[styles.linkText, styles.linkTextUnderlined]}>
+            internetoftsiken.support@gmail.com
+          </Text>
         </TouchableOpacity>
 
         {/* ---- APP VERSION ---- */}
@@ -114,7 +115,9 @@ const AppInfo = ({ navigation }) => {
               openLink("mailto:internetoftsiken.support@gmail.com")
             }
           >
-            <Text style={[styles.linkText, styles.linkTextUnderlined]}>Email</Text>
+            <Text style={[styles.linkText, styles.linkTextUnderlined]}>
+              Email
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -126,32 +129,35 @@ const AppInfo = ({ navigation }) => {
               openLink("https://charlesfrancisx.github.io/Internet-of-Tsiken/")
             }
           >
-            <Text style={[styles.linkText, styles.linkTextUnderlined]}>Update Link</Text>
+            <Text style={[styles.linkText, styles.linkTextUnderlined]}>
+              Update Link
+            </Text>
           </TouchableOpacity>
         </View>
 
         {/* ---- FOLLOW US ---- */}
-        <Text style={[styles.sectionTitle, { marginTop: 20 }]}>
-          Follow Us
-        </Text>
+        <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Follow Us</Text>
 
         <TouchableOpacity
           onPress={() =>
             openLink("https://github.com/CharlesFrancisX/Internet-of-Tsiken")
           }
         >
-          <Text style={[styles.linkText, styles.linkTextUnderlined]}>GitHub Repository</Text>
+          <Text style={[styles.linkText, styles.linkTextUnderlined]}>
+            GitHub Repository
+          </Text>
         </TouchableOpacity>
 
         {/* ---- COPYRIGHT FOOTER ---- */}
         <View style={styles.footerContainer}>
-          <Text style={styles.footerText}>© 2026 Quezon City University IT.</Text>
+          <Text style={styles.footerText}>
+            © 2026 Quezon City University IT.
+          </Text>
           <Text style={styles.footerText}>All rights reserved.</Text>
         </View>
 
         <View style={{ height: 120 }} />
       </ScrollView>
-
     </View>
   );
 };
@@ -171,23 +177,23 @@ const styles = StyleSheet.create({
   },
 
   // Header
-  topBar: {
-    height: 64,
-    paddingTop: 18,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-  },
   backButton: {
-    position: "absolute",
-    top: 18,
-    left: 12,
-    zIndex: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+    marginTop: 35,
+    paddingHorizontal: 26,
+  },
+  backText: {
+    fontSize: 18,
+    color: "#1D3B71",
+    marginLeft: 5,
   },
   headerTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#000000ff",
+    fontSize: 26,
+    fontWeight: "bold",
+    color: "#000",
+    marginBottom: 10,
   },
 
   // Content
@@ -209,7 +215,7 @@ const styles = StyleSheet.create({
     textDecorationLine: "underline",
   },
   linkTextUnderlined: {
-    textDecorationLine: 'underline',
+    textDecorationLine: "underline",
   },
 
   row: {
@@ -220,7 +226,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 16,
   },
-      value: {
+  value: {
     fontSize: 16,
     color: "#000",
   },

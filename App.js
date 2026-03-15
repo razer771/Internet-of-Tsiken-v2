@@ -181,7 +181,22 @@ export default function App() {
   const [hasInitialized, setHasInitialized] = useState(false);
   const hasInitializedRef = useRef(false);
   const pendingDeepLinkRef = useRef(null);
+  
   const isAuthScreen = AUTH_SCREENS.includes(currentRoute);
+  const NO_NAV_SCREENS = [
+    "UserProfile",
+    "EditProfile",
+    "Settings", // App Info screen
+    "TermsAndConditions",
+    "OpenSourceLicenses",
+    "PrivacyPolicy",
+    "InternetOfTsiken",
+    "Notification",
+    // Admin full screens that shouldn't have user layout
+    "AdminNotification",
+    "AdminControls"
+  ];
+  const hideLayout = isAuthScreen || NO_NAV_SCREENS.includes(currentRoute);
 
   // Alert Modal State
   const [alertVisible, setAlertVisible] = useState(false);
@@ -519,9 +534,9 @@ export default function App() {
         <AdminNotificationProvider>
           <View style={styles.container}>
             <NavigationContainer ref={navigationRef}>
-              {!isAuthScreen && <Header />}
+              {!hideLayout && <Header />}
               <View
-                style={[styles.content, !isAuthScreen && styles.contentWithNav]}
+                style={[styles.content, !hideLayout && styles.contentWithNav]}
               >
                 <Stack.Navigator
                   initialRouteName={initialRoute}
@@ -786,7 +801,7 @@ export default function App() {
                   />
                 </Stack.Navigator>
               </View>
-              {!isAuthScreen && (
+              {!hideLayout && (
                 <View style={styles.bottomNavContainer}>
                   <BottomNavigation
                     active={getActiveTab()}
