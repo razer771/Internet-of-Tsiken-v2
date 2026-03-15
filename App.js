@@ -58,6 +58,7 @@ import AppInfo from "./screens/User/controls/appInfo";
 import TermsAndConditions from "./screens/User/controls/TermsAndConditions";
 import PrivacyPolicy from "./screens/User/controls/PrivacyPolicy";
 import InternetOfTsiken from "./screens/User/controls/InternetOfTsiken";
+import OpenSourceLicenses from "./screens/User/controls/OpenSourceLicenses";
 import UserProfile from "./screens/User/Profile/userProfile";
 import EditProfile from "./screens/User/Profile/editProfile";
 import UserActivityLogs from "./screens/User/ActivityLogs/ActivityLogs";
@@ -652,6 +653,14 @@ export default function App() {
                     component={createTrackedScreen(
                       TermsAndConditions,
                       "TermsAndConditions",
+                      setCurrentRoute,
+                    )}
+                  />
+                  <Stack.Screen
+                    name="OpenSourceLicenses"
+                    component={createTrackedScreen(
+                      OpenSourceLicenses,
+                      "OpenSourceLicenses",
                       setCurrentRoute,
                     )}
                   />

@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ScrollView,
   Linking,
+  Image,
 } from "react-native";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
 import SideNavigation from "../../navigation/SideNavigation";
@@ -35,14 +36,23 @@ const AppInfo = ({ navigation }) => {
 
       {/* CONTENT */}
       <ScrollView contentContainerStyle={styles.content}>
+        {/* ---- LOGO ---- */}
+        <View style={styles.logoContainer}>
+          <Image 
+            source={require('../../../assets/logo.png')} 
+            style={styles.logo} 
+            resizeMode="contain" 
+          />
+        </View>
+
         {/* ---- ABOUT APP ---- */}
         <Text style={styles.sectionTitle}>About App</Text>
 
-        <TouchableOpacity onPress={() => navigation.navigate("InternetOfTsiken") }>
+        <TouchableOpacity onPress={() => navigation.navigate("InternetOfTsiken")}>
           <Text style={styles.linkText}>Internet Of Tsiken</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => navigation.navigate("PrivacyPolicy") }>
+        <TouchableOpacity onPress={() => navigation.navigate("PrivacyPolicy")}>
           <Text style={styles.linkText}>Privacy Policy</Text>
         </TouchableOpacity>
 
@@ -52,6 +62,12 @@ const AppInfo = ({ navigation }) => {
           <Text style={styles.linkText}>Terms and Conditions</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          onPress={() => navigation.navigate("OpenSourceLicenses")}
+        >
+          <Text style={styles.linkText}>Open Source Licenses</Text>
+        </TouchableOpacity>
+
         {/* ---- REPORT ISSUE ---- */}
         <Text style={[styles.sectionTitle, { marginTop: 20 }]}>
           Report an Issue
@@ -59,10 +75,10 @@ const AppInfo = ({ navigation }) => {
 
         <TouchableOpacity
           onPress={() =>
-            openLink("https://forms.google.com/your-form")
+            openLink("mailto:internetoftsiken.support@gmail.com")
           }
         >
-          <Text style={[styles.linkText, styles.linkTextUnderlined]}>Google Form Link</Text>
+          <Text style={[styles.linkText, styles.linkTextUnderlined]}>internetoftsiken.support@gmail.com</Text>
         </TouchableOpacity>
 
         {/* ---- APP VERSION ---- */}
@@ -78,22 +94,28 @@ const AppInfo = ({ navigation }) => {
 
         <View style={styles.row}>
           <Text style={styles.label}>Version</Text>
-          <Text style={styles.value}>v1.2.3</Text>
+          <Text style={styles.value}>v1.0.2</Text>
         </View>
 
         <View style={styles.row}>
           <Text style={styles.label}>Release Date</Text>
-          <Text style={styles.value}>12/25/25</Text>
+          <Text style={styles.value}>January 28, 2026</Text>
         </View>
 
         <View style={styles.row}>
-          <Text style={styles.label}>Developer</Text>
-          <Text style={styles.value}>Ako</Text>
+          <Text style={styles.label}>Developed by</Text>
+          <Text style={styles.value}>QCU IT</Text>
         </View>
 
         <View style={styles.row}>
           <Text style={styles.label}>Contact</Text>
-          <Text style={styles.value}>support@Tsiken.ph</Text>
+          <TouchableOpacity
+            onPress={() =>
+              openLink("mailto:internetoftsiken.support@gmail.com")
+            }
+          >
+            <Text style={[styles.linkText, styles.linkTextUnderlined]}>Email</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.row}>
@@ -101,11 +123,30 @@ const AppInfo = ({ navigation }) => {
 
           <TouchableOpacity
             onPress={() =>
-              openLink("https://tsiken.ph/update")
+              openLink("https://charlesfrancisx.github.io/Internet-of-Tsiken/")
             }
           >
             <Text style={[styles.linkText, styles.linkTextUnderlined]}>Update Link</Text>
           </TouchableOpacity>
+        </View>
+
+        {/* ---- FOLLOW US ---- */}
+        <Text style={[styles.sectionTitle, { marginTop: 20 }]}>
+          Follow Us
+        </Text>
+
+        <TouchableOpacity
+          onPress={() =>
+            openLink("https://github.com/CharlesFrancisX/Internet-of-Tsiken")
+          }
+        >
+          <Text style={[styles.linkText, styles.linkTextUnderlined]}>GitHub Repository</Text>
+        </TouchableOpacity>
+
+        {/* ---- COPYRIGHT FOOTER ---- */}
+        <View style={styles.footerContainer}>
+          <Text style={styles.footerText}>© 2026 Quezon City University IT.</Text>
+          <Text style={styles.footerText}>All rights reserved.</Text>
         </View>
 
         <View style={{ height: 120 }} />
@@ -163,7 +204,7 @@ const styles = StyleSheet.create({
   },
   linkText: {
     fontSize: 16,
-    color: "#2A59D1",
+    color: "#000000",
     marginBottom: 5,
     textDecorationLine: "underline",
   },
@@ -179,8 +220,25 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 16,
   },
-  value: {
+      value: {
     fontSize: 16,
     color: "#000",
+  },
+  logoContainer: {
+    alignItems: "center",
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  logo: {
+    width: 120,
+    height: 120,
+  },
+  footerContainer: {
+    marginTop: 40,
+    alignItems: "center",
+  },
+  footerText: {
+    fontSize: 12,
+    color: "#888888",
   },
 });
