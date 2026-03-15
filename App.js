@@ -12,8 +12,9 @@ import {
 } from "react-native";
 import { NavigationContainer, useFocusEffect } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { navigationRef } from "./services/NavigationService";
+import { navigationRef, navigate } from "./services/NavigationService";
 import * as SplashScreen from "expo-splash-screen";
+import * as Notifications from "expo-notifications";
 import { NotificationProvider } from "./screens/User/controls/NotificationContext";
 import { auth, db } from "./config/firebaseconfig";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -36,6 +37,10 @@ try {
 
 // Components
 import JsonSplashScreen from "./JsonSplashScreen/JsonSplashScreen";
+import {
+  registerForPushNotificationsAsync,
+  saveUserPushToken,
+} from "./services/PushNotificationService";
 import LogIn from "./screens/LogIn/LogIn";
 import LoginSuccess from "./screens/LogIn/loginSuccess";
 import VerifyIdentity from "./screens/LogIn/verifyIdentity";
@@ -53,6 +58,7 @@ import AppInfo from "./screens/User/controls/appInfo";
 import TermsAndConditions from "./screens/User/controls/TermsAndConditions";
 import PrivacyPolicy from "./screens/User/controls/PrivacyPolicy";
 import InternetOfTsiken from "./screens/User/controls/InternetOfTsiken";
+import OpenSourceLicenses from "./screens/User/controls/OpenSourceLicenses";
 import UserProfile from "./screens/User/Profile/userProfile";
 import EditProfile from "./screens/User/Profile/editProfile";
 import UserActivityLogs from "./screens/User/ActivityLogs/ActivityLogs";
@@ -167,12 +173,30 @@ function createTrackedScreen(Component, routeName, onRouteChange) {
 }
 
 export default function App() {
+  const lastNotificationResponse = Notifications.useLastNotificationResponse();
+  const [initialRoute, setInitialRoute] = useState("JsonSplash");
   const [currentRoute, setCurrentRoute] = useState("JsonSplash");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [hasInitialized, setHasInitialized] = useState(false);
   const hasInitializedRef = useRef(false);
+  const pendingDeepLinkRef = useRef(null);
+
   const isAuthScreen = AUTH_SCREENS.includes(currentRoute);
+  const NO_NAV_SCREENS = [
+    "UserProfile",
+    "EditProfile",
+    "Settings", // App Info screen
+    "TermsAndConditions",
+    "OpenSourceLicenses",
+    "PrivacyPolicy",
+    "InternetOfTsiken",
+    "Notification",
+    // Admin full screens that shouldn't have user layout
+    "AdminNotification",
+    "AdminControls",
+  ];
+  const hideLayout = isAuthScreen || NO_NAV_SCREENS.includes(currentRoute);
 
   // Alert Modal State
   const [alertVisible, setAlertVisible] = useState(false);
@@ -190,6 +214,68 @@ export default function App() {
   const closeAlert = () => {
     setAlertVisible(false);
   };
+
+  // Listen for user tapping on a push notification (Deep Linking)
+  useEffect(() => {
+    // 1. Popup Modal when notification arrives and app is ALREADY OPEN (Foreground)
+    const foregroundListener = Notifications.addNotificationReceivedListener(
+      (notification) => {
+        const data = notification.request.content.data;
+        if (data?.type === "predator_alert") {
+          console.log("Predator notification received in foreground!");
+          // Display the huge branded alert modal in the middle of the screen
+          showAlert(
+            "error",
+            "🚨 ONGOING PREDATOR ALERT!",
+            notification.request.content.body ||
+              "A predator was just detected near your chickens!",
+          );
+        }
+      },
+    );
+
+    // 2. Redirect to Camera when user TAPS the system notification (Background/Killed)
+    const responseListener =
+      Notifications.addNotificationResponseReceivedListener((response) => {
+        const data = response.notification.request.content.data;
+        if (data?.type === "predator_alert") {
+          console.log(
+            "User tapped predator notification! Preparing to redirect to Control screen...",
+          );
+          if (hasInitializedRef.current && navigationRef.isReady()) {
+            setTimeout(() => navigate("Control"), 100);
+          } else {
+            // Queue the deep link to be executed once auth is finished
+            pendingDeepLinkRef.current = "Control";
+          }
+        }
+      });
+
+    return () => {
+      foregroundListener?.remove();
+      responseListener?.remove();
+    };
+  }, []);
+
+  // Handle Cold Start from Notification
+  useEffect(() => {
+    if (
+      lastNotificationResponse &&
+      lastNotificationResponse.notification.request.content.data?.type ===
+        "predator_alert" &&
+      lastNotificationResponse.actionIdentifier ===
+        Notifications.DEFAULT_ACTION_IDENTIFIER
+    ) {
+      console.log(
+        "App cold-started from predator notification! Preparing redirect...",
+      );
+      if (hasInitializedRef.current && navigationRef.isReady()) {
+        setTimeout(() => navigate("Control"), 100);
+      } else {
+        pendingDeepLinkRef.current = "Control";
+      }
+    }
+  }, [lastNotificationResponse]);
 
   // Listen to authentication state changes
   useEffect(() => {
@@ -228,6 +314,7 @@ export default function App() {
           if (isAdmin === "true") {
             console.log("👤 Admin bypass detected → AdminDashboard");
             setIsAuthenticated(true);
+            setInitialRoute("AdminDashboard");
             setAuthLoading(false);
             setHasInitialized(true);
             hasInitializedRef.current = true;
@@ -237,6 +324,16 @@ export default function App() {
                 index: 0,
                 routes: [{ name: "AdminDashboard" }],
               });
+
+              if (pendingDeepLinkRef.current) {
+                console.log(
+                  `Executing pending deep link to: ${pendingDeepLinkRef.current}`,
+                );
+                setTimeout(() => {
+                  navigate(pendingDeepLinkRef.current);
+                  pendingDeepLinkRef.current = null;
+                }, 500);
+              }
             }
             return;
           }
@@ -268,6 +365,16 @@ export default function App() {
             // REQUIREMENT 5: Account is active → check role and navigate
             setIsAuthenticated(true);
 
+            // Register for Push Notifications
+            try {
+              const pushToken = await registerForPushNotificationsAsync();
+              if (pushToken) {
+                await saveUserPushToken(user.uid, pushToken);
+              }
+            } catch (err) {
+              console.log("Error reg for push:", err);
+            }
+
             if (!hasInitializedRef.current) {
               let targetScreen = "Home"; // default
               if (accountStatus === "active") {
@@ -289,11 +396,23 @@ export default function App() {
               }
 
               // Navigate to the appropriate screen
+              setInitialRoute(targetScreen);
               if (navigationRef.isReady()) {
                 navigationRef.reset({
                   index: 0,
                   routes: [{ name: targetScreen }],
                 });
+
+                // If there was a pending deep link from a push notification, execute it now
+                if (pendingDeepLinkRef.current) {
+                  console.log(
+                    `Executing pending deep link to: ${pendingDeepLinkRef.current}`,
+                  );
+                  setTimeout(() => {
+                    navigate(pendingDeepLinkRef.current);
+                    pendingDeepLinkRef.current = null;
+                  }, 500); // short delay to ensure root stack has settled to targetScreen
+                }
               }
 
               // Mark as initialized
@@ -320,8 +439,9 @@ export default function App() {
           setIsAuthenticated(true);
           if (!hasInitializedRef.current) {
             console.log(
-              "❌ [App.js] Error fetching user data → Navigating to Home",
+              "⚠ [App.js] Error fetching user data → Navigating to Home",
             );
+            setInitialRoute("Home");
             if (navigationRef.isReady()) {
               navigationRef.reset({
                 index: 0,
@@ -414,12 +534,12 @@ export default function App() {
         <AdminNotificationProvider>
           <View style={styles.container}>
             <NavigationContainer ref={navigationRef}>
-              {!isAuthScreen && <Header />}
+              {!hideLayout && <Header />}
               <View
-                style={[styles.content, !isAuthScreen && styles.contentWithNav]}
+                style={[styles.content, !hideLayout && styles.contentWithNav]}
               >
                 <Stack.Navigator
-                  initialRouteName="JsonSplash"
+                  initialRouteName={initialRoute}
                   screenOptions={{
                     headerShown: false,
                     animation: "slide_from_right",
@@ -552,6 +672,14 @@ export default function App() {
                     )}
                   />
                   <Stack.Screen
+                    name="OpenSourceLicenses"
+                    component={createTrackedScreen(
+                      OpenSourceLicenses,
+                      "OpenSourceLicenses",
+                      setCurrentRoute,
+                    )}
+                  />
+                  <Stack.Screen
                     name="PrivacyPolicy"
                     component={createTrackedScreen(
                       PrivacyPolicy,
@@ -673,7 +801,7 @@ export default function App() {
                   />
                 </Stack.Navigator>
               </View>
-              {!isAuthScreen && (
+              {!hideLayout && (
                 <View style={styles.bottomNavContainer}>
                   <BottomNavigation
                     active={getActiveTab()}

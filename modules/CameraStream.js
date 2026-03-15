@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ActivityIndicator,
   TouchableOpacity,
-  TextInput,
 } from "react-native";
 import { WebView } from "react-native-webview";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +16,8 @@ import {
 } from "./CameraServerDiscovery";
 import { useAdminNotifications } from "../screens/Admin/AdminNotificationContext";
 import { useNotifications } from "../screens/User/controls/NotificationContext";
+import { db } from "../config/firebaseconfig";
+import { collection, query, orderBy, limit, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
 
 const PRIMARY = "#133E87";
 
@@ -39,61 +40,58 @@ export default function CameraStream({
   const [lastPersonDetection, setLastPersonDetection] = useState(null);
   const webViewRef = useRef(null);
   const discoveryTimeoutRef = useRef(null);
+  const lastDetectionTimesRef = useRef({}); // Track last time sent to Firebase per class
   const { addNotification: addAdminNotification } = useAdminNotifications();
   const { addNotification: addUserNotification } = useNotifications();
-
-  const [manualUrl, setManualUrl] = useState("");
-
-  const handleManualConnect = async () => {
-    if (!manualUrl) return;
-    
-    let formattedUrl = manualUrl.trim();
-    if (!formattedUrl.startsWith("http")) {
-      formattedUrl = `http://${formattedUrl}`;
-    }
-    if (formattedUrl.endsWith("/")) {
-      formattedUrl = formattedUrl.slice(0, -1);
-    }
-    
-    setDiscoveryState("discovering");
-    const connected = await checkServerStatus(formattedUrl);
-    if (connected) {
-      setActualServerUrl(formattedUrl);
-      await saveLastWorkingUrl(formattedUrl);
-      if (onServerDiscovered) onServerDiscovered(formattedUrl);
-      setDiscoveryState("success");
-      setIsConnected(true);
-    } else {
-      setDiscoveryState("failed");
-      alert("Could not connect to " + formattedUrl);
-    }
-  };
-
-  const renderManualUrlForm = () => (
-    !fullscreen && (
-      <View style={styles.manualUrlContainer}>
-        <Text style={styles.manualUrlLabel}>Test Temporary URL (Tailscale/Cloudflare):</Text>
-        <View style={styles.manualUrlInputRow}>
-          <TextInput
-            style={styles.manualUrlInput}
-            placeholder="http://100.x.x.x:5000"
-            placeholderTextColor="#888"
-            value={manualUrl}
-            onChangeText={setManualUrl}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <TouchableOpacity style={styles.manualUrlButton} onPress={handleManualConnect}>
-            <Text style={styles.manualUrlButtonText}>Connect</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    )
-  );
 
   // Construct stream URL
   const streamUrl = `${actualServerUrl}/video_feed`;
   const detectionsUrl = `${actualServerUrl}/detections`;
+
+  useEffect(() => {
+    // Listen to Firebase for recent detections even if camera is offline
+    const q = query(
+      collection(db, "camera_detections"),
+      orderBy("timestamp", "desc"),
+      limit(5)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const dbDetections = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        let dateStr = "";
+        let timeStr = "";
+        let timestampNum = 0;
+        
+        if (data.timestamp && data.timestamp.seconds) {
+           const d = new Date(data.timestamp.seconds * 1000);
+           dateStr = d.toLocaleDateString();
+           timeStr = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+           timestampNum = d.getTime();
+        } else if (data.timestamp) {
+           const d = new Date(data.timestamp);
+           dateStr = d.toLocaleDateString();
+           timeStr = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+           timestampNum = d.getTime();
+        }
+
+        dbDetections.push({
+          id: doc.id,
+          class: data.class,
+          confidence: data.confidence,
+          timestamp: timestampNum,
+          dateStr,
+          timeStr,
+        });
+      });
+      setRecentDetections(dbDetections);
+    }, (error) => {
+      console.log("Firebase listener error:", error);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     // Auto-connect on mount if enabled (for fullscreen modal)
@@ -199,36 +197,28 @@ export default function CameraStream({
       setDetections(data);
 
       if (data.objects && data.objects.length > 0) {
-        setRecentDetections((prev) => {
-          let updated = [...prev];
-          const now = new Date();
+        const now = Date.now();
+        
+        data.objects.forEach(async (obj) => {
+          if (!obj.class) return;
+          const objClass = obj.class.toLowerCase();
 
-          data.objects.forEach((obj) => {
-            if (!obj.class) return;
-            const objClass = obj.class.toLowerCase();
-
-            // Only add if we haven't seen this class in the last 10 seconds to avoid spam
-            const lastOfClass = updated.find((d) => d.class === objClass);
-            if (!lastOfClass || now.getTime() - lastOfClass.timestamp > 10000) {
-              updated.unshift({
-                id: now.getTime() + Math.random(),
+          // Only add to Firebase if we haven't seen this class in the last 10 seconds
+          const lastTime = lastDetectionTimesRef.current[objClass] || 0;
+          
+          if (now - lastTime > 10000) {
+            lastDetectionTimesRef.current[objClass] = now;
+            
+            try {
+              await addDoc(collection(db, "camera_detections"), {
                 class: objClass,
                 confidence: obj.confidence || 0,
-                timestamp: now.getTime(),
-                timeStr: now.toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                }),
-                dateStr: now.toLocaleDateString(),
+                timestamp: serverTimestamp(),
               });
+            } catch (fbErr) {
+              console.log("Failed to save detection to Firebase:", fbErr);
             }
-          });
-
-          // Sort by newest first
-          updated.sort((a, b) => b.timestamp - a.timestamp);
-          // Keep only the most recent 5
-          return updated.slice(0, 5);
+          }
         });
       }
 
@@ -267,6 +257,7 @@ export default function CameraStream({
   const stopDiscovery = () => {
     if (discoveryTimeoutRef.current) clearTimeout(discoveryTimeoutRef.current);
     setDiscoveryState("idle");
+    setIsConnected(false);
   };
 
   const handleRetry = () => {
@@ -289,19 +280,61 @@ export default function CameraStream({
             align-items: center;
             height: 100vh;
             overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
           }
           img {
             max-width: 100%;
             max-height: 100%;
             object-fit: contain;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            pointer-events: none;
           }
         </style>
       </head>
       <body>
-        <img src="${streamUrl}" alt="Camera Stream" />
+        <img src="${streamUrl}" alt="Camera Stream" draggable="false" />
       </body>
     </html>
   `;
+
+  const renderRecentDetections = () => {
+    if (fullscreen || recentDetections.length === 0) return null;
+    
+    return (
+      <View style={styles.recentDetectionsContainer}>
+        <View style={styles.recentHeader}>
+          <Ionicons name="list-outline" size={16} color="#444" />
+          <Text style={styles.recentTitle}>Recent Detections</Text>
+        </View>
+        {recentDetections.map((item) => (
+          <View key={item.id} style={styles.recentItem}>
+            <View style={styles.recentItemLeft}>
+              <Ionicons
+                name={
+                  item.class === "person" 
+                    ? "person-outline" 
+                    : ["cat", "dog", "rat", "snake"].includes(item.class)
+                    ? "warning-outline"
+                    : "scan-outline"
+                }
+                size={16}
+                color={item.class === "person" ? "#ef4444" : "#f59e0b"}
+              />
+              <Text style={styles.recentItemClass}>
+                {item.class.charAt(0).toUpperCase() + item.class.slice(1)}
+              </Text>
+            </View>
+            <Text style={styles.recentItemTime}>
+              {item.dateStr} {item.timeStr}
+            </Text>
+          </View>
+        ))}
+      </View>
+    );
+  };
 
   // Idle / Discovering state - button always visible
   if (discoveryState === "idle" || discoveryState === "discovering") {
@@ -333,7 +366,7 @@ export default function CameraStream({
             {isDetecting ? "Stop Detecting" : "Detect Camera"}
           </Text>
         </TouchableOpacity>
-        {renderManualUrlForm()}
+        {renderRecentDetections()}
       </View>
     );
   }
@@ -357,7 +390,7 @@ export default function CameraStream({
           <Ionicons name="refresh-outline" size={18} color="#fff" />
           <Text style={styles.retryText}>Try Again</Text>
         </TouchableOpacity>
-        {renderManualUrlForm()}
+        {renderRecentDetections()}
       </View>
     );
   }
@@ -366,10 +399,8 @@ export default function CameraStream({
   return (
     <View style={styles.container}>
       {/* Live Stream using WebView */}
-      <TouchableOpacity
-        activeOpacity={0.9}
-        onPress={onOpenFullscreen}
-        disabled={!onOpenFullscreen}
+      <View
+        pointerEvents="none"
         style={
           fullscreen ? styles.streamContainerFullscreen : styles.streamContainer
         }
@@ -385,41 +416,19 @@ export default function CameraStream({
             console.warn("WebView error:", nativeEvent);
           }}
         />
-      </TouchableOpacity>
+      </View>
 
-      {/* Recent Detections List */}
-      {!fullscreen && recentDetections.length > 0 && (
-        <View style={styles.recentDetectionsContainer}>
-          <View style={styles.recentHeader}>
-            <Ionicons name="list-outline" size={16} color="#444" />
-            <Text style={styles.recentTitle}>Recent Detections</Text>
-          </View>
-          {recentDetections.map((item) => (
-            <View key={item.id} style={styles.recentItem}>
-              <View style={styles.recentItemLeft}>
-                <Ionicons
-                  name={
-                    item.class === "person" 
-                      ? "person-outline" 
-                      : ["cat", "dog", "rat", "snake"].includes(item.class)
-                      ? "warning-outline"
-                      : "scan-outline"
-                  }
-                  size={16}
-                  color={item.class === "person" ? "#ef4444" : "#f59e0b"}
-                />
-                <Text style={styles.recentItemClass}>
-                  {item.class.charAt(0).toUpperCase() + item.class.slice(1)}
-                </Text>
-              </View>
-              <Text style={styles.recentItemTime}>
-                {item.dateStr} {item.timeStr}
-              </Text>
-            </View>
-          ))}
-        </View>
+      {!fullscreen && (
+        <TouchableOpacity
+          style={[styles.detectButton, styles.detectButtonStop]}
+          onPress={stopDiscovery}
+        >
+          <Ionicons name="stop-circle-outline" size={18} color="#fff" />
+          <Text style={styles.detectButtonText}>Stop Camera</Text>
+        </TouchableOpacity>
       )}
-      {renderManualUrlForm()}
+
+      {renderRecentDetections()}
     </View>
   );
 }
@@ -453,7 +462,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   detectButtonStop: {
-    backgroundColor: "#64748b",
+    backgroundColor: "#ef4444", // Changed to red for stopping 
   },
   detectButtonText: {
     color: "#fff",
@@ -620,47 +629,5 @@ const styles = StyleSheet.create({
   recentItemTime: {
     fontSize: 12,
     color: "#64748b",
-  },
-  manualUrlContainer: {
-    marginTop: 12,
-    padding: 12,
-    backgroundColor: "#e0f2fe",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#bae6fd",
-  },
-  manualUrlLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#0369a1",
-    marginBottom: 8,
-  },
-  manualUrlInputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  manualUrlInput: {
-    flex: 1,
-    height: 40,
-    backgroundColor: "#fff",
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    marginRight: 8,
-    fontSize: 14,
-  },
-  manualUrlButton: {
-    backgroundColor: PRIMARY,
-    paddingHorizontal: 16,
-    height: 40,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 6,
-  },
-  manualUrlButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 14,
   },
 });

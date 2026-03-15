@@ -1308,7 +1308,7 @@ const styles = StyleSheet.create({
   backButton: {
     flexDirection: "row",
     marginBottom: 20,
-    marginTop: 10,
+    marginTop: 35,
     alignItems: "center",
   },
   backText: {

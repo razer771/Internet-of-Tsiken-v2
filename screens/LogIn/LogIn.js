@@ -365,6 +365,12 @@ export default function Login() {
 
           // REQUIREMENT 2 & 3: Verified + Active (Admin or User)
           if (isVerified && accountStatus === "active") {
+            try {
+              await updateDoc(userRef, { isLoggedIn: true });
+            } catch (e) {
+              console.log("Failed to update isLoggedIn status during login", e);
+            }
+
             if (userRole === "admin") {
               console.log(
                 "✅ Verified + Active + Admin → LoginSuccess → AdminDashboard",

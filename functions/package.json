@@ -17,6 +17,7 @@
     "axios": "^1.7.7",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.0.0",
+    "expo-server-sdk": "^6.1.0",
     "firebase-admin": "^13.6.1",
     "firebase-functions": "^7.0.5",
     "nodemailer": "^7.0.11"

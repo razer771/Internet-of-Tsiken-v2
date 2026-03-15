@@ -1,7 +1,13 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-// import { db } from "../../config/firebaseconfig";
-// import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore";
+import { db } from "../../../config/firebaseconfig";
+import {
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+  limit,
+} from "firebase/firestore";
 
 const NotificationContext = createContext();
 
@@ -53,39 +59,111 @@ const defaultNotifications = [
 ];
 
 export function NotificationProvider({ children }) {
-  const [notifications, setNotifications] = useState(defaultNotifications);
+  const [notifications, setNotifications] = useState([]);
+  const [readState, setReadState] = useState({});
   const [loading, setLoading] = useState(true);
 
-  // Load notifications from AsyncStorage on mount
+  // Load read state from AsyncStorage
   useEffect(() => {
-    loadNotifications();
+    const loadReadState = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          setReadState(JSON.parse(stored));
+        }
+      } catch (error) {
+        console.error("Error loading notification read states:", error);
+      }
+    };
+    loadReadState();
   }, []);
 
-  // Save notifications to AsyncStorage whenever they change
+  // Set up Firebase listener
   useEffect(() => {
-    if (!loading) {
-      saveNotifications();
-    }
-  }, [notifications]);
+    const q = query(
+      collection(db, "predator_attacks"),
+      orderBy("timestamp", "desc"),
+      limit(50),
+    );
 
-  const loadNotifications = async () => {
-    try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        setNotifications(JSON.parse(stored));
-      }
-    } catch (error) {
-      console.error("Error loading notifications:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const fetchedNotifications = snapshot.docs.map((doc) => {
+          const data = doc.data();
 
-  const saveNotifications = async () => {
+          // Format the date for UI (e.g. October 21, 2025 (09:19 PM))
+          let timeStr = data.time || "";
+          let dateStr = data.date || data.timestamp || "";
+          try {
+            if (data.timestamp) {
+              const d = new Date(data.timestamp);
+              const months = [
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+              ];
+              const month = months[d.getMonth()];
+              const day = d.getDate();
+              const year = d.getFullYear();
+              let hours = d.getHours();
+              const minutes = String(d.getMinutes()).padStart(2, "0");
+              const ampm = hours >= 12 ? "PM" : "AM";
+              hours = hours % 12 || 12;
+              timeStr = `${month} ${day}, ${year} (${hours}:${minutes} ${ampm})`;
+            }
+          } catch (e) {}
+
+          const titleText =
+            data.type === "predator" || data.predator
+              ? `Predator Alert: ${data.predator || "Unknown"}`
+              : "System Alert";
+          const descText = data.predator
+            ? `A ${data.predator} has been detected near your chicken coop!`
+            : "System notification received.";
+
+          return {
+            id: doc.id,
+            category: "IoT: Internet of Tsiken",
+            title: titleText,
+            description: descText,
+            time: timeStr !== "" ? timeStr : new Date().toLocaleString(),
+            // Read state defaults to false until checked locally
+          };
+        });
+
+        setNotifications(fetchedNotifications);
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Error fetching predator attacks:", error);
+        setLoading(false);
+      },
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  // Derived state combining firebase data and local read status
+  const finalNotifications = notifications.map((n) => ({
+    ...n,
+    read: !!readState[n.id],
+  }));
+
+  const saveReadState = async (newState) => {
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(notifications));
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
     } catch (error) {
-      console.error("Error saving notifications:", error);
+      console.error("Error saving read status:", error);
     }
   };
 
@@ -119,7 +197,7 @@ export function NotificationProvider({ children }) {
     }
   };
 
-  // Add a new notification
+  // Add a new notification (For local temporary ones)
   const addNotification = (notification) => {
     const newNotification = {
       id: Date.now(),
@@ -138,14 +216,15 @@ export function NotificationProvider({ children }) {
 
   // Clear all notifications
   const clearAllNotifications = async () => {
-    setNotifications([]);
+    // Clearing local read states
+    setReadState({});
     await AsyncStorage.removeItem(STORAGE_KEY);
   };
 
   return (
     <NotificationContext.Provider
       value={{
-        notifications,
+        notifications: finalNotifications,
         unreadCount,
         loading,
         markAsRead,

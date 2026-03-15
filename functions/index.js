@@ -1342,3 +1342,77 @@ exports.storePasswordHash = onCall(
     }
   },
 );
+// Predator Notification Webhook
+exports.notifyPredator = require("firebase-functions/v2/https").onRequest(
+  async (req, res) => {
+    try {
+      const { predator_type, confidence, camera_id } = req.body;
+      if (!predator_type) return res.status(400).send("Missing predator_type");
+      const { getFirestore } = require("firebase-admin/firestore");
+      const db = getFirestore();
+      await db.collection("predator_attacks").add({
+        predator: predator_type,
+        type: predator_type,
+        confidence: confidence || null,
+        camera: camera_id || "Main Camera",
+        timestamp: new Date().toISOString(),
+        date: new Date().toISOString().split("T")[0],
+        time: new Date().toLocaleTimeString("en-US", { hour12: false }),
+        status: "detected",
+      });
+      const usersSnapshot = await db
+        .collection("users")
+        .where("pushToken", "!=", null)
+        .get();
+      const { Expo } = require("expo-server-sdk");
+      let expo = new Expo();
+      let messages = [];
+      usersSnapshot.forEach((doc) => {
+        const userData = doc.data();
+        const pushToken = userData.pushToken;
+        // Strict check: if explicitly false, they are logged out.
+        // If true or undefined (legacy users), assume they might be receiving the alert.
+        const isLoggedIn = userData.isLoggedIn !== false;
+
+        if (Expo.isExpoPushToken(pushToken)) {
+          if (isLoggedIn) {
+            // Detailed Notification for logged-in users
+            messages.push({
+              to: pushToken,
+              priority: "high",
+              channelId: "predator-alerts",
+              sound: "default",
+              title: "🚨 PREDATOR ALERT!",
+              body: `A ${predator_type} has been detected near your chicken coop!`,
+              data: { type: "predator_alert", predator: predator_type },
+            });
+          } else {
+            // Generic/Vague Notification for logged-out users
+            messages.push({
+              to: pushToken,
+              priority: "default",
+              sound: "default",
+              title: "Internet of Tsiken",
+              body: "You have a new notification. Log in to view details.",
+              data: { type: "generic_alert" },
+            });
+          }
+        }
+      });
+      let chunks = expo.chunkPushNotifications(messages);
+      let tickets = [];
+      for (let chunk of chunks) {
+        try {
+          let ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+          tickets.push(...ticketChunk);
+        } catch (error) {
+          console.error("Error sending push chunk", error);
+        }
+      }
+      res.status(200).send({ success: true, tickets });
+    } catch (error) {
+      console.error("Error in notifyPredator webhook:", error);
+      res.status(500).send({ error: error.message });
+    }
+  },
+);
