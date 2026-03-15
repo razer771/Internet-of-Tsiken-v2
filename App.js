@@ -181,7 +181,7 @@ export default function App() {
   const [hasInitialized, setHasInitialized] = useState(false);
   const hasInitializedRef = useRef(false);
   const pendingDeepLinkRef = useRef(null);
-  
+
   const isAuthScreen = AUTH_SCREENS.includes(currentRoute);
   const NO_NAV_SCREENS = [
     "UserProfile",
@@ -194,7 +194,7 @@ export default function App() {
     "Notification",
     // Admin full screens that shouldn't have user layout
     "AdminNotification",
-    "AdminControls"
+    "AdminControls",
   ];
   const hideLayout = isAuthScreen || NO_NAV_SCREENS.includes(currentRoute);
 
