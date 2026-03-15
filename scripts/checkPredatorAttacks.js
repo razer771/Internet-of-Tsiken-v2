@@ -18,11 +18,11 @@ async function checkData() {
   const ref = collection(db, "predator_attacks");
   const snap = await getDocs(ref);
   console.log("Documents in predator_attacks:", snap.docs.length);
-  snap.docs.forEach(d => console.log(d.id, d.data()));
+  snap.docs.forEach((d) => console.log(d.id, d.data()));
   process.exit(0);
 }
 
-checkData().catch(e => {
+checkData().catch((e) => {
   console.error(e);
   process.exit(1);
 });
