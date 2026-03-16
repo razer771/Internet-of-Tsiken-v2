@@ -304,6 +304,46 @@ const fetchWaterBatches = async () => {
   }
 };
 
+const fetchVitaminBatches = async () => {
+  try {
+    // Fetch all unique batches from vitaminControl_logs collection
+    const vitaminLogsRef = collection(firestoreDb, "vitaminControl_logs");
+    const vitaminSnapshot = await getDocs(vitaminLogsRef);
+
+    const uniqueBatches = new Set();
+    vitaminSnapshot.forEach((doc) => {
+      const data = doc.data();
+      // Check both field name variations: batchID (correct) and batchId (old)
+      const batchId = data.batchID || data.batchId;
+      if (batchId) {
+        uniqueBatches.add(batchId);
+      }
+    });
+
+    // Sort batches in descending order (latest first)
+    // Handles both numeric (Batch 1, Batch 2, etc.) and alphanumeric sorting
+    const vitaminBatches = Array.from(uniqueBatches).sort((a, b) => {
+      // Extract numbers from batch names
+      const aNum = parseInt(a.replace(/\D/g, ""), 10) || 0;
+      const bNum = parseInt(b.replace(/\D/g, ""), 10) || 0;
+      return bNum - aNum; // Descending order (latest first)
+    });
+
+    console.log(
+      "[fetchVitaminBatches] Unique batches from vitaminControl_logs:",
+      vitaminBatches,
+    );
+
+    return vitaminBatches;
+  } catch (error) {
+    console.error(
+      "[fetchVitaminBatches] Error fetching vitamin batches:",
+      error,
+    );
+    throw error;
+  }
+};
+
 // Helper function to format date/time for PDF reports: DD-Mmm-YYYY, HH:MM AM/PM
 const formatReportDateTime = (date = new Date()) => {
   // Example: 25-Jan-2026, 10:30 AM
@@ -552,6 +592,7 @@ export default function AdminAnalytics({ navigation }) {
   const [activePoint, setActivePoint] = useState(null);
   const [activePointPredator, setActivePointPredator] = useState(null);
   const [activePointFeed, setActivePointFeed] = useState(null);
+  const [activePointVitamin, setActivePointVitamin] = useState(null);
   const [activePointWater, setActivePointWater] = useState(null);
   const [activePointSolar, setActivePointSolar] = useState(null);
   const [pressedBtn, setPressedBtn] = useState(null);
@@ -715,6 +756,21 @@ export default function AdminAnalytics({ navigation }) {
   const [isLoadingWaterConsumption, setIsLoadingWaterConsumption] =
     useState(false);
   const [waterConsumptionError, setWaterConsumptionError] = useState(null);
+
+  // Vitamin consumption logging data
+  const [vitaminConsumptionData, setVitaminConsumptionData] = useState([]);
+  const [isLoadingVitaminConsumption, setIsLoadingVitaminConsumption] =
+    useState(false);
+  const [vitaminConsumptionError, setVitaminConsumptionError] = useState(null);
+
+  // Batch selection for vitamin consumption chart
+  const [selectedVitaminBatch, setSelectedVitaminBatch] = useState("");
+  const [showVitaminBatchDropdown, setShowVitaminBatchDropdown] =
+    useState(false);
+  const [availableVitaminBatches, setAvailableVitaminBatches] = useState([]);
+  const [isFetchingVitaminBatches, setIsFetchingVitaminBatches] =
+    useState(false);
+  const [vitaminBatchFetchError, setVitaminBatchFetchError] = useState(null);
 
   // Branded Alert Modal state
   const [alertVisible, setAlertVisible] = useState(false);
@@ -1006,7 +1062,7 @@ export default function AdminAnalytics({ navigation }) {
         return;
       }
 
-      // Group documents by age and count them
+      // Group documents by age and sum the weight field
       const ageCountMap = {};
 
       querySnapshot.docs.forEach((doc) => {
@@ -1026,15 +1082,15 @@ export default function AdminAnalytics({ navigation }) {
           if (!ageCountMap[ageValue]) {
             ageCountMap[ageValue] = 0;
           }
-          ageCountMap[ageValue]++;
+          ageCountMap[ageValue] += data.weight || 0;
         }
       });
 
       // Convert to array and sort by age (as numbers)
       const consumptionData = Object.entries(ageCountMap)
-        .map(([age, count]) => ({
+        .map(([age, weight]) => ({
           age: parseInt(age, 10) || 0,
-          count: count,
+          weight: weight,
           ageLabel: `Day ${age}`,
         }))
         .sort((a, b) => a.age - b.age);
@@ -1102,6 +1158,67 @@ export default function AdminAnalytics({ navigation }) {
       setWaterConsumptionData([]);
     } finally {
       setIsLoadingWaterConsumption(false);
+    }
+  };
+
+  /**
+   * Fetch vitamin consumption data from vitaminControl_logs collection
+   * Groups data by age and counts the number of documents for each age
+   * Returns formatted data for line chart: { age: number, count: number }
+   */
+  const fetchVitaminConsumptionByAge = async (batchId) => {
+    try {
+      setIsLoadingVitaminConsumption(true);
+      setVitaminConsumptionError("");
+
+      if (!batchId) {
+        setVitaminConsumptionError("Please select a batch");
+        setVitaminConsumptionData([]);
+        return;
+      }
+
+      const vitaminLogsRef = collection(firestoreDb, "vitaminControl_logs");
+      // Fetch all documents and filter by batchId field
+      const snapshot = await getDocs(vitaminLogsRef);
+
+      const filteredDocs = snapshot.docs.filter((doc) => {
+        const data = doc.data();
+        const docBatchId = data.batchId || data.batchID;
+        return docBatchId === batchId;
+      });
+
+      const ageMap = {};
+      let recordCount = 0;
+
+      filteredDocs.forEach((doc) => {
+        const data = doc.data();
+        if (data.status === "Completed" && data.age !== undefined) {
+          const age = data.age || "Unknown";
+          // Sum the amount field from each document where batchId matches the filter
+          ageMap[age] = (ageMap[age] || 0) + (data.amount || 0);
+          recordCount++;
+        }
+      });
+
+      // Fill all ages 1-45 with data or 0 if no documents
+      const consumptionData = [];
+      for (let age = 1; age <= 45; age++) {
+        consumptionData.push({
+          age,
+          count: ageMap[age] || 0,
+          ageLabel: `Day ${age}`,
+        });
+      }
+
+      setVitaminConsumptionData(consumptionData);
+    } catch (error) {
+      console.error("[FetchVitaminConsumption] Error:", error);
+      setVitaminConsumptionError(
+        error.message || "Failed to load vitamin data",
+      );
+      setVitaminConsumptionData([]);
+    } finally {
+      setIsLoadingVitaminConsumption(false);
     }
   };
 
@@ -3645,6 +3762,19 @@ export default function AdminAnalytics({ navigation }) {
       // Load logo
       const logoBase64 = await getLogoBase64();
 
+      // Fetch initial chicks count for selected batch
+      let initialChicksCount = 0;
+      try {
+        const brooderDocRef = doc(firestoreDb, "brooderInfo", selectedBatch);
+        const brooderDocSnapshot = await getDoc(brooderDocRef);
+        if (brooderDocSnapshot.exists()) {
+          initialChicksCount =
+            brooderDocSnapshot.data().initialChicksCount || 0;
+        }
+      } catch (error) {
+        console.error("Error fetching initial chicks count:", error);
+      }
+
       // Group by age and count consumption, also collect dates
       const ageMap = {};
       const ageDateMap = {};
@@ -3678,6 +3808,27 @@ export default function AdminAnalytics({ navigation }) {
         ageMap[age]++;
       });
 
+      // Detailed analytics: group by age with weight, feed type, and count
+      const ageAnalyticsMap = {};
+      records.forEach((record) => {
+        const age = record.age || "Unknown";
+        if (!ageAnalyticsMap[age]) {
+          ageAnalyticsMap[age] = {
+            age: age,
+            count: 0,
+            totalWeight: 0,
+            feedType: record.feeds || "Unknown",
+            date: ageDateMap[age] || "",
+          };
+        }
+        ageAnalyticsMap[age].count++;
+        ageAnalyticsMap[age].totalWeight += record.weight || 0;
+        // Use the most recent/consistent feed type for this age
+        if (record.feeds) {
+          ageAnalyticsMap[age].feedType = record.feeds;
+        }
+      });
+
       // Sort ages numerically
       const sortedAges = Object.keys(ageMap)
         .map((age) => {
@@ -3687,87 +3838,360 @@ export default function AdminAnalytics({ navigation }) {
         .sort((a, b) => a.numAge - b.numAge)
         .map((item) => item.age);
 
-      // Calculate key metrics
-      const consumptionValues = sortedAges.map((age) => ageMap[age]);
-      const totalConsumption = consumptionValues.reduce((a, b) => a + b, 0);
-      const avgConsumptionRaw =
-        consumptionValues.length > 0
-          ? totalConsumption / consumptionValues.length
-          : 0;
-      // Format avgConsumption: remove decimals if whole number
-      const avgConsumption =
-        avgConsumptionRaw % 1 === 0
-          ? Math.floor(avgConsumptionRaw)
-          : avgConsumptionRaw.toFixed(2);
-      const maxConsumption = Math.max(...consumptionValues);
-      const minConsumption = Math.min(...consumptionValues);
+      // Helper function to format weight with comma separators
+      const formatWeightWithCommas = (value) => {
+        const num = Math.round(value); // Ensure no decimals
+        return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+      };
 
-      // Find dates for highest and lowest consumptions
-      let maxConsumptionDate = "";
-      let minConsumptionDate = "";
+      // Calculate total weight by feed type
+      const feedTypeWeightMap = {
+        "Chick Booster": 0,
+        "Broiler Starter": 0,
+        "Broiler Finisher": 0,
+      };
 
-      sortedAges.forEach((age) => {
-        const consumption = ageMap[age];
-        const date = ageDateMap[age] || "";
-        if (consumption === maxConsumption && !maxConsumptionDate) {
-          maxConsumptionDate = date;
-        }
-        if (consumption === minConsumption && !minConsumptionDate) {
-          minConsumptionDate = date;
+      records.forEach((record) => {
+        const feedType = record.feeds || "Unknown";
+        if (feedTypeWeightMap.hasOwnProperty(feedType)) {
+          feedTypeWeightMap[feedType] += record.weight || 0;
         }
       });
 
-      // Create table rows with trend column
-      let tableRows = "";
+      // Format feed type totals
+      const totalChickBoosterGiven = formatWeightWithCommas(
+        feedTypeWeightMap["Chick Booster"],
+      );
+      const totalBroilerStarterGiven = formatWeightWithCommas(
+        feedTypeWeightMap["Broiler Starter"],
+      );
+      const totalBroilerFinisherGiven = formatWeightWithCommas(
+        feedTypeWeightMap["Broiler Finisher"],
+      );
 
-      sortedAges.forEach((age, index) => {
-        const consumption = ageMap[age];
-        const date = ageDateMap[age] || "";
+      // Helper function to convert grams to kilograms
+      const formatGramsAndKilograms = (grams) => {
+        const kilograms = (grams / 1000).toFixed(2);
+        return `${formatWeightWithCommas(grams)} g (${kilograms} kg)`;
+      };
 
-        // Calculate day-to-day trend
-        let trendHtml = "";
-        if (index === 0) {
-          // First day has no previous day to compare
-          trendHtml = '<span style="color: #999;">—</span> ';
-        } else {
-          const previousConsumption = ageMap[sortedAges[index - 1]];
-          const percentageChangeRaw =
-            ((consumption - previousConsumption) / previousConsumption) * 100;
-          // Format percentage: remove decimals if whole number
-          const percentageChange =
-            percentageChangeRaw % 1 === 0
-              ? Math.floor(percentageChangeRaw)
-              : percentageChangeRaw.toFixed(1);
+      // Format feed type totals with kilograms
+      const totalChickBoosterWithKg = formatGramsAndKilograms(
+        feedTypeWeightMap["Chick Booster"],
+      );
+      const totalBroilerStarterWithKg = formatGramsAndKilograms(
+        feedTypeWeightMap["Broiler Starter"],
+      );
+      const totalBroilerFinisherWithKg = formatGramsAndKilograms(
+        feedTypeWeightMap["Broiler Finisher"],
+      );
 
-          if (percentageChange > 0) {
-            trendHtml = `<span style="color: #4CAF50;">↑</span> <span style="color: #4CAF50;">+${percentageChange}%</span>`;
-          } else if (percentageChange < 0) {
-            trendHtml = `<span style="color: #F44336;">↓</span> <span style="color: #F44336;">${percentageChange}%</span>`;
-          } else {
-            trendHtml =
-              '<span style="color: #999;">→</span> <span style="color: #999;">0%</span>';
+      // Calculate date range from executedAt field
+      let earliestDate = null;
+      let latestDate = null;
+
+      records.forEach((record) => {
+        let executedDate = null;
+        if (record.executedAt) {
+          if (typeof record.executedAt.toDate === "function") {
+            executedDate = record.executedAt.toDate();
+          } else if (record.executedAt.seconds) {
+            executedDate = new Date(record.executedAt.seconds * 1000);
+          } else if (typeof record.executedAt === "string") {
+            executedDate = new Date(record.executedAt);
+          } else if (record.executedAt instanceof Date) {
+            executedDate = record.executedAt;
           }
         }
 
-        tableRows += `
+        if (
+          executedDate &&
+          executedDate instanceof Date &&
+          !isNaN(executedDate)
+        ) {
+          if (!earliestDate || executedDate < earliestDate) {
+            earliestDate = executedDate;
+          }
+          if (!latestDate || executedDate > latestDate) {
+            latestDate = executedDate;
+          }
+        }
+      });
+
+      // Format dates as "DD-MMM-YYYY"
+      const formatDateRange = (date) => {
+        if (!date || !(date instanceof Date) || isNaN(date)) return "";
+        const day = String(date.getDate()).padStart(2, "0");
+        const months = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        const month = months[date.getMonth()];
+        const year = date.getFullYear();
+        return `${day}-${month}-${year}`;
+      };
+
+      const dateRangeText =
+        earliestDate && latestDate
+          ? `${formatDateRange(earliestDate)} to ${formatDateRange(latestDate)}`
+          : "";
+
+      // Generate Feed Consumption Analytics Table
+      let analyticsTableRows = "";
+      const sortedAnalyticsAges = Object.keys(ageAnalyticsMap)
+        .map((age) => {
+          const numAge = parseInt(age, 10);
+          return { age, numAge: isNaN(numAge) ? Infinity : numAge };
+        })
+        .sort((a, b) => a.numAge - b.numAge)
+        .map((item) => item.age);
+
+      let totalAnalyticsWeight = 0;
+      let totalAnalyticsCount = 0;
+
+      sortedAnalyticsAges.forEach((age, index) => {
+        const analytics = ageAnalyticsMap[age];
+        const count = analytics.count || 0;
+        const totalWeight = analytics.totalWeight || 0;
+        const avgWeight = count > 0 ? Math.round(totalWeight / count) : 0;
+        const feedType = analytics.feedType || "Unknown";
+        const date = analytics.date || "";
+
+        totalAnalyticsWeight += totalWeight;
+        totalAnalyticsCount += count;
+
+        // Calculate trend
+        let trendText = "—";
+        let trendColor = "inherit";
+        if (index > 0) {
+          const prevAnalytics = ageAnalyticsMap[sortedAnalyticsAges[index - 1]];
+          const prevWeight = prevAnalytics.totalWeight || 0;
+          if (prevWeight > 0) {
+            const change = ((totalWeight - prevWeight) / prevWeight) * 100;
+            if (change > 0) {
+              trendText = `↑ +${change.toFixed(1)}%`;
+              trendColor = "#F44336";
+            } else if (change < 0) {
+              trendText = `↓ ${change.toFixed(1)}%`;
+            } else {
+              trendText = "→ 0%";
+            }
+          }
+        }
+
+        analyticsTableRows += `
           <tr>
-            <td>${date}</td>
-            <td>Day ${age}</td>
-            <td>${consumption}</td>
-            <td>${trendHtml}</td>
+            <td style="text-align: center;">Day ${age}</td>
+            <td style="text-align: center;">${date}</td>
+            <td style="text-align: center;">${feedType}</td>
+            <td style="text-align: center;">${count}</td>
+            <td style="text-align: center;">${totalWeight}</td>
+            <td style="text-align: center;">${avgWeight}</td>
+            <td style="text-align: center; font-size: 10px; color: ${trendColor};">${trendText}</td>
           </tr>
         `;
       });
 
-      // Add total row
-      tableRows += `
+      // Add total row for analytics
+      const avgFeedPerFeeding =
+        totalAnalyticsCount > 0
+          ? Math.round(totalAnalyticsWeight / totalAnalyticsCount)
+          : 0;
+
+      // Format total weight with commas
+      const formattedTotalWeight = formatWeightWithCommas(totalAnalyticsWeight);
+
+      // Convert total weight to kg
+      const totalWeightKg = (totalAnalyticsWeight / 1000).toFixed(2);
+
+      analyticsTableRows += `
         <tr style="background-color: #e8e8e8; font-weight: bold;">
           <td colspan="1" style="text-align: center;">TOTAL</td>
           <td colspan="1"></td>
-          <td>${totalConsumption}</td>
+          <td colspan="1"></td>
+          <td style="text-align: center;">${totalAnalyticsCount}</td>
+          <td style="text-align: center;">${formattedTotalWeight}</td>
+          <td style="text-align: center;">${avgFeedPerFeeding}</td>
+          <td></td>
+        </tr>
+        <tr style="background-color: #e8e8e8; font-weight: bold;">
+          <td colspan="1" style="text-align: center;"> </td>
+          <td colspan="1"></td>
+          <td colspan="1"></td>
+          <td style="text-align: center;"></td>
+          <td style="text-align: center;">${totalWeightKg} kg</td>
+          <td style="text-align: center;"></td>
           <td></td>
         </tr>
       `;
+
+      // Generate Feed Consumption Records Table
+      let feedConsumptionRecordsHtml = "";
+      let previousWeight = 0;
+      let totalRecordsWeight = 0;
+
+      if (records.length > 0) {
+        // Sort records by executedAt date in ascending order
+        const sortedRecords = [...records].sort((a, b) => {
+          let dateA = null;
+          let dateB = null;
+
+          if (a.executedAt) {
+            if (typeof a.executedAt.toDate === "function") {
+              dateA = a.executedAt.toDate();
+            } else if (a.executedAt.seconds) {
+              dateA = new Date(a.executedAt.seconds * 1000);
+            } else if (typeof a.executedAt === "string") {
+              dateA = new Date(a.executedAt);
+            } else if (a.executedAt instanceof Date) {
+              dateA = a.executedAt;
+            }
+          }
+
+          if (b.executedAt) {
+            if (typeof b.executedAt.toDate === "function") {
+              dateB = b.executedAt.toDate();
+            } else if (b.executedAt.seconds) {
+              dateB = new Date(b.executedAt.seconds * 1000);
+            } else if (typeof b.executedAt === "string") {
+              dateB = new Date(b.executedAt);
+            } else if (b.executedAt instanceof Date) {
+              dateB = b.executedAt;
+            }
+          }
+
+          if (!dateA) return 1;
+          if (!dateB) return -1;
+          return dateA.getTime() - dateB.getTime();
+        });
+
+        let recordsTableRows = "";
+        sortedRecords.forEach((record, index) => {
+          const age = record.age || "Unknown";
+          const weight = record.weight || 0;
+          const scheduledTime = record.scheduledTime || "";
+          const feedType = record.feeds || "Unknown";
+          const action = record.action || "Activated feeder";
+
+          // Format executed date as DD-MMM-YYYY
+          let executedDate = "";
+          if (record.executedAt) {
+            let dateObj = null;
+            if (typeof record.executedAt.toDate === "function") {
+              dateObj = record.executedAt.toDate();
+            } else if (record.executedAt.seconds) {
+              dateObj = new Date(record.executedAt.seconds * 1000);
+            } else if (typeof record.executedAt === "string") {
+              dateObj = new Date(record.executedAt);
+            } else if (record.executedAt instanceof Date) {
+              dateObj = record.executedAt;
+            }
+            if (dateObj && dateObj instanceof Date && !isNaN(dateObj)) {
+              const day = String(dateObj.getDate()).padStart(2, "0");
+              const months = [
+                "Jan",
+                "Feb",
+                "Mar",
+                "Apr",
+                "May",
+                "Jun",
+                "Jul",
+                "Aug",
+                "Sep",
+                "Oct",
+                "Nov",
+                "Dec",
+              ];
+              const month = months[dateObj.getMonth()];
+              const year = dateObj.getFullYear();
+              executedDate = `${day}-${month}-${year}`;
+            }
+          }
+
+          // Calculate trend
+          let trendText = "—";
+          let trendColor = "inherit";
+          if (index > 0 && previousWeight > 0) {
+            const change = ((weight - previousWeight) / previousWeight) * 100;
+            if (change > 0) {
+              trendText = `↑ +${change.toFixed(1)}%`;
+              trendColor = "#F44336";
+            } else if (change < 0) {
+              trendText = `↓ ${change.toFixed(1)}%`;
+              trendColor = "#4CAF50";
+            } else {
+              trendText = "→ 0%";
+            }
+          }
+
+          previousWeight = weight;
+          totalRecordsWeight += weight;
+
+          recordsTableRows += `
+            <tr>
+              <td style="text-align: center;">${executedDate}</td>
+              <td style="text-align: center;">Day ${age}</td>
+              <td style="text-align: center;">${scheduledTime}</td>
+              <td style="text-align: center;">${feedType}</td>
+              <td style="text-align: center;">${weight}</td>
+              <td style="text-align: center; font-size: 10px; color: ${trendColor};">${trendText}</td>
+              <td style="text-align: center;">${action}</td>
+            </tr>
+          `;
+        });
+
+        // Format total weight with commas and convert to kg
+        const recordsTotalFormatted =
+          formatWeightWithCommas(totalRecordsWeight);
+        const recordsTotalKg = (totalRecordsWeight / 1000).toFixed(2);
+
+        recordsTableRows += `
+          <tr style="background-color: #e8e8e8; font-weight: bold;">
+            <td colspan="4" style="text-align: center;">TOTAL</td>
+            <td style="text-align: center;">${recordsTotalFormatted}</td>
+            <td style="text-align: center;"></td>
+            <td style="text-align: center;"></td>
+          </tr>
+          <tr style="background-color: #e8e8e8; font-weight: bold;">
+            <td colspan="4" style="text-align: center;"> </td>
+            <td style="text-align: center;">${recordsTotalKg} kg</td>
+            <td style="text-align: center;"></td>
+            <td style="text-align: center;"></td>
+          </tr>
+        `;
+
+        feedConsumptionRecordsHtml = `
+          <div style="page-break-before: always; margin-top: 20px; width: 100%;">
+            <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px; margin-left: 12.5%; margin-right: 12.5%;">Feed Consumption Records</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 15%; text-align: center;">Date</th>
+                  <th style="width: 8%; text-align: center;">Age</th>
+                  <th style="width: 12%; text-align: center;">Time</th>
+                  <th style="width: 18%; text-align: center;">Feed Type</th>
+                  <th style="width: 12%; text-align: center;">Feed (g)</th>
+                  <th style="width: 15%; text-align: center;">Trend</th>
+                  <th style="width: 20%; text-align: center;">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${recordsTableRows}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
 
       // Fetch mortality data for overfeeding
       let totalOverFeedingDeaths = 0;
@@ -3893,8 +4317,8 @@ export default function AdminAnalytics({ navigation }) {
           `;
 
           overFeedingMortalityHtml = `
-            <div style="margin-top: 20px; width: 75%; margin-left: auto; margin-right: auto;">
-              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;"><br>Overfeeding-Related Chicken Loss</h3>
+            <div style="margin-top: 60px; width: 75%; margin-left: auto; margin-right: auto;">
+              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;"><br><br>Overfeeding-Related Chicken Loss</h3>
               <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
                 <thead>
                   <tr>
@@ -3911,7 +4335,7 @@ export default function AdminAnalytics({ navigation }) {
           `;
         } else {
           overFeedingMortalityHtml = `
-            <div style="margin-top: 20px;">
+            <div style="margin-top: 60px; width: 75%; margin-left: auto; margin-right: auto;">
               <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Overfeeding-Related Chicken Loss Summary</h3>
               <p style="font-size: 11px; color: #666;">No overfeeding-related chicken loss recorded for this batch.</p>
             </div>
@@ -3920,115 +4344,9 @@ export default function AdminAnalytics({ navigation }) {
       } catch (error) {
         console.error("Error fetching mortality data:", error);
         overFeedingMortalityHtml = `
-          <div style="margin-top: 20px;">
+          <div style="margin-top: 60px; width: 75%; margin-left: auto; margin-right: auto;">
             <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Overfeeding-Related Chicken Loss Summary</h3>
             <p style="font-size: 11px; color: #666;">Unable to fetch chicken loss data.</p>
-          </div>
-        `;
-      }
-
-      // Fetch Feeding Activity Records
-      let feedingActivityHtml = "";
-      try {
-        const feedingActivityQuery = query(
-          collection(firestoreDb, "feedingExecutions_logs"),
-          where("batchId", "==", selectedBatch),
-        );
-        const feedingActivitySnapshot = await getDocs(feedingActivityQuery);
-        const feedingActivityRecords = feedingActivitySnapshot.docs.map(
-          (doc) => ({
-            id: doc.id,
-            ...doc.data(),
-          }),
-        );
-
-        if (feedingActivityRecords.length > 0) {
-          // Sort records by timestamp in ascending order (earliest first)
-          feedingActivityRecords.sort((a, b) => {
-            const timeA = a.timestamp?.toDate
-              ? a.timestamp.toDate().getTime()
-              : a.timestamp
-                ? new Date(a.timestamp).getTime()
-                : 0;
-            const timeB = b.timestamp?.toDate
-              ? b.timestamp.toDate().getTime()
-              : b.timestamp
-                ? new Date(b.timestamp).getTime()
-                : 0;
-            return timeA - timeB;
-          });
-
-          let activityTableRows = "";
-          feedingActivityRecords.forEach((record) => {
-            const timestamp = record.timestamp?.toDate
-              ? record.timestamp.toDate()
-              : record.timestamp
-                ? new Date(record.timestamp)
-                : null;
-
-            const dateStr = timestamp
-              ? timestamp
-                  .toLocaleDateString("en-GB", {
-                    day: "2-digit",
-                    month: "short",
-                    year: "numeric",
-                  })
-                  .replace(/ /g, "-")
-              : "N/A";
-
-            const timeStr = timestamp
-              ? timestamp.toLocaleTimeString("en-US", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  hour12: true,
-                })
-              : "N/A";
-
-            const action = record.action || "N/A";
-            const status = record.status || "N/A";
-
-            activityTableRows += `
-              <tr>
-                <td style="text-align: center;">${dateStr}</td>
-                <td style="text-align: center;">${timeStr}</td>
-                <td style="text-align: center;">${action}</td>
-                <td style="text-align: center;">${status}</td>
-              </tr>
-            `;
-          });
-
-          feedingActivityHtml = `
-            <div style="margin-top: 20px; page-break-before: always; width: 75%; margin-left: auto; margin-right: auto;">
-              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Feeding Activity</h3>
-              <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-                <thead>
-                  <tr>
-                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 22%;">Date</th>
-                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 22%;">Time</th>
-                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 28%;">Action</th>
-                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 22%;">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${activityTableRows}
-                </tbody>
-              </table>
-            </div>
-          `;
-        } else {
-          feedingActivityHtml = `
-            <div style="margin-top: 20px;">
-              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Feeding Activity</h3>
-              <p style="font-size: 11px; color: #666;">No feeding activity records found for this batch.</p>
-            </div>
-          `;
-        }
-      } catch (error) {
-        console.error("Error fetching feeding activity data:", error);
-        feedingActivityHtml = `
-          <div style="margin-top: 20px;">
-            <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Feeding Activity</h3>
-            <p style="font-size: 11px; color: #666;">Unable to fetch feeding activity data.</p>
           </div>
         `;
       }
@@ -4164,7 +4482,7 @@ export default function AdminAnalytics({ navigation }) {
             </div>
             <div class="report-title">Feed Consumption Report</div>
             <div class="filter-info">
-              ${selectedBatch}<br>
+              ${selectedBatch} - ${initialChicksCount} chickens<br>
               Report Generated: ${formatReportDateTime()}<br>
             
             </div>
@@ -4174,45 +4492,49 @@ export default function AdminAnalytics({ navigation }) {
 
           <div class="metrics-container">
             <div class="metric-card">
-              <div class="metric-label">Average Daily Feedings</div>
-              <div class="metric-value">${avgConsumption}</div>
-              <div style="font-size: 9px; color: #666; margin-top: 5px;"></div>
+              <div class="metric-label">Total Chick Booster Given</div>
+              <div class="metric-value">${totalChickBoosterWithKg}</div>
+              <div style="font-size: 9px; color: #666; margin-top: 5px;">${dateRangeText}</div>
+            </div>
+           
+            <div class="metric-card">
+              <div class="metric-label">Total Broiler Starter</div>
+              <div class="metric-value">${totalBroilerStarterWithKg}</div>
+              <div style="font-size: 9px; color: #666; margin-top: 5px;">${dateRangeText}</div>
             </div>
             <div class="metric-card">
-              <div class="metric-label">Total Overfeeding Loss</div>
+              <div class="metric-label">Total Broiler Finisher Given</div>
+              <div class="metric-value">${totalBroilerFinisherWithKg}</div>
+              <div style="font-size: 9px; color: #666; margin-top: 5px;">${dateRangeText}</div>
+            </div>
+             <div class="metric-card">
+              <div class="metric-label">Total Loss due to Overfeeding</div>
               <div class="metric-value">${totalOverFeedingDeaths}</div>
-            </div>
-            <div class="metric-card">
-              <div class="metric-label">Highest Daily Feedings</div>
-              <div class="metric-value">${maxConsumption}</div>
-              <div style="font-size: 9px; color: #666; margin-top: 5px;">${maxConsumptionDate}</div>
-            </div>
-            <div class="metric-card">
-              <div class="metric-label">Lowest Daily Feedings</div>
-              <div class="metric-value">${minConsumption}</div>
-              <div style="font-size: 9px; color: #666; margin-top: 5px;">${minConsumptionDate}</div>
             </div>
           </div>
           <br> 
-          <div class="summary-title" style="text-align: left;">Feeding Records</div>
+          <div class="summary-title" style="text-align: left;">Daily Feed Consumption Summary</div>
 
           <table>
             <thead>
               <tr>
-                <th style="width: 17%; text-align: center;">Date</th>
-                <th style="width: 15%; text-align: center;">Age</th>
-                <th style="width: 25%; text-align: center;">Number of Feedings</th>
-                <th style="width: 15%; text-align: center;">Trend</th>
+                <th style="width: 8%; text-align: center;">Age</th>
+                <th style="width: 18%; text-align: center;">Date</th>
+                <th style="width: 18%; text-align: center;">Feed Type</th>
+                <th style="width: 13%; text-align: center;">Feedings</th>
+                <th style="width: 13%; text-align: center;">Total Feed (g)</th>
+                <th style="width: 13%; text-align: center;">Average Feed (g)</th>
+                <th style="width: 13%; text-align: center;">Trend</th>
               </tr>
             </thead>
             <tbody>
-              ${tableRows}
+              ${analyticsTableRows}
             </tbody>
           </table>
 
           ${overFeedingMortalityHtml}
 
-          ${feedingActivityHtml}
+          ${feedConsumptionRecordsHtml}
         </body>
         </html>
       `;
@@ -4268,7 +4590,7 @@ export default function AdminAnalytics({ navigation }) {
    */
   const generateWaterConsumptionReportPDF = async () => {
     // Get the selected batch from the filter
-    const selectedBatch = chartFilters["water"]?.batchId;
+    const selectedBatch = chartFilters["vitamin"]?.batchId;
     if (!selectedBatch) {
       showAlert("error", "Error", "Please select a batch from the filter");
       return;
@@ -4276,22 +4598,46 @@ export default function AdminAnalytics({ navigation }) {
 
     setIsGeneratingFeedReport(true);
     try {
-      const records = await fetchWaterRecordsForExport(selectedBatch);
+      // Fetch vitamin records from vitaminControl_logs
+      const vitaminLogsRef = collection(firestoreDb, "vitaminControl_logs");
+      const snapshot = await getDocs(vitaminLogsRef);
+
+      const records = snapshot.docs
+        .map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }))
+        .filter((record) => {
+          const docBatchId = record.batchId || record.batchID;
+          return docBatchId === selectedBatch && record.status === "Completed";
+        });
 
       if (records.length === 0) {
         showAlert(
           "info",
           "No Data",
-          "No water records found for the selected batch",
+          "No vitamin records found for the selected batch",
         );
         setIsGeneratingFeedReport(false);
         return;
       }
 
+      // Fetch chick count from brooderInfo
+      let chickCount = "N/A";
+      try {
+        const brooderInfoRef = doc(firestoreDb, "brooderInfo", selectedBatch);
+        const brooderInfoSnapshot = await getDoc(brooderInfoRef);
+        if (brooderInfoSnapshot.exists()) {
+          chickCount = brooderInfoSnapshot.data().initialChicksCount || "N/A";
+        }
+      } catch (error) {
+        console.error("Error fetching brooder info:", error);
+      }
+
       // Load logo
       const logoBase64 = await getLogoBase64();
 
-      // Group by age and count consumption, also collect dates
+      // Group by age and sum amounts, also collect dates
       const ageMap = {};
       const ageDateMap = {};
 
@@ -4321,7 +4667,8 @@ export default function AdminAnalytics({ navigation }) {
             ageDateMap[age] = "";
           }
         }
-        ageMap[age]++;
+        // Sum the amount field from each document where batchId matches the filter
+        ageMap[age] += record.amount || 0;
       });
 
       // Sort ages numerically
@@ -4346,20 +4693,15 @@ export default function AdminAnalytics({ navigation }) {
           ? Math.floor(avgConsumptionRaw)
           : avgConsumptionRaw.toFixed(2);
       const maxConsumption = Math.max(...consumptionValues);
-      const minConsumption = Math.min(...consumptionValues);
 
-      // Find dates for highest and lowest consumptions
+      // Find date for highest consumption
       let maxConsumptionDate = "";
-      let minConsumptionDate = "";
 
       sortedAges.forEach((age) => {
         const consumption = ageMap[age];
         const date = ageDateMap[age] || "";
         if (consumption === maxConsumption && !maxConsumptionDate) {
           maxConsumptionDate = date;
-        }
-        if (consumption === minConsumption && !minConsumptionDate) {
-          minConsumptionDate = date;
         }
       });
 
@@ -4412,269 +4754,7 @@ export default function AdminAnalytics({ navigation }) {
           <td colspan="1"></td>
           <td>${totalConsumption}</td>
           <td></td>
-        </tr>
       `;
-
-      // Fetch mortality data for dehydration
-      let totalDehydrationDeaths = 0;
-      let dehydrationMortalityHtml = "";
-      try {
-        const recordsRef = collectionGroup(firestoreDb, "records");
-        const recordsSnapshot = await getDocs(recordsRef);
-
-        let dehydrationRecords = [];
-        recordsSnapshot.docs.forEach((recordDoc) => {
-          const recordData = recordDoc.data();
-          // Filter by batch and cause of death
-          if (
-            recordData.batchId === selectedBatch &&
-            recordData.causeOfDeath === "Dehydration"
-          ) {
-            // Parse dateOfDeath
-            let dateOfDeath = recordData.dateOfDeath;
-            if (dateOfDeath && typeof dateOfDeath.toDate === "function") {
-              dateOfDeath = dateOfDeath.toDate();
-            } else if (dateOfDeath && dateOfDeath.seconds) {
-              dateOfDeath = new Date(dateOfDeath.seconds * 1000);
-            } else if (typeof dateOfDeath === "string") {
-              dateOfDeath = parseCustomDateFormat(dateOfDeath);
-            }
-
-            // Format date as DD-MMM-YYYY (without time)
-            const dateOfDeathFormatted =
-              dateOfDeath && dateOfDeath instanceof Date
-                ? dateOfDeath
-                    .toLocaleDateString("en-GB", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })
-                    .replace(/ /g, "-")
-                : "Unknown";
-
-            dehydrationRecords.push({
-              dateOfDeathFormatted: dateOfDeathFormatted,
-              daysCount: recordData.daysCount || "Unknown",
-              count: recordData.count || 1,
-            });
-          }
-        });
-
-        // Calculate total dehydration deaths
-        totalDehydrationDeaths = dehydrationRecords.reduce(
-          (sum, r) => sum + r.count,
-          0,
-        );
-
-        // Combine records with same daysCount (Age at Death)
-        const combinedRecords = {};
-        dehydrationRecords.forEach((record) => {
-          const key = record.daysCount;
-          if (!combinedRecords[key]) {
-            combinedRecords[key] = {
-              daysCount: record.daysCount,
-              count: 0,
-              dateOfDeathFormatted: record.dateOfDeathFormatted,
-            };
-          }
-          combinedRecords[key].count += record.count;
-        });
-
-        // Convert back to array and sort numerically by daysCount
-        const sortedDehydrationRecords = Object.values(combinedRecords).sort(
-          (a, b) => {
-            const aNum = parseInt(a.daysCount, 10);
-            const bNum = parseInt(b.daysCount, 10);
-            return (
-              (isNaN(aNum) ? Infinity : aNum) - (isNaN(bNum) ? Infinity : bNum)
-            );
-          },
-        );
-
-        // Generate mortality summary HTML
-        if (sortedDehydrationRecords.length > 0) {
-          // Find the highest percentage
-          const maxPercentage = Math.max(
-            ...sortedDehydrationRecords.map(
-              (r) => (r.count / totalDehydrationDeaths) * 100,
-            ),
-          );
-
-          let mortalityTableRows = "";
-          sortedDehydrationRecords.forEach((record) => {
-            const percentageRaw = (record.count / totalDehydrationDeaths) * 100;
-            // Format percentage: remove decimals if whole number
-            const percentage =
-              percentageRaw % 1 === 0
-                ? Math.floor(percentageRaw)
-                : percentageRaw.toFixed(1);
-            const isHighestPercentage =
-              parseFloat(percentage) === parseFloat(maxPercentage.toFixed(1));
-            const percentageStyle = isHighestPercentage
-              ? 'style="text-align: center; color: #F44336;"'
-              : 'style="text-align: center;"';
-            mortalityTableRows += `
-              <tr>
-                <td>Day ${record.daysCount}</td>
-                <td style="text-align: center;">${record.count}</td>
-                <td ${percentageStyle}>${percentage}%</td>
-              </tr>
-            `;
-          });
-
-          // Add total row
-          mortalityTableRows += `
-            <tr style="background-color: #e8e8e8; font-weight: bold;">
-              <td colspan="1" style="text-align: center;">TOTAL</td>
-              <td style="text-align: center;">${totalDehydrationDeaths}</td>
-              <td style="text-align: center;">100%</td>
-            </tr>
-          `;
-
-          dehydrationMortalityHtml = `
-            <div style="margin-top: 20px; width: 75%; margin-left: auto; margin-right: auto;">
-              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;"><br>Dehydration-Related Mortality</h3>
-              <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-                <thead>
-                  <tr>
-                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 25%;">Age at Death</th>
-                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 25%;">Death Count</th>
-                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 25%;">Distribution %</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${mortalityTableRows}
-                </tbody>
-              </table>
-            </div>
-          `;
-        } else {
-          dehydrationMortalityHtml = `
-            <div style="margin-top: 20px;">
-              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Dehydration-Related Mortality Summary</h3>
-              <p style="font-size: 11px; color: #666;">No dehydration-related deaths recorded for this batch.</p>
-            </div>
-          `;
-        }
-      } catch (error) {
-        console.error("Error fetching mortality data:", error);
-        dehydrationMortalityHtml = `
-          <div style="margin-top: 20px;">
-            <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Dehydration-Related Mortality Summary</h3>
-            <p style="font-size: 11px; color: #666;">Unable to fetch mortality data.</p>
-          </div>
-        `;
-      }
-
-      // Fetch Watering Activity Records
-      let wateringActivityHtml = "";
-      try {
-        const wateringActivityQuery = query(
-          collection(firestoreDb, "wateringExecutions_logs"),
-          where("batchId", "==", selectedBatch),
-        );
-        const wateringActivitySnapshot = await getDocs(wateringActivityQuery);
-        const wateringActivityRecords = wateringActivitySnapshot.docs.map(
-          (doc) => ({
-            id: doc.id,
-            ...doc.data(),
-          }),
-        );
-
-        if (wateringActivityRecords.length > 0) {
-          // Sort records by timestamp in ascending order (earliest first)
-          wateringActivityRecords.sort((a, b) => {
-            const timeA = a.timestamp?.toDate
-              ? a.timestamp.toDate().getTime()
-              : a.timestamp
-                ? new Date(a.timestamp).getTime()
-                : 0;
-            const timeB = b.timestamp?.toDate
-              ? b.timestamp.toDate().getTime()
-              : b.timestamp
-                ? new Date(b.timestamp).getTime()
-                : 0;
-            return timeA - timeB;
-          });
-
-          let activityTableRows = "";
-          wateringActivityRecords.forEach((record) => {
-            const timestamp = record.timestamp?.toDate
-              ? record.timestamp.toDate()
-              : record.timestamp
-                ? new Date(record.timestamp)
-                : null;
-
-            const dateStr = timestamp
-              ? timestamp
-                  .toLocaleDateString("en-GB", {
-                    day: "2-digit",
-                    month: "short",
-                    year: "numeric",
-                  })
-                  .replace(/ /g, "-")
-              : "N/A";
-
-            const timeStr = timestamp
-              ? timestamp.toLocaleTimeString("en-US", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                  hour12: true,
-                })
-              : "N/A";
-
-            const action = record.action || "N/A";
-            const mode = record.mode || "N/A";
-            const status = record.status || "N/A";
-
-            activityTableRows += `
-              <tr>
-                <td style="text-align: center;">${dateStr}</td>
-                <td style="text-align: center;">${timeStr}</td>
-                <td style="text-align: center;">${action}</td>
-                <td style="text-align: center;">${mode}</td>
-                <td style="text-align: center;">${status}</td>
-              </tr>
-            `;
-          });
-
-          wateringActivityHtml = `
-            <div style="margin-top: 20px; page-break-before: always; width: 75%; margin-left: auto; margin-right: auto;">
-              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Watering Activity</h3>
-              <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-                <thead>
-                  <tr>
-                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 18%;">Date</th>
-                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 18%;">Time</th>
-                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 22%;">Action</th>
-                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 18%;">Mode</th>
-                    <th style="background-color: #133E87; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; font-weight: bold; width: 18%;">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${activityTableRows}
-                </tbody>
-              </table>
-            </div>
-          `;
-        } else {
-          wateringActivityHtml = `
-            <div style="margin-top: 20px;">
-              <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Watering Activity</h3>
-              <p style="font-size: 11px; color: #666;">No watering activity records found for this batch.</p>
-            </div>
-          `;
-        }
-      } catch (error) {
-        console.error("Error fetching watering activity data:", error);
-        wateringActivityHtml = `
-          <div style="margin-top: 20px;">
-            <h3 style="color: #133E87; font-size: 14px; margin-bottom: 10px;">Watering Activity</h3>
-            <p style="font-size: 11px; color: #666;">Unable to fetch watering activity data.</p>
-          </div>
-        `;
-      }
 
       // Generate HTML with styled tables
       const htmlContent = `
@@ -4722,7 +4802,7 @@ export default function AdminAnalytics({ navigation }) {
               font-weight: bold;
             }
             .filter-info {
-              font-size: 12px;
+              font-size: 14px;
               color: #666;
               margin-bottom: 10px;
               text-align: center;
@@ -4754,14 +4834,14 @@ export default function AdminAnalytics({ navigation }) {
             }
             .metric-label {
               color: #666;
-              font-size: 10px;
+              font-size: 15px;
               font-weight: normal;
               margin-bottom: 8px;
               line-height: 1.4;
             }
             .metric-value {
               color: #133E87;
-              font-size: 18px;
+              font-size: 15px;
               font-weight: bold;
               margin-bottom: 5px;
             }
@@ -4810,9 +4890,9 @@ export default function AdminAnalytics({ navigation }) {
               <img src="data:image/png;base64,${logoBase64}" class="logo" alt="Logo" />
               <div class="company-name">Internet of Tsiken</div>
             </div>
-            <div class="report-title">Water Consumption Report</div>
+            <div class="report-title">Multivitamin Consumption Report</div>
             <div class="filter-info">
-              ${selectedBatch}<br>
+              ${selectedBatch} - ${chickCount} chicks<br>
               Report Generated: ${formatReportDateTime()}<br>
              
             </div>
@@ -4827,30 +4907,20 @@ export default function AdminAnalytics({ navigation }) {
               <div style="font-size: 9px; color: #666; margin-top: 5px;"></div>
             </div>
             <div class="metric-card">
-              <div class="metric-label">Total Dehydration Deaths</div>
-              <div class="metric-value">${totalDehydrationDeaths}</div>
-              <div style="font-size: 9px; color: #666; margin-top: 5px;"></div>
-            </div>
-            <div class="metric-card">
               <div class="metric-label">Highest Daily Dispensed</div>
               <div class="metric-value">${maxConsumption}</div>
               <div style="font-size: 9px; color: #666; margin-top: 5px;">${maxConsumptionDate}</div>
             </div>
-            <div class="metric-card">
-              <div class="metric-label">Lowest Daily Dispensed</div>
-              <div class="metric-value">${minConsumption}</div>
-              <div style="font-size: 9px; color: #666; margin-top: 5px;">${minConsumptionDate}</div>
-            </div>
           </div>
           <br>
-          <div class="summary-title" style="text-align: left;">Water Consumption Records</div>
+          <div class="summary-title" style="text-align: left;">Dispensed Multivitamin Records</div>
 
           <table>
             <thead>
               <tr>
                 <th style="width: 18%; text-align: center;">Date</th>
                 <th style="width: 18%; text-align: center;">Age</th>
-                <th style="width: 18%; text-align: center;">Activations</th>
+                <th style="width: 18%; text-align: center;">Amount Dispensed (mg)</th>
                 <th style="width: 18%; text-align: center;">Trend</th>
               </tr>
             </thead>
@@ -4858,9 +4928,6 @@ export default function AdminAnalytics({ navigation }) {
               ${tableRows}
             </tbody>
           </table>
-
-          ${dehydrationMortalityHtml}
-          ${wateringActivityHtml}
         </body>
         </html>
       `;
@@ -4872,21 +4939,22 @@ export default function AdminAnalytics({ navigation }) {
       });
 
       // Create custom filename with batch and date
-      const customFilename = `WaterConsumptionReport_${selectedBatch}_${new Date().toLocaleDateString().replace(/\//g, "-")}.pdf`;
+      const customFilename = `MultivitaminConsumptionReport_${selectedBatch}_${new Date().toLocaleDateString().replace(/\//g, "-")}.pdf`;
       const newPath = `${FileSystem.documentDirectory}${customFilename}`;
 
       // Copy the PDF to a new location with custom name
       await FileSystem.copyAsync({
         from: pdf.uri,
         to: newPath,
+        di,
       });
 
       // Log report generation to audit trail
       await logReportGeneration(
         customFilename,
-        "Water Consumption Report",
-        "Generate water consumption report",
-        `Generated and exported water consumption report for batch ${selectedBatch} on ${new Date().toLocaleDateString()}`,
+        "Multivitamin Consumption Report",
+        "Generate multivitamin consumption report",
+        `Generated and exported multivitamin consumption report for batch ${selectedBatch} on ${new Date().toLocaleDateString()}`,
       );
 
       // Share PDF with custom filename
@@ -4895,7 +4963,7 @@ export default function AdminAnalytics({ navigation }) {
       showAlert(
         "success",
         "Success",
-        "Water Consumption report exported successfully!",
+        "Multivitamin Consumption report exported successfully!",
       );
     } catch (error) {
       console.error("Error generating water report:", error);
@@ -7135,7 +7203,7 @@ export default function AdminAnalytics({ navigation }) {
           <div class="section-title">Predator Type Per Batch </div>
           ${predatorPerBatchHTML || "<p>No predator data available.</p>"}
 
-          <div class="section-title">All Predators Attack Timing</div>
+          <div class="section-title">All Predator Attacks Timing</div>
           ${allPredatorsTimingHTML || "<p>No timing data available.</p>"}
 
           ${predatorTimingTablesHTML || ""}
@@ -7228,10 +7296,16 @@ export default function AdminAnalytics({ navigation }) {
         },
       );
 
-      // Step 1: Fetch all batches from brooderInfo
+      // Step 1: Fetch all batches from brooderInfo and extract initialChicksCount
       const brooderRef = collection(firestoreDb, "brooderInfo");
       const brooderSnapshot = await getDocs(brooderRef);
       const allBatches = brooderSnapshot.docs.map((doc) => doc.id).sort();
+
+      // Create map for initial chicks count
+      let batchInitialChicksCountMap = {};
+      brooderSnapshot.docs.forEach((doc) => {
+        batchInitialChicksCountMap[doc.id] = doc.data().initialChicksCount || 0;
+      });
 
       console.log("[GenerateFeedPerBatchReport] All batches:", allBatches);
 
@@ -7239,15 +7313,19 @@ export default function AdminAnalytics({ navigation }) {
       const feedingLogsRef = collection(firestoreDb, "feedingExecutions_logs");
       const feedingSnapshot = await getDocs(feedingLogsRef);
 
-      let batchFeedMap = {};
+      // Initialize maps for feed type weights
+      let batchFeedTypeWeightMap = {};
       let batchAverageFeedingMap = {};
 
       allBatches.forEach((batchId) => {
-        batchFeedMap[batchId] = 0;
+        batchFeedTypeWeightMap[batchId] = {
+          "Chick Booster": 0,
+          "Broiler Starter": 0,
+          "Broiler Finisher": 0,
+        };
         batchAverageFeedingMap[batchId] = 0;
       });
 
-      let totalSuccessActivations = 0;
       let ageCountMap = {}; // For calculating average daily feedings
 
       // Process each feeding document (all records, no date filtering)
@@ -7256,14 +7334,23 @@ export default function AdminAnalytics({ navigation }) {
         if (data.status !== "Success") return;
 
         const batchId = data.batchId || "Unknown";
+        const feedType = data.feeds || "Unknown";
+        const weight = data.weight || 0;
 
-        // Count all successful records regardless of date
-        if (batchFeedMap[batchId] !== undefined) {
-          batchFeedMap[batchId]++;
-        } else {
-          batchFeedMap[batchId] = 1;
+        // Accumulate weight by feed type
+        if (
+          batchFeedTypeWeightMap[batchId] &&
+          batchFeedTypeWeightMap[batchId][feedType] !== undefined
+        ) {
+          batchFeedTypeWeightMap[batchId][feedType] += weight;
+        } else if (!batchFeedTypeWeightMap[batchId]) {
+          batchFeedTypeWeightMap[batchId] = {
+            "Chick Booster": 0,
+            "Broiler Starter": 0,
+            "Broiler Finisher": 0,
+          };
+          batchFeedTypeWeightMap[batchId][feedType] = weight;
         }
-        totalSuccessActivations++;
 
         // Count by age for average daily feedings
         const age = data.age || "Unknown";
@@ -7306,55 +7393,72 @@ export default function AdminAnalytics({ navigation }) {
         }
       });
 
-      console.log("[GenerateFeedPerBatchReport] Batch feed map:", batchFeedMap);
+      console.log(
+        "[GenerateFeedPerBatchReport] Batch feed type weights:",
+        batchFeedTypeWeightMap,
+      );
 
       // Check if there is any data
-      if (totalSuccessActivations === 0) {
-        showAlert(
-          "info",
-          "No Data",
-          "No successful feed activations found for the selected date range.",
-        );
+      if (
+        Object.keys(batchFeedTypeWeightMap).length === 0 ||
+        !Object.values(batchFeedTypeWeightMap).some((typeMap) =>
+          Object.values(typeMap).some((weight) => weight > 0),
+        )
+      ) {
+        showAlert("info", "No Data", "No successful feed activations found.");
         setIsGeneratingFeedBatchReport(false);
         return;
       }
 
-      // Format dates for display
-      const formatDisplayDate = (date) => {
-        const d = new Date(date);
-        const day = String(d.getDate()).padStart(2, "0");
-        const months = [
-          "Jan",
-          "Feb",
-          "Mar",
-          "Apr",
-          "May",
-          "Jun",
-          "Jul",
-          "Aug",
-          "Sep",
-          "Oct",
-          "Nov",
-          "Dec",
-        ];
-        return `${day}-${months[d.getMonth()]}-${d.getFullYear()}`;
+      // Helper function to format kg with commas
+      const formatKgWithCommas = (kg) => {
+        return kg.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
       };
 
       // Generate table rows
       let tableRowsHtml = "";
+      let totalChickBoosterWeight = 0;
+      let totalBroilerStarterWeight = 0;
+      let totalBroilerFinisherWeight = 0;
+
       allBatches.forEach((batchId, index) => {
-        const activations = batchFeedMap[batchId] || 0;
+        const initialChicksCount = batchInitialChicksCountMap[batchId] || 0;
+        const chickBoosterWeight =
+          batchFeedTypeWeightMap[batchId]?.["Chick Booster"] || 0;
+        const broilerStarterWeight =
+          batchFeedTypeWeightMap[batchId]?.["Broiler Starter"] || 0;
+        const broilerFinisherWeight =
+          batchFeedTypeWeightMap[batchId]?.["Broiler Finisher"] || 0;
+
         const avgFeeding = batchAverageFeedingMap[batchId] || 0;
         const overfeedingDeaths = batchOverfeedingDeathsMap[batchId] || 0;
 
-        // Calculate trend for activations
-        let trendHtml = "—";
-        if (index > 0) {
-          const previousBatchId = allBatches[index - 1];
-          const previousActivations = batchFeedMap[previousBatchId] || 0;
-          if (previousActivations > 0) {
+        // Convert grams to kg with comma formatting
+        const chickBoosterKg = formatKgWithCommas(
+          (chickBoosterWeight / 1000).toFixed(2),
+        );
+        const broilerStarterKg = formatKgWithCommas(
+          (broilerStarterWeight / 1000).toFixed(2),
+        );
+        const broilerFinisherKg = formatKgWithCommas(
+          (broilerFinisherWeight / 1000).toFixed(2),
+        );
+
+        // Accumulate totals
+        totalChickBoosterWeight += chickBoosterWeight;
+        totalBroilerStarterWeight += broilerStarterWeight;
+        totalBroilerFinisherWeight += broilerFinisherWeight;
+
+        // Helper function to calculate trend HTML
+        const calculateTrendHtml = (current, previous) => {
+          let trendHtml = "—";
+          if (previous > 0 || current > 0) {
             const percentageChangeRaw =
-              ((activations - previousActivations) / previousActivations) * 100;
+              previous > 0
+                ? ((current - previous) / previous) * 100
+                : current > 0
+                  ? 100
+                  : 0;
             const percentageChange =
               percentageChangeRaw % 1 === 0
                 ? Math.floor(percentageChangeRaw)
@@ -7368,37 +7472,66 @@ export default function AdminAnalytics({ navigation }) {
                 '<span style="color: #999;">→</span> <span style="color: #999;">0%</span>';
             }
           }
-        }
+          return trendHtml;
+        };
 
-        // Calculate trend for overfeeding deaths
+        // Calculate trends for each feed type
+        let chickBoosterTrendHtml = "—";
+        let broilerStarterTrendHtml = "—";
+        let broilerFinisherTrendHtml = "—";
         let deathsTrendHtml = "—";
+
         if (index > 0) {
           const previousBatchId = allBatches[index - 1];
+          const previousChickBoosterWeight =
+            batchFeedTypeWeightMap[previousBatchId]?.["Chick Booster"] || 0;
+          const previousBroilerStarterWeight =
+            batchFeedTypeWeightMap[previousBatchId]?.["Broiler Starter"] || 0;
+          const previousBroilerFinisherWeight =
+            batchFeedTypeWeightMap[previousBatchId]?.["Broiler Finisher"] || 0;
           const previousDeaths =
             batchOverfeedingDeathsMap[previousBatchId] || 0;
-          if (previousDeaths > 0) {
-            const percentageChangeRaw =
-              ((overfeedingDeaths - previousDeaths) / previousDeaths) * 100;
-            const percentageChange =
-              percentageChangeRaw % 1 === 0
-                ? Math.floor(percentageChangeRaw)
-                : percentageChangeRaw.toFixed(1);
-            if (percentageChange > 0) {
-              deathsTrendHtml = `<span style="color: #F44336;">↑</span> <span style="color: #F44336;">+${percentageChange}%</span>`;
-            } else if (percentageChange < 0) {
-              deathsTrendHtml = `<span style="color: #4CAF50;">↓</span> <span style="color: #4CAF50;">${percentageChange}%</span>`;
-            } else {
-              deathsTrendHtml =
-                '<span style="color: #999;">→</span> <span style="color: #999;">0%</span>';
+
+          chickBoosterTrendHtml = calculateTrendHtml(
+            chickBoosterWeight,
+            previousChickBoosterWeight,
+          );
+          broilerStarterTrendHtml = calculateTrendHtml(
+            broilerStarterWeight,
+            previousBroilerStarterWeight,
+          );
+          broilerFinisherTrendHtml = calculateTrendHtml(
+            broilerFinisherWeight,
+            previousBroilerFinisherWeight,
+          );
+          deathsTrendHtml = calculateTrendHtml(
+            overfeedingDeaths,
+            previousDeaths,
+          );
+          // Reverse color for deaths (red for increase, green for decrease)
+          if (deathsTrendHtml !== "—") {
+            if (deathsTrendHtml.includes("4CAF50")) {
+              deathsTrendHtml = deathsTrendHtml
+                .replace(/#4CAF50/g, "#F44336")
+                .replace(/↑/g, "↓");
+            } else if (deathsTrendHtml.includes("F44336")) {
+              deathsTrendHtml = deathsTrendHtml
+                .replace(/#F44336/g, "#4CAF50")
+                .replace(/↓/g, "↑");
             }
           }
         }
 
         tableRowsHtml += `
           <tr>
-            <td>${batchId}</td>
-            <td style="text-align: center;">${activations}</td>
-            <td style="text-align: center;">${trendHtml}</td>
+            <td style="text-align: left;">${batchId}</td>
+            <td style="text-align: center;">${initialChicksCount}</td>
+            <td style="text-align: center;">${chickBoosterKg} kg</td>
+            <td style="text-align: center;">${chickBoosterTrendHtml}</td>
+            <td style="text-align: center;">${broilerStarterKg} kg</td>
+            <td style="text-align: center;">${broilerStarterTrendHtml}</td>
+            <td style="text-align: center;">${broilerFinisherKg} kg</td>
+            <td style="text-align: center;">${broilerFinisherTrendHtml}</td>
             <td style="text-align: center;">${avgFeeding}</td>
             <td style="text-align: center;">${overfeedingDeaths}</td>
             <td style="text-align: center;">${deathsTrendHtml}</td>
@@ -7407,6 +7540,16 @@ export default function AdminAnalytics({ navigation }) {
       });
 
       // Add total row
+      const totalChickBoosterKg = formatKgWithCommas(
+        (totalChickBoosterWeight / 1000).toFixed(2),
+      );
+      const totalBroilerStarterKg = formatKgWithCommas(
+        (totalBroilerStarterWeight / 1000).toFixed(2),
+      );
+      const totalBroilerFinisherKg = formatKgWithCommas(
+        (totalBroilerFinisherWeight / 1000).toFixed(2),
+      );
+
       const totalOverfeedingDeaths = allBatches.reduce(
         (sum, batchId) => sum + (batchOverfeedingDeathsMap[batchId] || 0),
         0,
@@ -7422,16 +7565,62 @@ export default function AdminAnalytics({ navigation }) {
           ? Math.floor(totalAvgFeedingRaw)
           : totalAvgFeedingRaw.toFixed(2);
 
+      const totalInitialChicks = allBatches.reduce(
+        (sum, batchId) => sum + (batchInitialChicksCountMap[batchId] || 0),
+        0,
+      );
+
       tableRowsHtml += `
         <tr style="background-color: #f0f0f0; font-weight: bold;">
-          <td>TOTAL</td>
-          <td style="text-align: center;">${totalSuccessActivations}</td>
+          <td style="text-align: left;">TOTAL</td>
+          <td style="text-align: center;">${totalInitialChicks}</td>
+          <td style="text-align: center;">${totalChickBoosterKg} kg</td>
+          <td style="text-align: center;"></td>
+          <td style="text-align: center;">${totalBroilerStarterKg} kg</td>
+          <td style="text-align: center;"></td>
+          <td style="text-align: center;">${totalBroilerFinisherKg} kg</td>
           <td style="text-align: center;"></td>
           <td style="text-align: center;">${totalAvgFeeding}</td>
           <td style="text-align: center;">${totalOverfeedingDeaths}</td>
           <td style="text-align: center;"></td>
         </tr>
       `;
+
+      // Calculate summary metrics
+      const totalFeedWeight =
+        totalChickBoosterWeight +
+        totalBroilerStarterWeight +
+        totalBroilerFinisherWeight;
+      const feedPerBirdKg =
+        totalInitialChicks > 0
+          ? formatKgWithCommas(
+              (totalFeedWeight / 1000 / totalInitialChicks).toFixed(2),
+            )
+          : "0.00";
+
+      // Find best batch (lowest overfeeding deaths)
+      let bestBatch = allBatches[0];
+      let lowestDeaths = batchOverfeedingDeathsMap[allBatches[0]] || 0;
+      allBatches.forEach((batchId) => {
+        const deaths = batchOverfeedingDeathsMap[batchId] || 0;
+        if (deaths < lowestDeaths) {
+          lowestDeaths = deaths;
+          bestBatch = batchId;
+        }
+      });
+
+      // Find most efficient batch (lowest average daily feedings)
+      let mostEfficientBatch = allBatches[0];
+      let lowestFeedingAvg = parseFloat(
+        batchAverageFeedingMap[allBatches[0]] || 0,
+      );
+      allBatches.forEach((batchId) => {
+        const avgFeeding = parseFloat(batchAverageFeedingMap[batchId] || 0);
+        if (avgFeeding < lowestFeedingAvg) {
+          lowestFeedingAvg = avgFeeding;
+          mostEfficientBatch = batchId;
+        }
+      });
 
       // Generate HTML
       const htmlContent = `
@@ -7493,18 +7682,18 @@ export default function AdminAnalytics({ navigation }) {
             table {
               width: 100%;
               border-collapse: collapse;
-              font-size: 11px;
+              font-size: 10px;
             }
             th {
               background-color: #133E87;
               color: white;
-              padding: 8px;
+              padding: 6px;
               text-align: center;
               border: 1px solid #333;
               font-weight: bold;
             }
             td {
-              padding: 8px;
+              padding: 6px;
               border: 1px solid #ddd;
               color: #333;
             }
@@ -7516,6 +7705,40 @@ export default function AdminAnalytics({ navigation }) {
               font-size: 10px;
               color: #666;
               margin-top: 10px;
+            }
+            .summary-title {
+              font-size: 14px;
+              font-weight: bold;
+              color: #133E87;
+              margin-bottom: 15px;
+              margin-left: 0;
+            }
+            .metrics-container {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 15px;
+              margin-bottom: 30px;
+              font-size: 11px;
+            }
+            .metric-card {
+              padding: 12px;
+              background-color: white;
+              border-left: 5px solid #133E87;
+              border-radius: 3px;
+              text-align: left;
+            }
+            .metric-label {
+              color: #666;
+              font-size: 10px;
+              font-weight: normal;
+              margin-bottom: 8px;
+              line-height: 1.4;
+            }
+            .metric-value {
+              color: #133E87;
+              font-size: 18px;
+              font-weight: bold;
+              margin-bottom: 5px;
             }
           </style>
         </head>
@@ -7533,16 +7756,35 @@ export default function AdminAnalytics({ navigation }) {
             </div>
           </div>
           
+          <div class="summary-title">Summary</div>
+
+          <div class="metrics-container">
+            <div class="metric-card">
+              <div class="metric-label">Average Amount of Feed per Bird </div>
+              <div class="metric-value">${feedPerBirdKg} kg</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Best Batch (Lowest Overfeeding Loss)</div>
+              <div class="metric-value">${bestBatch}</div>
+              <div style="font-size: 9px; color: #666; margin-top: 5px;">Deaths: ${lowestDeaths}</div>
+            </div>
+          </div>
+          
           <div class="table-container">
             <table>
               <thead>
                 <tr>
-                  <th style="width: 80px; text-align: left;">Batch ID</th>
-                  <th style="width: 110px;">Total Activations</th>
-                  <th style="width: 80px;">Trend</th>
-                  <th style="width: 120px;">Avg Daily Feedings</th>
-                  <th style="width: 110px;">Overfeeding Loss</th>
-                  <th style="width: 110px;">Loss Trend</th>
+                  <th style="width: 70px; text-align: left;">Batch ID</th>
+                  <th style="width: 70px;">No. of Chicken</th>
+                  <th style="width: 70px;">Chick Booster</th>
+                  <th style="width: 70px;">Trend</th>
+                  <th style="width: 70px;">Broiler Starter</th>
+                  <th style="width: 70px;">Trend</th>
+                  <th style="width: 70px;">Broiler Finisher</th>
+                  <th style="width: 70px;">Trend</th>
+                  <th style="width: 80px;">Avg Daily Feedings</th>
+                  <th style="width: 70px;">Overfeeding Loss</th>
+                  <th style="width: 80px;">Loss Trend</th>
                 </tr>
               </thead>
               <tbody>
@@ -9945,6 +10187,40 @@ export default function AdminAnalytics({ navigation }) {
     loadWaterBatches();
   }, []);
 
+  // Fetch vitamin batches when component mounts
+  useEffect(() => {
+    const loadVitaminBatches = async () => {
+      setIsFetchingVitaminBatches(true);
+      setVitaminBatchFetchError(null);
+      try {
+        const vitaminBatches = await fetchVitaminBatches();
+        setAvailableVitaminBatches(vitaminBatches);
+        console.log(
+          "[adminAnalytics] Vitamin batches loaded:",
+          vitaminBatches.length,
+        );
+        // Set the first batch as default for vitamin
+        if (vitaminBatches.length > 0) {
+          const firstVitaminBatch = vitaminBatches[0];
+          handleVitaminBatchSelect(firstVitaminBatch);
+          console.log(
+            "[adminAnalytics] First vitamin batch selected:",
+            firstVitaminBatch,
+          );
+        }
+      } catch (error) {
+        console.error(
+          "[adminAnalytics] Error fetching vitamin batches:",
+          error,
+        );
+        setVitaminBatchFetchError("Failed to load vitamin batches");
+      } finally {
+        setIsFetchingVitaminBatches(false);
+      }
+    };
+    loadVitaminBatches();
+  }, []);
+
   // Fetch feed consumption data when batch is selected
   useEffect(() => {
     if (chartFilters["feed"] && chartFilters["feed"].batchId) {
@@ -9972,6 +10248,20 @@ export default function AdminAnalytics({ navigation }) {
       setWaterConsumptionError(null);
     }
   }, [chartFilters["water"]]);
+
+  // Fetch vitamin consumption data when batch is selected
+  useEffect(() => {
+    if (chartFilters["vitamin"] && chartFilters["vitamin"].batchId) {
+      console.log(
+        "[adminAnalytics] useEffect: Fetching vitamin consumption data...",
+        chartFilters["vitamin"].batchId,
+      );
+      fetchVitaminConsumptionByAge(chartFilters["vitamin"].batchId);
+    } else {
+      setVitaminConsumptionData([]);
+      setVitaminConsumptionError(null);
+    }
+  }, [chartFilters["vitamin"]]);
 
   // Note: icon values are MaterialCommunityIcons names
   const metrics = [
@@ -10199,6 +10489,11 @@ export default function AdminAnalytics({ navigation }) {
     setTimeout(() => setActivePointFeed(null), 2000);
   };
 
+  const showPointTooltipVitamin = (point) => {
+    setActivePointVitamin(point);
+    setTimeout(() => setActivePointVitamin(null), 2000);
+  };
+
   const showPointTooltipWater = (point) => {
     setActivePointWater(point);
     setTimeout(() => setActivePointWater(null), 2000);
@@ -10228,6 +10523,16 @@ export default function AdminAnalytics({ navigation }) {
       water: { batchId: batchId },
     }));
     fetchWaterConsumptionByAge(batchId);
+    setFilterModalVisible(false);
+  };
+
+  const handleVitaminBatchSelect = (batchId) => {
+    setSelectedVitaminBatch(batchId);
+    setShowVitaminBatchDropdown(false);
+    setChartFilters((prev) => ({
+      ...prev,
+      vitamin: { batchId: batchId },
+    }));
     setFilterModalVisible(false);
   };
 
@@ -10310,25 +10615,28 @@ export default function AdminAnalytics({ navigation }) {
     ) {
       // Use actual data from Firestore
       const allLabels = feedConsumptionData.map((item) => `Day ${item.age}`);
-      const data = feedConsumptionData.map((item) => item.count);
+      const data = feedConsumptionData.map((item) => item.weight);
 
       // Custom X-axis label logic for feed chart:
-      // ≤6 days: Show all days
-      // 6+ days: Show 4 labels
+      // ≤15 days: Show all days
+      // >15 days: Show ~15 labels with calculated interval
       const totalDataPoints = allLabels.length;
       let labelIndices = [];
 
-      if (totalDataPoints <= 6) {
+      if (totalDataPoints <= 15) {
         // Show all labels
         labelIndices = Array.from({ length: totalDataPoints }, (_, i) => i);
       } else {
-        // Show 4 labels: first, ~1/3, ~2/3, last
-        labelIndices = [
-          0,
-          Math.floor(totalDataPoints / 3),
-          Math.floor((2 * totalDataPoints) / 3),
-          totalDataPoints - 1,
-        ];
+        // Show ~15 labels with interval (e.g., interval=3 for 45 data points)
+        const interval = Math.ceil(totalDataPoints / 15);
+        labelIndices = [];
+        for (let i = 0; i < totalDataPoints; i += interval) {
+          labelIndices.push(i);
+        }
+        // Always include last point
+        if (!labelIndices.includes(totalDataPoints - 1)) {
+          labelIndices.push(totalDataPoints - 1);
+        }
       }
 
       // Create labels array with empty strings for non-label positions
@@ -10391,6 +10699,57 @@ export default function AdminAnalytics({ navigation }) {
       }
 
       // Create labels array with empty strings for non-label positions
+      const labels = allLabels.map((label, index) =>
+        labelIndices.includes(index) ? label : "",
+      );
+
+      return {
+        labels: labels,
+        datasets: [
+          {
+            data: data,
+            color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+          },
+        ],
+      };
+    }
+    // Return empty chart when no batch is selected
+    return {
+      labels: [],
+      datasets: [
+        {
+          data: [],
+          color: (opacity = 1) => `rgba(21,71,133, ${opacity})`,
+        },
+      ],
+    };
+  })();
+
+  // Chart data for Vitamin Consumption
+  const vitaminChartData = (() => {
+    if (
+      vitaminConsumptionData &&
+      vitaminConsumptionData.length > 0 &&
+      chartFilters["vitamin"] &&
+      chartFilters["vitamin"].batchId
+    ) {
+      // Use actual data from Firestore
+      const allLabels = vitaminConsumptionData.map((item) => `Day ${item.age}`);
+      const data = vitaminConsumptionData.map((item) => item.count);
+
+      const totalDataPoints = allLabels.length;
+      let labelIndices = [];
+
+      if (totalDataPoints <= 6) {
+        labelIndices = Array.from({ length: totalDataPoints }, (_, i) => i);
+      } else {
+        // Create labels at interval of 3: indices 0, 3, 6, 9, 12, ...
+        labelIndices = [];
+        for (let i = 0; i < totalDataPoints; i += 3) {
+          labelIndices.push(i);
+        }
+      }
+
       const labels = allLabels.map((label, index) =>
         labelIndices.includes(index) ? label : "",
       );
@@ -11282,7 +11641,7 @@ export default function AdminAnalytics({ navigation }) {
 
         {/* Predator Attacks Chart */}
         <View style={{ width: "100%", marginTop: 12 }}>
-          <Text style={styles.mortalitySectionTitle}>PREDATORS ATTACK</Text>
+          <Text style={styles.mortalitySectionTitle}>PREDATOR ATTACKS</Text>
           <View style={styles.chartHeaderRow}>
             <Text style={styles.chartTitleOutside}>Frequency of Attacks</Text>
             <View style={styles.chartButtonsRow}>
@@ -12321,7 +12680,9 @@ export default function AdminAnalytics({ navigation }) {
                         const point = {
                           index: data.index,
                           value: data.value,
-                          label: feedChartData.labels[data.index],
+                          label:
+                            feedConsumptionData[data.index]?.ageLabel ||
+                            `Day ${data.index + 1}`,
                           x: data.x,
                           y: data.y,
                         };
@@ -12338,6 +12699,7 @@ export default function AdminAnalytics({ navigation }) {
                             left: Math.max(6, activePointFeed.x - 1),
                             top: 0,
                             height: chartHeight,
+                            zIndex: 1000,
                           },
                         ]}
                       >
@@ -12355,8 +12717,14 @@ export default function AdminAnalytics({ navigation }) {
                             styles.tooltipBox,
                             {
                               position: "absolute",
-                              bottom: chartHeight - activePointFeed.y + 10,
+                              ...(activePointFeed.y > 100
+                                ? {
+                                    bottom:
+                                      chartHeight - activePointFeed.y + 10,
+                                  }
+                                : { top: activePointFeed.y + 30 }),
                               left: -40,
+                              zIndex: 1001,
                             },
                           ]}
                         >
@@ -12461,32 +12829,34 @@ export default function AdminAnalytics({ navigation }) {
           </View>
         </View>
 
-        {/* Water Consumption Chart */}
+        {/* Vitamin Consumption Chart */}
         <View style={{ width: "100%", marginTop: 12 }}>
-          <Text style={styles.mortalitySectionTitle}>WATER CONSUMPTION</Text>
+          <Text style={styles.mortalitySectionTitle}>
+            MULTIVITAMIN CONSUMPTION
+          </Text>
           <View style={styles.chartHeaderRow}>
-            <Text style={styles.chartTitleOutside}>Water vs Age</Text>
+            <Text style={styles.chartTitleOutside}>Multivitamin vs Age</Text>
             <View style={styles.chartButtonsRow}>
               <TouchableOpacity
                 style={[
                   styles.chartFilterButton,
-                  pressedBtn === "filter-water" && {
+                  pressedBtn === "filter-vitamin" && {
                     backgroundColor: "#133E87",
                     borderColor: "#133E87",
                   },
                 ]}
                 activeOpacity={0.8}
-                onPressIn={() => setPressedBtn("filter-water")}
+                onPressIn={() => setPressedBtn("filter-vitamin")}
                 onPressOut={() => setPressedBtn(null)}
                 onPress={() => {
-                  setCurrentFilterTarget("water");
+                  setCurrentFilterTarget("vitamin");
                   setFilterModalVisible(true);
                 }}
               >
                 <Text
                   style={[
                     styles.chartFilterText,
-                    pressedBtn === "filter-water" && { color: "#fff" },
+                    pressedBtn === "filter-vitamin" && { color: "#fff" },
                   ]}
                 >
                   Filter
@@ -12496,20 +12866,20 @@ export default function AdminAnalytics({ navigation }) {
               <TouchableOpacity
                 style={[
                   styles.chartExportButton,
-                  pressedBtn === "export-water" && {
+                  pressedBtn === "export-vitamin" && {
                     backgroundColor: "#133E87",
                     borderColor: "#133E87",
                   },
                 ]}
                 activeOpacity={0.8}
-                onPressIn={() => setPressedBtn("export-water")}
+                onPressIn={() => setPressedBtn("export-vitamin")}
                 onPressOut={() => setPressedBtn(null)}
                 onPress={() => generateWaterConsumptionReportPDF()}
               >
                 <Text
                   style={[
                     styles.chartExportText,
-                    pressedBtn === "export-water" && { color: "#fff" },
+                    pressedBtn === "export-vitamin" && { color: "#fff" },
                   ]}
                 >
                   Export
@@ -12519,7 +12889,7 @@ export default function AdminAnalytics({ navigation }) {
           </View>
 
           <View style={styles.chartCard}>
-            {chartFilters["water"] && chartFilters["water"].batchId && (
+            {chartFilters["vitamin"] && chartFilters["vitamin"].batchId && (
               <Text
                 style={{
                   textAlign: "center",
@@ -12528,12 +12898,12 @@ export default function AdminAnalytics({ navigation }) {
                   marginBottom: 8,
                 }}
               >
-                {formatFilterDisplay(chartFilters["water"])}
+                {formatFilterDisplay(chartFilters["vitamin"])}
               </Text>
             )}
 
             {/* Loading State */}
-            {isLoadingWaterConsumption && (
+            {isLoadingVitaminConsumption && (
               <View
                 style={{
                   justifyContent: "center",
@@ -12543,13 +12913,13 @@ export default function AdminAnalytics({ navigation }) {
               >
                 <ActivityIndicator size="large" color="#133E87" />
                 <Text style={{ marginTop: 12, color: "#666", fontSize: 12 }}>
-                  Loading water consumption data...
+                  Loading multivitamin consumption data...
                 </Text>
               </View>
             )}
 
             {/* Error State */}
-            {waterConsumptionError && !isLoadingWaterConsumption && (
+            {vitaminConsumptionError && !isLoadingVitaminConsumption && (
               <View
                 style={{
                   justifyContent: "center",
@@ -12573,18 +12943,27 @@ export default function AdminAnalytics({ navigation }) {
                     textAlign: "center",
                   }}
                 >
-                  {waterConsumptionError}
+                  {vitaminConsumptionError}
                 </Text>
               </View>
             )}
 
-            {!isLoadingWaterConsumption &&
-              !waterConsumptionError &&
-              waterConsumptionData.length > 0 &&
+            {!isLoadingVitaminConsumption &&
+              !vitaminConsumptionError &&
+              vitaminConsumptionData.length > 0 &&
               LineChartComp &&
               (() => {
-                const isScrollable = waterConsumptionData.length > 10;
-                const scrollableWidth = isScrollable
+                // Check if there are more than 10 data points
+                const dataPointCount =
+                  vitaminChartData.datasets &&
+                  vitaminChartData.datasets[0] &&
+                  vitaminChartData.datasets[0].data
+                    ? vitaminChartData.datasets[0].data.length
+                    : 0;
+
+                const hasMoreThan10Dots = dataPointCount > 10;
+
+                const scrollableChartWidth = hasMoreThan10Dots
                   ? Math.max(chartWidth * 3.0, 900)
                   : chartWidth;
 
@@ -12592,12 +12971,12 @@ export default function AdminAnalytics({ navigation }) {
                   <View
                     style={{
                       position: "relative",
-                      width: scrollableWidth,
+                      width: scrollableChartWidth,
                     }}
                   >
                     <LineChartComp
-                      data={waterChartData}
-                      width={scrollableWidth}
+                      data={vitaminChartData}
+                      width={scrollableChartWidth}
                       height={chartHeight}
                       chartConfig={{
                         backgroundGradientFrom: "#ffffff",
@@ -12622,23 +13001,26 @@ export default function AdminAnalytics({ navigation }) {
                         const point = {
                           index: data.index,
                           value: data.value,
-                          label: waterChartData.labels[data.index],
+                          label:
+                            vitaminConsumptionData[data.index]?.ageLabel ||
+                            `Day ${data.index + 1}`,
                           x: data.x,
                           y: data.y,
                         };
-                        showPointTooltipWater(point);
+                        showPointTooltipVitamin(point);
                       }}
                     />
 
-                    {activePointWater !== null && (
+                    {activePointVitamin !== null && (
                       <View
                         pointerEvents="none"
                         style={[
                           styles.tooltipWrapper,
                           {
-                            left: Math.max(6, activePointWater.x - 1),
+                            left: Math.max(6, activePointVitamin.x - 1),
                             top: 0,
                             height: chartHeight,
+                            zIndex: 1000,
                           },
                         ]}
                       >
@@ -12646,8 +13028,8 @@ export default function AdminAnalytics({ navigation }) {
                           style={[
                             styles.tooltipVerticalLine,
                             {
-                              top: activePointWater.y + 4,
-                              height: chartHeight - activePointWater.y - 18,
+                              top: activePointVitamin.y + 4,
+                              height: chartHeight - activePointVitamin.y - 18,
                             },
                           ]}
                         />
@@ -12656,16 +13038,22 @@ export default function AdminAnalytics({ navigation }) {
                             styles.tooltipBox,
                             {
                               position: "absolute",
-                              bottom: chartHeight - activePointWater.y + 10,
+                              ...(activePointVitamin.y > 100
+                                ? {
+                                    bottom:
+                                      chartHeight - activePointVitamin.y + 10,
+                                  }
+                                : { top: activePointVitamin.y + 30 }),
                               left: -40,
+                              zIndex: 1001,
                             },
                           ]}
                         >
                           <Text style={styles.tooltipLabel}>
-                            {activePointWater.label}
+                            {activePointVitamin.label}
                           </Text>
                           <Text style={styles.tooltipValue}>
-                            Activations: {activePointWater.value}
+                            Count: {activePointVitamin.value}
                           </Text>
                         </View>
                       </View>
@@ -12673,7 +13061,7 @@ export default function AdminAnalytics({ navigation }) {
                   </View>
                 );
 
-                return isScrollable ? (
+                return hasMoreThan10Dots ? (
                   <ScrollView
                     horizontal
                     scrollEnabled={true}
@@ -12687,9 +13075,9 @@ export default function AdminAnalytics({ navigation }) {
                 );
               })()}
 
-            {!isLoadingWaterConsumption &&
-              !waterConsumptionError &&
-              waterConsumptionData.length === 0 &&
+            {!isLoadingVitaminConsumption &&
+              !vitaminConsumptionError &&
+              vitaminConsumptionData.length === 0 &&
               LineChartComp && (
                 <View style={{ position: "relative", width: chartWidth }}>
                   <LineChartComp
@@ -13339,9 +13727,177 @@ export default function AdminAnalytics({ navigation }) {
                 </View>
               )}
 
-              {/* Date Range Display - Only for non-feed/non-water filters */}
+              {/* Vitamin batch filter */}
+              {currentFilterTarget === "vitamin" && (
+                <View style={{ paddingHorizontal: 16, paddingVertical: 16 }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: 12,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        fontWeight: "600",
+                        color: "#333",
+                      }}
+                    >
+                      Select a Batch
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => setFilterModalVisible(false)}
+                      style={{
+                        padding: 4,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 24,
+                          color: "#133E87",
+                          fontWeight: "bold",
+                          lineHeight: 24,
+                        }}
+                      >
+                        ✕
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {isFetchingVitaminBatches ? (
+                    <View style={{ padding: 1, alignItems: "center" }}>
+                      <ActivityIndicator size="large" color="#133E87" />
+                      <Text
+                        style={{
+                          marginTop: 8,
+                          color: "#666",
+                          fontSize: 12,
+                        }}
+                      >
+                        Loading batches...
+                      </Text>
+                    </View>
+                  ) : vitaminBatchFetchError ? (
+                    <View
+                      style={{
+                        padding: 16,
+                        backgroundColor: "#ffebee",
+                        borderRadius: 8,
+                      }}
+                    >
+                      <Text style={{ color: "#c62828", fontSize: 12 }}>
+                        {vitaminBatchFetchError}
+                      </Text>
+                    </View>
+                  ) : (
+                    <>
+                      <TouchableOpacity
+                        style={{
+                          borderWidth: 1,
+                          borderColor: "#ddd",
+                          borderRadius: 8,
+                          paddingHorizontal: 12,
+                          paddingVertical: 12,
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                        onPress={() =>
+                          setShowVitaminBatchDropdown(!showVitaminBatchDropdown)
+                        }
+                      >
+                        <Text
+                          style={{
+                            color: selectedVitaminBatch ? "#333" : "#999",
+                            fontSize: 14,
+                          }}
+                        >
+                          {selectedVitaminBatch || "Select a batch"}
+                        </Text>
+                        <Text style={{ color: "#666" }}>▼</Text>
+                      </TouchableOpacity>
+
+                      {showVitaminBatchDropdown && (
+                        <>
+                          <TouchableOpacity
+                            activeOpacity={1}
+                            style={{
+                              position: "absolute",
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              bottom: -5000,
+                              zIndex: 1,
+                            }}
+                            onPress={() => setShowVitaminBatchDropdown(false)}
+                          />
+                          <ScrollView
+                            style={{
+                              borderWidth: 1,
+                              borderColor: "#ddd",
+                              borderTopWidth: 0,
+                              borderBottomLeftRadius: 8,
+                              borderBottomRightRadius: 8,
+                              maxHeight: 300,
+                              marginTop: -1,
+                              zIndex: 2,
+                              backgroundColor: "#fff",
+                            }}
+                            nestedScrollEnabled={true}
+                          >
+                            {availableVitaminBatches.length === 0 ? (
+                              <Text
+                                style={{
+                                  padding: 12,
+                                  color: "#999",
+                                  fontSize: 12,
+                                  textAlign: "center",
+                                }}
+                              >
+                                No batches available
+                              </Text>
+                            ) : (
+                              availableVitaminBatches.map((batch) => (
+                                <TouchableOpacity
+                                  key={batch}
+                                  style={{
+                                    padding: 12,
+                                    borderBottomWidth: 1,
+                                    borderBottomColor: "#eee",
+                                    backgroundColor:
+                                      selectedVitaminBatch === batch
+                                        ? "#e3f2fd"
+                                        : "#fff",
+                                    zIndex: 3,
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    minHeight: 44,
+                                    width: "100%",
+                                  }}
+                                  onPress={() =>
+                                    handleVitaminBatchSelect(batch)
+                                  }
+                                >
+                                  <Text style={{ color: "#333", fontSize: 14 }}>
+                                    {batch}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))
+                            )}
+                          </ScrollView>
+                        </>
+                      )}
+                    </>
+                  )}
+                </View>
+              )}
+
+              {/* Date Range Display - Only for non-feed/non-water/non-vitamin filters */}
               {currentFilterTarget !== "feed" &&
-                currentFilterTarget !== "water" && (
+                currentFilterTarget !== "water" &&
+                currentFilterTarget !== "vitamin" && (
                   <>
                     <View style={styles.dateRangeHeader}>
                       <View style={styles.dateRangeItem}>

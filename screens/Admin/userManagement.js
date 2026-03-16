@@ -1251,29 +1251,18 @@ export default function UserManagement({ navigation }) {
                 </Text>
               ) : null}
 
-              <Text style={styles.editUserLabel}>
-                Email<Text style={styles.requiredAsterisk}> *</Text>
-              </Text>
+              <Text style={styles.editUserLabel}>Email</Text>
               <TextInput
                 style={[
                   styles.editUserInput,
-                  validationErrors.email && styles.editUserInputError,
+                  { backgroundColor: "#f5f5f5", color: "#999" },
                 ]}
                 value={editUser.email}
-                onChangeText={(text) => {
-                  setEditUser({ ...editUser, email: text });
-                  setValidationErrors({
-                    ...validationErrors,
-                    email: validateEmail(text),
-                  });
-                }}
+                editable={false}
                 placeholder="Email"
                 keyboardType="email-address"
                 autoCapitalize="none"
               />
-              {validationErrors.email ? (
-                <Text style={styles.errorText}>{validationErrors.email}</Text>
-              ) : null}
 
               <Text style={styles.editUserLabel}>
                 Mobile Number<Text style={styles.requiredAsterisk}> *</Text>
