@@ -168,28 +168,38 @@ export function NotificationProvider({ children }) {
   };
 
   // Get unread count
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = finalNotifications.filter((n) => !n.read).length;
 
   // Mark a single notification as read
   const markAsRead = (id) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
-    );
+    const newState = { ...readState, [id]: true };
+    setReadState(newState);
+    saveReadState(newState);
   };
 
   // Mark all as read
   const markAllAsRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    const newState = { ...readState };
+    notifications.forEach((n) => {
+      newState[n.id] = true;
+    });
+    setReadState(newState);
+    saveReadState(newState);
   };
 
   // Mark all as unread
   const markAllAsUnread = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: false })));
+    const newState = { ...readState };
+    notifications.forEach((n) => {
+      newState[n.id] = false;
+    });
+    setReadState(newState);
+    saveReadState(newState);
   };
 
   // Toggle all read/unread
   const toggleAllRead = () => {
-    const allRead = notifications.every((n) => n.read);
+    const allRead = finalNotifications.every((n) => n.read);
     if (allRead) {
       markAllAsUnread();
     } else {

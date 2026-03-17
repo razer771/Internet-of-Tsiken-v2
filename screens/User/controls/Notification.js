@@ -12,6 +12,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useNotifications } from "./NotificationContext";
+import Header from "../../navigation/Header";
 
 const PRIMARY = "#133E87";
 const BORDER_LIGHT = "rgba(0,0,0,0.12)";
@@ -298,13 +299,20 @@ export default function Notification() {
     }
   };
 
-  const clearDateFilter = () => setSelectedDate(null);
+  const handleToggleMarkAll = () => {
+    toggleAllRead();
+  };
+
+  const clearDateFilter = () => {
+    setSelectedDate(null);
+  };
 
   return (
     <SafeAreaView style={{ flex: 1 }}>
+      <Header />
       <ScrollView
         style={styles.wrapper}
-        contentContainerStyle={{ paddingBottom: 50 }}
+        contentContainerStyle={{ paddingBottom: 20 }}
       >
         <View style={styles.topRow}>
           <TouchableOpacity
@@ -316,7 +324,7 @@ export default function Notification() {
 
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <TouchableOpacity
-              onPress={toggleAllRead}
+              onPress={handleToggleMarkAll}
               style={[
                 styles.markAllBtn,
                 allRead && { backgroundColor: PRIMARY },
@@ -521,7 +529,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginRight: 8,
-    backgroundColor: "#f7fafc",
+    backgroundColor: "#fff",
   },
   tabs: { flexDirection: "row", marginBottom: 12 },
   tabBtn: {
