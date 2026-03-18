@@ -25,6 +25,8 @@ from datetime import datetime
 from typing import Optional, Dict, List
 import json
 import urllib.request
+import serial
+import glob
 
 # Always import YOLO for fallback
 from ultralytics import YOLO
@@ -63,6 +65,15 @@ IOU_THRESHOLD = 0.45                      # Non-max suppression
 ALERT_WEBHOOK_URL = "https://us-central1-internet-of-tsiken-f0ad4.cloudfunctions.net/notifyPredator"
 ALERT_COOLDOWN_SECONDS = 300  # 5 minutes
 last_alert_times = {}
+
+# Configuration for Solenoid Valve (Arduino Uno via Serial)
+VALVE_SERIAL_PORT = None  # Auto-detect Arduino
+VALVE_BAUD_RATE = 115200
+VALVE_PREDATORS = ["cat", "dog", "rat", "snake"]  # Triggers valve (not mouse)
+VALVE_DETECTION_DURATION = 10.0  # Predator must be detected for 10 seconds continuously
+VALVE_COOLDOWN_SECONDS = 120  # 2 minutes cooldown between activations
+valve_last_trigger_time = {}  # Track last trigger per predator type
+predator_detection_start = {}  # Track when predator was first detected
 
 # ==================== SHARED MEMORY BUFFERS ====================
 
@@ -128,6 +139,7 @@ camera: Optional[Picamera2] = None
 ai_model = None
 running = True
 threads_started = False
+valve_serial: Optional[serial.Serial] = None  # Serial connection to Arduino
 
 # Performance metrics
 producer_fps = 0
@@ -186,6 +198,117 @@ class NCNNDetector:
         # For now, this is a placeholder structure
         
         return detections
+
+# ==================== VALVE CONTROL FUNCTIONS ====================
+
+def detect_arduino_port():
+    """
+    Auto-detect Arduino Uno serial port
+    Returns: Serial port path or None
+    """
+    potential_ports = glob.glob('/dev/ttyUSB*') + glob.glob('/dev/ttyACM*')
+
+    for port in potential_ports:
+        try:
+            ser = serial.Serial(port, VALVE_BAUD_RATE, timeout=2)
+            time.sleep(2)  # Wait for Arduino to reset
+
+            # Test communication
+            ser.write(b'STATUS\n')
+            time.sleep(0.1)
+
+            if ser.in_waiting > 0:
+                response = ser.readline().decode('utf-8', errors='ignore')
+                if 'Valve' in response or 'PREDATOR' in response:
+                    logger.info(f"✅ Arduino detected on {port}")
+                    return ser
+
+            ser.close()
+        except (OSError, serial.SerialException) as e:
+            continue
+
+    logger.warning("⚠️ Arduino Uno not detected. Valve control disabled.")
+    return None
+
+def trigger_valve(predator_type: str):
+    """
+    Send OPEN_VALVE command to Arduino via serial
+    """
+    global valve_serial
+
+    if valve_serial is None:
+        logger.warning(f"🚫 Valve trigger skipped for {predator_type}: No Arduino connection")
+        return False
+
+    try:
+        command = "OPEN_VALVE\n"
+        valve_serial.write(command.encode('utf-8'))
+        valve_serial.flush()
+
+        logger.warning(f"🚨 VALVE TRIGGERED for {predator_type.upper()}!")
+
+        # Read Arduino response (non-blocking)
+        time.sleep(0.05)
+        if valve_serial.in_waiting > 0:
+            response = valve_serial.readline().decode('utf-8', errors='ignore').strip()
+            logger.info(f"   Arduino: {response}")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"❌ Valve trigger failed: {e}")
+        return False
+
+def check_predator_detection(predator_type: str) -> bool:
+    """
+    Check if predator has been detected continuously for VALVE_DETECTION_DURATION
+    Returns True if valve should be triggered
+    """
+    current_time = time.time()
+
+    # Check if predator type triggers valve
+    if predator_type not in VALVE_PREDATORS:
+        return False
+
+    # Initialize detection start time if not exists
+    if predator_type not in predator_detection_start:
+        predator_detection_start[predator_type] = current_time
+        logger.info(f"🔍 {predator_type.upper()} detected - tracking started")
+        return False
+
+    # Calculate how long predator has been detected
+    detection_duration = current_time - predator_detection_start[predator_type]
+
+    # Check if cooldown is active
+    last_trigger = valve_last_trigger_time.get(predator_type, 0)
+    if current_time - last_trigger < VALVE_COOLDOWN_SECONDS:
+        remaining = VALVE_COOLDOWN_SECONDS - (current_time - last_trigger)
+        if detection_duration >= VALVE_DETECTION_DURATION:
+            logger.debug(f"⏳ {predator_type.upper()} cooldown active ({remaining:.0f}s remaining)")
+        return False
+
+    # Check if predator has been present for required duration
+    if detection_duration >= VALVE_DETECTION_DURATION:
+        logger.warning(f"⚠️ {predator_type.upper()} present for {detection_duration:.1f}s - ACTIVATING VALVE!")
+        valve_last_trigger_time[predator_type] = current_time
+        predator_detection_start.pop(predator_type, None)  # Reset tracking
+        return True
+    else:
+        remaining = VALVE_DETECTION_DURATION - detection_duration
+        logger.info(f"⏱️ {predator_type.upper()} tracking: {detection_duration:.1f}s / {VALVE_DETECTION_DURATION}s ({remaining:.1f}s remaining)")
+        return False
+
+def reset_predator_tracking(detected_predators: List[str]):
+    """
+    Reset tracking for predators that are no longer detected
+    """
+    current_predators = set(detected_predators)
+    tracked_predators = list(predator_detection_start.keys())
+
+    for predator in tracked_predators:
+        if predator not in current_predators:
+            logger.info(f"✅ {predator.upper()} no longer detected - reset tracking")
+            predator_detection_start.pop(predator, None)
 
 # ==================== THREAD 1: PRODUCER (CAMERA CAPTURE) ====================
 
@@ -363,27 +486,40 @@ def ai_inference_thread():
                 else:
                     # PyTorch inference
                     results = ai_model(frame, verbose=False, conf=CONFIDENCE_THRESHOLD, iou=IOU_THRESHOLD, imgsz=416)
-                    
+
                     # Extract detections
                     detections_list = []
+                    detected_predators = []  # Track which predators are currently detected
+
                     for det in results[0].boxes:
                         cls_name = det['class'].lower()
+
+                        # Check for all predators (for alerts and tracking)
                         if cls_name in ["cat", "dog", "rat", "mouse", "snake"]:
+                            detected_predators.append(cls_name)
+
+                            # Send push notification (existing logic with 5-min cooldown)
                             current_time = time.time()
                             last_time = last_alert_times.get(cls_name, 0)
-                            
-                            # If 5 minutes have passed since the last alert for this specific predator
+
                             if current_time - last_time > ALERT_COOLDOWN_SECONDS:
                                 logger.warning(f"⚠️ PREDATOR DETECTED: {cls_name.upper()}! Triggering Alert...")
                                 last_alert_times[cls_name] = current_time
                                 send_alert_async(cls_name, det['confidence'])
-                        
+
+                            # Check valve trigger (only for cat, dog, rat, snake - not mouse)
+                            if check_predator_detection(cls_name):
+                                trigger_valve(cls_name)
+
                         detections_list.append({
                             'class': det['class'],
                             'confidence': round(det['confidence'] * 100, 2),
                             'bbox': det['bbox']
                         })
-                
+
+                    # Reset tracking for predators that are no longer detected
+                    reset_predator_tracking(detected_predators)
+
                 inference_time = (time.time() - start_time) * 1000  # ms
                 
                 # Update detection buffer
@@ -568,13 +704,13 @@ def send_alert_async(predator_type, confidence):
 
 def cleanup(signum=None, frame=None):
     """Cleanup resources on shutdown"""
-    global running, camera
-    
+    global running, camera, valve_serial
+
     logger.info("🛑 Shutting down gracefully...")
     running = False
-    
+
     time.sleep(1)  # Give threads time to exit
-    
+
     if camera is not None:
         try:
             camera.stop()
@@ -582,15 +718,24 @@ def cleanup(signum=None, frame=None):
             logger.info("✅ Camera closed successfully")
         except:
             pass
-    
+
+    if valve_serial is not None:
+        try:
+            valve_serial.close()
+            logger.info("✅ Valve serial connection closed")
+        except:
+            pass
+
     sys.exit(0)
 
 def main():
     """Main entry point"""
+    global valve_serial
+
     # Register signal handlers
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
-    
+
     logger.info("=" * 60)
     logger.info("🚀 OPTIMIZED YOLO CAMERA STREAM SERVER")
     logger.info("=" * 60)
@@ -600,7 +745,19 @@ def main():
     logger.info(f"   Target FPS: {TARGET_FPS}")
     logger.info(f"   NCNN Enabled: {NCNN_AVAILABLE}")
     logger.info("=" * 60)
-    
+
+    # Initialize Arduino valve controller
+    logger.info("\n🔌 Detecting Arduino Uno valve controller...")
+    valve_serial = detect_arduino_port()
+    if valve_serial:
+        logger.info(f"   ✅ Valve system ACTIVE on {valve_serial.port}")
+        logger.info(f"   🎯 Predators: {', '.join(VALVE_PREDATORS)}")
+        logger.info(f"   ⏱️  Detection time: {VALVE_DETECTION_DURATION}s")
+        logger.info(f"   ⏳ Cooldown: {VALVE_COOLDOWN_SECONDS}s")
+    else:
+        logger.warning("   ⚠️  Valve system DISABLED (Arduino not found)")
+    logger.info("=" * 60)
+
     # Start all threads
     start_all_threads()
     
