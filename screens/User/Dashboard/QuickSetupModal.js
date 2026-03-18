@@ -125,6 +125,30 @@ const getTodayDateGMT8 = () => {
 };
 
 /**
+ * Get midnight of today in GMT+8 timezone as a Date object
+ * Used for batch startDate to prevent immediate age increment
+ * Ensures daysDiff = 0 throughout the entire day, so age = daysCount
+ */
+const getMidnightTodayGMT8 = () => {
+  const now = new Date();
+  // Convert current time to UTC, then to GMT+8
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  const gmt8Ms = utcMs + 8 * 60 * 60 * 1000;
+  const gmt8Date = new Date(gmt8Ms);
+
+  const year = gmt8Date.getFullYear();
+  const month = String(gmt8Date.getMonth() + 1).padStart(2, "0");
+  const day = String(gmt8Date.getDate()).padStart(2, "0");
+
+  // Create midnight UTC for this date, then adjust for GMT+8 offset
+  const midnightUTC = new Date(`${year}-${month}-${day}T00:00:00Z`);
+  const offset = 8 * 60 * 60 * 1000; // GMT+8 offset in milliseconds
+
+  // Return the UTC time that represents midnight GMT+8
+  return new Date(midnightUTC.getTime() - offset);
+};
+
+/**
  * Save new batch to Firestore
  * Auto-increments batch number and creates document
  */
@@ -151,7 +175,7 @@ const saveBatch = async ({
       daysCount: parseInt(daysCount),
       age: parseInt(daysCount), // Store as 'age' for backward compatibility
       harvestDays: parseInt(harvestDays),
-      startDate: new Date(), // Store as Firestore Timestamp
+      startDate: getMidnightTodayGMT8(), // Store as Firestore Timestamp (midnight GMT+8 to prevent immediate increment)
       startDateFormatted: formatGMT8Timestamp(), // Store formatted version for reference
       lastIncrementDate: getTodayDateGMT8(), // Set to today to prevent immediate increment
       userId: userId,

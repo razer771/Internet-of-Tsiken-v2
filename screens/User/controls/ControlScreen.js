@@ -56,6 +56,13 @@ import {
 } from "../../../modules/SunsetService";
 import { useAdminNotifications } from "../../Admin/AdminNotificationContext";
 import { useNotifications } from "./NotificationContext";
+import {
+  COLORS,
+  MODAL_STYLES,
+  TEXT_STYLES,
+  BUTTON_STYLES,
+  ICON_STYLES,
+} from "./modalsBranding";
 
 const PRIMARY = "#133E87";
 const GREEN = "#249D1D";
@@ -3547,31 +3554,26 @@ export default function ControlScreen({ navigation }) {
         transparent
         animationType="fade"
       >
-        <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Text style={{ fontWeight: "700", fontSize: 16 }}>
-              Delete all schedules?
+        <View style={MODAL_STYLES.overlay}>
+          <View style={MODAL_STYLES.modalCard}>
+            <Text style={ICON_STYLES.confirmIconText}>⚠️</Text>
+            <Text style={TEXT_STYLES.titleLarge}>Delete all schedules?</Text>
+            <Text style={TEXT_STYLES.messageLarge}>
+              This will remove all feeding schedules. This action cannot be
+              undone.
             </Text>
-            <Text style={{ color: "#666", marginTop: 8 }}>
-              This will remove all feeding schedules.
-            </Text>
-            <View style={{ flexDirection: "row", marginTop: 12 }}>
+            <View style={BUTTON_STYLES.actionButtons}>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: "#E5E7EB" }]}
+                style={BUTTON_STYLES.cancelButton}
                 onPress={() => setConfirmDeleteVisible(false)}
               >
-                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>
-                  Cancel
-                </Text>
+                <Text style={BUTTON_STYLES.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.smallActionBtn,
-                  { backgroundColor: "#22C55E", marginLeft: 8 },
-                ]}
+                style={BUTTON_STYLES.negativeButton}
                 onPress={confirmDeleteAll}
               >
-                <Text style={styles.smallActionText}>Delete All</Text>
+                <Text style={BUTTON_STYLES.negativeButtonText}>Delete All</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -3585,29 +3587,24 @@ export default function ControlScreen({ navigation }) {
         transparent
         animationType="fade"
       >
-        <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Text style={{ fontWeight: "700", fontSize: 16 }}>
-              Save schedules?
-            </Text>
-            <Text style={{ color: "#666", marginTop: 8 }}>
+        <View style={MODAL_STYLES.overlay}>
+          <View style={MODAL_STYLES.modalCard}>
+            <Text style={TEXT_STYLES.titleLarge}>Save schedules?</Text>
+            <Text style={TEXT_STYLES.messageLarge}>
               Are you sure you want to save all feeding schedules?
             </Text>
-            <View style={{ flexDirection: "row", marginTop: 12 }}>
+            <View style={BUTTON_STYLES.actionButtons}>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                style={BUTTON_STYLES.cancelButton}
                 onPress={() => setConfirmSaveVisible(false)}
               >
-                <Text style={styles.smallActionText}>Cancel</Text>
+                <Text style={BUTTON_STYLES.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.smallActionBtn,
-                  { backgroundColor: PRIMARY, marginLeft: 8 },
-                ]}
+                style={BUTTON_STYLES.positiveButton}
                 onPress={confirmSaveAll}
               >
-                <Text style={styles.smallActionText}>Yes, Save</Text>
+                <Text style={BUTTON_STYLES.positiveButtonText}>Yes, Save</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -3622,36 +3619,31 @@ export default function ControlScreen({ navigation }) {
         animationType="fade"
         onRequestClose={() => setWarnMorningVisible(false)}
       >
-        <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Text style={{ fontWeight: "700", fontSize: 16 }}>
-              Morning time selected
-            </Text>
-            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+        <View style={MODAL_STYLES.overlay}>
+          <View style={MODAL_STYLES.modalCard}>
+            <Text style={TEXT_STYLES.titleLarge}>Morning time selected</Text>
+            <Text style={TEXT_STYLES.messageLarge}>
               You picked a morning time. Night schedule usually starts in the
               evening. Do you still want to continue?
             </Text>
-            <View style={{ flexDirection: "row", marginTop: 12 }}>
+            <View style={BUTTON_STYLES.actionButtons}>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                style={BUTTON_STYLES.cancelButton}
                 onPress={() => {
                   setWarnMorningVisible(false);
                   setPendingNightTime(null);
                 }}
               >
-                <Text style={styles.smallActionText}>Cancel</Text>
+                <Text style={BUTTON_STYLES.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.smallActionBtn,
-                  { backgroundColor: PRIMARY, marginLeft: 8 },
-                ]}
+                style={BUTTON_STYLES.positiveButton}
                 onPress={() => {
                   setWarnMorningVisible(false);
                   setConfirmNightSaveVisible(true);
                 }}
               >
-                <Text style={styles.smallActionText}>Continue</Text>
+                <Text style={BUTTON_STYLES.positiveButtonText}>Continue</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -3666,31 +3658,26 @@ export default function ControlScreen({ navigation }) {
         animationType="fade"
         onRequestClose={() => setConfirmNightSaveVisible(false)}
       >
-        <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Text style={{ fontWeight: "700", fontSize: 16 }}>
-              Save night time?
-            </Text>
-            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+        <View style={MODAL_STYLES.overlay}>
+          <View style={MODAL_STYLES.modalCard}>
+            <Text style={TEXT_STYLES.titleLarge}>Save night time?</Text>
+            <Text style={TEXT_STYLES.messageLarge}>
               Are you sure you want to save{" "}
               {pendingNightTime ? fmtTime(pendingNightTime) : ""} as the night
               schedule?
             </Text>
-            <View style={{ flexDirection: "row", marginTop: 12 }}>
+            <View style={BUTTON_STYLES.actionButtons}>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: "#999" }]}
+                style={BUTTON_STYLES.cancelButton}
                 onPress={() => {
                   setConfirmNightSaveVisible(false);
                   setPendingNightTime(null);
                 }}
               >
-                <Text style={styles.smallActionText}>Cancel</Text>
+                <Text style={BUTTON_STYLES.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.smallActionBtn,
-                  { backgroundColor: PRIMARY, marginLeft: 8 },
-                ]}
+                style={BUTTON_STYLES.positiveButton}
                 onPress={async () => {
                   if (!pendingNightTime) {
                     setConfirmNightSaveVisible(false);
@@ -3702,7 +3689,7 @@ export default function ControlScreen({ navigation }) {
                   setPendingNightTime(null);
                 }}
               >
-                <Text style={styles.smallActionText}>Yes, Save</Text>
+                <Text style={BUTTON_STYLES.positiveButtonText}>Yes, Save</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -3721,37 +3708,30 @@ export default function ControlScreen({ navigation }) {
           setPendingFeedTime(null);
         }}
       >
-        <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Text style={{ fontWeight: "700", fontSize: 16 }}>
-              Save feeding time?
-            </Text>
-            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+        <View style={MODAL_STYLES.overlay}>
+          <View style={MODAL_STYLES.modalCard}>
+            <Text style={TEXT_STYLES.titleLarge}>Save feeding time?</Text>
+            <Text style={TEXT_STYLES.messageLarge}>
               Are you sure you want to save{" "}
               {pendingFeedTime ? fmtTime(pendingFeedTime) : ""} as a feeding
               schedule?
             </Text>
-            <View style={{ flexDirection: "row", marginTop: 12 }}>
+            <View style={BUTTON_STYLES.actionButtons}>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: "#E5E7EB" }]}
+                style={BUTTON_STYLES.cancelButton}
                 onPress={() => {
                   setConfirmFeedSaveVisible(false);
                   setShowFeedAddPicker(false);
                   setPendingFeedTime(null);
                 }}
               >
-                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>
-                  Cancel
-                </Text>
+                <Text style={BUTTON_STYLES.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.smallActionBtn,
-                  { backgroundColor: "#22C55E", marginLeft: 8 },
-                ]}
+                style={BUTTON_STYLES.positiveButton}
                 onPress={confirmAddFeed}
               >
-                <Text style={styles.smallActionText}>Yes, Save</Text>
+                <Text style={BUTTON_STYLES.positiveButtonText}>Yes, Save</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -3766,23 +3746,20 @@ export default function ControlScreen({ navigation }) {
         animationType="fade"
         onRequestClose={() => setShowDuplicateModal(false)}
       >
-        <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Text style={{ fontWeight: "700", fontSize: 16 }}>
-              Duplicate time
+        <View style={MODAL_STYLES.overlay}>
+          <View style={MODAL_STYLES.modalCard}>
+            <Text style={TEXT_STYLES.titleLarge}>Duplicate time</Text>
+            <Text style={TEXT_STYLES.messageLarge}>
+              Time already exists. Choose a different time.
             </Text>
-            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
-              That feeding time already exists. Please choose a different time.
-            </Text>
-            <TouchableOpacity
-              style={[
-                styles.smallActionBtn,
-                { backgroundColor: PRIMARY, marginTop: 12 },
-              ]}
-              onPress={() => setShowDuplicateModal(false)}
-            >
-              <Text style={styles.smallActionText}>Close</Text>
-            </TouchableOpacity>
+            <View style={[BUTTON_STYLES.actionButtons, { marginTop: 12 }]}>
+              <TouchableOpacity
+                style={BUTTON_STYLES.positiveButton}
+                onPress={() => setShowDuplicateModal(false)}
+              >
+                <Text style={BUTTON_STYLES.positiveButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -3798,31 +3775,24 @@ export default function ControlScreen({ navigation }) {
           setFeedEdit({ open: false, idx: null, timeDate: new Date() });
         }}
       >
-        <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Text style={{ fontWeight: "700", fontSize: 16 }}>
-              Confirm Edit
-            </Text>
-            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+        <View style={MODAL_STYLES.overlay}>
+          <View style={MODAL_STYLES.modalCard}>
+            <Text style={TEXT_STYLES.titleLarge}>Confirm Edit</Text>
+            <Text style={TEXT_STYLES.messageLarge}>
               Do you want to save changes to this schedule?
             </Text>
-            <View style={{ flexDirection: "row", marginTop: 12 }}>
+            <View style={BUTTON_STYLES.actionButtons}>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: "#E5E7EB" }]}
+                style={BUTTON_STYLES.cancelButton}
                 onPress={() => {
                   setConfirmEditVisible(false);
                   setFeedEdit({ open: false, idx: null, timeDate: new Date() });
                 }}
               >
-                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>
-                  Cancel
-                </Text>
+                <Text style={BUTTON_STYLES.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.smallActionBtn,
-                  { backgroundColor: "#22C55E", marginLeft: 8 },
-                ]}
+                style={BUTTON_STYLES.positiveButton}
                 onPress={() => {
                   if (feedEdit.open) {
                     saveFeedEdit();
@@ -3831,7 +3801,7 @@ export default function ControlScreen({ navigation }) {
                   }
                 }}
               >
-                <Text style={styles.smallActionText}>Confirm</Text>
+                <Text style={BUTTON_STYLES.positiveButtonText}>Confirm</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -3846,34 +3816,28 @@ export default function ControlScreen({ navigation }) {
         animationType="fade"
         onRequestClose={() => setConfirmDeleteFeedVisible(false)}
       >
-        <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Text style={{ fontWeight: "700", fontSize: 16 }}>
-              Confirm Delete
+        <View style={MODAL_STYLES.overlay}>
+          <View style={MODAL_STYLES.modalCard}>
+            <Text style={TEXT_STYLES.titleLarge}>Confirm Delete</Text>
+            <Text style={TEXT_STYLES.messageLarge}>
+              Are you sure you want to delete this feeding schedule? This action
+              cannot be undone.
             </Text>
-            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
-              Are you sure you want to delete this schedule?
-            </Text>
-            <View style={{ flexDirection: "row", marginTop: 12 }}>
+            <View style={BUTTON_STYLES.actionButtons}>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: "#E5E7EB" }]}
+                style={BUTTON_STYLES.cancelButton}
                 onPress={() => {
                   setConfirmDeleteFeedVisible(false);
                   setPendingDeleteFeedId(null);
                 }}
               >
-                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>
-                  Cancel
-                </Text>
+                <Text style={BUTTON_STYLES.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.smallActionBtn,
-                  { backgroundColor: "#22C55E", marginLeft: 8 },
-                ]}
+                style={BUTTON_STYLES.negativeButton}
                 onPress={confirmDeleteFeed}
               >
-                <Text style={styles.smallActionText}>Delete</Text>
+                <Text style={BUTTON_STYLES.negativeButtonText}>Delete</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -3887,31 +3851,25 @@ export default function ControlScreen({ navigation }) {
         animationType="fade"
         onRequestClose={() => setConfirmDeleteWaterVisible(false)}
       >
-        <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Text style={{ fontWeight: "700", fontSize: 16 }}>
-              Confirm Delete
+        <View style={MODAL_STYLES.overlay}>
+          <View style={MODAL_STYLES.modalCard}>
+            <Text style={TEXT_STYLES.titleLarge}>Confirm Delete</Text>
+            <Text style={TEXT_STYLES.messageLarge}>
+              Are you sure you want to delete this watering schedule? This
+              action cannot be undone.
             </Text>
-            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
-              Are you sure you want to delete this watering schedule?
-            </Text>
-            <View style={{ flexDirection: "row", marginTop: 12 }}>
+            <View style={BUTTON_STYLES.actionButtons}>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: "#E5E7EB" }]}
+                style={BUTTON_STYLES.cancelButton}
                 onPress={() => setConfirmDeleteWaterVisible(false)}
               >
-                <Text style={[styles.smallActionText, { color: "#1F2937" }]}>
-                  Cancel
-                </Text>
+                <Text style={BUTTON_STYLES.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.smallActionBtn,
-                  { backgroundColor: "#22C55E", marginLeft: 8 },
-                ]}
+                style={BUTTON_STYLES.negativeButton}
                 onPress={confirmDeleteWater}
               >
-                <Text style={styles.smallActionText}>Delete</Text>
+                <Text style={BUTTON_STYLES.negativeButtonText}>Delete</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -3926,23 +3884,20 @@ export default function ControlScreen({ navigation }) {
         animationType="fade"
         onRequestClose={() => setShowDuplicateWaterModal(false)}
       >
-        <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Text style={{ fontWeight: "700", fontSize: 16 }}>
-              Duplicate time
+        <View style={MODAL_STYLES.overlay}>
+          <View style={MODAL_STYLES.modalCard}>
+            <Text style={TEXT_STYLES.titleLarge}>Duplicate time</Text>
+            <Text style={TEXT_STYLES.messageLarge}>
+              Time already exists. Choose a different time.
             </Text>
-            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
-              That watering time already exists. Please choose a different time.
-            </Text>
-            <TouchableOpacity
-              style={[
-                styles.smallActionBtn,
-                { backgroundColor: PRIMARY, marginTop: 12 },
-              ]}
-              onPress={() => setShowDuplicateWaterModal(false)}
-            >
-              <Text style={styles.smallActionText}>Close</Text>
-            </TouchableOpacity>
+            <View style={[BUTTON_STYLES.actionButtons, { marginTop: 12 }]}>
+              <TouchableOpacity
+                style={BUTTON_STYLES.positiveButton}
+                onPress={() => setShowDuplicateWaterModal(false)}
+              >
+                <Text style={BUTTON_STYLES.positiveButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -3955,36 +3910,29 @@ export default function ControlScreen({ navigation }) {
         animationType="fade"
         onRequestClose={() => setConfirmWaterAddVisible(false)}
       >
-        <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Text style={{ fontWeight: "700", fontSize: 16 }}>
-              Save watering time?
-            </Text>
-            <Text style={{ color: "#666", marginTop: 8, textAlign: "center" }}>
+        <View style={MODAL_STYLES.overlay}>
+          <View style={MODAL_STYLES.modalCard}>
+            <Text style={TEXT_STYLES.titleLarge}>Save watering time?</Text>
+            <Text style={TEXT_STYLES.messageLarge}>
               Are you sure you want to save{" "}
               {pendingWaterTime ? fmtTime(pendingWaterTime) : ""} as a watering
               schedule?
             </Text>
-            <View style={{ flexDirection: "row", marginTop: 12 }}>
+            <View style={BUTTON_STYLES.actionButtons}>
               <TouchableOpacity
-                style={[styles.smallActionBtn, { backgroundColor: "#e5e7eb" }]}
+                style={BUTTON_STYLES.cancelButton}
                 onPress={() => {
                   setConfirmWaterAddVisible(false);
                   setPendingWaterTime(null);
                 }}
               >
-                <Text style={[styles.smallActionText, { color: "#334155" }]}>
-                  Cancel
-                </Text>
+                <Text style={BUTTON_STYLES.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.smallActionBtn,
-                  { backgroundColor: "#22c55e", marginLeft: 8 },
-                ]}
+                style={BUTTON_STYLES.positiveButton}
                 onPress={confirmAddWater}
               >
-                <Text style={styles.smallActionText}>Yes, Save</Text>
+                <Text style={BUTTON_STYLES.positiveButtonText}>Yes, Save</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -3998,10 +3946,10 @@ export default function ControlScreen({ navigation }) {
         transparent
         animationType="fade"
       >
-        <View style={styles.popupBackground}>
-          <View style={styles.popupBox}>
-            <Ionicons name="checkmark-circle" size={56} color="#22c55e" />
-            <Text style={styles.popupText}>{popupMessage}</Text>
+        <View style={MODAL_STYLES.overlay}>
+          <View style={MODAL_STYLES.successModalCard}>
+            <Ionicons name="checkmark-circle" size={64} color="#22c55e" />
+            <Text style={TEXT_STYLES.successTitle}>{popupMessage}</Text>
           </View>
         </View>
       </Modal>

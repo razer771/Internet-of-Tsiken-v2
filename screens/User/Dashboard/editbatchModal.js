@@ -459,7 +459,7 @@ export default function EditBatchModal({
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Number of Days</Text>
+            <Text style={styles.inputLabel}>Age (Days Old)</Text>
             <TextInput
               style={styles.input}
               placeholder="Enter number of days"

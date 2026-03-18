@@ -92,9 +92,13 @@ export default function AdminDashboard() {
       const brooderRef = collection(db, "brooderInfo");
       const brooderSnapshot = await getDocs(brooderRef);
 
-      // Step 1: Sum all alive chicks from brooderInfo
+      // Step 1: Sum all alive chicks from brooderInfo (excluding harvest batches)
       brooderSnapshot.forEach((doc) => {
         const data = doc.data();
+        // Skip harvest batches
+        if (data.status === "harvest") {
+          return;
+        }
         batchCount++;
         const chicksCount = data.chicksCount || 0;
         totalAliveChicks += chicksCount;

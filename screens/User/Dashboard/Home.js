@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
@@ -13,6 +13,7 @@ import {
   Image,
   ImageBackground,
   Platform,
+  Pressable,
 } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import ChickIcon from "./ChickIcon";
@@ -242,6 +243,71 @@ const updateBrooderCardFromBatch = (
   }
 };
 
+/**
+ * Check if more than 2 days have passed since batch start date
+ * @param {Object} batch - Batch document with startDate field
+ * @returns {boolean} True if 2 or more days have passed since start date, false otherwise
+ */
+const isMoreThan2DaysAfterStart = (batch) => {
+  try {
+    if (!batch || !batch.startDate) {
+      return false;
+    }
+
+    // Convert Firestore timestamp to Date if needed
+    let startDate = batch.startDate;
+    if (batch.startDate && typeof batch.startDate.toDate === "function") {
+      startDate = batch.startDate.toDate();
+    } else if (!(batch.startDate instanceof Date)) {
+      startDate = new Date(batch.startDate);
+    }
+
+    const now = new Date();
+    const diffMs = now - startDate;
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+
+    return diffDays >= 2;
+  } catch (error) {
+    console.error("[IsMoreThan2DaysAfterStart] Error:", error);
+    return false;
+  }
+};
+
+/**
+ * Check if a batch is ready for harvest (age >= harvestDays)
+ * @param {Object} batch - Batch document with daysCount and harvestDays fields
+ * @returns {boolean} True if batch age equals or exceeds harvest days, false otherwise
+ */
+const isBatchReadyForHarvest = (batch) => {
+  try {
+    if (!batch) {
+      return false;
+    }
+
+    const daysCount = parseInt(batch.daysCount) || 0;
+    const harvestDays = parseInt(batch.harvestDays) || 0;
+    const status = batch.status || "active";
+
+    // Only consider active batches
+    if (status === "harvest") {
+      return false;
+    }
+
+    const isReady = daysCount >= harvestDays && harvestDays > 0;
+
+    if (isReady) {
+      console.log(
+        `[IsBatchReadyForHarvest] Batch ${batch.batchNumber} is ready for harvest: ${daysCount} >= ${harvestDays}`,
+      );
+    }
+
+    return isReady;
+  } catch (error) {
+    console.error("[IsBatchReadyForHarvest] Error:", error);
+    return false;
+  }
+};
+
 class ErrorBoundary extends React.Component {
   state = { hasError: false, err: null };
   static getDerivedStateFromError(error) {
@@ -304,6 +370,15 @@ export default function QuickOverviewSetup({ navigation }) {
   });
   const [loadingBrooderInfo, setLoadingBrooderInfo] = useState(false);
   const [brooderInfoError, setBrooderInfoError] = useState(null);
+  const [showHarvestReadyModal, setShowHarvestReadyModal] = useState(false);
+  const [harvestReadyBatchInfo, setHarvestReadyBatchInfo] = useState({
+    id: "",
+    number: "",
+    daysCount: 0,
+    harvestDays: 0,
+    chicksCount: 0,
+  });
+  const [showHarvestConfirmation, setShowHarvestConfirmation] = useState(false);
   const sensorListenerRef = useRef(null);
   const resetBrooderUI = async () => {
     setChicksCount("0");
@@ -322,6 +397,54 @@ export default function QuickOverviewSetup({ navigation }) {
 
     console.log("[Brooder] UI reset (no batches)");
   };
+
+  // Check if there are more harvest-ready batches and show the next one
+  const checkAndShowNextHarvestReadyBatch = useCallback((updatedBatches) => {
+    try {
+      if (!updatedBatches || updatedBatches.length === 0) {
+        console.log("[CheckNextHarvest] No batches available");
+        return false;
+      }
+
+      console.log(
+        `[CheckNextHarvest] Checking ${updatedBatches.length} batches for harvest readiness`,
+      );
+
+      // Find the next batch that is ready for harvest
+      for (const batch of updatedBatches) {
+        console.log(
+          `[CheckNextHarvest] Batch ${batch.batchNumber}: status=${batch.status}, daysCount=${batch.daysCount}, harvestDays=${batch.harvestDays}`,
+        );
+
+        if (isBatchReadyForHarvest(batch)) {
+          console.log(
+            `[CheckNextHarvest] Found next harvest-ready batch: ${batch.batchNumber}`,
+          );
+
+          setHarvestReadyBatchInfo({
+            id: batch.id,
+            number: batch.batchNumber || batch.batchNo || "Unknown",
+            daysCount: batch.daysCount || 0,
+            harvestDays: batch.harvestDays || 0,
+            chicksCount: batch.chicksCount || 0,
+          });
+          setShowHarvestReadyModal(true);
+
+          return true;
+        } else {
+          console.log(
+            `[CheckNextHarvest] Batch ${batch.batchNumber} is NOT ready for harvest`,
+          );
+        }
+      }
+
+      console.log("[CheckNextHarvest] No more harvest-ready batches found");
+      return false;
+    } catch (error) {
+      console.error("[CheckNextHarvest] Error:", error);
+      return false;
+    }
+  }, []);
 
   // Load saved data when component mounts
   useEffect(() => {
@@ -433,6 +556,48 @@ export default function QuickOverviewSetup({ navigation }) {
       setTodayDate(formattedDate);
 
       console.log("[App] Mounted and batches initialized");
+
+      // Check for harvest ready batches immediately after initialization
+      try {
+        const todayGMT8 = getTodayDateGMT8();
+        const lastHarvestModalShowDate = await AsyncStorage.getItem(
+          "lastHarvestModalShowDate",
+        );
+
+        // Only show if we haven't shown the modal today
+        if (lastHarvestModalShowDate !== todayGMT8) {
+          const allBatches = await fetchBatches();
+          if (allBatches && allBatches.length > 0) {
+            // Check each batch for harvest readiness
+            for (const batch of allBatches) {
+              if (isBatchReadyForHarvest(batch)) {
+                console.log(
+                  `[App] Showing harvest ready modal for Batch ${batch.batchNumber} on first login`,
+                );
+
+                setHarvestReadyBatchInfo({
+                  id: batch.id,
+                  number: batch.batchNumber || batch.batchNo || "Unknown",
+                  daysCount: batch.daysCount || 0,
+                  harvestDays: batch.harvestDays || 0,
+                  chicksCount: batch.chicksCount || 0,
+                });
+                setShowHarvestReadyModal(true);
+
+                // Record that we've shown the harvest modal today
+                await AsyncStorage.setItem(
+                  "lastHarvestModalShowDate",
+                  todayGMT8,
+                );
+
+                break; // Only show one harvest modal at a time
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error("[App] Error checking harvest readiness:", error);
+      }
     };
 
     initializeApp();
@@ -443,6 +608,7 @@ export default function QuickOverviewSetup({ navigation }) {
         incrementAllBatchesIfEligible();
       }
     }, 60000); // Check every 60 seconds
+
     return () => {
       clearInterval(interval);
       // Unsubscribe from Firestore listener on unmount
@@ -565,11 +731,195 @@ export default function QuickOverviewSetup({ navigation }) {
         } catch (error) {
           console.error("[ScreenFocus] Error refreshing batch:", error);
         }
+
+        // Check if any active batches are ready for harvest
+        try {
+          const todayGMT8 = getTodayDateGMT8();
+          const lastHarvestModalShowDate = await AsyncStorage.getItem(
+            "lastHarvestModalShowDate",
+          );
+
+          console.log(
+            `[ScreenFocus] Harvest check - Today: ${todayGMT8}, Last shown: ${lastHarvestModalShowDate}`,
+          );
+
+          // Only check if we haven't shown the modal today
+          if (lastHarvestModalShowDate !== todayGMT8) {
+            console.log(
+              "[ScreenFocus] Date condition passed, checking batches for harvest readiness",
+            );
+            const allBatches = await fetchBatches();
+            console.log(
+              `[ScreenFocus] Fetched ${allBatches?.length || 0} batches`,
+            );
+
+            if (allBatches && allBatches.length > 0) {
+              // Check each batch for harvest readiness
+              for (const batch of allBatches) {
+                console.log(
+                  `[ScreenFocus] Checking batch ${batch.batchNumber}: status=${batch.status}, daysCount=${batch.daysCount}, harvestDays=${batch.harvestDays}`,
+                );
+
+                if (isBatchReadyForHarvest(batch)) {
+                  console.log(
+                    `[ScreenFocus] Showing harvest ready modal for Batch ${batch.batchNumber}`,
+                  );
+
+                  setHarvestReadyBatchInfo({
+                    id: batch.id,
+                    number: batch.batchNumber || batch.batchNo || "Unknown",
+                    daysCount: batch.daysCount || 0,
+                    harvestDays: batch.harvestDays || 0,
+                    chicksCount: batch.chicksCount || 0,
+                  });
+                  setShowHarvestReadyModal(true);
+
+                  // Record that we've shown the harvest modal today
+                  await AsyncStorage.setItem(
+                    "lastHarvestModalShowDate",
+                    todayGMT8,
+                  );
+
+                  break; // Only show one harvest modal at a time
+                } else {
+                  console.log(
+                    `[ScreenFocus] Batch ${batch.batchNumber} not ready: isBatchReadyForHarvest returned false`,
+                  );
+                }
+              }
+            } else {
+              console.log("[ScreenFocus] No batches found to check");
+            }
+          } else {
+            console.log(
+              "[ScreenFocus] Modal already shown today, skipping harvest check",
+            );
+          }
+        } catch (error) {
+          console.error(
+            "[ScreenFocus] Error checking harvest readiness:",
+            error,
+          );
+        }
       };
 
       refreshSelectedBatch();
     }, []),
   );
+
+  // ==================== AUTH STATE LISTENER: TRIGGER HARVEST CHECK ON LOGIN ====================
+  /**
+   * Monitor auth state changes to detect when user logs in
+   * When a new user authenticates, trigger harvest readiness check
+   * This ensures the harvest modal shows on logout/login flow and for different users
+   * Key: Clears harvest modal date flag when user changes, allowing new users to see modal
+   */
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        const currentUserId = user.uid;
+        console.log("[AuthChange] User authenticated:", currentUserId);
+
+        // Check if this is a different user (logout/login scenario)
+        const previousUserId = await AsyncStorage.getItem(
+          "lastAuthenticatedUserId",
+        );
+
+        if (previousUserId !== currentUserId) {
+          console.log(
+            `[AuthChange] User changed from ${previousUserId} to ${currentUserId}, clearing harvest modal date flag`,
+          );
+          // Clear the harvest modal date flag for new user
+          await AsyncStorage.removeItem("lastHarvestModalShowDate");
+          // Store the new user ID
+          await AsyncStorage.setItem("lastAuthenticatedUserId", currentUserId);
+        } else {
+          console.log(
+            `[AuthChange] Same user re-authenticated (${currentUserId}), keeping harvest date flag`,
+          );
+        }
+
+        // Trigger harvest readiness check on new authentication
+        try {
+          const todayGMT8 = getTodayDateGMT8();
+          const lastHarvestModalShowDate = await AsyncStorage.getItem(
+            "lastHarvestModalShowDate",
+          );
+
+          console.log(
+            `[AuthChange] Harvest check - Today: ${todayGMT8}, Last shown: ${lastHarvestModalShowDate}`,
+          );
+
+          // Only show if we haven't shown the modal today
+          if (lastHarvestModalShowDate !== todayGMT8) {
+            console.log(
+              "[AuthChange] Date condition passed, fetching batches for harvest check",
+            );
+            const allBatches = await fetchBatches();
+            console.log(
+              `[AuthChange] Fetched ${allBatches?.length || 0} batches`,
+            );
+
+            if (allBatches && allBatches.length > 0) {
+              // Check each batch for harvest readiness
+              for (const batch of allBatches) {
+                console.log(
+                  `[AuthChange] Checking batch ${batch.batchNumber}: status=${batch.status}, daysCount=${batch.daysCount}, harvestDays=${batch.harvestDays}`,
+                );
+
+                if (isBatchReadyForHarvest(batch)) {
+                  console.log(
+                    `[AuthChange] Batch ${batch.batchNumber} is ready for harvest! Showing modal.`,
+                  );
+
+                  setHarvestReadyBatchInfo({
+                    id: batch.id,
+                    number: batch.batchNumber || batch.batchNo || "Unknown",
+                    daysCount: batch.daysCount || 0,
+                    harvestDays: batch.harvestDays || 0,
+                    chicksCount: batch.chicksCount || 0,
+                  });
+                  setShowHarvestReadyModal(true);
+
+                  // Record that we've shown the harvest modal today
+                  await AsyncStorage.setItem(
+                    "lastHarvestModalShowDate",
+                    todayGMT8,
+                  );
+
+                  break; // Only show one harvest modal at a time
+                } else {
+                  console.log(
+                    `[AuthChange] Batch ${batch.batchNumber} not ready: isBatchReadyForHarvest returned false`,
+                  );
+                }
+              }
+            } else {
+              console.log("[AuthChange] No batches found to check");
+            }
+          } else {
+            console.log(
+              "[AuthChange] Modal already shown today, skipping harvest check",
+            );
+          }
+        } catch (error) {
+          console.error(
+            "[AuthChange] Error checking harvest readiness:",
+            error,
+          );
+        }
+      } else {
+        console.log(
+          "[AuthChange] User logged out, clearing harvest modal date flag",
+        );
+        // Clear the harvest modal date flag on logout
+        // This ensures that when any user logs in again, the modal will show
+        await AsyncStorage.removeItem("lastHarvestModalShowDate");
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   // ==================== SYNC SELECTED BATCH INDEX ====================
   /**
@@ -1079,9 +1429,13 @@ export default function QuickOverviewSetup({ navigation }) {
       });
       setShowHarvestedBatchModal(true);
 
-      // Auto-close modal after 1.5 seconds
-      setTimeout(() => {
+      // Auto-close modal after 1.5 seconds and check for next harvest-ready batch
+      setTimeout(async () => {
         setShowHarvestedBatchModal(false);
+        // Refetch the latest batches to ensure we have updated status
+        const latestBatches = await fetchBatches();
+        // Check if there's another batch ready for harvest and show it
+        checkAndShowNextHarvestReadyBatch(latestBatches || []);
       }, 1500);
 
       return true;
@@ -1800,31 +2154,56 @@ export default function QuickOverviewSetup({ navigation }) {
 
   const handleSaveBatch = async (batchData) => {
     try {
-      const newBatch = {
-        batchNo: batchData.batchNo || "-",
-        chicksCount: batchData.chicksCount,
-        daysCount: batchData.daysCount,
-        harvestDays: batchData.harvestDays,
-        startDate: new Date().toISOString(),
-      };
+      // Wait a brief moment to ensure Firestore has processed the batch creation
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
-      let batchArr = batches.slice();
-      batchArr.push(newBatch);
-      const newIndex = batchArr.length - 1;
+      // Refetch all batches from Firestore to get the newly created batch with its ID
+      const updatedBatches = await fetchBatches();
+      console.log(
+        "[HandleSaveBatch] Refetched batches after creation:",
+        updatedBatches ? updatedBatches.length : 0,
+      );
 
-      setBatches(batchArr);
-      setSelectedBatchIndex(newIndex);
-      setChicksCount(batchData.chicksCount);
-      setDaysCount(batchData.daysCount);
-      setHarvestDays(batchData.harvestDays);
-      setHasBatchData(true);
+      if (updatedBatches && updatedBatches.length > 0) {
+        // The newly created batch should be the latest one (first in the array)
+        // based on the fetchBatches query ordering
+        const newlyCreatedBatch = updatedBatches[0];
 
-      await AsyncStorage.setItem("batches", JSON.stringify(batchArr));
-      await AsyncStorage.setItem("selectedBatchIndex", String(newIndex));
-      await AsyncStorage.setItem("chicksCount", batchData.chicksCount);
-      await AsyncStorage.setItem("daysCount", batchData.daysCount);
-      await AsyncStorage.setItem("harvestDays", batchData.harvestDays);
-      await AsyncStorage.setItem("batchStartDate", newBatch.startDate);
+        // Update state with fetched batches
+        setBatches(updatedBatches);
+        setSelectedBatchIndex(0); // First batch is the newly created one
+        setChicksCount(String(newlyCreatedBatch.chicksCount || 0));
+        setDaysCount(String(newlyCreatedBatch.daysCount || 0));
+        setHarvestDays(String(newlyCreatedBatch.harvestDays || 0));
+        setHasBatchData(true);
+
+        // Save selected batch ID and index to AsyncStorage
+        await setSelectedBatch(newlyCreatedBatch.id);
+        await AsyncStorage.setItem("selectedBatchIndex", "0");
+        await AsyncStorage.setItem(
+          "chicksCount",
+          String(newlyCreatedBatch.chicksCount || 0),
+        );
+        await AsyncStorage.setItem(
+          "daysCount",
+          String(newlyCreatedBatch.daysCount || 0),
+        );
+        await AsyncStorage.setItem(
+          "harvestDays",
+          String(newlyCreatedBatch.harvestDays || 0),
+        );
+        await AsyncStorage.setItem(
+          "batchStartDate",
+          newlyCreatedBatch.startDate || "",
+        );
+
+        console.log(
+          "[HandleSaveBatch] Successfully set newly created batch as selected:",
+          newlyCreatedBatch.id,
+        );
+      } else {
+        console.warn("[HandleSaveBatch] No batches found after creation");
+      }
     } catch (error) {
       console.error("Error saving batch:", error);
     }
@@ -2126,7 +2505,11 @@ export default function QuickOverviewSetup({ navigation }) {
                   styles.editBtn,
                   (chicksCount === "0" ||
                     (selectedBatchIndex !== null &&
-                      batches[selectedBatchIndex]?.mortalityCount > 0)) &&
+                      batches[selectedBatchIndex]?.mortalityCount > 0) ||
+                    (selectedBatchIndex !== null &&
+                      isMoreThan2DaysAfterStart(
+                        batches[selectedBatchIndex],
+                      ))) &&
                     styles.editBtnDisabled,
                 ]}
                 activeOpacity={0.9}
@@ -2162,13 +2545,24 @@ export default function QuickOverviewSetup({ navigation }) {
                     return;
                   }
 
+                  // Check if more than 2 days have passed since start date
+                  if (isMoreThan2DaysAfterStart(batches[matchingBatchIndex])) {
+                    Alert.alert(
+                      "Cannot Edit",
+                      "This batch is more than 2 days old. Editing is disabled to preserve historical data accuracy.",
+                    );
+                    return;
+                  }
+
                   // Edit the matching batch
                   handleEditBatch(matchingBatchIndex);
                 }}
                 disabled={
                   chicksCount === "0" ||
                   (selectedBatchIndex !== null &&
-                    batches[selectedBatchIndex]?.mortalityCount > 0)
+                    batches[selectedBatchIndex]?.mortalityCount > 0) ||
+                  (selectedBatchIndex !== null &&
+                    isMoreThan2DaysAfterStart(batches[selectedBatchIndex]))
                 }
               >
                 <Text
@@ -2176,7 +2570,11 @@ export default function QuickOverviewSetup({ navigation }) {
                     styles.editBtnText,
                     (chicksCount === "0" ||
                       (selectedBatchIndex !== null &&
-                        batches[selectedBatchIndex]?.mortalityCount > 0)) &&
+                        batches[selectedBatchIndex]?.mortalityCount > 0) ||
+                      (selectedBatchIndex !== null &&
+                        isMoreThan2DaysAfterStart(
+                          batches[selectedBatchIndex],
+                        ))) &&
                       styles.editBtnTextDisabled,
                   ]}
                 >
@@ -2350,6 +2748,127 @@ export default function QuickOverviewSetup({ navigation }) {
               onSuccess={handleMortalitySuccess}
             />
 
+            {/* Harvest Ready Modal */}
+            <Modal
+              visible={showHarvestReadyModal}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setShowHarvestReadyModal(false)}
+            >
+              <Pressable
+                style={styles.overlay}
+                onPress={() => setShowHarvestReadyModal(false)}
+              >
+                <Pressable
+                  style={styles.harvestModalCard}
+                  onPress={(e) => e.stopPropagation()}
+                >
+                  <Text style={styles.harvestIconLarge}>🐔</Text>
+                  <Text style={styles.harvestTitleLarge}>
+                    Ready for Harvest!
+                  </Text>
+                  <Text style={styles.harvestMessageLarge}>
+                    Batch {harvestReadyBatchInfo.number} with{" "}
+                    {harvestReadyBatchInfo.chicksCount} chicken
+                    {harvestReadyBatchInfo.chicksCount !== 1 ? "s" : ""} has
+                    reached {harvestReadyBatchInfo.daysCount} days.
+                  </Text>
+                  <Text style={styles.harvestQuestionText}>
+                    Do you want to harvest now?
+                  </Text>
+
+                  <View style={styles.harvestActionButtons}>
+                    <TouchableOpacity
+                      style={styles.harvestLaterBtn}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        // Date already recorded when modal opened, just close it
+                        setShowHarvestReadyModal(false);
+                      }}
+                    >
+                      <Text style={styles.harvestLaterBtnText}>Not Yet</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.harvestNowBtn}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setShowHarvestReadyModal(false);
+                        setShowHarvestConfirmation(true);
+                      }}
+                    >
+                      <Text style={styles.harvestNowBtnText}>Yes, Harvest</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Pressable>
+              </Pressable>
+            </Modal>
+
+            {/* Harvest Confirmation Modal */}
+            <Modal
+              visible={showHarvestConfirmation}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setShowHarvestConfirmation(false)}
+            >
+              <Pressable
+                style={styles.overlay}
+                onPress={() => setShowHarvestConfirmation(false)}
+              >
+                <Pressable
+                  style={styles.confirmModalCard}
+                  onPress={(e) => e.stopPropagation()}
+                >
+                  <Text style={styles.confirmIconText}>⚠️</Text>
+                  <Text style={styles.confirmTitleText}>Confirm Harvest</Text>
+                  <Text style={styles.confirmMessageText}>
+                    Are you sure you want to harvest Batch{" "}
+                    {harvestReadyBatchInfo.number} with{" "}
+                    {harvestReadyBatchInfo.chicksCount} chicken
+                    {harvestReadyBatchInfo.chicksCount !== 1 ? "s" : ""}?
+                  </Text>
+                  <Text style={styles.confirmWarningText}>
+                    This action cannot be undone.
+                  </Text>
+
+                  <View style={styles.confirmActionButtons}>
+                    <TouchableOpacity
+                      style={styles.confirmCancelButton}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setShowHarvestConfirmation(false);
+                        setShowHarvestReadyModal(false);
+                      }}
+                    >
+                      <Text style={styles.confirmCancelButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.confirmProceedButton}
+                      activeOpacity={0.8}
+                      onPress={async () => {
+                        try {
+                          setShowHarvestConfirmation(false);
+                          const batchToHarvest = batches.find(
+                            (b) => b.id === harvestReadyBatchInfo.id,
+                          );
+                          await markBatchAsHarvested(
+                            harvestReadyBatchInfo.id,
+                            batchToHarvest,
+                          );
+                        } catch (error) {
+                          console.error("[HarvestConfirm] Error:", error);
+                          Alert.alert("Error", "Failed to harvest batch");
+                        }
+                      }}
+                    >
+                      <Text style={styles.confirmProceedButtonText}>Yes</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Pressable>
+              </Pressable>
+            </Modal>
+
             {/* Harvested Batch Success Modal */}
             <Modal
               visible={showHarvestedBatchModal}
@@ -2359,7 +2878,7 @@ export default function QuickOverviewSetup({ navigation }) {
               <View style={styles.overlay}>
                 <View style={styles.successModalCard}>
                   <Text style={styles.successIcon}>✓</Text>
-                  <Text style={styles.successTitle}>
+                  <Text style={styles.confirmTitleText}>
                     Harvested Successfully!
                   </Text>
                   <Text style={styles.successMessage}>
@@ -2878,5 +3397,143 @@ const styles = StyleSheet.create({
     color: "#64748b",
     marginTop: 12,
     fontWeight: "500",
+  },
+  harvestModalCard: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 28,
+    width: "85%",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 12,
+  },
+  harvestIconLarge: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  harvestTitleLarge: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#1e293b",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  harvestMessageLarge: {
+    fontSize: 16,
+    color: "#475569",
+    textAlign: "center",
+    marginBottom: 8,
+    lineHeight: 24,
+  },
+  harvestQuestionText: {
+    fontSize: 15,
+    color: "#64748b",
+    marginBottom: 24,
+    fontStyle: "italic",
+  },
+  harvestActionButtons: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+    marginTop: 8,
+  },
+  harvestLaterBtn: {
+    flex: 1,
+    backgroundColor: "#e5e7eb",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#e5e7eb",
+  },
+  harvestLaterBtnText: {
+    color: "#475569",
+    fontWeight: "600",
+    fontSize: 15,
+  },
+  harvestNowBtn: {
+    flex: 1,
+    backgroundColor: "#16a34a",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  harvestNowBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  confirmModalCard: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 28,
+    width: "85%",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 12,
+  },
+  confirmIconText: {
+    fontSize: 56,
+    marginBottom: 16,
+  },
+  confirmTitleText: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#1e293b",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  confirmMessageText: {
+    fontSize: 16,
+    color: "#475569",
+    textAlign: "center",
+    marginBottom: 8,
+    lineHeight: 24,
+  },
+  confirmWarningText: {
+    fontSize: 14,
+    color: "#ef4444",
+    marginBottom: 24,
+    textAlign: "center",
+  },
+  confirmActionButtons: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+    marginTop: 8,
+  },
+  confirmCancelButton: {
+    flex: 1,
+    backgroundColor: "#e5e7eb",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#e5e7eb",
+  },
+  confirmCancelButtonText: {
+    color: "#475569",
+    fontWeight: "600",
+    fontSize: 15,
+    textAlign: "center",
+  },
+  confirmProceedButton: {
+    flex: 1,
+    backgroundColor: "#dc2626",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  confirmProceedButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
+    textAlign: "center",
   },
 });

@@ -242,7 +242,11 @@ export default function ViewAllBatchesModal({
   const [showDeleteError, setShowDeleteError] = useState(false);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
   const [harvestConfirmVisible, setHarvestConfirmVisible] = useState(false);
-  const [batchToHarvest, setBatchToHarvest] = useState(null);
+  const [batchToHarvest, setBatchToHarvest] = useState({
+    id: null,
+    number: "",
+    chicksCount: 0,
+  });
   const [recalculatedBatches, setRecalculatedBatches] = useState(batches);
   const [highlightedBatchId, setHighlightedBatchId] =
     useState(preSelectedBatchId);
@@ -347,22 +351,34 @@ export default function ViewAllBatchesModal({
     setBatchToDelete(null);
   };
 
-  const handleHarvestPress = (batchId) => {
-    setBatchToHarvest(batchId);
+  const handleHarvestPress = (batch) => {
+    setBatchToHarvest({
+      id: batch.id,
+      number: batch.batchNumber || batch.batchNo || "Unknown",
+      chicksCount: batch.chicksCount || 0,
+    });
     setHarvestConfirmVisible(true);
   };
 
   const handleConfirmHarvest = () => {
-    if (batchToHarvest && onHarvestedBatch) {
-      onHarvestedBatch(batchToHarvest);
+    if (batchToHarvest?.id && onHarvestedBatch) {
+      onHarvestedBatch(batchToHarvest.id);
       setHarvestConfirmVisible(false);
-      setBatchToHarvest(null);
+      setBatchToHarvest({
+        id: null,
+        number: "",
+        chicksCount: 0,
+      });
     }
   };
 
   const handleCancelHarvest = () => {
     setHarvestConfirmVisible(false);
-    setBatchToHarvest(null);
+    setBatchToHarvest({
+      id: null,
+      number: "",
+      chicksCount: 0,
+    });
   };
 
   return (
@@ -446,8 +462,7 @@ export default function ViewAllBatchesModal({
                       const createdDate = batch.createdAt.toDate
                         ? batch.createdAt.toDate()
                         : new Date(batch.createdAt);
-                      daysElapsed =
-                        (now - createdDate) / (1000 * 60 * 60 * 24);
+                      daysElapsed = (now - createdDate) / (1000 * 60 * 60 * 24);
                       canDeleteAfter2Days = daysElapsed >= 2;
                     } catch (e) {
                       console.warn(
@@ -564,7 +579,7 @@ export default function ViewAllBatchesModal({
                               !canHarvestBatch && styles.harvestButtonDisabled,
                             ]}
                             onPress={() =>
-                              canHarvestBatch && handleHarvestPress(batch.id)
+                              canHarvestBatch && handleHarvestPress(batch)
                             }
                             disabled={!canHarvestBatch}
                             activeOpacity={canHarvestBatch ? 0.7 : 1}
@@ -602,6 +617,7 @@ export default function ViewAllBatchesModal({
       <Modal visible={deleteConfirmVisible} transparent animationType="fade">
         <View style={styles.overlay}>
           <View style={styles.confirmModalCard}>
+            <Text style={styles.confirmIconText}>⚠️</Text>
             <Text style={styles.confirmTitle}>Delete Batch</Text>
             <Text style={styles.confirmMessage}>
               Are you sure you want to delete this batch? This action cannot be
@@ -664,28 +680,35 @@ export default function ViewAllBatchesModal({
       {/* Harvest Confirmation Modal */}
       <Modal visible={harvestConfirmVisible} transparent animationType="fade">
         <View style={styles.overlay}>
-          <View style={styles.confirmModalCard}>
-            <Text style={styles.confirmTitle}>Harvest Batch</Text>
-            <Text style={styles.confirmMessage}>
-              Are you sure you want to harvest this batch? This action cannot be
-              undone.
+          <View style={styles.harvestConfirmModalCard}>
+            <Text style={styles.harvestConfirmIconText}>⚠️</Text>
+            <Text style={styles.harvestConfirmTitleText}>Confirm Harvest</Text>
+            <Text style={styles.harvestConfirmMessageText}>
+              Are you sure you want to harvest Batch {batchToHarvest.number}{" "}
+              with {batchToHarvest.chicksCount} chicken
+              {batchToHarvest.chicksCount !== 1 ? "s" : ""}?
+            </Text>
+            <Text style={styles.harvestConfirmWarningText}>
+              This action cannot be undone.
             </Text>
 
-            <View style={styles.confirmButtons}>
+            <View style={styles.harvestConfirmActionButtons}>
               <TouchableOpacity
-                style={styles.cancelButton}
+                style={styles.harvestConfirmCancelButton}
+                activeOpacity={0.8}
                 onPress={handleCancelHarvest}
-                activeOpacity={0.7}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                <Text style={styles.harvestConfirmCancelButtonText}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.confirmDeleteButton}
+                style={styles.harvestConfirmProceedButton}
+                activeOpacity={0.8}
                 onPress={handleConfirmHarvest}
-                activeOpacity={0.7}
               >
-                <Text style={styles.confirmDeleteButtonText}>Harvest</Text>
+                <Text style={styles.harvestConfirmProceedButtonText}>Yes</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -862,6 +885,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 8,
   },
+  confirmIconText: {
+    fontSize: 48,
+    marginBottom: 12,
+    textAlign: "center",
+  },
   confirmTitle: {
     fontSize: 20,
     fontWeight: "700",
@@ -895,7 +923,7 @@ const styles = StyleSheet.create({
   },
   confirmDeleteButton: {
     flex: 1,
-    backgroundColor: "#22c55e",
+    backgroundColor: "#ef4444",
     borderRadius: 8,
     paddingVertical: 12,
     alignItems: "center",
@@ -985,4 +1013,75 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
+  // Harvest Confirmation Modal Styles (matching Home.js)
+  harvestConfirmModalCard: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 28,
+    width: "85%",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 12,
+  },
+  harvestConfirmIconText: {
+    fontSize: 56,
+    marginBottom: 16,
+  },
+  harvestConfirmTitleText: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#1e293b",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  harvestConfirmMessageText: {
+    fontSize: 16,
+    color: "#475569",
+    textAlign: "center",
+    marginBottom: 8,
+    lineHeight: 24,
+  },
+  harvestConfirmWarningText: {
+    fontSize: 14,
+    color: "#ef4444",
+    marginBottom: 24,
+    textAlign: "center",
+  },
+  harvestConfirmActionButtons: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+    marginTop: 8,
+  },
+  harvestConfirmCancelButton: {
+    flex: 1,
+    backgroundColor: "#e5e7eb",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#e5e7eb",
+  },
+  harvestConfirmCancelButtonText: {
+    color: "#475569",
+    fontWeight: "600",
+    fontSize: 15,
+    textAlign: "center",
+  },
+  harvestConfirmProceedButton: {
+    flex: 1,
+    backgroundColor: "#dc2626",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  harvestConfirmProceedButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
+    textAlign: "center",
+  },
 });

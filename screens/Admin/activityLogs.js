@@ -27,6 +27,7 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
 import { Asset } from "expo-asset";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const COLUMN_WIDTHS = {
   date: 140,
@@ -134,6 +135,50 @@ export default function ActivityLogs({ navigation }) {
   // Success modal state
   const [showReportSuccessModal, setShowReportSuccessModal] = useState(false);
 
+  // Cache and refresh state
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [hasCachedData, setHasCachedData] = useState(false);
+
+  // Cache helper functions
+  const CACHE_KEY = "activity_logs_cache";
+
+  const saveLogsToCache = async (logs, cache) => {
+    try {
+      const cacheData = {
+        logs: logs.map((log) => ({
+          ...log,
+          timestamp: log.timestamp.toISOString(),
+        })),
+        userCache: cache,
+        cachedAt: new Date().toISOString(),
+      };
+      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+    } catch (error) {
+      console.error("❌ Error saving logs to cache:", error);
+    }
+  };
+
+  const loadLogsFromCache = async () => {
+    try {
+      const cachedData = await AsyncStorage.getItem(CACHE_KEY);
+      if (cachedData) {
+        const parsed = JSON.parse(cachedData);
+        const logs = parsed.logs.map((log) => ({
+          ...log,
+          timestamp: new Date(log.timestamp),
+        }));
+        setAllLogs(logs);
+        setUserCache(parsed.userCache);
+        setHasCachedData(true);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("❌ Error loading logs from cache:", error);
+      return false;
+    }
+  };
+
   // Apply sorting - always by Date (newest first)
   useEffect(() => {
     let sorted = [...allLogs];
@@ -150,6 +195,18 @@ export default function ActivityLogs({ navigation }) {
   // Prevent duplicate fetches (React StrictMode protection)
   const hasFetchedRef = useRef(false);
 
+  // Background refresh function
+  const fetchFreshDataInBackground = async () => {
+    try {
+      setIsRefreshing(true);
+      await fetchAllLogs(true);
+    } catch (error) {
+      console.error("❌ Error in background refresh:", error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   // Fetch all logs from Firestore
   useEffect(() => {
     // Prevent duplicate fetches in React StrictMode (development)
@@ -158,12 +215,31 @@ export default function ActivityLogs({ navigation }) {
     }
 
     hasFetchedRef.current = true;
-    fetchAllLogs();
+
+    let intervalId;
+
+    loadLogsFromCache().then((hasCached) => {
+      if (!hasCached) {
+        fetchAllLogs();
+      } else {
+        setLoading(false);
+        // Start interval to refresh every 5 seconds
+        intervalId = setInterval(() => {
+          fetchFreshDataInBackground();
+        }, 5000);
+      }
+    });
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
   }, []);
 
-  const fetchAllLogs = async () => {
+  const fetchAllLogs = async (isBackgroundFetch = false) => {
     try {
-      setLoading(true);
+      if (!isBackgroundFetch) {
+        setLoading(true);
+      }
 
       const allLogsArray = [];
       const userCacheTemp = {};
@@ -340,10 +416,18 @@ export default function ActivityLogs({ navigation }) {
 
       setAllLogs(allLogsArray);
       setUserCache(userCacheTemp);
-      setLoading(false);
+
+      // Save to cache
+      await saveLogsToCache(allLogsArray, userCacheTemp);
+
+      if (!isBackgroundFetch) {
+        setLoading(false);
+      }
     } catch (error) {
       console.error("❌ Error fetching logs:", error);
-      setLoading(false);
+      if (!isBackgroundFetch) {
+        setLoading(false);
+      }
     }
   };
 
@@ -883,6 +967,15 @@ export default function ActivityLogs({ navigation }) {
   return (
     <SafeAreaView style={styles.safe}>
       <Header2 />
+
+      {isRefreshing && (
+        <View style={styles.refreshIndicator}>
+          <View style={styles.refreshContent}>
+            <ActivityIndicator size="small" color="#0EA5E9" />
+            <Text style={styles.refreshText}>Refreshing</Text>
+          </View>
+        </View>
+      )}
 
       {/* Back Button */}
       <View style={styles.backButtonContainer}>
@@ -1610,5 +1703,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#fff",
+  },
+  refreshIndicator: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    zIndex: 10,
+  },
+  refreshContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#E0F2FE",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderBottomLeftRadius: 8,
+    gap: 6,
+  },
+  refreshText: {
+    fontSize: 12,
+    color: "#0EA5E9",
+    fontWeight: "500",
   },
 });
