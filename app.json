@@ -20,7 +20,17 @@
           "isAccessMediaLocationEnabled": true
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/logo.png",
+          "color": "#133E87",
+          "sounds": [
+            "./assets/predator-alert.wav"
+          ]
+        }
+      ]
     ],
     "version": "1.0.0",
     "runtimeVersion": "1.0.0",
@@ -50,7 +60,11 @@
         "android.permission.ACCESS_MEDIA_LOCATION",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO"
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.VIBRATE",
+        "android.permission.WAKE_LOCK",
+        "com.google.android.c2dm.permission.RECEIVE",
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "web": {

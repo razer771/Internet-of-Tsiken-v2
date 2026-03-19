@@ -1376,25 +1376,60 @@ exports.notifyPredator = require("firebase-functions/v2/https").onRequest(
 
         if (Expo.isExpoPushToken(pushToken)) {
           if (isLoggedIn) {
-            // Detailed Notification for logged-in users
+            // Critical Predator Alert - Maximum Priority for Pop-up
             messages.push({
               to: pushToken,
-              priority: "high",
-              channelId: "predator-alerts",
-              sound: "default",
+              priority: "high",                    // Expo high priority
+              channelId: "predator-alerts",        // Use our high-priority channel
+              sound: "default",                    // System default sound
               title: "🚨 PREDATOR ALERT!",
-              body: `A ${predator_type} has been detected near your chicken coop!`,
-              data: { type: "predator_alert", predator: predator_type },
+              body: `URGENT: ${predator_type} detected near your chicken coop! Take immediate action.`,
+              badge: 1,                           // Show badge number
+              ttl: 0,                             // No expiration - deliver immediately
+              expiration: Math.floor(Date.now() / 1000) + 300, // Expire in 5 minutes
+              data: {
+                type: "predator_alert",
+                predator: predator_type,
+                timestamp: new Date().toISOString(),
+                priority: "emergency"             // Custom priority flag
+              },
+              // Android-specific configuration for pop-ups
+              android: {
+                channelId: "predator-alerts",
+                priority: "max",                  // Android max priority
+                vibrate: true,                   // Force vibration
+                sound: true,                     // Force sound
+                lights: true,                    // Force LED light
+                sticky: false,                   // Don't make it persistent
+                autoDismiss: true,              // Auto-dismiss after interaction
+              },
+              // iOS-specific configuration
+              ios: {
+                sound: "default",
+                badge: 1,
+                _displayInForeground: true,      // Show even in foreground
+              }
             });
           } else {
             // Generic/Vague Notification for logged-out users
             messages.push({
               to: pushToken,
-              priority: "default",
+              priority: "high",                  // Still high priority for security
+              channelId: "predator-alerts",      // Use same channel for consistency
               sound: "default",
-              title: "Internet of Tsiken",
-              body: "You have a new notification. Log in to view details.",
-              data: { type: "generic_alert" },
+              title: "🔔 Internet of Tsiken Security Alert",
+              body: "Security event detected. Please open the app for details.",
+              badge: 1,
+              data: {
+                type: "generic_alert",
+                timestamp: new Date().toISOString()
+              },
+              android: {
+                channelId: "predator-alerts",
+                priority: "high",
+                sound: true,
+                vibrate: true,
+              }
             });
           }
         }

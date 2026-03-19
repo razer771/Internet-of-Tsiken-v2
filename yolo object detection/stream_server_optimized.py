@@ -25,6 +25,7 @@ from datetime import datetime
 from typing import Optional, Dict, List
 import json
 import urllib.request
+import requests
 import serial
 import glob
 
@@ -71,7 +72,8 @@ VALVE_SERIAL_PORT = None  # Auto-detect Arduino
 VALVE_BAUD_RATE = 115200
 VALVE_PREDATORS = ["Cat", "Dog", "Rat", "Snake"]  # Triggers valve (match custom model classes)
 VALVE_DETECTION_DURATION = 10.0  # Predator must be detected for 10 seconds continuously (initial)
-VALVE_REPEAT_DELAY = 3.0         # If predator still there after valve, wait 3 seconds then trigger again
+ARDUINO_VALVE_DURATION = 10.0    # Arduino keeps valve open for 10 seconds (from valve_controller.ino)
+VALVE_REPEAT_DELAY = 11.0        # Wait 11 seconds after valve trigger before allowing repeat (Arduino cycle + 1s buffer)
 VALVE_COOLDOWN_SECONDS = 120     # 2 minutes cooldown between activations (when predator disappears and comes back)
 valve_last_trigger_time = {}     # Track last trigger per predator type
 predator_detection_start = {}    # Track when predator was first detected
@@ -258,6 +260,7 @@ def detect_arduino_port():
 def trigger_valve(predator_type: str):
     """
     Send OPEN_VALVE command to Arduino via serial
+    Enhanced with better response handling and rejection detection
     """
     global valve_serial
 
@@ -272,13 +275,38 @@ def trigger_valve(predator_type: str):
 
         logger.warning(f"🚨 VALVE TRIGGERED for {predator_type.upper()}!")
 
-        # Read Arduino response (non-blocking)
-        time.sleep(0.05)
-        if valve_serial.in_waiting > 0:
-            response = valve_serial.readline().decode('utf-8', errors='ignore').strip()
-            logger.info(f"   Arduino: {response}")
+        # Read Arduino response with better timeout handling
+        time.sleep(0.1)  # Increased wait time for Arduino response
+        responses = []
 
-        return True
+        # Read multiple response lines if available
+        for _ in range(3):  # Try to read up to 3 response lines
+            if valve_serial.in_waiting > 0:
+                try:
+                    response = valve_serial.readline().decode('utf-8', errors='ignore').strip()
+                    if response:  # Only log non-empty responses
+                        responses.append(response)
+                        logger.info(f"   Arduino: {response}")
+                except:
+                    break
+            else:
+                break
+            time.sleep(0.05)
+
+        # Check if Arduino rejected the command
+        all_responses = ' '.join(responses).upper()
+        if 'REJECTED' in all_responses or 'ALREADY ACTIVE' in all_responses:
+            logger.warning(f"⚠️ Arduino rejected valve command (valve busy)")
+            return False
+        elif 'VALVE OPENED' in all_responses:
+            logger.info(f"✅ Arduino confirmed valve opened for {predator_type}")
+            return True
+        elif responses:
+            logger.info(f"✅ Arduino responded positively")
+            return True
+        else:
+            logger.warning(f"⚠️ No response from Arduino (command may have succeeded)")
+            return True  # Assume success if no response
 
     except Exception as e:
         logger.error(f"❌ Valve trigger failed: {e}")
@@ -290,7 +318,7 @@ def check_predator_detection(predator_type: str) -> bool:
 
     Logic:
     1. Initial detection: Must be present for 10 seconds → trigger valve
-    2. Repeat detection: If still present after valve triggered → wait 3 seconds → trigger again
+    2. Repeat detection: If still present after valve triggered → wait 11 seconds (Arduino cycle) → trigger again
     3. Cooldown: If predator disappears and comes back → 120 second cooldown + 10 second requirement
 
     Returns True if valve should be triggered
@@ -360,6 +388,85 @@ def reset_predator_tracking(detected_predators: List[str]):
             predator_detection_start.pop(predator, None)
             # Reset valve triggered flag when predator disappears
             predator_valve_triggered[predator] = False
+
+# ==================== PUSH NOTIFICATION FUNCTIONS ====================
+
+def send_push_notification(predator_type: str, confidence: float = None):
+    """
+    Send push notification to Firebase Cloud Function for predator detection
+
+    Args:
+        predator_type: Type of predator detected (Cat, Dog, Rat, Snake, Person)
+        confidence: Detection confidence score (0-1)
+
+    Returns:
+        bool: True if notification sent successfully, False otherwise
+    """
+    try:
+        # Prepare notification data
+        notification_data = {
+            "predator_type": predator_type,
+            "confidence": float(confidence) if confidence is not None else None,
+            "camera_id": "RaspberryPi_Main_Camera",
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        logger.info(f"🚨 Sending push notification for: {predator_type}")
+
+        # Send POST request to Firebase Cloud Function
+        response = requests.post(
+            ALERT_WEBHOOK_URL,
+            json=notification_data,
+            timeout=10,  # 10 second timeout
+            headers={'Content-Type': 'application/json'}
+        )
+
+        if response.status_code == 200:
+            logger.info(f"✅ PUSH NOTIFICATION SENT FOR: {predator_type} (HTTP {response.status_code})")
+            return True
+        else:
+            logger.error(f"❌ Push notification failed: HTTP {response.status_code} - {response.text}")
+            return False
+
+    except requests.exceptions.Timeout:
+        logger.error(f"⏰ Push notification timeout for {predator_type}")
+        return False
+    except requests.exceptions.RequestException as e:
+        logger.error(f"🌐 Push notification network error for {predator_type}: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"💥 Push notification error for {predator_type}: {e}")
+        return False
+
+def should_send_notification(predator_type: str) -> bool:
+    """
+    Check if enough time has passed since last notification for this predator type
+    Uses ALERT_COOLDOWN_SECONDS to prevent spam notifications
+
+    Args:
+        predator_type: Type of predator detected
+
+    Returns:
+        bool: True if notification should be sent, False if in cooldown
+    """
+    current_time = time.time()
+
+    if predator_type not in last_alert_times:
+        # First notification for this predator type
+        last_alert_times[predator_type] = current_time
+        return True
+
+    time_since_last_alert = current_time - last_alert_times[predator_type]
+
+    if time_since_last_alert >= ALERT_COOLDOWN_SECONDS:
+        # Cooldown has passed, allow new notification
+        last_alert_times[predator_type] = current_time
+        return True
+    else:
+        # Still in cooldown period
+        remaining = ALERT_COOLDOWN_SECONDS - time_since_last_alert
+        logger.debug(f"🔕 Notification cooldown for {predator_type} ({remaining:.0f}s remaining)")
+        return False
 
 # ==================== THREAD 1: PRODUCER (CAMERA CAPTURE) ====================
 
@@ -556,14 +663,16 @@ def ai_inference_thread():
                             if cls_name in ["Cat", "Dog", "Rat", "Snake"]:  # Match actual model classes
                                 detected_predators.append(cls_name)
 
-                                # Send push notification (existing logic with 5-min cooldown)
-                                current_time = time.time()
-                                last_time = last_alert_times.get(cls_name, 0)
-
-                                if current_time - last_time > ALERT_COOLDOWN_SECONDS:
-                                    logger.warning(f"⚠️ PREDATOR DETECTED: {cls_name.upper()}! Triggering Alert...")
-                                    last_alert_times[cls_name] = current_time
-                                    send_alert_async(cls_name, confidence)
+                                # Send push notification with proper cooldown logic
+                                if should_send_notification(cls_name):
+                                    logger.warning(f"⚠️ PREDATOR DETECTED: {cls_name.upper()}! Sending push notification...")
+                                    # Send notification in background to avoid blocking detection
+                                    try:
+                                        send_push_notification(cls_name, confidence)
+                                    except Exception as e:
+                                        logger.error(f"💥 Push notification error for {cls_name}: {e}")
+                                else:
+                                    logger.debug(f"🔕 {cls_name.upper()} detected but notification in cooldown")
 
                                 # Check valve trigger
                                 if check_predator_detection(cls_name):
