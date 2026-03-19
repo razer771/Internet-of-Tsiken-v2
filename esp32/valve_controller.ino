@@ -9,6 +9,7 @@
  * - Listens for serial commands from Raspberry Pi YOLO detection
  * - When "OPEN_VALVE" received, opens valve for 10 seconds
  * - Prevents multiple activations during valve operation
+ * - Built-in LED (Pin 13) lights up when valve is active
  *
  * WIRING:
  *   12V Adapter → MOSFET IN (+) and IN (-)
@@ -22,6 +23,7 @@
  */
 
 const uint8_t VALVE_PIN = 4;
+const uint8_t LED_PIN = LED_BUILTIN; // Pin 13 on Arduino Uno
 const unsigned long VALVE_OPEN_DURATION_MS = 10000; // 10 seconds
 
 bool isValveActive = false;
@@ -32,9 +34,11 @@ void setup() {
 
   // Configure valve pin
   pinMode(VALVE_PIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
 
   // ACTIVE HIGH (most common): LOW = closed
   digitalWrite(VALVE_PIN, LOW); // Default: CLOSED
+  digitalWrite(LED_PIN, LOW); // LED off
 
   // ACTIVE LOW (uncomment if valve behavior is reversed):
   // digitalWrite(VALVE_PIN, HIGH); // Default: CLOSED
@@ -75,6 +79,7 @@ void loop() {
 void openValve() {
   // ACTIVE HIGH (most common): HIGH = open
   digitalWrite(VALVE_PIN, HIGH); // MOSFET ON = Valve OPEN
+  digitalWrite(LED_PIN, HIGH); // LED ON (visual confirmation)
 
   // ACTIVE LOW (uncomment if valve behavior is reversed):
   // digitalWrite(VALVE_PIN, LOW); // MOSFET ON = Valve OPEN
@@ -91,6 +96,7 @@ void openValve() {
 void closeValve() {
   // ACTIVE HIGH (most common): LOW = closed
   digitalWrite(VALVE_PIN, LOW); // MOSFET OFF = Valve CLOSED
+  digitalWrite(LED_PIN, LOW); // LED OFF
 
   // ACTIVE LOW (uncomment if valve behavior is reversed):
   // digitalWrite(VALVE_PIN, HIGH); // MOSFET OFF = Valve CLOSED

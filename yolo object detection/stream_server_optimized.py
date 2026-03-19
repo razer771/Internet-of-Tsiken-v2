@@ -69,7 +69,7 @@ last_alert_times = {}
 # Configuration for Solenoid Valve (Arduino Uno via Serial)
 VALVE_SERIAL_PORT = None  # Auto-detect Arduino
 VALVE_BAUD_RATE = 115200
-VALVE_PREDATORS = ["cat", "dog", "rat", "snake"]  # Triggers valve (not mouse)
+VALVE_PREDATORS = ["Cat", "Dog", "Rat", "Snake"]  # Triggers valve (match custom model classes)
 VALVE_DETECTION_DURATION = 10.0  # Predator must be detected for 10 seconds continuously
 VALVE_COOLDOWN_SECONDS = 120  # 2 minutes cooldown between activations
 valve_last_trigger_time = {}  # Track last trigger per predator type
@@ -491,31 +491,38 @@ def ai_inference_thread():
                     detections_list = []
                     detected_predators = []  # Track which predators are currently detected
 
-                    for det in results[0].boxes:
-                        cls_name = det['class'].lower()
+                    if results[0].boxes is not None and len(results[0].boxes) > 0:
+                        for i, box in enumerate(results[0].boxes):
+                            # Get class index and name using correct YOLOv8 syntax
+                            cls_idx = int(box.cls[0])
+                            cls_name = results[0].names[cls_idx]  # Get class name from model
+                            confidence = float(box.conf[0])
 
-                        # Check for all predators (for alerts and tracking)
-                        if cls_name in ["cat", "dog", "rat", "mouse", "snake"]:
-                            detected_predators.append(cls_name)
+                            # Get bounding box coordinates [x1, y1, x2, y2]
+                            bbox = box.xyxy[0].tolist()
 
-                            # Send push notification (existing logic with 5-min cooldown)
-                            current_time = time.time()
-                            last_time = last_alert_times.get(cls_name, 0)
+                            # Check for predators (for alerts and tracking)
+                            if cls_name in ["Cat", "Dog", "Rat", "Snake"]:  # Match actual model classes
+                                detected_predators.append(cls_name)
 
-                            if current_time - last_time > ALERT_COOLDOWN_SECONDS:
-                                logger.warning(f"⚠️ PREDATOR DETECTED: {cls_name.upper()}! Triggering Alert...")
-                                last_alert_times[cls_name] = current_time
-                                send_alert_async(cls_name, det['confidence'])
+                                # Send push notification (existing logic with 5-min cooldown)
+                                current_time = time.time()
+                                last_time = last_alert_times.get(cls_name, 0)
 
-                            # Check valve trigger (only for cat, dog, rat, snake - not mouse)
-                            if check_predator_detection(cls_name):
-                                trigger_valve(cls_name)
+                                if current_time - last_time > ALERT_COOLDOWN_SECONDS:
+                                    logger.warning(f"⚠️ PREDATOR DETECTED: {cls_name.upper()}! Triggering Alert...")
+                                    last_alert_times[cls_name] = current_time
+                                    send_alert_async(cls_name, confidence)
 
-                        detections_list.append({
-                            'class': det['class'],
-                            'confidence': round(det['confidence'] * 100, 2),
-                            'bbox': det['bbox']
-                        })
+                                # Check valve trigger
+                                if check_predator_detection(cls_name):
+                                    trigger_valve(cls_name)
+
+                            detections_list.append({
+                                'class': cls_name,
+                                'confidence': round(confidence * 100, 2),
+                                'bbox': [round(x, 2) for x in bbox]
+                            })
 
                     # Reset tracking for predators that are no longer detected
                     reset_predator_tracking(detected_predators)

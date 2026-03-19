@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=g1rpi2025
-WorkingDirectory=/home/g1rpi2025/Internet-of-Tsiken-v2/yolo object detection
-ExecStart=/usr/bin/python3 "/home/g1rpi2025/Internet-of-Tsiken-v2/yolo object detection/stream_server_optimized.py"
+User=charles
+WorkingDirectory=/home/charles/Internet-of-Tsiken-v2
+ExecStart=/bin/bash -c "cd '/home/charles/Internet-of-Tsiken-v2/yolo object detection' && ./start_service.sh"
 Restart=always
 RestartSec=10
 StandardOutput=journal
