@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "REACT_NATIVE_PACKAGER_HOSTNAME=100.101.108.37 npx expo start --dev-client",
-    "android": "REACT_NATIVE_PACKAGER_HOSTNAME=100.101.108.37 npx expo run:android",
+    "start": "cross-env REACT_NATIVE_PACKAGER_HOSTNAME=10.227.118.239 npx expo start --dev-client",
+    "android": "cross-env REACT_NATIVE_PACKAGER_HOSTNAME=10.227.118.239 npx expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web"
   },
@@ -65,6 +65,7 @@
   "private": true,
   "devDependencies": {
     "baseline-browser-mapping": "^2.9.14",
+    "cross-env": "^10.1.0",
     "expo-module-scripts": "^5.0.7",
     "tailwindcss": "^3.4.18"
   }

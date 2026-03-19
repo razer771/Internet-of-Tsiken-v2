@@ -1360,16 +1360,24 @@ exports.notifyPredator = require("firebase-functions/v2/https").onRequest(
         time: new Date().toLocaleTimeString("en-US", { hour12: false }),
         status: "detected",
       });
-      const usersSnapshot = await db
-        .collection("users")
-        .where("pushToken", "!=", null)
-        .get();
+      // Get all users and filter for those with push tokens
+      // Note: Using get() instead of where("!=", null) to avoid Firestore query limitations
+      const usersSnapshot = await db.collection("users").get();
       const { Expo } = require("expo-server-sdk");
       let expo = new Expo();
       let messages = [];
+      console.log(`Found ${usersSnapshot.size} total users, checking for push tokens...`);
+
       usersSnapshot.forEach((doc) => {
         const userData = doc.data();
         const pushToken = userData.pushToken;
+
+        // Skip users without push tokens
+        if (!pushToken || typeof pushToken !== 'string' || !pushToken.startsWith('ExponentPushToken')) {
+          return;
+        }
+
+        console.log(`Processing user ${doc.id} with token: ${pushToken.substring(0, 30)}...`);
         // Strict check: if explicitly false, they are logged out.
         // If true or undefined (legacy users), assume they might be receiving the alert.
         const isLoggedIn = userData.isLoggedIn !== false;
@@ -1377,74 +1385,73 @@ exports.notifyPredator = require("firebase-functions/v2/https").onRequest(
         if (Expo.isExpoPushToken(pushToken)) {
           if (isLoggedIn) {
             // Critical Predator Alert - Maximum Priority for Pop-up
+            // Note: Expo Push API uses top-level properties only (no nested android/ios objects)
             messages.push({
               to: pushToken,
-              priority: "high",                    // Expo high priority
-              channelId: "predator-alerts",        // Use our high-priority channel
-              sound: "default",                    // System default sound
-              title: "🚨 PREDATOR ALERT!",
+              priority: "high", // FCM high priority - ensures immediate delivery
+              channelId: "predator-alerts", // Android notification channel (must exist on device)
+              sound: "default", // Play default notification sound
+              title: "PREDATOR ALERT!",
               body: `URGENT: ${predator_type} detected near your chicken coop! Take immediate action.`,
-              badge: 1,                           // Show badge number
-              ttl: 0,                             // No expiration - deliver immediately
-              expiration: Math.floor(Date.now() / 1000) + 300, // Expire in 5 minutes
+              badge: 1, // iOS badge count
+              ttl: 0, // Time-to-live: 0 = deliver immediately, don't store
+              expiration: Math.floor(Date.now() / 1000) + 300, // Expire in 5 minutes if undelivered
+              mutableContent: true, // iOS: allows notification service extension
+              _contentAvailable: true, // Wake app for background processing
               data: {
                 type: "predator_alert",
                 predator: predator_type,
+                confidence: confidence || null,
+                camera: camera_id || "Main Camera",
                 timestamp: new Date().toISOString(),
-                priority: "emergency"             // Custom priority flag
+                priority: "emergency",
               },
-              // Android-specific configuration for pop-ups
-              android: {
-                channelId: "predator-alerts",
-                priority: "max",                  // Android max priority
-                vibrate: true,                   // Force vibration
-                sound: true,                     // Force sound
-                lights: true,                    // Force LED light
-                sticky: false,                   // Don't make it persistent
-                autoDismiss: true,              // Auto-dismiss after interaction
-              },
-              // iOS-specific configuration
-              ios: {
-                sound: "default",
-                badge: 1,
-                _displayInForeground: true,      // Show even in foreground
-              }
             });
           } else {
             // Generic/Vague Notification for logged-out users
             messages.push({
               to: pushToken,
-              priority: "high",                  // Still high priority for security
-              channelId: "predator-alerts",      // Use same channel for consistency
+              priority: "high",
+              channelId: "predator-alerts",
               sound: "default",
-              title: "🔔 Internet of Tsiken Security Alert",
+              title: "Internet of Tsiken Security Alert",
               body: "Security event detected. Please open the app for details.",
               badge: 1,
+              ttl: 0,
+              _contentAvailable: true,
               data: {
                 type: "generic_alert",
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
               },
-              android: {
-                channelId: "predator-alerts",
-                priority: "high",
-                sound: true,
-                vibrate: true,
-              }
             });
           }
         }
       });
-      let chunks = expo.chunkPushNotifications(messages);
+
+      console.log(`Prepared ${messages.length} push notifications to send`);
+
+      if (messages.length === 0) {
+        console.log("No valid push tokens found - no notifications sent");
+        return res.status(200).send({ success: true, tickets: [], message: "No users with valid push tokens" });
+      }
+
+      // Send notifications one by one to avoid PUSH_TOO_MANY_EXPERIENCE_IDS error
+      // (tokens from different Expo projects cannot be sent in the same batch)
       let tickets = [];
-      for (let chunk of chunks) {
+      for (const message of messages) {
         try {
-          let ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-          tickets.push(...ticketChunk);
+          const [ticket] = await expo.sendPushNotificationsAsync([message]);
+          tickets.push(ticket);
+          console.log(`Sent to ${message.to.substring(0, 30)}...:`, ticket.status);
         } catch (error) {
-          console.error("Error sending push chunk", error);
+          console.error(`Failed to send to ${message.to}:`, error.message);
+          tickets.push({ status: 'error', message: error.message });
         }
       }
-      res.status(200).send({ success: true, tickets });
+
+      const successCount = tickets.filter(t => t.status === 'ok').length;
+      console.log(`Successfully sent ${successCount}/${tickets.length} notifications`);
+      res.status(200).send({ success: true, tickets, notificationsSent: successCount });
     } catch (error) {
       console.error("Error in notifyPredator webhook:", error);
       res.status(500).send({ error: error.message });

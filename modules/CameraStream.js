@@ -38,6 +38,7 @@ export default function CameraStream({
   const [actualServerUrl, setActualServerUrl] = useState(serverUrl);
   const [discoveryState, setDiscoveryState] = useState("idle"); // idle, discovering, success, failed
   const [lastPersonDetection, setLastPersonDetection] = useState(null);
+  const [lastPredatorDetections, setLastPredatorDetections] = useState({}); // Track last notification time per predator type
   const webViewRef = useRef(null);
   const discoveryTimeoutRef = useRef(null);
   const lastDetectionTimesRef = useRef({}); // Track last time sent to Firebase per class
@@ -224,14 +225,17 @@ export default function CameraStream({
 
       // Check for person detection
       if (data.objects && data.objects.length > 0) {
+        const now = Date.now();
+        const NOTIFICATION_COOLDOWN = 300000; // 5 minutes cooldown
+
+        // Check for person
         const personDetected = data.objects.some(
           (obj) => obj.class && obj.class.toLowerCase() === "person",
         );
 
         if (personDetected) {
-          const now = Date.now();
           // Only send notification if no person was detected in the last 5 minutes (300000ms)
-          if (!lastPersonDetection || now - lastPersonDetection > 300000) {
+          if (!lastPersonDetection || now - lastPersonDetection > NOTIFICATION_COOLDOWN) {
             setLastPersonDetection(now);
             const notificationData = {
               category: "IoT: Internet of Tsiken",
@@ -248,6 +252,52 @@ export default function CameraStream({
             addUserNotification(notificationData);
           }
         }
+
+        // Check for predators (cat, dog, rat, snake) and send in-app notifications + push notifications
+        const predatorClasses = ["cat", "dog", "rat", "snake"];
+        data.objects.forEach((obj) => {
+          if (!obj.class) return;
+          const objClass = obj.class.toLowerCase();
+
+          if (predatorClasses.includes(objClass)) {
+            const lastTime = lastPredatorDetections[objClass] || 0;
+
+            // Only send notification if this predator type wasn't detected in the last 5 minutes
+            if (now - lastTime > NOTIFICATION_COOLDOWN) {
+              setLastPredatorDetections(prev => ({ ...prev, [objClass]: now }));
+
+              const predatorName = objClass.charAt(0).toUpperCase() + objClass.slice(1);
+              const notificationData = {
+                category: "IoT: Internet of Tsiken",
+                title: `Predator Alert: ${predatorName}`,
+                description: `A ${predatorName} has been detected near your chicken coop at ${new Date().toLocaleString()}! Take immediate action.`,
+                type: "predator",
+              };
+              // Send to admin
+              addAdminNotification({
+                ...notificationData,
+                category: "Predator Alert",
+              });
+              // Send to user
+              addUserNotification(notificationData);
+
+              // Send push notification via Firebase webhook
+              fetch("https://us-central1-internet-of-tsiken-f0ad4.cloudfunctions.net/notifyPredator", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  predator_type: predatorName,
+                  confidence: obj.confidence || 0.9,
+                  camera_id: "Mobile App Camera"
+                })
+              }).then(response => {
+                console.log(`Push notification sent for ${predatorName}:`, response.ok);
+              }).catch(error => {
+                console.error("Failed to send push notification:", error);
+              });
+            }
+          }
+        });
       }
     } catch (err) {
       console.log("Detection fetch failed:", err.message);

@@ -25,10 +25,7 @@
         "expo-notifications",
         {
           "icon": "./assets/logo.png",
-          "color": "#133E87",
-          "sounds": [
-            "./assets/predator-alert.wav"
-          ]
+          "color": "#133E87"
         }
       ]
     ],
