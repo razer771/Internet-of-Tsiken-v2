@@ -70,10 +70,12 @@ last_alert_times = {}
 VALVE_SERIAL_PORT = None  # Auto-detect Arduino
 VALVE_BAUD_RATE = 115200
 VALVE_PREDATORS = ["Cat", "Dog", "Rat", "Snake"]  # Triggers valve (match custom model classes)
-VALVE_DETECTION_DURATION = 10.0  # Predator must be detected for 10 seconds continuously
-VALVE_COOLDOWN_SECONDS = 120  # 2 minutes cooldown between activations
-valve_last_trigger_time = {}  # Track last trigger per predator type
-predator_detection_start = {}  # Track when predator was first detected
+VALVE_DETECTION_DURATION = 10.0  # Predator must be detected for 10 seconds continuously (initial)
+VALVE_REPEAT_DELAY = 3.0         # If predator still there after valve, wait 3 seconds then trigger again
+VALVE_COOLDOWN_SECONDS = 120     # 2 minutes cooldown between activations (when predator disappears and comes back)
+valve_last_trigger_time = {}     # Track last trigger per predator type
+predator_detection_start = {}    # Track when predator was first detected
+predator_valve_triggered = {}    # Track if valve was recently triggered for this predator (for repeat logic)
 
 # ==================== SHARED MEMORY BUFFERS ====================
 
@@ -210,21 +212,44 @@ def detect_arduino_port():
 
     for port in potential_ports:
         try:
+            logger.info(f"Trying Arduino on {port}...")
             ser = serial.Serial(port, VALVE_BAUD_RATE, timeout=2)
-            time.sleep(2)  # Wait for Arduino to reset
+            time.sleep(3)  # Wait longer for Arduino to reset and send startup messages
 
-            # Test communication
+            # Read initial startup messages (Arduino sends multiple lines)
+            startup_messages = []
+            for _ in range(8):  # Read up to 8 lines of startup messages
+                if ser.in_waiting > 0:
+                    response = ser.readline().decode('utf-8', errors='ignore')
+                    startup_messages.append(response.strip())
+                time.sleep(0.1)
+
+            # Test STATUS command
             ser.write(b'STATUS\n')
-            time.sleep(0.1)
+            time.sleep(0.3)  # Wait longer for response
 
-            if ser.in_waiting > 0:
-                response = ser.readline().decode('utf-8', errors='ignore')
-                if 'Valve' in response or 'PREDATOR' in response:
+            status_responses = []
+            for _ in range(3):  # Read up to 3 lines of status response
+                if ser.in_waiting > 0:
+                    response = ser.readline().decode('utf-8', errors='ignore')
+                    status_responses.append(response.strip())
+                time.sleep(0.1)
+
+            # Check all responses for Arduino identification
+            all_responses = startup_messages + status_responses
+            for response in all_responses:
+                if 'VALVE' in response.upper() or 'PREDATOR' in response.upper():
                     logger.info(f"✅ Arduino detected on {port}")
+                    logger.info(f"   Startup: {startup_messages}")
+                    logger.info(f"   Status: {status_responses}")
                     return ser
 
+            logger.warning(f"Port {port} responded but not Arduino valve controller")
+            logger.debug(f"   Responses: {all_responses}")
             ser.close()
+
         except (OSError, serial.SerialException) as e:
+            logger.debug(f"Port {port} failed: {e}")
             continue
 
     logger.warning("⚠️ Arduino Uno not detected. Valve control disabled.")
@@ -261,7 +286,13 @@ def trigger_valve(predator_type: str):
 
 def check_predator_detection(predator_type: str) -> bool:
     """
-    Check if predator has been detected continuously for VALVE_DETECTION_DURATION
+    Check if predator should trigger valve based on detection duration.
+
+    Logic:
+    1. Initial detection: Must be present for 10 seconds → trigger valve
+    2. Repeat detection: If still present after valve triggered → wait 3 seconds → trigger again
+    3. Cooldown: If predator disappears and comes back → 120 second cooldown + 10 second requirement
+
     Returns True if valve should be triggered
     """
     current_time = time.time()
@@ -273,25 +304,43 @@ def check_predator_detection(predator_type: str) -> bool:
     # Initialize detection start time if not exists
     if predator_type not in predator_detection_start:
         predator_detection_start[predator_type] = current_time
+        # Reset valve triggered flag for new detection
+        predator_valve_triggered[predator_type] = False
         logger.info(f"🔍 {predator_type.upper()} detected - tracking started")
         return False
 
     # Calculate how long predator has been detected
     detection_duration = current_time - predator_detection_start[predator_type]
-
-    # Check if cooldown is active
     last_trigger = valve_last_trigger_time.get(predator_type, 0)
-    if current_time - last_trigger < VALVE_COOLDOWN_SECONDS:
-        remaining = VALVE_COOLDOWN_SECONDS - (current_time - last_trigger)
+    time_since_last_trigger = current_time - last_trigger
+
+    # Check if this is a repeat detection (valve was recently triggered for this predator)
+    if predator_valve_triggered.get(predator_type, False):
+        # Valve was triggered, check if enough time passed for repeat trigger
+        if time_since_last_trigger >= VALVE_REPEAT_DELAY:
+            logger.warning(f"🔄 {predator_type.upper()} still present after {time_since_last_trigger:.1f}s - REPEAT VALVE ACTIVATION!")
+            valve_last_trigger_time[predator_type] = current_time
+            # Keep valve_triggered flag True for continuous repeat triggers
+            return True
+        else:
+            remaining = VALVE_REPEAT_DELAY - time_since_last_trigger
+            logger.info(f"⏳ {predator_type.upper()} repeat trigger in {remaining:.1f}s")
+            return False
+
+    # This is initial detection or new detection after cooldown
+    # Check if cooldown is active (predator disappeared and came back)
+    if time_since_last_trigger < VALVE_COOLDOWN_SECONDS:
+        remaining_cooldown = VALVE_COOLDOWN_SECONDS - time_since_last_trigger
         if detection_duration >= VALVE_DETECTION_DURATION:
-            logger.debug(f"⏳ {predator_type.upper()} cooldown active ({remaining:.0f}s remaining)")
+            logger.debug(f"⏳ {predator_type.upper()} cooldown active ({remaining_cooldown:.0f}s remaining)")
         return False
 
-    # Check if predator has been present for required duration
+    # Check if predator has been present for required initial duration
     if detection_duration >= VALVE_DETECTION_DURATION:
-        logger.warning(f"⚠️ {predator_type.upper()} present for {detection_duration:.1f}s - ACTIVATING VALVE!")
+        logger.warning(f"⚠️ {predator_type.upper()} present for {detection_duration:.1f}s - INITIAL VALVE ACTIVATION!")
         valve_last_trigger_time[predator_type] = current_time
-        predator_detection_start.pop(predator_type, None)  # Reset tracking
+        predator_valve_triggered[predator_type] = True  # Mark as recently triggered for repeat logic
+        # Don't reset detection start - keep tracking for repeat triggers
         return True
     else:
         remaining = VALVE_DETECTION_DURATION - detection_duration
@@ -309,6 +358,8 @@ def reset_predator_tracking(detected_predators: List[str]):
         if predator not in current_predators:
             logger.info(f"✅ {predator.upper()} no longer detected - reset tracking")
             predator_detection_start.pop(predator, None)
+            # Reset valve triggered flag when predator disappears
+            predator_valve_triggered[predator] = False
 
 # ==================== THREAD 1: PRODUCER (CAMERA CAPTURE) ====================
 
@@ -479,7 +530,7 @@ def ai_inference_thread():
                     
                 # Run inference
                 start_time = time.time()
-                
+
                 if NCNN_AVAILABLE and isinstance(ai_model, NCNNDetector):
                     # NCNN inference
                     detections_list = ai_model.detect(frame, CONFIDENCE_THRESHOLD)
@@ -546,7 +597,18 @@ def ai_inference_thread():
                     elapsed = now - last_fps_time
                     inference_fps = 10 / elapsed if elapsed > 0 else 0
                     last_fps_time = now
-                
+
+                    # Enhanced autonomous operation status logging every ~90 seconds
+                    if frame_count % 300 == 0:  # Every ~90 seconds (300 frames at 3.3 FPS)
+                        current_detections = detection_buffer.read()
+                        total_objects = current_detections.get('count', 0)
+                        logger.warning(f"🤖 [AUTONOMOUS] 24/7 Security Active | AI: {inference_fps:.1f} FPS | Frames: {frame_count} | Objects: {total_objects} | Valve: {'⚡ Ready' if valve_serial else '❌ Offline'}")
+                        logger.info(f"   🔄 Independent Operation: Detecting predators without app connection")
+                        if valve_serial:
+                            # Count active predator tracking
+                            active_tracking = len(predator_detection_start)
+                            logger.info(f"   ⚡ Valve Status: Armed | Active Tracking: {active_tracking} predators")
+
                 # Throttle inference to ~15-20 FPS (no need to run at 30 FPS)
                 time.sleep(0.033)  # ~30ms sleep = ~33 FPS max
                 
@@ -759,18 +821,28 @@ def main():
     if valve_serial:
         logger.info(f"   ✅ Valve system ACTIVE on {valve_serial.port}")
         logger.info(f"   🎯 Predators: {', '.join(VALVE_PREDATORS)}")
-        logger.info(f"   ⏱️  Detection time: {VALVE_DETECTION_DURATION}s")
-        logger.info(f"   ⏳ Cooldown: {VALVE_COOLDOWN_SECONDS}s")
+        logger.info(f"   ⏱️  Initial detection: {VALVE_DETECTION_DURATION}s")
+        logger.info(f"   🔄 Repeat trigger: {VALVE_REPEAT_DELAY}s (if predator still present)")
+        logger.info(f"   ⏳ Cooldown: {VALVE_COOLDOWN_SECONDS}s (when predator disappears)")
     else:
         logger.warning("   ⚠️  Valve system DISABLED (Arduino not found)")
     logger.info("=" * 60)
 
     # Start all threads
     start_all_threads()
-    
+
     # Wait 2 seconds for threads to initialize
     time.sleep(2)
-    
+
+    # Confirm autonomous operation is active
+    logger.warning("🤖 ============ AUTONOMOUS OPERATION CONFIRMED ============")
+    logger.warning("🔄 AI Detection Thread: ACTIVE - Runs 24/7 independent of React Native app")
+    logger.warning(f"⚡ Valve Control: {'ENABLED' if valve_serial else 'DISABLED'} - Triggers automatically on predator detection")
+    logger.warning("🌐 Network Status: Web server provides optional monitoring - NOT required for operation")
+    logger.warning("📱 App Independence: System detects predators even when mobile app is closed")
+    logger.warning("🎯 24/7 Security: Protecting your property around the clock!")
+    logger.warning("=" * 60)
+
     # Start Flask server
     logger.info(f"✅ Server ready at http://0.0.0.0:5000")
     logger.info(f"   Video feed: http://0.0.0.0:5000/video_feed")
