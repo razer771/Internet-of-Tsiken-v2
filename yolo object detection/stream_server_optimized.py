@@ -64,7 +64,7 @@ IOU_THRESHOLD = 0.45                      # Non-max suppression
 
 # Configuration for Alerts
 ALERT_WEBHOOK_URL = "https://us-central1-internet-of-tsiken-f0ad4.cloudfunctions.net/notifyPredator"
-ALERT_COOLDOWN_SECONDS = 300  # 5 minutes
+ALERT_COOLDOWN_SECONDS = 60  # 1 minute
 last_alert_times = {}
 
 # Configuration for Solenoid Valve (Arduino Uno via Serial)
@@ -660,7 +660,7 @@ def ai_inference_thread():
                             bbox = box.xyxy[0].tolist()
 
                             # Check for predators (for alerts and tracking)
-                            if cls_name in ["Cat", "Dog", "Rat", "Snake"]:  # Match actual model classes
+                            if cls_name in ["Cat", "Dog", "Rat", "Snake", "Person"]:  # Now includes Person
                                 detected_predators.append(cls_name)
 
                                 # Send push notification with proper cooldown logic

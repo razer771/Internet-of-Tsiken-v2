@@ -16,6 +16,7 @@ import {
 } from "./CameraServerDiscovery";
 import { useAdminNotifications } from "../screens/Admin/AdminNotificationContext";
 import { useNotifications } from "../screens/User/controls/NotificationContext";
+import { useCamera } from "../contexts/CameraContext";
 import { db } from "../config/firebaseconfig";
 import { collection, query, orderBy, limit, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
 
@@ -28,20 +29,36 @@ export default function CameraStream({
   fullscreen = false,
   onOpenFullscreen,
 }) {
-  const [isConnected, setIsConnected] = useState(false);
+  // Use CameraContext for persistent state (survives notification pop-ups)
+  const {
+    isConnected,
+    serverUrl: contextServerUrl,
+    discoveryState,
+    connectCamera,
+    disconnectCamera,
+    updateDiscoveryState,
+    setServerUrl: setContextServerUrl,
+    getLastPredatorDetection,
+    setLastPredatorDetection,
+    getLastPersonDetection,
+    setLastPersonDetection,
+    getLastDetectionTime,
+    setLastDetectionTime,
+  } = useCamera();
+
+  // Local state for UI-only data (can reset without affecting camera connection)
   const [detections, setDetections] = useState({
     objects: [],
     fps: 0,
     count: 0,
   });
   const [recentDetections, setRecentDetections] = useState([]);
-  const [actualServerUrl, setActualServerUrl] = useState(serverUrl);
-  const [discoveryState, setDiscoveryState] = useState("idle"); // idle, discovering, success, failed
-  const [lastPersonDetection, setLastPersonDetection] = useState(null);
-  const [lastPredatorDetections, setLastPredatorDetections] = useState({}); // Track last notification time per predator type
+
+  // Use context server URL if available, otherwise prop
+  const actualServerUrl = contextServerUrl || serverUrl;
+
   const webViewRef = useRef(null);
   const discoveryTimeoutRef = useRef(null);
-  const lastDetectionTimesRef = useRef({}); // Track last time sent to Firebase per class
   const { addNotification: addAdminNotification } = useAdminNotifications();
   const { addNotification: addUserNotification } = useNotifications();
 
@@ -116,12 +133,12 @@ export default function CameraStream({
   }, [isConnected]);
 
   const startDiscovery = async () => {
-    setDiscoveryState("discovering");
+    updateDiscoveryState("discovering");
 
     // Set 30 second timeout
     discoveryTimeoutRef.current = setTimeout(() => {
       if (discoveryState === "discovering") {
-        setDiscoveryState("failed");
+        updateDiscoveryState("failed");
       }
     }, 30000);
 
@@ -131,10 +148,9 @@ export default function CameraStream({
       const connected = await checkServerStatus(lastUrl);
       if (connected) {
         clearTimeout(discoveryTimeoutRef.current);
-        setActualServerUrl(lastUrl);
+        setContextServerUrl(lastUrl);
         if (onServerDiscovered) onServerDiscovered(lastUrl);
-        setDiscoveryState("success");
-        setIsConnected(true);
+        connectCamera(lastUrl);
         return;
       }
     }
@@ -146,18 +162,17 @@ export default function CameraStream({
       const connected = await checkServerStatus(discoveredUrl);
       if (connected) {
         clearTimeout(discoveryTimeoutRef.current);
-        setActualServerUrl(discoveredUrl);
+        setContextServerUrl(discoveredUrl);
         await saveLastWorkingUrl(discoveredUrl);
         if (onServerDiscovered) onServerDiscovered(discoveredUrl);
-        setDiscoveryState("success");
-        setIsConnected(true);
+        connectCamera(discoveredUrl);
       } else {
         clearTimeout(discoveryTimeoutRef.current);
-        setDiscoveryState("failed");
+        updateDiscoveryState("failed");
       }
     } else {
       clearTimeout(discoveryTimeoutRef.current);
-      setDiscoveryState("failed");
+      updateDiscoveryState("failed");
     }
   };
 
@@ -205,11 +220,11 @@ export default function CameraStream({
           const objClass = obj.class.toLowerCase();
 
           // Only add to Firebase if we haven't seen this class in the last 10 seconds
-          const lastTime = lastDetectionTimesRef.current[objClass] || 0;
-          
+          const lastTime = getLastDetectionTime(objClass);
+
           if (now - lastTime > 10000) {
-            lastDetectionTimesRef.current[objClass] = now;
-            
+            setLastDetectionTime(objClass, now);
+
             try {
               await addDoc(collection(db, "camera_detections"), {
                 class: objClass,
@@ -226,7 +241,7 @@ export default function CameraStream({
       // Check for person detection
       if (data.objects && data.objects.length > 0) {
         const now = Date.now();
-        const NOTIFICATION_COOLDOWN = 300000; // 5 minutes cooldown
+        const PUSH_NOTIFICATION_COOLDOWN = 60000; // 1 minute cooldown for push notifications only
 
         // Check for person
         const personDetected = data.objects.some(
@@ -234,52 +249,58 @@ export default function CameraStream({
         );
 
         if (personDetected) {
-          // Only send notification if no person was detected in the last 5 minutes (300000ms)
-          if (!lastPersonDetection || now - lastPersonDetection > NOTIFICATION_COOLDOWN) {
+          // ALWAYS send header notification immediately (no cooldown)
+          const notificationData = {
+            category: "IoT: Internet of Tsiken",
+            title: "Person detected",
+            description: `Camera detected a person in the brooder area at ${new Date().toLocaleString()}. Please verify for security purposes.`,
+            type: "security",
+          };
+          addAdminNotification({
+            ...notificationData,
+            category: "System Alert",
+          });
+          addUserNotification(notificationData);
+
+          // Push notification with cooldown
+          const lastPersonTime = getLastPersonDetection();
+          if (!lastPersonTime || now - lastPersonTime > PUSH_NOTIFICATION_COOLDOWN) {
             setLastPersonDetection(now);
-            const notificationData = {
-              category: "IoT: Internet of Tsiken",
-              title: "Person detected",
-              description: `Camera detected a person in the brooder area at ${new Date().toLocaleString()}. Please verify for security purposes.`,
-              type: "security",
-            };
-            // Send to admin
-            addAdminNotification({
-              ...notificationData,
-              category: "System Alert",
-            });
-            // Send to user
-            addUserNotification(notificationData);
+            // Could send push notification here if needed for person detection
           }
         }
 
-        // Check for predators (cat, dog, rat, snake) and send in-app notifications + push notifications
+        // Check for predators (cat, dog, rat, snake)
         const predatorClasses = ["cat", "dog", "rat", "snake"];
         data.objects.forEach((obj) => {
           if (!obj.class) return;
           const objClass = obj.class.toLowerCase();
 
           if (predatorClasses.includes(objClass)) {
-            const lastTime = lastPredatorDetections[objClass] || 0;
+            const predatorName = objClass.charAt(0).toUpperCase() + objClass.slice(1);
 
-            // Only send notification if this predator type wasn't detected in the last 5 minutes
-            if (now - lastTime > NOTIFICATION_COOLDOWN) {
-              setLastPredatorDetections(prev => ({ ...prev, [objClass]: now }));
+            // ALWAYS send header notification immediately (no cooldown)
+            const notificationData = {
+              category: "IoT: Internet of Tsiken",
+              title: `Predator Alert: ${predatorName}`,
+              description: `A ${predatorName} has been detected near your chicken coop at ${new Date().toLocaleString()}! Take immediate action.`,
+              type: "predator",
+            };
+            addAdminNotification({
+              ...notificationData,
+              category: "Predator Alert",
+            });
+            addUserNotification(notificationData);
 
-              const predatorName = objClass.charAt(0).toUpperCase() + objClass.slice(1);
-              const notificationData = {
-                category: "IoT: Internet of Tsiken",
-                title: `Predator Alert: ${predatorName}`,
-                description: `A ${predatorName} has been detected near your chicken coop at ${new Date().toLocaleString()}! Take immediate action.`,
-                type: "predator",
-              };
-              // Send to admin
-              addAdminNotification({
-                ...notificationData,
-                category: "Predator Alert",
-              });
-              // Send to user
-              addUserNotification(notificationData);
+            // Push notification with cooldown (to avoid spam)
+            const lastTime = getLastPredatorDetection(objClass);
+            const timeSinceLastNotif = lastTime ? now - lastTime : Infinity;
+
+            console.log(`[${predatorName}] Last notification: ${lastTime}, Time since: ${timeSinceLastNotif}ms, Cooldown: ${PUSH_NOTIFICATION_COOLDOWN}ms`);
+
+            if (!lastTime || timeSinceLastNotif > PUSH_NOTIFICATION_COOLDOWN) {
+              setLastPredatorDetection(objClass, now);
+              console.log(`[${predatorName}] SENDING push notification NOW`);
 
               // Send push notification via Firebase webhook
               fetch("https://us-central1-internet-of-tsiken-f0ad4.cloudfunctions.net/notifyPredator", {
@@ -291,10 +312,12 @@ export default function CameraStream({
                   camera_id: "Mobile App Camera"
                 })
               }).then(response => {
-                console.log(`Push notification sent for ${predatorName}:`, response.ok);
+                console.log(`[${predatorName}] Push notification response:`, response.ok);
               }).catch(error => {
-                console.error("Failed to send push notification:", error);
+                console.error(`[${predatorName}] Push notification error:`, error);
               });
+            } else {
+              console.log(`[${predatorName}] SKIPPED - cooldown active (${Math.round((PUSH_NOTIFICATION_COOLDOWN - timeSinceLastNotif) / 1000)}s remaining)`);
             }
           }
         });
@@ -306,12 +329,11 @@ export default function CameraStream({
 
   const stopDiscovery = () => {
     if (discoveryTimeoutRef.current) clearTimeout(discoveryTimeoutRef.current);
-    setDiscoveryState("idle");
-    setIsConnected(false);
+    disconnectCamera();
   };
 
   const handleRetry = () => {
-    setDiscoveryState("idle");
+    updateDiscoveryState("idle");
   };
 
   // HTML to display MJPEG stream in WebView
