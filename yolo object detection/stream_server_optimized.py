@@ -73,7 +73,7 @@ VALVE_BAUD_RATE = 115200
 VALVE_PREDATORS = ["Cat", "Dog", "Rat", "Snake"]  # Triggers valve (match custom model classes)
 VALVE_DETECTION_DURATION = 10.0  # Predator must be detected for 10 seconds continuously (initial)
 ARDUINO_VALVE_DURATION = 10.0    # Arduino keeps valve open for 10 seconds (from valve_controller.ino)
-VALVE_REPEAT_DELAY = 11.0        # Wait 11 seconds after valve trigger before allowing repeat (Arduino cycle + 1s buffer)
+VALVE_REPEAT_DELAY = 15.0        # Wait 15 seconds after valve trigger before allowing repeat (Arduino cycle + buffer)
 VALVE_COOLDOWN_SECONDS = 120     # 2 minutes cooldown between activations (when predator disappears and comes back)
 valve_last_trigger_time = {}     # Track last trigger per predator type
 predator_detection_start = {}    # Track when predator was first detected
@@ -144,6 +144,8 @@ ai_model = None
 running = True
 threads_started = False
 valve_serial: Optional[serial.Serial] = None  # Serial connection to Arduino
+predator_last_seen_time = {}   # Track when predator was last seen (for grace period)
+DETECTION_GRACE_PERIOD = 5.0   # Seconds to keep tracking if detection flickers (Increased for stability)
 
 # Performance metrics
 producer_fps = 0
@@ -260,13 +262,17 @@ def detect_arduino_port():
 def trigger_valve(predator_type: str):
     """
     Send OPEN_VALVE command to Arduino via serial
-    Enhanced with better response handling and rejection detection
+    Enhanced with auto-reconnection logic for robustness
     """
     global valve_serial
 
+    # Attempt to reconnect if connection is missing
     if valve_serial is None:
-        logger.warning(f"🚫 Valve trigger skipped for {predator_type}: No Arduino connection")
-        return False
+        logger.warning(f"🔄 Arduino connection lost. Attempting to reconnect...")
+        valve_serial = detect_arduino_port()
+        if valve_serial is None:
+            logger.warning(f"🚫 Valve trigger skipped for {predator_type}: Arduino unavailable")
+            return False
 
     try:
         command = "OPEN_VALVE\n"
@@ -308,6 +314,15 @@ def trigger_valve(predator_type: str):
             logger.warning(f"⚠️ No response from Arduino (command may have succeeded)")
             return True  # Assume success if no response
 
+    except (serial.SerialException, OSError) as e:
+        logger.error(f"❌ Serial connection error during trigger: {e}")
+        logger.info("   🔌 Forcing reconnection on next attempt...")
+        try:
+            valve_serial.close()
+        except:
+            pass
+        valve_serial = None  # Reset to force auto-reconnection next time
+        return False
     except Exception as e:
         logger.error(f"❌ Valve trigger failed: {e}")
         return False
@@ -378,14 +393,27 @@ def check_predator_detection(predator_type: str) -> bool:
 def reset_predator_tracking(detected_predators: List[str]):
     """
     Reset tracking for predators that are no longer detected
+    Implements a grace period to handle flickering detections
     """
+    current_time = time.time()
     current_predators = set(detected_predators)
     tracked_predators = list(predator_detection_start.keys())
 
+    # Update last seen time for currently detected predators
+    for predator in current_predators:
+        predator_last_seen_time[predator] = current_time
+
     for predator in tracked_predators:
         if predator not in current_predators:
+            # Check grace period
+            last_seen = predator_last_seen_time.get(predator, 0)
+            if current_time - last_seen < DETECTION_GRACE_PERIOD:
+                # Still within grace period, don't reset yet
+                continue
+                
             logger.info(f"✅ {predator.upper()} no longer detected - reset tracking")
             predator_detection_start.pop(predator, None)
+            predator_last_seen_time.pop(predator, None)
             # Reset valve triggered flag when predator disappears
             predator_valve_triggered[predator] = False
 
@@ -653,7 +681,8 @@ def ai_inference_thread():
                         for i, box in enumerate(results[0].boxes):
                             # Get class index and name using correct YOLOv8 syntax
                             cls_idx = int(box.cls[0])
-                            cls_name = results[0].names[cls_idx]  # Get class name from model
+                            raw_cls_name = results[0].names[cls_idx]  # Get raw class name from model
+                            cls_name = raw_cls_name.capitalize()      # Normalize to Title Case (Cat, Dog, etc.)
                             confidence = float(box.conf[0])
 
                             # Get bounding box coordinates [x1, y1, x2, y2]
@@ -665,12 +694,15 @@ def ai_inference_thread():
 
                                 # Send push notification with proper cooldown logic
                                 if should_send_notification(cls_name):
-                                    logger.warning(f"⚠️ PREDATOR DETECTED: {cls_name.upper()}! Sending push notification...")
-                                    # Send notification in background to avoid blocking detection
-                                    try:
-                                        send_push_notification(cls_name, confidence)
-                                    except Exception as e:
-                                        logger.error(f"💥 Push notification error for {cls_name}: {e}")
+                                    if cls_name == "Person":
+                                        logger.info(f"👤 Person detected (logging only, no push notification)")
+                                    else:
+                                        logger.warning(f"⚠️ PREDATOR DETECTED: {cls_name.upper()}! Sending push notification...")
+                                        # Send notification in background to avoid blocking detection
+                                        try:
+                                            send_push_notification(cls_name, confidence)
+                                        except Exception as e:
+                                            logger.error(f"💥 Push notification error for {cls_name}: {e}")
                                 else:
                                     logger.debug(f"🔕 {cls_name.upper()} detected but notification in cooldown")
 

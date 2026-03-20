@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "cross-env REACT_NATIVE_PACKAGER_HOSTNAME=192.168.100.18 npx expo start --dev-client",
-    "android": "cross-env REACT_NATIVE_PACKAGER_HOSTNAME=192.168.100.18 npx expo run:android",
+    "start": "cross-env REACT_NATIVE_PACKAGER_HOSTNAME=110.233.18.156 npx expo start --dev-client",
+    "android": "cross-env REACT_NATIVE_PACKAGER_HOSTNAME=110.233.18.156 npx expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web"
   },
