@@ -848,6 +848,45 @@ def metrics():
         'timestamp': datetime.now().isoformat()
     })
 
+@app.route('/valve/status')
+def valve_status():
+    """Check valve system status and predator tracking"""
+    return jsonify({
+        'valve_connected': valve_serial is not None,
+        'valve_port': valve_serial.port if valve_serial else None,
+        'valve_predators': VALVE_PREDATORS,
+        'detection_duration_required': VALVE_DETECTION_DURATION,
+        'repeat_delay': VALVE_REPEAT_DELAY,
+        'cooldown_seconds': VALVE_COOLDOWN_SECONDS,
+        'active_tracking': {k: round(time.time() - v, 1) for k, v in predator_detection_start.items()},
+        'valve_triggered_flags': dict(predator_valve_triggered),
+        'last_trigger_times': {k: round(time.time() - v, 1) for k, v in valve_last_trigger_time.items()},
+        'timestamp': datetime.now().isoformat()
+    })
+
+@app.route('/valve/test')
+def valve_test():
+    """Manually test valve activation"""
+    if valve_serial is None:
+        return jsonify({
+            'success': False,
+            'error': 'Arduino not connected',
+            'message': 'No serial connection to Arduino. Check USB connection and restart server.'
+        }), 503
+
+    try:
+        result = trigger_valve("TEST")
+        return jsonify({
+            'success': result,
+            'message': 'Valve triggered successfully' if result else 'Valve trigger failed or rejected',
+            'port': valve_serial.port
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/send_alert')
 def send_alert():
     """Send an alert based on detection"""

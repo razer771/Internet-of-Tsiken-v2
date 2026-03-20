@@ -293,31 +293,16 @@ export default function CameraStream({
             addUserNotification(notificationData);
 
             // Push notification with cooldown (to avoid spam)
+            // NOTE: Raspberry Pi server handles push notifications for 24/7 operation
+            // Mobile app only updates header notifications (immediate, no cooldown)
             const lastTime = getLastPredatorDetection(objClass);
             const timeSinceLastNotif = lastTime ? now - lastTime : Infinity;
 
-            console.log(`[${predatorName}] Last notification: ${lastTime}, Time since: ${timeSinceLastNotif}ms, Cooldown: ${PUSH_NOTIFICATION_COOLDOWN}ms`);
+            console.log(`[${predatorName}] Header notification sent. Pi server handles push notifications.`);
 
+            // Update tracker for potential future use
             if (!lastTime || timeSinceLastNotif > PUSH_NOTIFICATION_COOLDOWN) {
               setLastPredatorDetection(objClass, now);
-              console.log(`[${predatorName}] SENDING push notification NOW`);
-
-              // Send push notification via Firebase webhook
-              fetch("https://us-central1-internet-of-tsiken-f0ad4.cloudfunctions.net/notifyPredator", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  predator_type: predatorName,
-                  confidence: obj.confidence || 0.9,
-                  camera_id: "Mobile App Camera"
-                })
-              }).then(response => {
-                console.log(`[${predatorName}] Push notification response:`, response.ok);
-              }).catch(error => {
-                console.error(`[${predatorName}] Push notification error:`, error);
-              });
-            } else {
-              console.log(`[${predatorName}] SKIPPED - cooldown active (${Math.round((PUSH_NOTIFICATION_COOLDOWN - timeSinceLastNotif) / 1000)}s remaining)`);
             }
           }
         });
