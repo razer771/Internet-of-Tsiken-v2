@@ -70,12 +70,7 @@ if __name__ == "__main__":
     # Wait a moment for network to establish on boot
     time.sleep(2) 
 
-    # --- FOR WINDOWS TESTING ONLY: HARDCODED IP ---
-    # Replace this string with whatever your actual Tailscale IP is for the Pi
-    ip = "100.111.222.333" # <-- CHANGE THIS
-    # ---------------------------------------------
-    
-    # ip = get_tailscale_ip() # <-- Uncomment this when moving back to the Pi
+    ip = get_tailscale_ip()
     
     if ip:
         print(f"Using Tailscale IP: {ip}")
