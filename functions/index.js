@@ -1360,6 +1360,16 @@ exports.notifyPredator = require("firebase-functions/v2/https").onRequest(
         time: new Date().toLocaleTimeString("en-US", { hour12: false }),
         status: "detected",
       });
+
+      // ALSO add to camera_detections so it appears in the app's "Recent Detections" list
+      // even if the app was closed when the detection happened.
+      await db.collection("camera_detections").add({
+        class: predator_type, // "class" matches the field expected by CameraStream.js
+        confidence: confidence || 0,
+        timestamp: require("firebase-admin/firestore").FieldValue.serverTimestamp(),
+        source: "autonomous_backend" // Optional flag to know it came from 24/7 service
+      });
+
       // Get all users and filter for those with push tokens
       // Note: Using get() instead of where("!=", null) to avoid Firestore query limitations
       const usersSnapshot = await db.collection("users").get();
@@ -1384,29 +1394,48 @@ exports.notifyPredator = require("firebase-functions/v2/https").onRequest(
 
         if (Expo.isExpoPushToken(pushToken)) {
           if (isLoggedIn) {
-            // Critical Predator Alert - Maximum Priority for Pop-up
-            // Note: Expo Push API uses top-level properties only (no nested android/ios objects)
-            messages.push({
-              to: pushToken,
-              priority: "high", // FCM high priority - ensures immediate delivery
-              channelId: "predator-alerts", // Android notification channel (must exist on device)
-              sound: "default", // Play default notification sound
-              title: "PREDATOR ALERT!",
-              body: `URGENT: ${predator_type} detected near your chicken coop! Take immediate action.`,
-              badge: 1, // iOS badge count
-              ttl: 0, // Time-to-live: 0 = deliver immediately, don't store
-              expiration: Math.floor(Date.now() / 1000) + 300, // Expire in 5 minutes if undelivered
-              mutableContent: true, // iOS: allows notification service extension
-              _contentAvailable: true, // Wake app for background processing
-              data: {
-                type: "predator_alert",
-                predator: predator_type,
-                confidence: confidence || null,
-                camera: camera_id || "Main Camera",
-                timestamp: new Date().toISOString(),
-                priority: "emergency",
-              },
-            });
+            // Check if it's a "Person" detection - send as standard notification, NOT urgent popup
+            if (predator_type === "Person") {
+                messages.push({
+                    to: pushToken,
+                    priority: "default",
+                    channelId: "default", // Use default channel for non-urgent
+                    sound: "default",
+                    title: "Security Camera Activity",
+                    body: `A person was detected near the coop.`,
+                    badge: 1,
+                    data: {
+                        type: "person_detected",
+                        predator: "Person",
+                        confidence: confidence || null,
+                        timestamp: new Date().toISOString(),
+                    },
+                });
+            } else {
+                // Critical Predator Alert - Maximum Priority for Pop-up (Cat, Dog, Snake, Rat)
+                // Note: Expo Push API uses top-level properties only (no nested android/ios objects)
+                messages.push({
+                  to: pushToken,
+                  priority: "high", // FCM high priority - ensures immediate delivery
+                  channelId: "predator-alerts", // Android notification channel (must exist on device)
+                  sound: "default", // Play default notification sound
+                  title: "PREDATOR ALERT!",
+                  body: `URGENT: ${predator_type} detected near your chicken coop! Take immediate action.`,
+                  badge: 1, // iOS badge count
+                  ttl: 0, // Time-to-live: 0 = deliver immediately, don't store
+                  expiration: Math.floor(Date.now() / 1000) + 300, // Expire in 5 minutes if undelivered
+                  mutableContent: true, // iOS: allows notification service extension
+                  _contentAvailable: true, // Wake app for background processing
+                  data: {
+                    type: "predator_alert",
+                    predator: predator_type,
+                    confidence: confidence || null,
+                    camera: camera_id || "Main Camera",
+                    timestamp: new Date().toISOString(),
+                    priority: "emergency",
+                  },
+                });
+            }
           } else {
             // Generic/Vague Notification for logged-out users
             messages.push({

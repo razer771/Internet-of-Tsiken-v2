@@ -695,14 +695,15 @@ def ai_inference_thread():
                                 # Send push notification with proper cooldown logic
                                 if should_send_notification(cls_name):
                                     if cls_name == "Person":
-                                        logger.info(f"👤 Person detected (logging only, no push notification)")
+                                        logger.info(f"👤 Person detected - logging only (handled by Cloud Function)")
                                     else:
                                         logger.warning(f"⚠️ PREDATOR DETECTED: {cls_name.upper()}! Sending push notification...")
-                                        # Send notification in background to avoid blocking detection
-                                        try:
-                                            send_push_notification(cls_name, confidence)
-                                        except Exception as e:
-                                            logger.error(f"💥 Push notification error for {cls_name}: {e}")
+                                    
+                                    # Send notification/log for ALL detected types (cloud function handles filtering)
+                                    try:
+                                        send_push_notification(cls_name, confidence)
+                                    except Exception as e:
+                                        logger.error(f"💥 Push notification error for {cls_name}: {e}")
                                 else:
                                     logger.debug(f"🔕 {cls_name.upper()} detected but notification in cooldown")
 
