@@ -1360,56 +1360,127 @@ exports.notifyPredator = require("firebase-functions/v2/https").onRequest(
         time: new Date().toLocaleTimeString("en-US", { hour12: false }),
         status: "detected",
       });
-      const usersSnapshot = await db
-        .collection("users")
-        .where("pushToken", "!=", null)
-        .get();
+
+      // ALSO add to camera_detections so it appears in the app's "Recent Detections" list
+      // even if the app was closed when the detection happened.
+      await db.collection("camera_detections").add({
+        class: predator_type, // "class" matches the field expected by CameraStream.js
+        confidence: confidence || 0,
+        timestamp: require("firebase-admin/firestore").FieldValue.serverTimestamp(),
+        source: "autonomous_backend" // Optional flag to know it came from 24/7 service
+      });
+
+      // Get all users and filter for those with push tokens
+      // Note: Using get() instead of where("!=", null) to avoid Firestore query limitations
+      const usersSnapshot = await db.collection("users").get();
       const { Expo } = require("expo-server-sdk");
       let expo = new Expo();
       let messages = [];
+      console.log(`Found ${usersSnapshot.size} total users, checking for push tokens...`);
+
       usersSnapshot.forEach((doc) => {
         const userData = doc.data();
         const pushToken = userData.pushToken;
+
+        // Skip users without push tokens
+        if (!pushToken || typeof pushToken !== 'string' || !pushToken.startsWith('ExponentPushToken')) {
+          return;
+        }
+
+        console.log(`Processing user ${doc.id} with token: ${pushToken.substring(0, 30)}...`);
         // Strict check: if explicitly false, they are logged out.
         // If true or undefined (legacy users), assume they might be receiving the alert.
         const isLoggedIn = userData.isLoggedIn !== false;
 
         if (Expo.isExpoPushToken(pushToken)) {
           if (isLoggedIn) {
-            // Detailed Notification for logged-in users
+            // Check if it's a "Person" detection - send as standard notification, NOT urgent popup
+            if (predator_type === "Person") {
+                messages.push({
+                    to: pushToken,
+                    priority: "default",
+                    channelId: "default", // Use default channel for non-urgent
+                    sound: "default",
+                    title: "Security Camera Activity",
+                    body: `A person was detected near the coop.`,
+                    badge: 1,
+                    data: {
+                        type: "person_detected",
+                        predator: "Person",
+                        confidence: confidence || null,
+                        timestamp: new Date().toISOString(),
+                    },
+                });
+            } else {
+                // Critical Predator Alert - Maximum Priority for Pop-up (Cat, Dog, Snake, Rat)
+                // Note: Expo Push API uses top-level properties only (no nested android/ios objects)
+                messages.push({
+                  to: pushToken,
+                  priority: "high", // FCM high priority - ensures immediate delivery
+                  channelId: "predator-alerts", // Android notification channel (must exist on device)
+                  sound: "default", // Play default notification sound
+                  title: "PREDATOR ALERT!",
+                  body: `URGENT: ${predator_type} detected near your chicken coop! Take immediate action.`,
+                  badge: 1, // iOS badge count
+                  ttl: 0, // Time-to-live: 0 = deliver immediately, don't store
+                  expiration: Math.floor(Date.now() / 1000) + 300, // Expire in 5 minutes if undelivered
+                  mutableContent: true, // iOS: allows notification service extension
+                  _contentAvailable: true, // Wake app for background processing
+                  data: {
+                    type: "predator_alert",
+                    predator: predator_type,
+                    confidence: confidence || null,
+                    camera: camera_id || "Main Camera",
+                    timestamp: new Date().toISOString(),
+                    priority: "emergency",
+                  },
+                });
+            }
+          } else {
+            // Generic/Vague Notification for logged-out users
             messages.push({
               to: pushToken,
               priority: "high",
               channelId: "predator-alerts",
               sound: "default",
-              title: "🚨 PREDATOR ALERT!",
-              body: `A ${predator_type} has been detected near your chicken coop!`,
-              data: { type: "predator_alert", predator: predator_type },
-            });
-          } else {
-            // Generic/Vague Notification for logged-out users
-            messages.push({
-              to: pushToken,
-              priority: "default",
-              sound: "default",
-              title: "Internet of Tsiken",
-              body: "You have a new notification. Log in to view details.",
-              data: { type: "generic_alert" },
+              title: "Internet of Tsiken Security Alert",
+              body: "Security event detected. Please open the app for details.",
+              badge: 1,
+              ttl: 0,
+              _contentAvailable: true,
+              data: {
+                type: "generic_alert",
+                timestamp: new Date().toISOString(),
+              },
             });
           }
         }
       });
-      let chunks = expo.chunkPushNotifications(messages);
+
+      console.log(`Prepared ${messages.length} push notifications to send`);
+
+      if (messages.length === 0) {
+        console.log("No valid push tokens found - no notifications sent");
+        return res.status(200).send({ success: true, tickets: [], message: "No users with valid push tokens" });
+      }
+
+      // Send notifications one by one to avoid PUSH_TOO_MANY_EXPERIENCE_IDS error
+      // (tokens from different Expo projects cannot be sent in the same batch)
       let tickets = [];
-      for (let chunk of chunks) {
+      for (const message of messages) {
         try {
-          let ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-          tickets.push(...ticketChunk);
+          const [ticket] = await expo.sendPushNotificationsAsync([message]);
+          tickets.push(ticket);
+          console.log(`Sent to ${message.to.substring(0, 30)}...:`, ticket.status);
         } catch (error) {
-          console.error("Error sending push chunk", error);
+          console.error(`Failed to send to ${message.to}:`, error.message);
+          tickets.push({ status: 'error', message: error.message });
         }
       }
-      res.status(200).send({ success: true, tickets });
+
+      const successCount = tickets.filter(t => t.status === 'ok').length;
+      console.log(`Successfully sent ${successCount}/${tickets.length} notifications`);
+      res.status(200).send({ success: true, tickets, notificationsSent: successCount });
     } catch (error) {
       console.error("Error in notifyPredator webhook:", error);
       res.status(500).send({ error: error.message });
