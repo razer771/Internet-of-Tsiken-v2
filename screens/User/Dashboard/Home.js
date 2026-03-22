@@ -27,11 +27,14 @@ import ReportMortalityModal from "./ReportMortalityModal";
 import Toast from "../../navigation/Toast";
 import { auth, db } from "../../../config/firebaseconfig";
 import {
+  initializeSensors,
+  getAllSensorReadings,
+} from "../../../modules/UltrasonicSensorService";
+import {
   doc,
   getDoc,
   setDoc,
   updateDoc,
-  onSnapshot,
   collection,
   query,
   orderBy,
@@ -357,7 +360,7 @@ export default function QuickOverviewSetup({ navigation }) {
   const [toastMessage, setToastMessage] = useState("");
   const [sensorData, setSensorData] = useState({
     waterLevel: 0,
-    feedLevel: 0,
+    feederMass: 0,
     solarCharge: 0,
     lightStatus: "Off",
   });
@@ -1580,37 +1583,57 @@ export default function QuickOverviewSetup({ navigation }) {
       setSensorDataError(null);
 
       // First, load cached data from AsyncStorage
-      const hasCachedData = await loadCachedSensorData();
+      await loadCachedSensorData();
 
-      const docRef = doc(firestoreDb, "sensors", "current");
+      // Initialize ESP32 sensor endpoints once before polling
+      await initializeSensors();
 
-      // Set up real-time listener with onSnapshot
-      const unsubscribe = onSnapshot(docRef, async (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
+      const pollSensorData = async () => {
+        const readings = await getAllSensorReadings();
 
-          // Extract sensor values with defaults
-          const newSensorData = {
-            waterLevel:
-              typeof data.waterLevel === "number" ? data.waterLevel : 0,
-            feedLevel: typeof data.feedLevel === "number" ? data.feedLevel : 0,
-            solarCharge:
-              typeof data.solarCharge === "number" ? data.solarCharge : 0,
-            lightStatus: data.lightStatus ? String(data.lightStatus) : "Off",
-          };
+        const toNumber = (value, fallback = 0) => {
+          const parsed = Number(value);
+          return Number.isFinite(parsed) ? parsed : fallback;
+        };
 
-          // Update state with Firestore data
-          setSensorData(newSensorData);
+        // Prefer direct live water reading first, then tank/legacy fallbacks.
+        const resolvedWaterLevel =
+          readings.water_level ??
+          readings.water_tank_level ??
+          readings?.water?.level ??
+          0;
 
-          // Cache the new data to AsyncStorage
-          await cacheSensorData(newSensorData);
+        const newSensorData = {
+          waterLevel: toNumber(resolvedWaterLevel, 0),
+          feederMass: toNumber(readings.feed_weight, 0),
+          solarCharge: toNumber(readings.solarCharge, 0),
+          lightStatus: readings.light_status
+            ? String(readings.light_status).toUpperCase() === "ON"
+              ? "On"
+              : "Off"
+            : "Off",
+        };
+
+        setSensorData(newSensorData);
+        cacheSensorData(newSensorData);
+
+        if (readings.success === false) {
+          setSensorDataError(readings.error || "Failed to read ESP32 sensors");
+        } else {
+          setSensorDataError(null);
         }
-      });
 
-      // Store the unsubscribe function for cleanup
-      sensorListenerRef.current = unsubscribe;
+        setLoadingSensorData(false);
+      };
 
-      console.log("[SensorData] Real-time listener set up");
+      // Run immediately, then continue polling from ESP32
+      await pollSensorData();
+      const intervalId = setInterval(pollSensorData, 5000);
+
+      // Store cleanup function for unmount
+      sensorListenerRef.current = () => clearInterval(intervalId);
+
+      console.log("[SensorData] ESP32 polling started");
     } catch (error) {
       console.error("Error setting up sensor monitoring:", error);
       setSensorDataError(error.message);
@@ -1621,19 +1644,22 @@ export default function QuickOverviewSetup({ navigation }) {
   const loadCachedSensorData = async () => {
     try {
       const cachedWaterLevel = await AsyncStorage.getItem("sensorWaterLevel");
+      const cachedFeederMass = await AsyncStorage.getItem("sensorFeederMass");
       const cachedFeedLevel = await AsyncStorage.getItem("sensorFeedLevel");
       const cachedSolarCharge = await AsyncStorage.getItem("sensorSolarCharge");
       const cachedLightStatus = await AsyncStorage.getItem("sensorLightStatus");
 
+      const massCacheValue = cachedFeederMass || cachedFeedLevel;
+
       if (
         cachedWaterLevel ||
-        cachedFeedLevel ||
+        massCacheValue ||
         cachedSolarCharge ||
         cachedLightStatus
       ) {
         setSensorData({
           waterLevel: cachedWaterLevel ? parseInt(cachedWaterLevel) : 0,
-          feedLevel: cachedFeedLevel ? parseInt(cachedFeedLevel) : 0,
+          feederMass: massCacheValue ? parseFloat(massCacheValue) : 0,
           solarCharge: cachedSolarCharge ? parseInt(cachedSolarCharge) : 0,
           lightStatus: cachedLightStatus || "Off",
         });
@@ -1654,8 +1680,8 @@ export default function QuickOverviewSetup({ navigation }) {
       if (data.waterLevel !== undefined) {
         await AsyncStorage.setItem("sensorWaterLevel", String(data.waterLevel));
       }
-      if (data.feedLevel !== undefined) {
-        await AsyncStorage.setItem("sensorFeedLevel", String(data.feedLevel));
+      if (data.feederMass !== undefined) {
+        await AsyncStorage.setItem("sensorFeederMass", String(data.feederMass));
       }
       if (data.solarCharge !== undefined) {
         await AsyncStorage.setItem(
@@ -2621,16 +2647,16 @@ export default function QuickOverviewSetup({ navigation }) {
                 </Text>
               </View>
 
-              {/* Feed Level Card */}
+              {/* Feeder Mass Card */}
               <View style={styles.sensorCard}>
                 <MaterialCommunityIcons
-                  name="seed-outline"
+                  name="scale-bathroom"
                   size={32}
                   color="#133E87"
                 />
-                <Text style={styles.sensorLabel}>Feed Level</Text>
+                <Text style={styles.sensorLabel}>Feeder Mass</Text>
                 <Text style={styles.sensorValue}>
-                  {loadingSensorData ? "..." : `${sensorData.feedLevel}%`}
+                  {loadingSensorData ? "..." : `${sensorData.feederMass} g`}
                 </Text>
               </View>
 
