@@ -28,7 +28,7 @@ const SERVO_CONFIG = {
     maxAngle: 180,
     openAngle: 90,        // Angle to open valve
     closedAngle: 0,       // Angle when closed
-    defaultDuration: 5000, // Default spray duration in ms
+    defaultDuration: 10000, // Default spray duration in ms (matches ESP32 valve auto-close)
     endpoint: null,       // Will be set when connecting to actual module
   },
 };
@@ -53,18 +53,12 @@ export const initializeServos = async (config = {}) => {
     const waterSystemUrl = getWaterSystemUrl();
     const feedSystemUrl = getFeedSystemUrl();
     
-    console.log(`[ServoMotorService] 🔧 Initializing servos...`);
-    console.log(`[ServoMotorService]   Water System URL: ${waterSystemUrl || 'NOT CONFIGURED'}`);
-    console.log(`[ServoMotorService]   Feed System URL: ${feedSystemUrl || 'NOT CONFIGURED'}`);
-    
     if (waterSystemUrl && !SERVO_CONFIG.waterSprinkler.endpoint) {
       SERVO_CONFIG.waterSprinkler.endpoint = waterSystemUrl;
-      console.log(`[ServoMotorService]   ✓ Water endpoint set`);
     }
     
     if (feedSystemUrl && !SERVO_CONFIG.feedDispenser.endpoint) {
       SERVO_CONFIG.feedDispenser.endpoint = feedSystemUrl;
-      console.log(`[ServoMotorService]   ✓ Feed endpoint set`);
     }
     
     // Merge custom config if provided
@@ -117,46 +111,28 @@ const connectToServo = async (servoType) => {
       throw new Error(`${servo.name} motor not detected. Please check the connection.`);
     }
 
-    // Try to ping the servo
+    // Simulated connection attempt
     const isConnected = await pingServo(servo.endpoint);
     
-    if (isConnected) {
-      // Ping successful - definitely connected
-      connectionStatus[servoType] = {
-        connected: true,
-        lastUpdate: new Date().toISOString(),
-        error: null,
-        isOperating: false,
-      };
-      simulationMode = false;
-      
-      console.log(`✅ ${servo.name} connected and verified`);
-      
-      return {
-        connected: true,
-        servoId: servo.id,
-        name: servo.name,
-      };
-    } else {
-      // Ping failed, but keep endpoint configured so hardware calls can still be attempted
-      console.log(`⚠️ ${servo.name} ping failed, but will still attempt commands`);
-      
-      connectionStatus[servoType] = {
-        connected: false,
-        lastUpdate: new Date().toISOString(),
-        error: 'Ping failed, will attempt commands anyway',
-        isOperating: false,
-      };
-      
-      // Don't set simulationMode to true - let individual commands try hardware first
-      
-      return {
-        connected: false,
-        servoId: servo.id,
-        name: servo.name,
-        warning: 'Ping failed but endpoint configured',
-      };
+    if (!isConnected) {
+      throw new Error(`${servo.name} motor not responding. Please verify the motor is powered on.`);
     }
+
+    connectionStatus[servoType] = {
+      connected: true,
+      lastUpdate: new Date().toISOString(),
+      error: null,
+      isOperating: false,
+    };
+
+    // If any servo connects successfully, disable simulation mode for real commands
+    simulationMode = false;
+
+    return {
+      connected: true,
+      servoId: servo.id,
+      name: servo.name,
+    };
   } catch (error) {
     connectionStatus[servoType] = {
       connected: false,
@@ -187,21 +163,15 @@ const connectToServo = async (servoType) => {
  */
 const pingServo = async (endpoint) => {
   try {
-    console.log(`[ServoMotorService] Pinging ${endpoint}`);
-    const response = await Promise.race([
-      fetch(endpoint, { method: 'GET' }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
-    ]);
-    
-    if (response.ok) {
-      const data = await response.json();
-      console.log(`[ServoMotorService] ✅ ESP32 connected: ${data.device || 'Unknown'}`);
-      return true;
-    }
-    console.log(`[ServoMotorService] Ping failed: HTTP ${response.status}`);
-    return false;
+    console.log(`[ServoMotorService] Pinging ${endpoint}/api/status`);
+    const response = await fetch(`${endpoint}/api/status`, { 
+      method: 'GET'
+    });
+    const isConnected = response.ok;
+    console.log(`[ServoMotorService] Ping result: ${isConnected ? 'Connected' : 'Failed'}`);
+    return isConnected;
   } catch (error) {
-    console.log(`[ServoMotorService] ⚠️ Ping failed:`, error.message);
+    console.log(`[ServoMotorService] Ping failed:`, error.message);
     return false;
   }
 };
@@ -231,23 +201,37 @@ export const dispenseFeed = async (options = {}) => {
     // Always try real hardware first if an endpoint is configured
     connectionStatus.feedDispenser.isOperating = true;
 
+    let hardwareAttempted = false;
     if (servo.endpoint) {
       try {
-        console.log(`[ServoMotorService] 🍗 Dispensing feed via ESP32: angle=${angle}°, duration=${duration}ms`);
+        hardwareAttempted = true;
         
-        const result = await sendServoCommand('feedDispenser', {
+        // Step 1: Move to dispense angle
+        console.log(`[ServoMotorService] Step 1: Moving to dispense angle ${angle}°`);
+        await sendServoCommand('feedDispenser', {
           action: 'dispense',
           angle: angle,
           duration: duration,
         });
 
+        // Step 2: Wait for the specified duration
+        console.log(`[ServoMotorService] Step 2: Waiting ${duration}ms`);
+        await new Promise(resolve => setTimeout(resolve, duration));
+
+        // Step 3: Return to resting position
+        console.log(`[ServoMotorService] Step 3: Returning to resting position ${servo.closedAngle}°`);
+        await sendServoCommand('feedDispenser', {
+          action: 'dispense',
+          angle: servo.closedAngle,
+          duration: 1000, // Quick return movement
+        });
+
         connectionStatus.feedDispenser.connected = true;
         connectionStatus.feedDispenser.error = null;
-        connectionStatus.feedDispenser.isOperating = false;
-        connectionStatus.feedDispenser.lastUpdate = new Date().toISOString();
         simulationMode = false;
 
-        console.log(`[ServoMotorService] ✅ Feed dispensed successfully:`, result);
+        connectionStatus.feedDispenser.isOperating = false;
+        connectionStatus.feedDispenser.lastUpdate = new Date().toISOString();
 
         return {
           success: true,
@@ -255,15 +239,13 @@ export const dispenseFeed = async (options = {}) => {
           isSimulated: false,
           duration,
           angle,
+          restingAngle: servo.closedAngle,
           timestamp: new Date().toISOString(),
-          esp32Response: result,
         };
       } catch (error) {
-        console.warn('[ServoMotorService] ❌ Hardware dispense failed:', error.message);
+        console.warn('[ServoMotorService] Hardware dispense failed, falling back to simulation:', error.message);
         connectionStatus.feedDispenser.connected = false;
         connectionStatus.feedDispenser.error = error.message;
-        connectionStatus.feedDispenser.isOperating = false;
-        // Fall through to simulation
       }
     }
 
@@ -330,7 +312,7 @@ export const activateSprinkler = async (options = {}) => {
       try {
         hardwareAttempted = true;
         const result = await sendServoCommand('waterSprinkler', {
-          action: 'activate',
+          action: 'open',
           angle,
           duration,
         });
@@ -405,45 +387,39 @@ const sendServoCommand = async (servoType, command) => {
   
   try {
     let endpoint = servo.endpoint;
-    let requestBody = {};
     
     // For feed dispenser, use ESP32 servo API
     if (servoType === 'feedDispenser') {
       endpoint = command.action === 'dispense' 
         ? `${servo.endpoint}/api/servo/start`
         : `${servo.endpoint}/api/servo/stop`;
-      // ESP32 servo expects: { angle, duration }
-      requestBody = {
-        angle: command.angle,
-        duration: command.duration,
-      };
     }
     
-    // For water sprinkler (micro water pump), use ESP32 pump API
+    // For water sprinkler (hydro defense valve), use ESP32 valve API
     if (servoType === 'waterSprinkler') {
-      endpoint = command.action === 'activate' 
-        ? `${servo.endpoint}/api/pump/start`
-        : `${servo.endpoint}/api/pump/stop`;
-      // ESP32 pump expects: { duration }
-      requestBody = {
-        duration: command.duration,
-      };
+      endpoint = command.action === 'open' || command.action === 'activate'
+        ? `${servo.endpoint}/api/valve/open`
+        : `${servo.endpoint}/api/valve/close`;
     }
     
-    console.log(`[ServoMotorService] 📡 POST ${endpoint}`, requestBody);
+    console.log(`[ServoMotorService] Sending command to ${endpoint}`, {
+      duration: command.duration,
+      angle: command.angle,
+      action: command.action,
+    });
     
-    const response = await Promise.race([
-      fetch(endpoint, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        duration: command.duration,
+        angle: command.angle,
+        action: command.action,
       }),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Request timeout after 10s')), 10000)
-      )
-    ]);
+      timeout: 10000, // 10 second timeout
+    });
     
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);

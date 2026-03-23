@@ -24,19 +24,20 @@
 #define PIN_ECHO_FEED 18
 
 // --- 6-Channel Relay Board (JUMPERS MUST BE SET TO 'HIGH') ---
-#define PIN_RELAY_PUMP 26    // Relay 1: Water pump
-#define PIN_RELAY_FAN 27     // Relay 2: Exhaust fan
-#define PIN_RELAY_VITAMIN 14 // Relay 3: Peristaltic pump
-#define PIN_RELAY_LIGHT 22   // Relay 4: Normal 12V light
-#define PIN_RELAY_HEATER 16  // Relay 5: Ceramic Heater (⚠️ USE 30A EXTERNAL RELAY!)
+#define PIN_RELAY_PUMP 26      // Relay 1: Water pump
+#define PIN_RELAY_FAN 27       // Relay 2: Exhaust fan
+#define PIN_RELAY_VITAMIN 14   // Relay 3: Peristaltic pump
+#define PIN_RELAY_LIGHT 22     // Relay 4: Normal 12V light
+#define PIN_RELAY_HEATER 16    // Relay 1 (20A): Ceramic Heater (⚠️ USE 20A EXTERNAL RELAY!)
+#define PIN_RELAY_SPRINKLER 23 // Relay 5: Solenoid valve/sprinkler
 
 // --- Actuators ---
 #define PIN_SERVO 13 // Servo motor for feeding (180-degree)
 
 // --- Configuration ---
 #define DHTTYPE DHT22
-const char *WIFI_SSID = "mzkmbp";
-const char *WIFI_PASSWORD = "ncmaganda";
+const char *WIFI_SSID = "Converge_2.4GHz_nCW2"; // Replace with your WiFi SSID
+const char *WIFI_PASSWORD = "bhUxE568";         // Replace with your WiFi password
 
 // Firebase Configuration
 const char *FIREBASE_API_KEY = "AIzaSyBa6PE0nqkrFAqDm6AT2nIrZmv6qIfgiFM";
@@ -51,6 +52,7 @@ const int MIN_WATER_LEVEL = 10;
 const unsigned long SENSOR_READ_INTERVAL = 3000;
 const unsigned long MQ135_WARMUP_TIME = 60000;
 const unsigned long SCHEDULE_CHECK_INTERVAL = 10000;
+const unsigned long SPRINKLER_OPEN_DURATION_MS = 10000;
 
 // Objects
 WebServer server(80);
@@ -65,6 +67,7 @@ float humidity = 0;
 int airQuality = 0;
 long currentWeight = 0;
 int currentWaterLevel = 0;
+int rawWaterLevelAdc = 0;
 int feederTankLevel = 0;
 int waterTankLevel = 0;
 bool fanActive = false;
@@ -72,11 +75,14 @@ bool lightActive = false;
 bool heaterActive = false;
 bool pumpActive = false;
 bool vitaminPumpActive = false;
+bool sprinklerActive = false;
 bool vitaminSystemEnabled = false;
 unsigned long pumpStartTime = 0;
 unsigned long pumpDuration = 0;
 unsigned long vitaminPumpStartTime = 0;
 unsigned long vitaminPumpDuration = 0;
+unsigned long sprinklerStartTime = 0;
+unsigned long sprinklerDuration = SPRINKLER_OPEN_DURATION_MS;
 unsigned long lastScheduleCheck = 0;
 unsigned long lastSensorRead = 0;
 unsigned long bootTime = 0;
@@ -92,12 +98,18 @@ bool dhtReady = false;
 bool loadCellReady = false;
 bool mq135Ready = false;
 bool wifiConnected = false;
+bool waterLevelConnected = true;
 
 // Calibrations
 float LOADCELL_CALIBRATION = 420.0;
 const int TARE_WEIGHT = 250;
 const int FULL_LEVEL = 2160;
 const int EMPTY_LEVEL = 1200;
+
+void handleSerialCommands();
+void startSprinkler(unsigned long durationMs = SPRINKLER_OPEN_DURATION_MS);
+void stopSprinkler();
+void reportSprinklerStatus();
 
 // =================================================================
 // ====================== SETUP ====================================
@@ -123,18 +135,21 @@ void setup()
     pinMode(PIN_RELAY_VITAMIN, OUTPUT);
     pinMode(PIN_RELAY_LIGHT, OUTPUT);
     pinMode(PIN_RELAY_HEATER, OUTPUT);
+    pinMode(PIN_RELAY_SPRINKLER, OUTPUT);
 
     digitalWrite(PIN_RELAY_PUMP, LOW);
     digitalWrite(PIN_RELAY_FAN, LOW);
     digitalWrite(PIN_RELAY_VITAMIN, LOW);
     digitalWrite(PIN_RELAY_LIGHT, LOW);
     digitalWrite(PIN_RELAY_HEATER, LOW);
+    digitalWrite(PIN_RELAY_SPRINKLER, LOW);
 
     Serial.println("  • Pump Relay... ✓ OFF");
     Serial.println("  • Fan Relay... ✓ OFF");
     Serial.println("  • Vitamin Relay... ✓ OFF");
     Serial.println("  • Light Relay... ✓ OFF");
     Serial.println("  • Heater Relay... ✓ OFF");
+    Serial.println("  • Sprinkler Relay... ✓ OFF");
 
     // Servo
     feedServo.attach(PIN_SERVO);
@@ -192,8 +207,6 @@ void setup()
     {
         wifiConnected = true;
         Serial.println("\n  ✓ WiFi Connected!");
-        Serial.print("  • IP Address: ");
-        Serial.println(WiFi.localIP());
         configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov");
     }
 
@@ -210,6 +223,8 @@ void setup()
 
 void loop()
 {
+    handleSerialCommands();
+
     if (wifiConnected)
         server.handleClient();
 
@@ -232,6 +247,40 @@ void loop()
         stopPump();
     if (vitaminPumpActive && (millis() - vitaminPumpStartTime >= vitaminPumpDuration))
         stopVitaminPump();
+    if (sprinklerActive && (millis() - sprinklerStartTime >= sprinklerDuration))
+        stopSprinkler();
+}
+
+void handleSerialCommands()
+{
+    if (!Serial.available())
+        return;
+
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+
+    if (command.equalsIgnoreCase("OPEN_VALVE"))
+    {
+        if (sprinklerActive)
+        {
+            Serial.println("REJECTED: Valve already active");
+            return;
+        }
+        startSprinkler();
+    }
+    else if (command.equalsIgnoreCase("CLOSE_VALVE"))
+    {
+        stopSprinkler();
+    }
+    else if (command.equalsIgnoreCase("STATUS"))
+    {
+        reportSprinklerStatus();
+    }
+    else if (command.length() > 0)
+    {
+        Serial.print("UNKNOWN COMMAND: ");
+        Serial.println(command);
+    }
 }
 
 // =================================================================
@@ -249,8 +298,19 @@ void readSensors()
     int rawAirQuality = analogRead(PIN_MQ135);
     airQuality = map(rawAirQuality, 0, 4095, 0, 1000);
 
-    int rawWaterLevel = analogRead(PIN_WATER_LEVEL);
-    currentWaterLevel = constrain(map(rawWaterLevel, EMPTY_LEVEL, FULL_LEVEL, 0, 100), 0, 100);
+    rawWaterLevelAdc = analogRead(PIN_WATER_LEVEL);
+
+    // Detect floating/disconnected ADC input to avoid false 100% readings.
+    if (rawWaterLevelAdc <= 40 || rawWaterLevelAdc >= 4050)
+    {
+        waterLevelConnected = false;
+        currentWaterLevel = 0;
+    }
+    else
+    {
+        waterLevelConnected = true;
+        currentWaterLevel = constrain(map(rawWaterLevelAdc, EMPTY_LEVEL, FULL_LEVEL, 0, 100), 0, 100);
+    }
 
     if (loadCellReady && loadCell.wait_ready_timeout(200))
     {
@@ -269,7 +329,11 @@ void readSensors()
     Serial.println("%");
     Serial.print("Water Trough Level: ");
     Serial.print(currentWaterLevel);
-    Serial.println("%");
+    Serial.print("% (raw ADC: ");
+    Serial.print(rawWaterLevelAdc);
+    Serial.print(", connected: ");
+    Serial.print(waterLevelConnected ? "yes" : "no");
+    Serial.println(")");
 }
 
 int readUltrasonic(int trigPin, int echoPin, float emptyDistance, float fullDistance)
@@ -315,12 +379,37 @@ int readUltrasonic(int trigPin, int echoPin, float emptyDistance, float fullDist
 
 void setupWebServer()
 {
-    server.enableCORS(true); // Allow connections from modern apps (fixes network errors in Fetch API)
-    
     server.on("/api/sensors", HTTP_GET, handleGetSensors);
     server.on("/api/pump/start", HTTP_POST, handleStartPump);
     server.on("/api/pump/stop", HTTP_POST, handleStopPump);
     server.on("/api/servo/start", HTTP_POST, handleStartServo);
+    server.on("/api/valve/open", HTTP_POST, []()
+              {
+        if (sprinklerActive) {
+            server.send(400, "application/json", "{\"error\":\"Valve already active\"}");
+            return;
+        }
+        startSprinkler();
+        server.send(200, "application/json", "{\"valve_status\":\"open\"}"); });
+
+    server.on("/api/valve/close", HTTP_POST, []()
+              {
+        stopSprinkler();
+        server.send(200, "application/json", "{\"valve_status\":\"closed\"}"); });
+
+    server.on("/api/valve/status", HTTP_GET, []()
+              {
+        StaticJsonDocument<128> doc;
+        doc["valve_status"] = sprinklerActive ? "open" : "closed";
+        if (sprinklerActive)
+        {
+            unsigned long elapsed = millis() - sprinklerStartTime;
+            unsigned long remaining = (elapsed >= sprinklerDuration) ? 0 : (sprinklerDuration - elapsed);
+            doc["remaining_seconds"] = remaining / 1000;
+        }
+        String response;
+        serializeJson(doc, response);
+        server.send(200, "application/json", response); });
 
     // ACTIVE-HIGH LOGIC: HIGH = ON, LOW = OFF
     server.on("/api/fan/start", HTTP_POST, []()
@@ -368,7 +457,7 @@ void setupWebServer()
         digitalWrite(PIN_RELAY_VITAMIN, HIGH); 
         vitaminPumpActive = true;
         vitaminPumpStartTime = millis();
-        vitaminPumpDuration = 5000;
+        vitaminPumpDuration = 35000; // Default 35 seconds
         server.send(200, "application/json", "{\"vitamin_pump_status\":\"on\"}"); });
 
     server.on("/api/vitamin/stop", HTTP_POST, []()
@@ -408,6 +497,8 @@ void handleGetSensors()
     doc["humidity"] = dhtReady ? humidity : 0;
     doc["air_quality"] = mq135Ready ? airQuality : 0;
     doc["water_level"] = currentWaterLevel;
+    doc["water_level_connected"] = waterLevelConnected;
+    doc["water_level_raw"] = rawWaterLevelAdc;
     doc["feed_weight"] = currentWeight;
     doc["feeder_tank_level"] = feederTankLevel;
     doc["water_tank_level"] = waterTankLevel;
@@ -416,6 +507,7 @@ void handleGetSensors()
     doc["light_status"] = lightActive ? "on" : "off";
     doc["heater_status"] = heaterActive ? "on" : "off";
     doc["pump_status"] = pumpActive ? "on" : "off";
+    doc["valve_status"] = sprinklerActive ? "open" : "closed";
     doc["vitamin_pump_status"] = vitaminPumpActive ? "on" : "off";
     doc["vitamin_system_enabled"] = vitaminSystemEnabled;
 
@@ -434,7 +526,7 @@ void handleStartPump()
     digitalWrite(PIN_RELAY_PUMP, HIGH); // HIGH = ON
     pumpActive = true;
     pumpStartTime = millis();
-    pumpDuration = 5000;
+    pumpDuration = 35000; // 35 seconds default
     server.send(200, "application/json", "{\"status\":\"started\"}");
 }
 
@@ -462,6 +554,49 @@ void stopVitaminPump()
     }
 }
 
+void startSprinkler(unsigned long durationMs)
+{
+    if (sprinklerActive)
+        return;
+
+    digitalWrite(PIN_RELAY_SPRINKLER, HIGH); // HIGH = OPEN/ON
+    sprinklerActive = true;
+    sprinklerStartTime = millis();
+    sprinklerDuration = durationMs;
+
+    Serial.println(">>> VALVE OPENED <<<");
+    Serial.print("Duration: ");
+    Serial.print(durationMs / 1000);
+    Serial.println(" seconds");
+}
+
+void stopSprinkler()
+{
+    if (!sprinklerActive)
+        return;
+
+    digitalWrite(PIN_RELAY_SPRINKLER, LOW); // LOW = CLOSED/OFF
+    sprinklerActive = false;
+
+    Serial.println(">>> VALVE CLOSED <<<");
+    Serial.println("Ready for next command.");
+}
+
+void reportSprinklerStatus()
+{
+    Serial.print("Valve Status: ");
+    Serial.println(sprinklerActive ? "OPEN" : "CLOSED");
+
+    if (sprinklerActive)
+    {
+        unsigned long elapsed = millis() - sprinklerStartTime;
+        unsigned long remaining = (elapsed >= sprinklerDuration) ? 0 : (sprinklerDuration - elapsed);
+        Serial.print("Time remaining: ");
+        Serial.print(remaining / 1000);
+        Serial.println(" seconds");
+    }
+}
+
 void handleStartServo()
 {
     if (currentWeight > MAX_BOWL_WEIGHT)
@@ -469,16 +604,16 @@ void handleStartServo()
         server.send(400, "application/json", "{\"error\":\"Full\"}");
         return;
     }
-    Serial.println("Manual Feed Triggered! (Double-Tap 15°)");
+    Serial.println("Manual Feed Triggered! (Double-Tap 40°)");
 
     // --- First Dispense ---
-    feedServo.write(15);
+    feedServo.write(40);
     delay(1000);
     feedServo.write(0);
     delay(500);
 
     // --- Second Dispense ---
-    feedServo.write(15);
+    feedServo.write(40);
     delay(1000);
     feedServo.write(0);
     delay(500);
@@ -610,16 +745,16 @@ void checkFeedingSchedules(String currentTime)
                                 lastExecutedFeedSchedule = execKey;
                                 continue;
                             }
-                            Serial.println("Scheduled Feed Triggered! (Double-Tap 15°)");
+                            Serial.println("Scheduled Feed Triggered! (Double-Tap 40°)");
 
                             // --- First Dispense ---
-                            feedServo.write(15);
+                            feedServo.write(40);
                             delay(1000);
                             feedServo.write(0);
                             delay(500);
 
                             // --- Second Dispense ---
-                            feedServo.write(15);
+                            feedServo.write(40);
                             delay(1000);
                             feedServo.write(0);
                             delay(500);
