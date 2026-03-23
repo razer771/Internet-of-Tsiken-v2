@@ -20,8 +20,8 @@
 // --- Ultrasonic (Source Tanks) ---
 #define PIN_TRIG_WATER 19
 #define PIN_ECHO_WATER 21
-#define PIN_TRIG_FEED 25
-#define PIN_ECHO_FEED 18
+#define PIN_TRIG_FEED 18
+#define PIN_ECHO_FEED 25
 
 // --- 6-Channel Relay Board (JUMPERS MUST BE SET TO 'HIGH') ---
 #define PIN_RELAY_PUMP 26      // Relay 1: Water pump
@@ -70,6 +70,12 @@ int currentWaterLevel = 0;
 int rawWaterLevelAdc = 0;
 int feederTankLevel = 0;
 int waterTankLevel = 0;
+float feederDistanceCm = -1.0;
+float waterDistanceCm = -1.0;
+int feederValidEchoes = 0;
+int waterValidEchoes = 0;
+int feederEchoTimeouts = 0;
+int waterEchoTimeouts = 0;
 bool fanActive = false;
 bool lightActive = false;
 bool heaterActive = false;
@@ -110,6 +116,7 @@ void handleSerialCommands();
 void startSprinkler(unsigned long durationMs = SPRINKLER_OPEN_DURATION_MS);
 void stopSprinkler();
 void reportSprinklerStatus();
+int readUltrasonic(int trigPin, int echoPin, float emptyDistance, float fullDistance, float &avgDistance, int &validReadingsOut, int &timeoutsOut);
 
 // =================================================================
 // ====================== SETUP ====================================
@@ -318,8 +325,8 @@ void readSensors()
         currentWeight = max(0L, rawWeight - TARE_WEIGHT);
     }
 
-    feederTankLevel = readUltrasonic(PIN_TRIG_FEED, PIN_ECHO_FEED, 18.0, 5.0);
-    waterTankLevel = readUltrasonic(PIN_TRIG_WATER, PIN_ECHO_WATER, 17.0, 5.0);
+    feederTankLevel = readUltrasonic(PIN_TRIG_FEED, PIN_ECHO_FEED, 18.0, 5.0, feederDistanceCm, feederValidEchoes, feederEchoTimeouts);
+    waterTankLevel = readUltrasonic(PIN_TRIG_WATER, PIN_ECHO_WATER, 17.0, 5.0, waterDistanceCm, waterValidEchoes, waterEchoTimeouts);
 
     Serial.println("\n--- Sensor Status ---");
     Serial.print("Temp: ");
@@ -334,12 +341,31 @@ void readSensors()
     Serial.print(", connected: ");
     Serial.print(waterLevelConnected ? "yes" : "no");
     Serial.println(")");
+    Serial.print("Feed tank: ");
+    Serial.print(feederTankLevel);
+    Serial.print("% (dist cm: ");
+    Serial.print(feederDistanceCm);
+    Serial.print(", valid echoes: ");
+    Serial.print(feederValidEchoes);
+    Serial.print(", timeouts: ");
+    Serial.print(feederEchoTimeouts);
+    Serial.println(")");
+    Serial.print("Water tank: ");
+    Serial.print(waterTankLevel);
+    Serial.print("% (dist cm: ");
+    Serial.print(waterDistanceCm);
+    Serial.print(", valid echoes: ");
+    Serial.print(waterValidEchoes);
+    Serial.print(", timeouts: ");
+    Serial.print(waterEchoTimeouts);
+    Serial.println(")");
 }
 
-int readUltrasonic(int trigPin, int echoPin, float emptyDistance, float fullDistance)
+int readUltrasonic(int trigPin, int echoPin, float emptyDistance, float fullDistance, float &avgDistance, int &validReadingsOut, int &timeoutsOut)
 {
     float total = 0;
     int validReadings = 0;
+    int timeouts = 0;
 
     for (int i = 0; i < 3; i++)
     {
@@ -359,17 +385,26 @@ int readUltrasonic(int trigPin, int echoPin, float emptyDistance, float fullDist
                 validReadings++;
             }
         }
+        else
+        {
+            timeouts++;
+        }
         delay(10);
     }
+    validReadingsOut = validReadings;
+    timeoutsOut = timeouts;
+
     if (validReadings > 0)
     {
         float distance = total / validReadings;
+        avgDistance = distance;
         if (distance <= fullDistance)
             return 100;
         if (distance >= emptyDistance)
             return 0;
         return constrain((int)(((emptyDistance - distance) / (emptyDistance - fullDistance)) * 100.0), 0, 100);
     }
+    avgDistance = -1.0;
     return 0;
 }
 
@@ -492,7 +527,7 @@ void setupWebServer()
 
 void handleGetSensors()
 {
-    StaticJsonDocument<1024> doc;
+    StaticJsonDocument<1536> doc;
     doc["temperature"] = dhtReady ? temperature : 0;
     doc["humidity"] = dhtReady ? humidity : 0;
     doc["air_quality"] = mq135Ready ? airQuality : 0;
@@ -502,6 +537,14 @@ void handleGetSensors()
     doc["feed_weight"] = currentWeight;
     doc["feeder_tank_level"] = feederTankLevel;
     doc["water_tank_level"] = waterTankLevel;
+    doc["feeder_distance_cm"] = feederDistanceCm;
+    doc["water_distance_cm"] = waterDistanceCm;
+    doc["feeder_valid_echoes"] = feederValidEchoes;
+    doc["water_valid_echoes"] = waterValidEchoes;
+    doc["feeder_echo_timeouts"] = feederEchoTimeouts;
+    doc["water_echo_timeouts"] = waterEchoTimeouts;
+    doc["feeder_ultrasonic_connected"] = feederValidEchoes > 0;
+    doc["water_ultrasonic_connected"] = waterValidEchoes > 0;
 
     doc["fan_status"] = fanActive ? "on" : "off";
     doc["light_status"] = lightActive ? "on" : "off";
@@ -673,7 +716,7 @@ void checkWateringSchedules(String currentTime)
                     String scheduleTime = fields["time"]["stringValue"].as<String>();
                     int scheduleDuration = String(fields["duration"]["integerValue"].as<String>()).toInt() * 1000;
                     if (scheduleDuration <= 0)
-                        scheduleDuration = 5000;
+                        scheduleDuration = 35000;
                     String scheduleUserId = fields["userId"]["stringValue"].as<String>();
                     String docName = result["document"]["name"].as<String>();
                     String scheduleId = docName.substring(docName.lastIndexOf('/') + 1);
