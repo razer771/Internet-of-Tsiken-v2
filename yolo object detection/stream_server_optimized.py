@@ -18,7 +18,7 @@ import sys
 import time
 import threading
 import numpy as np
-from flask import Flask, Response, jsonify
+from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
 from picamera2 import Picamera2
 from datetime import datetime
@@ -56,11 +56,23 @@ logger = logging.getLogger(__name__)
 
 MODEL_PATH = "models/yolov8s-custom_ncnn_model"   # Restored: Small custom model for Snake and Rat detection
 MODEL_PATH_PT = "models/yolov8s-custom.pt"        # Restored: Fallback PyTorch model
-CAPTURE_SIZE = (416, 416)                 # Hardware ISP output size
+CAPTURE_SIZE = (640, 640)                 # Higher detail helps detect small targets like Rat/Snake
 TARGET_FPS = 30                           # Camera capture target
 JPEG_QUALITY = 70                         # Stream compression quality
-CONFIDENCE_THRESHOLD = 0.5                # Detection confidence
+CONFIDENCE_THRESHOLD = 0.15               # Low base confidence for small-object recall
 IOU_THRESHOLD = 0.45                      # Non-max suppression
+INFERENCE_IMAGE_SIZE = 640                # Match training/default YOLO scale for better small-object detection
+
+# Per-class confidence thresholds after model inference.
+# Rat/Snake are typically smaller in-frame and need a lower cutoff.
+CLASS_CONFIDENCE_THRESHOLDS = {
+    "Person": 0.30,
+    "Cat": 0.30,
+    "Dog": 0.30,
+    "Rat": 0.20,
+    "Snake": 0.20,
+}
+TARGET_CLASSES = set(CLASS_CONFIDENCE_THRESHOLDS.keys())
 
 # Configuration for Alerts
 ALERT_WEBHOOK_URL = "https://us-central1-internet-of-tsiken-f0ad4.cloudfunctions.net/notifyPredator"
@@ -417,6 +429,19 @@ def reset_predator_tracking(detected_predators: List[str]):
             # Reset valve triggered flag when predator disappears
             predator_valve_triggered[predator] = False
 
+
+def normalize_class_name(raw_name: str) -> str:
+    """Normalize model class labels to title case used by notifications/valve logic."""
+    return str(raw_name).strip().capitalize()
+
+
+def should_keep_detection(class_name: str, confidence: float) -> bool:
+    """Filter detections to configured classes and per-class confidence thresholds."""
+    required_conf = CLASS_CONFIDENCE_THRESHOLDS.get(class_name)
+    if required_conf is None:
+        return False
+    return confidence >= required_conf
+
 # ==================== PUSH NOTIFICATION FUNCTIONS ====================
 
 def send_push_notification(predator_type: str, confidence: float = None):
@@ -671,7 +696,13 @@ def ai_inference_thread():
                     detections_list = ai_model.detect(frame, CONFIDENCE_THRESHOLD)
                 else:
                     # PyTorch inference
-                    results = ai_model(frame, verbose=False, conf=CONFIDENCE_THRESHOLD, iou=IOU_THRESHOLD, imgsz=416)
+                    results = ai_model(
+                        frame,
+                        verbose=False,
+                        conf=CONFIDENCE_THRESHOLD,
+                        iou=IOU_THRESHOLD,
+                        imgsz=INFERENCE_IMAGE_SIZE,
+                    )
 
                     # Extract detections
                     detections_list = []
@@ -682,14 +713,17 @@ def ai_inference_thread():
                             # Get class index and name using correct YOLOv8 syntax
                             cls_idx = int(box.cls[0])
                             raw_cls_name = results[0].names[cls_idx]  # Get raw class name from model
-                            cls_name = raw_cls_name.capitalize()      # Normalize to Title Case (Cat, Dog, etc.)
+                            cls_name = normalize_class_name(raw_cls_name)
                             confidence = float(box.conf[0])
 
                             # Get bounding box coordinates [x1, y1, x2, y2]
                             bbox = box.xyxy[0].tolist()
 
+                            if not should_keep_detection(cls_name, confidence):
+                                continue
+
                             # Check for predators (for alerts and tracking)
-                            if cls_name in ["Cat", "Dog", "Rat", "Snake", "Person"]:  # Now includes Person
+                            if cls_name in TARGET_CLASSES:
                                 detected_predators.append(cls_name)
 
                                 # Send push notification with proper cooldown logic
@@ -832,7 +866,10 @@ def status():
         'status': 'online',
         'camera': camera is not None,
         'model': ai_model is not None,
-        'ncnn_enabled': NCNN_AVAILABLE,
+        'ncnn_available': NCNN_AVAILABLE,
+        'ncnn_enabled': NCNN_AVAILABLE and isinstance(ai_model, NCNNDetector),
+        'inference_backend': 'ncnn' if (NCNN_AVAILABLE and isinstance(ai_model, NCNNDetector)) else 'pytorch',
+        'confidence_threshold': CONFIDENCE_THRESHOLD,
         'producer_fps': round(producer_fps, 1),
         'streaming_fps': round(streaming_fps, 1),
         'inference_fps': round(inference_fps, 1),
@@ -872,11 +909,14 @@ def snapshot():
 def metrics():
     """Performance metrics endpoint"""
     return jsonify({
+        'confidence_threshold': CONFIDENCE_THRESHOLD,
         'producer_fps': round(producer_fps, 2),
         'streaming_fps': round(streaming_fps, 2),
         'inference_fps': round(inference_fps, 2),
         'frame_buffer_age_ms': round(frame_buffer.get_age() * 1000, 2),
-        'using_ncnn': NCNN_AVAILABLE,
+        'ncnn_available': NCNN_AVAILABLE,
+        'using_ncnn': NCNN_AVAILABLE and isinstance(ai_model, NCNNDetector),
+        'inference_backend': 'ncnn' if (NCNN_AVAILABLE and isinstance(ai_model, NCNNDetector)) else 'pytorch',
         'model_path': MODEL_PATH if NCNN_AVAILABLE else MODEL_PATH_PT,
         'timestamp': datetime.now().isoformat()
     })

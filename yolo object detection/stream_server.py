@@ -33,6 +33,11 @@ detection_data = {
     'timestamp': None
 }
 
+# Lower base confidence and larger inference size improve small-object recall
+# (Rat/Snake) while still keeping Person/Cat/Dog detection.
+CONFIDENCE_THRESHOLD = 0.15
+INFERENCE_IMAGE_SIZE = 640
+
 def initialize_camera():
     """Initialize Raspberry Pi Camera 3"""
     global camera
@@ -89,7 +94,13 @@ def process_frame():
                 results = last_detections
             else:
                 # Run YOLO detection with optimizations
-                results = model(frame, verbose=False, conf=0.5, iou=0.45, imgsz=416)
+                results = model(
+                    frame,
+                    verbose=False,
+                    conf=CONFIDENCE_THRESHOLD,
+                    iou=0.45,
+                    imgsz=INFERENCE_IMAGE_SIZE,
+                )
                 last_detections = results
             
             # Annotate frame with detection boxes
