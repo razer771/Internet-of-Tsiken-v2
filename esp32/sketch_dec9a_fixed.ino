@@ -36,8 +36,8 @@
 
 // --- Configuration ---
 #define DHTTYPE DHT22
-const char *WIFI_SSID = "Converge_2.4GHz_nCW2"; // Replace with your WiFi SSID
-const char *WIFI_PASSWORD = "bhUxE568";         // Replace with your WiFi password
+const char *WIFI_SSID = "mzkmbp";        // Replace with your WiFi SSID
+const char *WIFI_PASSWORD = "ncmaganda"; // Replace with your WiFi password
 
 // Firebase Configuration
 const char *FIREBASE_API_KEY = "AIzaSyBa6PE0nqkrFAqDm6AT2nIrZmv6qIfgiFM";
@@ -47,6 +47,7 @@ const char *FIREBASE_PROJECT_ID = "internet-of-tsiken-f0ad4";
 const int MAX_BOWL_WEIGHT = 500;
 const int MAX_WATER_LEVEL = 80;
 const int MIN_WATER_LEVEL = 10;
+const int MIN_STORAGE_LEVEL = 20;
 
 // Timing
 const unsigned long SENSOR_READ_INTERVAL = 3000;
@@ -561,9 +562,19 @@ void handleGetSensors()
 
 void handleStartPump()
 {
-    if (currentWaterLevel > MAX_WATER_LEVEL || pumpActive)
+    if (pumpActive)
     {
         server.send(400, "application/json", "{\"error\":\"Cannot start\"}");
+        return;
+    }
+    if (waterTankLevel < MIN_STORAGE_LEVEL)
+    {
+        server.send(400, "application/json", "{\"error\":\"Water storage low\"}");
+        return;
+    }
+    if (currentWaterLevel >= MAX_WATER_LEVEL)
+    {
+        server.send(400, "application/json", "{\"error\":\"Water level full\"}");
         return;
     }
     digitalWrite(PIN_RELAY_PUMP, HIGH); // HIGH = ON
@@ -642,9 +653,19 @@ void reportSprinklerStatus()
 
 void handleStartServo()
 {
-    if (currentWeight > MAX_BOWL_WEIGHT)
+    if (feederTankLevel < MIN_STORAGE_LEVEL)
+    {
+        server.send(400, "application/json", "{\"error\":\"Feed storage low\"}");
+        return;
+    }
+    if (currentWeight >= MAX_BOWL_WEIGHT)
     {
         server.send(400, "application/json", "{\"error\":\"Full\"}");
+        return;
+    }
+    if (currentWaterLevel >= MAX_WATER_LEVEL)
+    {
+        server.send(400, "application/json", "{\"error\":\"Water level full\"}");
         return;
     }
     Serial.println("Manual Feed Triggered! (Double-Tap 40°)");
@@ -726,6 +747,18 @@ void checkWateringSchedules(String currentTime)
                         String execKey = scheduleId + "_" + currentTime;
                         if (convertTo24Hour(scheduleTime) == currentTime && lastExecutedWaterSchedule != execKey)
                         {
+                            if (waterTankLevel < MIN_STORAGE_LEVEL)
+                            {
+                                Serial.println("Scheduled Water Skipped: Storage Low!");
+                                lastExecutedWaterSchedule = execKey;
+                                continue;
+                            }
+                            if (currentWaterLevel >= MAX_WATER_LEVEL)
+                            {
+                                Serial.println("Scheduled Water Skipped: Trough Full!");
+                                lastExecutedWaterSchedule = execKey;
+                                continue;
+                            }
                             if (vitaminSystemEnabled)
                             {
                                 digitalWrite(PIN_RELAY_VITAMIN, HIGH); // HIGH = ON
@@ -782,9 +815,21 @@ void checkFeedingSchedules(String currentTime)
                         String execKey = scheduleId + "_" + currentTime;
                         if (convertTo24Hour(scheduleTime) == currentTime && lastExecutedFeedSchedule != execKey)
                         {
-                            if (currentWeight > MAX_BOWL_WEIGHT)
+                            if (feederTankLevel < MIN_STORAGE_LEVEL)
+                            {
+                                Serial.println("Scheduled Feed Skipped: Storage Low!");
+                                lastExecutedFeedSchedule = execKey;
+                                continue;
+                            }
+                            if (currentWeight >= MAX_BOWL_WEIGHT)
                             {
                                 Serial.println("Scheduled Feed Skipped: Bowl Full!");
+                                lastExecutedFeedSchedule = execKey;
+                                continue;
+                            }
+                            if (currentWaterLevel >= MAX_WATER_LEVEL)
+                            {
+                                Serial.println("Scheduled Feed Skipped: Water Trough Full!");
                                 lastExecutedFeedSchedule = execKey;
                                 continue;
                             }
