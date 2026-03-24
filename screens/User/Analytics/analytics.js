@@ -64,7 +64,7 @@ function GroupedBarChart({
         barWidth = minBarWidth;
         groupSpace = Math.max(
           minGroupSpace,
-          (barsAreaWidth - groupCount * minBarWidth) / (groupCount - 1)
+          (barsAreaWidth - groupCount * minBarWidth) / (groupCount - 1),
         );
       } else {
         barWidth = testBarWidth;
@@ -318,13 +318,56 @@ export default function Analytics() {
   const [feedingLoading, setFeedingLoading] = useState(true);
   const [feedingError, setFeedingError] = useState("");
   const [totalFeedUsed, setTotalFeedUsed] = useState(0);
-  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const [dayCountInRange, setDayCountInRange] = useState(7);
+
+  // Generate labels based on date range
+  const generateDaysLabels = (dateRange) => {
+    const labels = [];
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+
+    const now = new Date();
+    let startDate = new Date();
+
+    if (dateRange === "Last 7 Days") {
+      startDate.setDate(now.getDate() - 6);
+    } else if (dateRange === "Last 30 Days") {
+      startDate.setDate(now.getDate() - 29);
+    } else if (dateRange === "This Month") {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
+    // Generate labels for each day in the range
+    const current = new Date(startDate);
+    while (current <= now) {
+      const day = current.getDate().toString().padStart(2, "0");
+      const month = monthNames[current.getMonth()];
+      labels.push(`${day} ${month}`);
+      current.setDate(current.getDate() + 1);
+    }
+
+    return labels;
+  };
+
+  const days = generateDaysLabels(selectedDateRange);
   const [activeFeedIndex, setActiveFeedIndex] = useState(null);
 
   // Fetch feeding data from Firestore
   useEffect(() => {
     fetchFeedingData();
-  }, [selectedDateRange, selectedBatch]);
+  }, [selectedBatch, selectedDateRange]);
 
   const fetchFeedingData = async () => {
     setFeedingLoading(true);
@@ -340,19 +383,20 @@ export default function Analytics() {
 
       console.log("Fetching feeding data for user:", user.uid);
       console.log("Selected batch:", selectedBatch);
-      console.log("Selected date range:", selectedDateRange);
 
-      // Calculate date range
+      // Calculate date range based on selectedDateRange
       const now = new Date();
+      now.setHours(23, 59, 59, 999); // End of today
       let startDate = new Date();
 
       if (selectedDateRange === "Last 7 Days") {
-        startDate.setDate(now.getDate() - 7);
+        startDate.setDate(now.getDate() - 6);
       } else if (selectedDateRange === "Last 30 Days") {
-        startDate.setDate(now.getDate() - 30);
+        startDate.setDate(now.getDate() - 29);
       } else if (selectedDateRange === "This Month") {
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
       }
+      startDate.setHours(0, 0, 0, 0); // Start of that day
 
       console.log("Date range:", {
         startDate: startDate.toISOString(),
@@ -365,11 +409,20 @@ export default function Analytics() {
 
       console.log(
         "Total documents in feedingExecutions_logs:",
-        feedsSnapshot.size
+        feedsSnapshot.size,
       );
 
-      // Initialize counts for each day of week
-      const dayCounts = [0, 0, 0, 0, 0, 0, 0]; // Mon-Sun
+      // Initialize date map for the date range
+      const dateMap = {};
+
+      // Create entries for each day in the date range
+      const current = new Date(startDate);
+      while (current <= now) {
+        const dateKey = current.toISOString().split("T")[0]; // YYYY-MM-DD format
+        dateMap[dateKey] = 0;
+        current.setDate(current.getDate() + 1);
+      }
+
       let total = 0;
 
       feedsSnapshot.forEach((doc) => {
@@ -380,12 +433,6 @@ export default function Analytics() {
           console.log("Sample document:", { id: doc.id, data });
         }
 
-        // Filter by status === "success"
-        if (data.status !== "success") {
-          console.log("Skipping doc - status not success:", data.status);
-          return;
-        }
-
         // Filter by batch if not "All Batches"
         if (selectedBatch !== "All Batches" && data.batchId) {
           if (data.batchId !== selectedBatch) {
@@ -393,7 +440,7 @@ export default function Analytics() {
               "Skipping doc - batch mismatch:",
               data.batchId,
               "vs",
-              selectedBatch
+              selectedBatch,
             );
             return;
           }
@@ -419,24 +466,36 @@ export default function Analytics() {
         if (docDate < startDate || docDate > now) {
           console.log(
             "Skipping doc - outside date range:",
-            docDate.toISOString()
+            docDate.toISOString(),
           );
           return;
         }
 
-        // Get day of week (0 = Sunday, so we need to adjust for Mon-Sun)
-        const dayOfWeek = docDate.getDay();
-        // Convert: Sunday(0)->6, Monday(1)->0, Tuesday(2)->1, etc.
-        const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+        // Extract calendar date (YYYY-MM-DD format)
+        const dateKey = docDate.toISOString().split("T")[0];
 
         console.log("Counting document:", {
           date: docDate.toISOString(),
-          day: days[adjustedDay],
-          dayOfWeek,
+          dateKey: dateKey,
         });
-        dayCounts[adjustedDay]++;
+
+        // Increment count for this date
+        if (dateMap[dateKey] !== undefined) {
+          dateMap[dateKey]++;
+        }
         total++;
       });
+
+      console.log("Date map counts:", dateMap);
+
+      // Convert date map to array in chronological order (matching days array)
+      const dayCounts = [];
+      const current2 = new Date(startDate);
+      while (current2 <= now) {
+        const dateKey = current2.toISOString().split("T")[0];
+        dayCounts.push(dateMap[dateKey] || 0);
+        current2.setDate(current2.getDate() + 1);
+      }
 
       console.log("Final feeding data:", dayCounts, "Total:", total);
 
@@ -444,8 +503,12 @@ export default function Analytics() {
         console.warn("No feeding data found matching criteria");
       }
 
+      // Calculate the actual number of days in the range
+      const daysInRange = dayCounts.length > 0 ? dayCounts.length : 7;
+
       setFeedingData(dayCounts);
       setTotalFeedUsed(total);
+      setDayCountInRange(daysInRange);
     } catch (error) {
       console.error("Error fetching feeding data:", error);
       setFeedingError(`Error: ${error.message}`);
@@ -455,21 +518,39 @@ export default function Analytics() {
   };
 
   // Water data - now fetched from Firestore
-  const [waterLevels, setWaterLevels] = useState([0, 0, 0, 0, 0]);
-  const [waterTimes, setWaterTimes] = useState([
-    "00:00",
-    "04:00",
-    "08:00",
-    "12:00",
-    "20:00",
-  ]);
+  const [waterData, setWaterData] = useState([]);
+  const [totalWaterUsed, setTotalWaterUsed] = useState(0);
+  const [waterDayCountInRange, setWaterDayCountInRange] = useState(7);
   const [waterLoading, setWaterLoading] = useState(true);
-  const [waterStats, setWaterStats] = useState({
-    currentLevel: 0,
-    dailyConsumption: 0,
-    weeklyTotal: 0,
-  });
+  const [waterError, setWaterError] = useState("");
   const [activeWaterIndex, setActiveWaterIndex] = useState(null);
+
+  // Generate water chart labels (same as feeding)
+  const generateWaterDaysLabels = (dateRange) => {
+    const now = new Date();
+    let startDate = new Date();
+
+    if (dateRange === "Last 7 Days") {
+      startDate.setDate(now.getDate() - 6);
+    } else if (dateRange === "Last 30 Days") {
+      startDate.setDate(now.getDate() - 29);
+    } else if (dateRange === "This Month") {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
+    const labels = [];
+    const current = new Date(startDate);
+    while (current <= now) {
+      const day = current.getDate();
+      const month = current.toLocaleString("default", { month: "short" });
+      labels.push(`${day} ${month}`);
+      current.setDate(current.getDate() + 1);
+    }
+
+    return labels;
+  };
+
+  const waterDays = generateWaterDaysLabels(selectedDateRange);
 
   // Fetch water data from Firestore
   useEffect(() => {
@@ -478,58 +559,66 @@ export default function Analytics() {
 
   const fetchWaterData = async () => {
     setWaterLoading(true);
+    setWaterError("");
     try {
       const user = auth.currentUser;
       if (!user) {
         console.log("No user logged in");
+        setWaterError("No user logged in");
         setWaterLoading(false);
         return;
       }
 
-      // Calculate date range
+      console.log("Fetching water data for user:", user.uid);
+      console.log("Selected batch:", selectedBatch);
+
+      // Calculate date range based on selectedDateRange
       const now = new Date();
+      now.setHours(23, 59, 59, 999); // End of today
       let startDate = new Date();
 
       if (selectedDateRange === "Last 7 Days") {
-        startDate.setDate(now.getDate() - 7);
+        startDate.setDate(now.getDate() - 6);
       } else if (selectedDateRange === "Last 30 Days") {
-        startDate.setDate(now.getDate() - 30);
+        startDate.setDate(now.getDate() - 29);
       } else if (selectedDateRange === "This Month") {
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
       }
+      startDate.setHours(0, 0, 0, 0); // Start of that day
 
-      console.log("Fetching water data from waterLevel_logs collection");
-      console.log("Selected batch:", selectedBatch);
       console.log("Date range:", {
         startDate: startDate.toISOString(),
         now: now.toISOString(),
       });
 
-      // Fetch from waterLevel_logs collection
-      const waterLogsRef = collection(db, "waterLevel_logs");
-      const waterSnapshot = await getDocs(waterLogsRef);
+      // Fetch from wateringExecutions_logs collection
+      const waterExecutionsRef = collection(db, "wateringExecutions_logs");
+      const waterSnapshot = await getDocs(waterExecutionsRef);
 
-      console.log("Total documents in waterLevel_logs:", waterSnapshot.size);
+      console.log(
+        "Total documents in wateringExecutions_logs:",
+        waterSnapshot.size,
+      );
 
-      // Group data by time slots
-      const timeSlots = {
-        "00:00": [],
-        "04:00": [],
-        "08:00": [],
-        "12:00": [],
-        "20:00": [],
-      };
+      // Initialize date map for the date range
+      const dateMap = {};
 
-      let totalConsumption = 0;
-      let latestLevel = 0;
-      let allLevels = [];
+      // Create entries for each day in the date range
+      const current = new Date(startDate);
+      while (current <= now) {
+        const dateKey = current.toISOString().split("T")[0]; // YYYY-MM-DD format
+        dateMap[dateKey] = 0;
+        current.setDate(current.getDate() + 1);
+      }
+
+      let total = 0;
 
       waterSnapshot.forEach((doc) => {
         const data = doc.data();
 
         // Log sample documents
-        if (allLevels.length < 3) {
-          console.log("Sample water document:", { id: doc.id, data });
+        if (total < 3) {
+          console.log("Sample document:", { id: doc.id, data });
         }
 
         // Filter by batch if not "All Batches"
@@ -539,15 +628,20 @@ export default function Analytics() {
               "Skipping doc - batch mismatch:",
               data.batchId,
               "vs",
-              selectedBatch
+              selectedBatch,
             );
             return;
           }
         }
 
-        // Parse timestamp
+        // Parse timestamp (try executedAt first, fall back to timestamp)
+        // Handle both Firestore Timestamp objects and string dates
         let docDate;
-        if (data.timestamp) {
+        if (data.executedAt) {
+          docDate = data.executedAt.toDate
+            ? data.executedAt.toDate()
+            : new Date(data.executedAt);
+        } else if (data.timestamp) {
           docDate = data.timestamp.toDate
             ? data.timestamp.toDate()
             : new Date(data.timestamp);
@@ -560,90 +654,91 @@ export default function Analytics() {
         if (docDate < startDate || docDate > now) {
           console.log(
             "Skipping doc - outside date range:",
-            docDate.toISOString()
+            docDate.toISOString(),
           );
           return;
         }
 
-        // Parse water level (convert string to number if needed)
-        const level = parseInt(data.waterLevel) || 0;
-        allLevels.push(level);
+        // Extract calendar date (YYYY-MM-DD format)
+        const dateKey = docDate.toISOString().split("T")[0];
 
-        // Get hour and assign to nearest time slot
-        const hour = docDate.getHours();
-        let slot = "00:00";
-        if (hour >= 2 && hour < 6) slot = "04:00";
-        else if (hour >= 6 && hour < 10) slot = "08:00";
-        else if (hour >= 10 && hour < 16) slot = "12:00";
-        else if (hour >= 16 && hour < 22) slot = "20:00";
-        else slot = "00:00";
+        console.log("Counting document:", {
+          date: docDate.toISOString(),
+          dateKey: dateKey,
+        });
 
-        timeSlots[slot].push(level);
-
-        // Track latest level
-        if (docDate > new Date(latestLevel)) {
-          latestLevel = level;
+        // Increment count for this date (count documents, not liters)
+        if (dateMap[dateKey] !== undefined) {
+          dateMap[dateKey]++;
         }
+        total++;
       });
 
-      // Calculate average for each time slot
-      const levels = Object.keys(timeSlots).map((slot) => {
-        const values = timeSlots[slot];
-        if (values.length === 0) return 0;
-        const avg = values.reduce((a, b) => a + b, 0) / values.length;
-        return Math.round(avg);
-      });
+      console.log("Date map counts:", dateMap);
 
-      // Calculate water usage statistics
-      const maxLevel = Math.max(...allLevels, 0);
-      const minLevel = allLevels.length > 0 ? Math.min(...allLevels) : 0;
-      const waterUsed = maxLevel - minLevel; // Water consumed in this period
-      const dailyAvgUsage =
-        allLevels.length > 0 ? (waterUsed / 7).toFixed(1) : 0;
+      // Convert date map to array in chronological order (matching days array)
+      const dayCounts = [];
+      const current2 = new Date(startDate);
+      while (current2 <= now) {
+        const dateKey = current2.toISOString().split("T")[0];
+        dayCounts.push(dateMap[dateKey] || 0);
+        current2.setDate(current2.getDate() + 1);
+      }
 
-      console.log(
-        "Water levels collected:",
-        allLevels.length,
-        "Total:",
-        levels
-      );
-      console.log("Water usage stats:", {
-        waterUsed,
-        dailyAvgUsage,
-        maxLevel,
-        minLevel,
-      });
+      console.log("Final water data:", dayCounts, "Total:", total);
 
-      setWaterLevels(levels);
-      setWaterStats({
-        currentLevel: latestLevel,
-        dailyConsumption: Math.round(dailyAvgUsage),
-        weeklyTotal: waterUsed,
-      });
+      if (total === 0) {
+        console.warn("No water execution data found matching criteria");
+      }
+
+      // Calculate the actual number of days in the range
+      const daysInRange = dayCounts.length > 0 ? dayCounts.length : 7;
+
+      setWaterData(dayCounts);
+      setTotalWaterUsed(total);
+      setWaterDayCountInRange(daysInRange);
     } catch (error) {
       console.error("Error fetching water data:", error);
+      setWaterError(`Error: ${error.message}`);
     } finally {
       setWaterLoading(false);
     }
   };
 
   // Energy data - now fetched from Firestore
-  const [energyData, setEnergyData] = useState([0, 0, 0, 0, 0]);
-  const [energyTimes, setEnergyTimes] = useState([
-    "00:00",
-    "04:00",
-    "08:00",
-    "12:00",
-    "20:00",
-  ]);
+  const [energyData, setEnergyData] = useState([]);
+  const [totalEnergyUsed, setTotalEnergyUsed] = useState(0);
+  const [energyDayCountInRange, setEnergyDayCountInRange] = useState(7);
   const [energyLoading, setEnergyLoading] = useState(true);
-  const [energySummary, setEnergySummary] = useState({
-    solarOutput: 0,
-    mainPowerUsed: 0,
-    efficiency: 0,
-  });
+  const [energyError, setEnergyError] = useState("");
   const [activeEnergyIndex, setActiveEnergyIndex] = useState(null);
-  const maxEnergy = Math.max(...energyData, 1);
+
+  // Generate energy chart labels (same as feeding/water)
+  const generateEnergyDaysLabels = (dateRange) => {
+    const now = new Date();
+    let startDate = new Date();
+
+    if (dateRange === "Last 7 Days") {
+      startDate.setDate(now.getDate() - 6);
+    } else if (dateRange === "Last 30 Days") {
+      startDate.setDate(now.getDate() - 29);
+    } else if (dateRange === "This Month") {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
+    const labels = [];
+    const current = new Date(startDate);
+    while (current <= now) {
+      const day = current.getDate();
+      const month = current.toLocaleString("default", { month: "short" });
+      labels.push(`${day} ${month}`);
+      current.setDate(current.getDate() + 1);
+    }
+
+    return labels;
+  };
+
+  const energyDays = generateEnergyDaysLabels(selectedDateRange);
 
   // Fetch energy data from Firestore
   useEffect(() => {
@@ -652,58 +747,63 @@ export default function Analytics() {
 
   const fetchEnergyData = async () => {
     setEnergyLoading(true);
+    setEnergyError("");
     try {
       const user = auth.currentUser;
       if (!user) {
         console.log("No user logged in");
+        setEnergyError("No user logged in");
         setEnergyLoading(false);
         return;
       }
 
-      // Calculate date range
+      console.log("Fetching energy data for user:", user.uid);
+      console.log("Selected batch:", selectedBatch);
+
+      // Calculate date range based on selectedDateRange
       const now = new Date();
+      now.setHours(23, 59, 59, 999); // End of today
       let startDate = new Date();
 
       if (selectedDateRange === "Last 7 Days") {
-        startDate.setDate(now.getDate() - 7);
+        startDate.setDate(now.getDate() - 6);
       } else if (selectedDateRange === "Last 30 Days") {
-        startDate.setDate(now.getDate() - 30);
+        startDate.setDate(now.getDate() - 29);
       } else if (selectedDateRange === "This Month") {
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
       }
+      startDate.setHours(0, 0, 0, 0); // Start of that day
 
-      console.log("Fetching energy data from energyLogs collection");
-      console.log("Selected batch:", selectedBatch);
       console.log("Date range:", {
         startDate: startDate.toISOString(),
         now: now.toISOString(),
       });
 
-      // Fetch from energyLogs collection
-      const energyLogsRef = collection(db, "energyLogs");
-      const energySnapshot = await getDocs(energyLogsRef);
+      // Fetch from solarUsage collection
+      const energyRef = collection(db, "solarUsage");
+      const energySnapshot = await getDocs(energyRef);
 
-      console.log("Total documents in energyLogs:", energySnapshot.size);
+      console.log("Total documents in solarUsage:", energySnapshot.size);
 
-      // Group data by time slots
-      const timeSlots = {
-        "00:00": [],
-        "04:00": [],
-        "08:00": [],
-        "12:00": [],
-        "20:00": [],
-      };
+      // Initialize date map for the date range
+      const dateMap = {};
 
-      let totalSolarOutput = 0;
-      let totalMainPowerUsed = 0;
-      let documentCount = 0;
+      // Create entries for each day in the date range
+      const current = new Date(startDate);
+      while (current <= now) {
+        const dateKey = current.toISOString().split("T")[0]; // YYYY-MM-DD format
+        dateMap[dateKey] = 0;
+        current.setDate(current.getDate() + 1);
+      }
+
+      let total = 0;
 
       energySnapshot.forEach((doc) => {
         const data = doc.data();
 
         // Log sample documents
-        if (documentCount < 3) {
-          console.log("Sample energy document:", { id: doc.id, data });
+        if (total < 3) {
+          console.log("Sample document:", { id: doc.id, data });
         }
 
         // Filter by batch if not "All Batches"
@@ -713,13 +813,14 @@ export default function Analytics() {
               "Skipping doc - batch mismatch:",
               data.batchId,
               "vs",
-              selectedBatch
+              selectedBatch,
             );
             return;
           }
         }
 
-        // Parse timestamp
+        // Parse timestamp (try timestamp field)
+        // Handle both Firestore Timestamp objects and string dates
         let docDate;
         if (data.timestamp) {
           docDate = data.timestamp.toDate
@@ -734,69 +835,66 @@ export default function Analytics() {
         if (docDate < startDate || docDate > now) {
           console.log(
             "Skipping doc - outside date range:",
-            docDate.toISOString()
+            docDate.toISOString(),
           );
           return;
         }
 
-        // Parse energy values (convert to number if needed)
-        const solarOutput = parseFloat(data.solarOutput) || 0;
-        const mainPowerUsed = parseFloat(data.mainPowerUsed) || 0;
+        // Extract calendar date (YYYY-MM-DD format)
+        const dateKey = docDate.toISOString().split("T")[0];
 
-        totalSolarOutput += solarOutput;
-        totalMainPowerUsed += mainPowerUsed;
-        documentCount++;
+        // Get usage value and sum it
+        const usage = parseFloat(data.usage) || 0;
 
-        // Get hour and assign to nearest time slot
-        const hour = docDate.getHours();
-        let slot = "00:00";
-        if (hour >= 2 && hour < 6) slot = "04:00";
-        else if (hour >= 6 && hour < 10) slot = "08:00";
-        else if (hour >= 10 && hour < 16) slot = "12:00";
-        else if (hour >= 16 && hour < 22) slot = "20:00";
-        else slot = "00:00";
+        console.log("Counting document:", {
+          date: docDate.toISOString(),
+          dateKey: dateKey,
+          usage: usage,
+        });
 
-        // Store solar output for chart (using solar as primary metric)
-        timeSlots[slot].push(solarOutput);
+        // Add usage value to this date
+        if (dateMap[dateKey] !== undefined) {
+          dateMap[dateKey] += usage;
+        }
+        total += usage;
       });
 
-      // Calculate average solar output for each time slot
-      const chartData = Object.keys(timeSlots).map((slot) => {
-        const values = timeSlots[slot];
-        if (values.length === 0) return 0;
-        const avg = values.reduce((a, b) => a + b, 0) / values.length;
-        return Math.round(avg * 10) / 10; // Round to 1 decimal place
-      });
+      console.log("Date map usage values:", dateMap);
 
-      // Calculate efficiency
-      const totalEnergy = totalSolarOutput + totalMainPowerUsed;
-      const efficiency =
-        totalEnergy > 0
-          ? ((totalSolarOutput / totalEnergy) * 100).toFixed(1)
-          : 0;
+      // Convert date map to array in chronological order (matching days array)
+      const dayCounts = [];
+      const current2 = new Date(startDate);
+      while (current2 <= now) {
+        const dateKey = current2.toISOString().split("T")[0];
+        dayCounts.push(dateMap[dateKey] || 0);
+        current2.setDate(current2.getDate() + 1);
+      }
 
-      console.log("Energy data collected:", documentCount, "documents");
-      console.log("Energy summary:", {
-        totalSolarOutput,
-        totalMainPowerUsed,
-        efficiency,
-      });
+      console.log("Final energy data:", dayCounts, "Total:", total);
 
-      setEnergyData(chartData);
-      setEnergySummary({
-        solarOutput: Math.round(totalSolarOutput * 10) / 10,
-        mainPowerUsed: Math.round(totalMainPowerUsed * 10) / 10,
-        efficiency: efficiency,
-      });
+      if (total === 0) {
+        console.warn("No solar usage data found matching criteria");
+      }
+
+      // Calculate the actual number of days in the range
+      const daysInRange = dayCounts.length > 0 ? dayCounts.length : 7;
+
+      setEnergyData(dayCounts);
+      setTotalEnergyUsed(Math.round(total * 10) / 10);
+      setEnergyDayCountInRange(daysInRange);
     } catch (error) {
       console.error("Error fetching energy data:", error);
+      setEnergyError(`Error: ${error.message}`);
     } finally {
       setEnergyLoading(false);
     }
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.scrollContent}
+    >
       {/* Select Section */}
       <View style={[styles.card, { width: cardWidth }]}>
         <View style={styles.sectionHeader}>
@@ -968,6 +1066,30 @@ export default function Analytics() {
                   Loading data...
                 </Text>
               </View>
+            ) : days.length > 7 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={true}
+                style={{ marginTop: 10, marginBottom: 10 }}
+              >
+                <GroupedBarChart
+                  actions={feedingData}
+                  labels={days}
+                  barColors={["#000"]}
+                  maxValue={Math.max(...feedingData, 1) + 2}
+                  style={{
+                    marginTop: 10,
+                    marginBottom: 10,
+                    justifyContent: "center",
+                    alignItems: "center",
+                  }}
+                  activeIndex={activeFeedIndex}
+                  setActiveIndex={setActiveFeedIndex}
+                  tooltipFormatter={(group, idx, val) =>
+                    `${days[idx]}: ${val} feeds`
+                  }
+                />
+              </ScrollView>
             ) : (
               <GroupedBarChart
                 actions={feedingData}
@@ -998,7 +1120,7 @@ export default function Analytics() {
             <View style={styles.weeklyRow}>
               <Text style={styles.weeklyLabel}>Daily Average</Text>
               <Text style={styles.weeklyValue}>
-                {(totalFeedUsed / 7).toFixed(1)}
+                {(totalFeedUsed / dayCountInRange).toFixed(1)}
               </Text>
             </View>
             <View style={styles.weeklyRow}>
@@ -1016,10 +1138,25 @@ export default function Analytics() {
       {/* ---------------- WATER TAB ---------------- */}
       {selectedTab === "Water" && (
         <>
-          {/* Water Level Chart */}
+          {/* Water Execution Chart */}
           <View style={[styles.card, { width: cardWidth }]}>
-            <Text style={styles.chartTitle}>Water Level Chart</Text>
-
+            <Text style={styles.chartTitle}>Water Execution Chart</Text>
+            {waterError && (
+              <View
+                style={{
+                  padding: 12,
+                  backgroundColor: "#ffebee",
+                  borderRadius: 8,
+                  marginBottom: 10,
+                }}
+              >
+                <Text
+                  style={{ color: "#D32F2F", fontSize: 14, fontWeight: "600" }}
+                >
+                  Error: {waterError}
+                </Text>
+              </View>
+            )}
             {waterLoading ? (
               <View
                 style={{
@@ -1033,112 +1170,69 @@ export default function Analytics() {
                   Loading data...
                 </Text>
               </View>
+            ) : waterDays.length > 7 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={true}
+                style={{ marginTop: 10, marginBottom: 10 }}
+              >
+                <GroupedBarChart
+                  actions={waterData}
+                  labels={waterDays}
+                  barColors={["#000"]}
+                  maxValue={Math.max(...waterData, 1) + 2}
+                  style={{
+                    marginTop: 10,
+                    marginBottom: 10,
+                    justifyContent: "center",
+                    alignItems: "center",
+                  }}
+                  activeIndex={activeWaterIndex}
+                  setActiveIndex={setActiveWaterIndex}
+                  tooltipFormatter={(group, idx, val) =>
+                    `${waterDays[idx]}: ${val} executions`
+                  }
+                />
+              </ScrollView>
             ) : (
-              <View style={styles.waterChartContainer}>
-                {/* Y-Axis Labels */}
-                <View
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    bottom: 0,
-                    top: 0,
-                    justifyContent: "space-between",
-                    paddingLeft: 5,
-                    height: "100%",
-                  }}
-                >
-                  <Text style={{ fontSize: 10, color: "#333" }}>100</Text>
-                  <Text style={{ fontSize: 10, color: "#333" }}>75</Text>
-                  <Text style={{ fontSize: 10, color: "#333" }}>50</Text>
-                  <Text style={{ fontSize: 10, color: "#333" }}>25</Text>
-                  <Text style={{ fontSize: 10, color: "#333" }}>0</Text>
-                </View>
-                <View
-                  style={{
-                    flex: 1,
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                    alignItems: "flex-end",
-                    marginLeft: 30,
-                  }}
-                >
-                  {waterTimes.map((time, index) => (
-                    <View key={index} style={styles.waterPointWrapper}>
-                      {(activeWaterIndex === index ||
-                        waterLevels[index] === Math.max(...waterLevels)) && (
-                        <View
-                          style={[
-                            styles.waterVerticalLine,
-                            { bottom: 0, height: waterLevels[index] * 1.8 },
-                          ]}
-                        />
-                      )}
-                      <TouchableOpacity
-                        onPress={() => {
-                          setActiveWaterIndex(index);
-                          setTimeout(() => setActiveWaterIndex(null), 1000);
-                        }}
-                        activeOpacity={0.8}
-                        style={[
-                          styles.waterDot,
-                          { bottom: waterLevels[index] * 1.8 },
-                        ]}
-                      />
-                      {/* Tooltip above dot */}
-                      {activeWaterIndex === index && (
-                        <View
-                          style={[
-                            styles.feedTooltip,
-                            {
-                              position: "absolute",
-                              bottom: waterLevels[index] * 1.8 + 18,
-                              left: "50%",
-                              transform: [{ translateX: -50 }],
-                              minWidth: 90,
-                              zIndex: 10,
-                            },
-                          ]}
-                        >
-                          <Text style={styles.tooltipText}>
-                            {waterTimes[index]}
-                          </Text>
-                          <Text style={styles.tooltipText}>
-                            Level: {waterLevels[index]}
-                          </Text>
-                        </View>
-                      )}
-                      {/* Spacer to push label below baseline */}
-                      <View style={{ height: 180 }} />
-                      <Text style={styles.waterTimeLabel}>{time}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
+              <GroupedBarChart
+                actions={waterData}
+                labels={waterDays}
+                barColors={["#000"]}
+                maxValue={Math.max(...waterData, 1) + 2}
+                style={{
+                  marginTop: 10,
+                  marginBottom: 10,
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+                activeIndex={activeWaterIndex}
+                setActiveIndex={setActiveWaterIndex}
+                tooltipFormatter={(group, idx, val) =>
+                  `${waterDays[idx]}: ${val} executions`
+                }
+              />
             )}
           </View>
-
-          {/* Water Usage Summary */}
-          <View style={[styles.waterCard, { width: cardWidth }]}>
-            <Text style={styles.weeklyTitle}>Water Usage</Text>
-
+          {/* Water Execution Summary */}
+          <View style={[styles.weeklyCard, { width: cardWidth }]}>
+            <Text style={styles.weeklyTitle}>Water Execution Summary</Text>
             <View style={styles.weeklyRow}>
-              <Text style={styles.weeklyLabel}>Current Level</Text>
-              <Text style={styles.weeklyValue}>{waterStats.currentLevel}%</Text>
+              <Text style={styles.weeklyLabel}>Total Executions</Text>
+              <Text style={styles.weeklyValue}>{totalWaterUsed}</Text>
             </View>
-
             <View style={styles.weeklyRow}>
-              <Text style={styles.weeklyLabel}>Total Activities</Text>
+              <Text style={styles.weeklyLabel}>Daily Average</Text>
               <Text style={styles.weeklyValue}>
-                {waterStats.dailyConsumption}
+                {(totalWaterUsed / waterDayCountInRange).toFixed(1)}
               </Text>
             </View>
-
             <View style={styles.weeklyRow}>
-              <Text style={styles.weeklyLabel}>Peak Time</Text>
+              <Text style={styles.weeklyLabel}>Most Active Day</Text>
               <Text style={styles.weeklyValue}>
-                {waterLevels.every((v) => v === 0)
+                {waterData.every((v) => v === 0)
                   ? "N/A"
-                  : waterTimes[waterLevels.indexOf(Math.max(...waterLevels))]}
+                  : waterDays[waterData.indexOf(Math.max(...waterData))]}
               </Text>
             </View>
           </View>
@@ -1148,10 +1242,25 @@ export default function Analytics() {
       {/* ---------------- ENERGY TAB ---------------- */}
       {selectedTab === "Energy" && (
         <>
-          {/* Energy Chart */}
+          {/* Energy Output Chart */}
           <View style={[styles.card, { width: cardWidth }]}>
             <Text style={styles.chartTitle}>Energy Output Chart</Text>
-
+            {energyError && (
+              <View
+                style={{
+                  padding: 12,
+                  backgroundColor: "#ffebee",
+                  borderRadius: 8,
+                  marginBottom: 10,
+                }}
+              >
+                <Text
+                  style={{ color: "#D32F2F", fontSize: 14, fontWeight: "600" }}
+                >
+                  Error: {energyError}
+                </Text>
+              </View>
+            )}
             {energyLoading ? (
               <View
                 style={{
@@ -1165,112 +1274,69 @@ export default function Analytics() {
                   Loading data...
                 </Text>
               </View>
+            ) : energyDays.length > 7 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={true}
+                style={{ marginTop: 10, marginBottom: 10 }}
+              >
+                <GroupedBarChart
+                  actions={energyData}
+                  labels={energyDays}
+                  barColors={["#000"]}
+                  maxValue={Math.max(...energyData, 1) + 2}
+                  style={{
+                    marginTop: 10,
+                    marginBottom: 10,
+                    justifyContent: "center",
+                    alignItems: "center",
+                  }}
+                  activeIndex={activeEnergyIndex}
+                  setActiveIndex={setActiveEnergyIndex}
+                  tooltipFormatter={(group, idx, val) =>
+                    `${energyDays[idx]}: ${val} W`
+                  }
+                />
+              </ScrollView>
             ) : (
-              <View style={styles.energyChartContainer}>
-                {/* Y-Axis Labels */}
-                <View
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    bottom: 0,
-                    top: 0,
-                    justifyContent: "space-between",
-                    paddingLeft: 5,
-                    height: "100%",
-                  }}
-                >
-                  <Text style={{ fontSize: 10, color: "#333" }}>80</Text>
-                  <Text style={{ fontSize: 10, color: "#333" }}>60</Text>
-                  <Text style={{ fontSize: 10, color: "#333" }}>40</Text>
-                  <Text style={{ fontSize: 10, color: "#333" }}>20</Text>
-                  <Text style={{ fontSize: 10, color: "#333" }}>0</Text>
-                </View>
-                <View
-                  style={{
-                    flex: 1,
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                    alignItems: "flex-end",
-                    marginLeft: 30,
-                  }}
-                >
-                  {energyTimes.map((time, index) => (
-                    <View key={index} style={styles.energyPointWrapper}>
-                      {/* Show vertical line if this is the active dot, or if this value is the max energy */}
-                      {(activeEnergyIndex === index ||
-                        energyData[index] === maxEnergy) && (
-                        <View
-                          style={[
-                            styles.energyVerticalLine,
-                            { bottom: 0, height: energyData[index] * 1.8 },
-                          ]}
-                        />
-                      )}
-                      <TouchableOpacity
-                        onPress={() => {
-                          setActiveEnergyIndex(index);
-                          setTimeout(() => setActiveEnergyIndex(null), 1000);
-                        }}
-                        activeOpacity={0.8}
-                        style={[
-                          styles.energyDot,
-                          { bottom: energyData[index] * 1.8 },
-                        ]}
-                      />
-                      {/* Tooltip above dot (optional, matching Water) */}
-                      {activeEnergyIndex === index && (
-                        <View
-                          style={[
-                            styles.feedTooltip,
-                            {
-                              position: "absolute",
-                              bottom: energyData[index] * 1.8 + 18,
-                              left: "50%",
-                              transform: [{ translateX: -50 }],
-                              minWidth: 90,
-                              zIndex: 10,
-                            },
-                          ]}
-                        >
-                          <Text style={styles.tooltipText}>
-                            {energyTimes[index]}
-                          </Text>
-                          <Text style={styles.tooltipText}>
-                            Output: {energyData[index]} kWh
-                          </Text>
-                        </View>
-                      )}
-                      <View style={{ height: 180 }} />
-                      <Text style={styles.energyTimeLabel}>{time}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
+              <GroupedBarChart
+                actions={energyData}
+                labels={energyDays}
+                barColors={["#000"]}
+                maxValue={Math.max(...energyData, 1) + 2}
+                style={{
+                  marginTop: 10,
+                  marginBottom: 10,
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+                activeIndex={activeEnergyIndex}
+                setActiveIndex={setActiveEnergyIndex}
+                tooltipFormatter={(group, idx, val) =>
+                  `${energyDays[idx]}: ${val} W`
+                }
+              />
             )}
           </View>
-
           {/* Energy Summary */}
-          <View style={[styles.waterCard, { width: cardWidth }]}>
-            <Text style={styles.weeklyTitle}>Energy Summary</Text>
-
+          <View style={[styles.weeklyCard, { width: cardWidth }]}>
+            <Text style={styles.weeklyTitle}>Energy Usage Summary</Text>
             <View style={styles.weeklyRow}>
-              <Text style={styles.weeklyLabel}>Solar Output</Text>
+              <Text style={styles.weeklyLabel}>Total Usage</Text>
+              <Text style={styles.weeklyValue}>{totalEnergyUsed} W</Text>
+            </View>
+            <View style={styles.weeklyRow}>
+              <Text style={styles.weeklyLabel}>Daily Average</Text>
               <Text style={styles.weeklyValue}>
-                {energySummary.solarOutput} kWh
+                {(totalEnergyUsed / energyDayCountInRange).toFixed(1)} W
               </Text>
             </View>
-
             <View style={styles.weeklyRow}>
-              <Text style={styles.weeklyLabel}>Main Power Used</Text>
+              <Text style={styles.weeklyLabel}>Most Active Day</Text>
               <Text style={styles.weeklyValue}>
-                {energySummary.mainPowerUsed} kWh
-              </Text>
-            </View>
-
-            <View style={styles.weeklyRow}>
-              <Text style={styles.weeklyLabel}>Efficiency</Text>
-              <Text style={styles.weeklyValue}>
-                {energySummary.efficiency}%
+                {energyData.every((v) => v === 0)
+                  ? "N/A"
+                  : energyDays[energyData.indexOf(Math.max(...energyData))]}
               </Text>
             </View>
           </View>
