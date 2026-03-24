@@ -15,6 +15,8 @@ Notifications.setNotificationHandler({
 
     return {
       shouldShowAlert: true, // Always show notification banner
+      shouldShowBanner: true, // SDK 53+ foreground banner behavior
+      shouldShowList: true, // SDK 53+ notification center list behavior
       shouldPlaySound: true, // Always play sound
       shouldSetBadge: true, // Update badge count
       priority: isPredatorAlert

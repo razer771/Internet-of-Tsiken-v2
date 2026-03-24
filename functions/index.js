@@ -1376,14 +1376,21 @@ exports.notifyPredator = require("firebase-functions/v2/https").onRequest(
       const { Expo } = require("expo-server-sdk");
       let expo = new Expo();
       let messages = [];
+      const isLikelyExpoToken = (token) =>
+        typeof token === "string" &&
+        (token.startsWith("ExponentPushToken[") ||
+          token.startsWith("ExpoPushToken["));
       console.log(`Found ${usersSnapshot.size} total users, checking for push tokens...`);
 
       usersSnapshot.forEach((doc) => {
         const userData = doc.data();
-        const pushToken = userData.pushToken;
+        const pushToken =
+          typeof userData.pushToken === "string"
+            ? userData.pushToken.trim()
+            : userData.pushToken;
 
-        // Skip users without push tokens
-        if (!pushToken || typeof pushToken !== 'string' || !pushToken.startsWith('ExponentPushToken')) {
+        // Skip users without valid Expo push tokens (supports legacy and current formats)
+        if (!isLikelyExpoToken(pushToken)) {
           return;
         }
 
