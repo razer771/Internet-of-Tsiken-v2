@@ -36,7 +36,7 @@
 
 // --- Configuration ---
 #define DHTTYPE DHT22
-const char *WIFI_SSID = "mzkmbp";        // Replace with your WiFi SSID
+const char *WIFI_SSID = "mzkmbp";        // R       eplace with your WiFi SSID
 const char *WIFI_PASSWORD = "ncmaganda"; // Replace with your WiFi password
 
 // Firebase Configuration
@@ -48,6 +48,8 @@ const int MAX_BOWL_WEIGHT = 500;
 const int MAX_WATER_LEVEL = 80;
 const int MIN_WATER_LEVEL = 10;
 const int MIN_STORAGE_LEVEL = 20;
+const int AIR_QUALITY_POOR = 600;
+const int AIR_QUALITY_NORMAL = 500;
 
 // Timing
 const unsigned long SENSOR_READ_INTERVAL = 3000;
@@ -305,6 +307,20 @@ void readSensors()
 
     int rawAirQuality = analogRead(PIN_MQ135);
     airQuality = map(rawAirQuality, 0, 4095, 0, 1000);
+
+    if (mq135Ready)
+    {
+        if (!fanActive && airQuality >= AIR_QUALITY_POOR)
+        {
+            digitalWrite(PIN_RELAY_FAN, HIGH);
+            fanActive = true;
+        }
+        else if (fanActive && airQuality <= AIR_QUALITY_NORMAL)
+        {
+            digitalWrite(PIN_RELAY_FAN, LOW);
+            fanActive = false;
+        }
+    }
 
     rawWaterLevelAdc = analogRead(PIN_WATER_LEVEL);
 

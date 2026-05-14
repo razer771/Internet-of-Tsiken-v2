@@ -2969,115 +2969,116 @@ export default function ControlScreen({ navigation }) {
           )}
         </View>
 
-        {/* Test Devices */}
-        <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
-          <Text style={styles.cardTitle}>Test Devices</Text>
-          <Text style={[styles.smallNote, { fontSize: 11 }]}>
-            Check if the devices are working properly.
-          </Text>
+        {false && (
+          <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
+            <Text style={styles.cardTitle}>Test Devices</Text>
+            <Text style={[styles.smallNote, { fontSize: 11 }]}>
+              Check if the devices are working properly.
+            </Text>
 
-          <TouchableOpacity
-            style={[
-              styles.testBtn,
-              { marginTop: 8 },
-              isDispensing && styles.testBtnDisabled,
-            ]}
-            onPress={handleDispense}
-            disabled={isDispensing}
-          >
-            {isDispensing ? (
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <ActivityIndicator
-                  size="small"
-                  color={PRIMARY}
-                  style={{ marginRight: 8 }}
-                />
-                <Text style={styles.testBtnText}>Dispensing...</Text>
-              </View>
-            ) : (
-              <Text style={styles.testBtnText}>Test Feeding</Text>
-            )}
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.testBtn,
+                { marginTop: 8 },
+                isDispensing && styles.testBtnDisabled,
+              ]}
+              onPress={handleDispense}
+              disabled={isDispensing}
+            >
+              {isDispensing ? (
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <ActivityIndicator
+                    size="small"
+                    color={PRIMARY}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={styles.testBtnText}>Dispensing...</Text>
+                </View>
+              ) : (
+                <Text style={styles.testBtnText}>Test Feeding</Text>
+              )}
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[
-              styles.testBtn,
-              { marginTop: 10 },
-              isPumpTesting && styles.testBtnDisabled,
-            ]}
-            onPress={handleTestPump}
-            disabled={isPumpTesting}
-          >
-            {isPumpTesting ? (
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <ActivityIndicator
-                  size="small"
-                  color={PRIMARY}
-                  style={{ marginRight: 8 }}
-                />
-                <Text style={styles.testBtnText}>Testing Pump...</Text>
-              </View>
-            ) : (
-              <Text style={styles.testBtnText}>Test Water Pump</Text>
-            )}
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.testBtn,
+                { marginTop: 10 },
+                isPumpTesting && styles.testBtnDisabled,
+              ]}
+              onPress={handleTestPump}
+              disabled={isPumpTesting}
+            >
+              {isPumpTesting ? (
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <ActivityIndicator
+                    size="small"
+                    color={PRIMARY}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={styles.testBtnText}>Testing Pump...</Text>
+                </View>
+              ) : (
+                <Text style={styles.testBtnText}>Test Water Pump</Text>
+              )}
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[
-              styles.testBtn,
-              { marginTop: 10 },
-              isVitaminPumpTesting && styles.testBtnDisabled,
-            ]}
-            onPress={handleTestVitaminPump}
-            disabled={isVitaminPumpTesting}
-          >
-            {isVitaminPumpTesting ? (
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <ActivityIndicator
-                  size="small"
-                  color={PRIMARY}
-                  style={{ marginRight: 8 }}
-                />
-                <Text style={styles.testBtnText}>Testing Vitamin Pump...</Text>
-              </View>
-            ) : (
-              <Text style={styles.testBtnText}>Test Vitamin Pump</Text>
-            )}
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.testBtn,
+                { marginTop: 10 },
+                isVitaminPumpTesting && styles.testBtnDisabled,
+              ]}
+              onPress={handleTestVitaminPump}
+              disabled={isVitaminPumpTesting}
+            >
+              {isVitaminPumpTesting ? (
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <ActivityIndicator
+                    size="small"
+                    color={PRIMARY}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={styles.testBtnText}>Testing Vitamin Pump...</Text>
+                </View>
+              ) : (
+                <Text style={styles.testBtnText}>Test Vitamin Pump</Text>
+              )}
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[
-              styles.testBtn,
-              { marginTop: 10 },
-              isSprinklerActive && styles.testBtnDisabled,
-            ]}
-            onPress={handleSprinkler}
-            disabled={isSprinklerActive}
-          >
-            {isSprinklerActive ? (
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <ActivityIndicator
-                  size="small"
-                  color={PRIMARY}
-                  style={{ marginRight: 8 }}
-                />
-                <Text style={styles.testBtnText}>Activating...</Text>
-              </View>
-            ) : (
-              <Text style={styles.testBtnText}>
-                Test Hydro Defense Mechanism
-              </Text>
-            )}
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.testBtn,
+                { marginTop: 10 },
+                isSprinklerActive && styles.testBtnDisabled,
+              ]}
+              onPress={handleSprinkler}
+              disabled={isSprinklerActive}
+            >
+              {isSprinklerActive ? (
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <ActivityIndicator
+                    size="small"
+                    color={PRIMARY}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={styles.testBtnText}>Activating...</Text>
+                </View>
+              ) : (
+                <Text style={styles.testBtnText}>
+                  Test Hydro Defense Mechanism
+                </Text>
+              )}
+            </TouchableOpacity>
 
-          {/* New Test Lighting Button */}
-          <TouchableOpacity
-            style={[styles.testBtn, { marginTop: 10 }]}
-            onPress={handleTestLighting}
-          >
-            <Text style={styles.testBtnText}>Test Lighting</Text>
-          </TouchableOpacity>
-        </View>
+            {/* New Test Lighting Button */}
+            <TouchableOpacity
+              style={[styles.testBtn, { marginTop: 10 }]}
+              onPress={handleTestLighting}
+            >
+              <Text style={styles.testBtnText}>Test Lighting</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Lighting only (Ventilation removed) */}
         <View style={[styles.card, { borderColor: BORDER_OVERLAY }]}>
